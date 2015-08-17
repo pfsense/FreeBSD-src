@@ -132,5 +132,6 @@
 #define	SIOCDIFGROUP	 _IOW('i', 137, struct ifgroupreq) /* delete ifgroup */
 #define	SIOCGIFGMEMB	_IOWR('i', 138, struct ifgroupreq) /* get members */
 #define	SIOCGIFXMEDIA	_IOWR('i', 139, struct ifmediareq) /* get net xmedia */
+#define	SIOCORDERIFADDR	_IOWR('i', 160, struct ifaliasreq) /* reorder interface */
 
 #endif /* !_SYS_SOCKIO_H_ */
