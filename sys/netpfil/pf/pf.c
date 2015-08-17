@@ -343,8 +343,7 @@ do {							\
 			return (PF_PASS);				\
 	} while (0)
 
-#define	BOUND_IFACE(r, k) \
-	((r)->rule_flag & PFRULE_IFBOUND) ? (k) : V_pfi_all
+#define	BOUND_IFACE(r, k) k
 
 #define	STATE_INC_COUNTERS(s)						\
 	do {								\
@@ -1477,7 +1476,7 @@ pf_find_state(struct pfi_kif *kif, struct pf_state_key_cmp *key, u_int dir)
 
 	/* List is sorted, if-bound states before floating ones. */
 	TAILQ_FOREACH(s, &sk->states[idx], key_list[idx])
-		if (s->kif == V_pfi_all || s->kif == kif) {
+		{
 			PF_STATE_LOCK(s);
 			PF_HASHROW_UNLOCK(kh);
 			if (s->timeout >= PFTM_MAX) {
