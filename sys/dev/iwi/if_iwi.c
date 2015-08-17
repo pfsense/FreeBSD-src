@@ -64,6 +64,7 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_arp.h>
 #include <net/ethernet.h>
 #include <net/if_dl.h>
@@ -83,6 +84,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/iwi/if_iwireg.h>
 #include <dev/iwi/if_iwivar.h>
+#include <dev/iwi/if_iwi_ioctl.h>
 
 #define IWI_DEBUG
 #ifdef IWI_DEBUG
@@ -936,10 +938,13 @@ iwi_media_status(struct ifnet *ifp, struct ifmediareq *imr)
 	struct ieee80211vap *vap = ifp->if_softc;
 	struct ieee80211com *ic = vap->iv_ic;
 	struct iwi_softc *sc = ic->ic_ifp->if_softc;
+	struct ieee80211_node *ni;
 
 	/* read current transmission rate from adapter */
-	vap->iv_bss->ni_txrate =
+	ni = ieee80211_ref_node(vap->iv_bss);
+	ni->ni_txrate =
 	    iwi_cvtrate(CSR_READ_4(sc, IWI_CSR_CURRENT_TX_RATE));
+	ieee80211_free_node(ni);
 	ieee80211_media_status(ifp, imr);
 }
 
@@ -1230,7 +1235,7 @@ iwi_frame_intr(struct iwi_softc *sc, struct iwi_rx_data *data, int i,
 	 */
 	mnew = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
 	if (mnew == NULL) {
-		ifp->if_ierrors++;
+		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 		return;
 	}
 
@@ -1251,7 +1256,7 @@ iwi_frame_intr(struct iwi_softc *sc, struct iwi_rx_data *data, int i,
 			panic("%s: could not load old rx mbuf",
 			    device_get_name(sc->sc_dev));
 		}
-		ifp->if_ierrors++;
+		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 		return;
 	}
 
@@ -1358,14 +1363,42 @@ iwi_checkforqos(struct ieee80211vap *vap,
 		frm += frm[1] + 2;
 	}
 
-	ni = vap->iv_bss;
+	ni = ieee80211_ref_node(vap->iv_bss);
 	ni->ni_capinfo = capinfo;
 	ni->ni_associd = associd & 0x3fff;
 	if (wme != NULL)
 		ni->ni_flags |= IEEE80211_NODE_QOS;
 	else
 		ni->ni_flags &= ~IEEE80211_NODE_QOS;
+	ieee80211_free_node(ni);
 #undef SUBTYPE
+}
+
+static void
+iwi_notif_link_quality(struct iwi_softc *sc, struct iwi_notif *notif)
+{
+	struct iwi_notif_link_quality *lq;
+	int len;
+
+	len = le16toh(notif->len);
+
+	DPRINTFN(5, ("Notification (%u) - len=%d, sizeof=%zu\n",
+	    notif->type,
+	    len,
+	    sizeof(struct iwi_notif_link_quality)
+	    ));
+
+	/* enforce length */
+	if (len != sizeof(struct iwi_notif_link_quality)) {
+		DPRINTFN(5, ("Notification: (%u) too short (%d)\n",
+		    notif->type,
+		    len));
+		return;
+	}
+
+	lq = (struct iwi_notif_link_quality *)(notif + 1);
+	memcpy(&sc->sc_linkqual, lq, sizeof(sc->sc_linkqual));
+	sc->sc_linkqual_valid = 1;
 }
 
 /*
@@ -1537,8 +1570,11 @@ iwi_notification_intr(struct iwi_softc *sc, struct iwi_notif *notif)
 
 	case IWI_NOTIF_TYPE_CALIBRATION:
 	case IWI_NOTIF_TYPE_NOISE:
-	case IWI_NOTIF_TYPE_LINK_QUALITY:
+		/* XXX handle? */
 		DPRINTFN(5, ("Notification (%u)\n", notif->type));
+		break;
+	case IWI_NOTIF_TYPE_LINK_QUALITY:
+		iwi_notif_link_quality(sc, notif);
 		break;
 
 	default:
@@ -1615,7 +1651,7 @@ iwi_tx_intr(struct iwi_softc *sc, struct iwi_tx_ring *txq)
 
 		DPRINTFN(15, ("tx done idx=%u\n", txq->next));
 
-		ifp->if_opackets++;
+		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 
 		txq->queued--;
 		txq->next = (txq->next + 1) % IWI_TX_RING_COUNT;
@@ -1816,7 +1852,7 @@ iwi_tx_start(struct ifnet *ifp, struct mbuf *m0, struct ieee80211_node *ni,
 					/* h/w table is full */
 					m_freem(m0);
 					ieee80211_free_node(ni);
-					ifp->if_oerrors++;
+					if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 					return 0;
 				}
 				iwi_write_ibssnode(sc,
@@ -1971,7 +2007,7 @@ iwi_start_locked(struct ifnet *ifp)
 		ni = (struct ieee80211_node *) m->m_pkthdr.rcvif;
 		if (iwi_tx_start(ifp, m, ni, ac) != 0) {
 			ieee80211_free_node(ni);
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			break;
 		}
 
@@ -2002,7 +2038,7 @@ iwi_watchdog(void *arg)
 	if (sc->sc_tx_timer > 0) {
 		if (--sc->sc_tx_timer == 0) {
 			if_printf(ifp, "device timeout\n");
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			ieee80211_runtask(ic, &sc->sc_restarttask);
 		}
 	}
@@ -2058,11 +2094,25 @@ iwi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	case SIOCGIFADDR:
 		error = ether_ioctl(ifp, cmd, data);
 		break;
+	case SIOCGIWISTATS:
+		IWI_LOCK(sc);
+		/* XXX validate permissions/memory/etc? */
+		error = copyout(&sc->sc_linkqual, ifr->ifr_data,
+		    sizeof(struct iwi_notif_link_quality));
+		IWI_UNLOCK(sc);
+		break;
+	case SIOCZIWISTATS:
+		IWI_LOCK(sc);
+		memset(&sc->sc_linkqual, 0,
+		    sizeof(struct iwi_notif_link_quality));
+		IWI_UNLOCK(sc);
+		error = 0;
+		break;
 	default:
 		error = EINVAL;
 		break;
 	}
-	return error;
+		return error;
 }
 
 static void
@@ -2803,7 +2853,7 @@ iwi_auth_and_assoc(struct iwi_softc *sc, struct ieee80211vap *vap)
 {
 	struct ieee80211com *ic = vap->iv_ic;
 	struct ifnet *ifp = vap->iv_ifp;
-	struct ieee80211_node *ni = vap->iv_bss;
+	struct ieee80211_node *ni;
 	struct iwi_configuration config;
 	struct iwi_associate *assoc = &sc->assoc;
 	struct iwi_rateset rs;
@@ -2812,6 +2862,8 @@ iwi_auth_and_assoc(struct iwi_softc *sc, struct ieee80211vap *vap)
 	int error, mode;
 
 	IWI_LOCK_ASSERT(sc);
+
+	ni = ieee80211_ref_node(vap->iv_bss);
 
 	if (sc->flags & IWI_FLAG_ASSOCIATED) {
 		DPRINTF(("Already associated\n"));
@@ -2971,6 +3023,7 @@ iwi_auth_and_assoc(struct iwi_softc *sc, struct ieee80211vap *vap)
 	    le16toh(assoc->intval)));
 	error = iwi_cmd(sc, IWI_CMD_ASSOCIATE, assoc, sizeof *assoc);
 done:
+	ieee80211_free_node(ni);
 	if (error)
 		IWI_STATE_END(sc, IWI_FW_ASSOCIATING);
 

@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
 #include <net/if_types.h>
@@ -237,7 +238,7 @@ static int
 null_transmit(struct ifnet *ifp, struct mbuf *m)
 {
 	m_freem(m);
-	ifp->if_oerrors++;
+	if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	return EACCES;		/* XXX EIO/EPERM? */
 }
 
@@ -569,15 +570,9 @@ ieee80211_vap_attach(struct ieee80211vap *vap,
 		ifp->if_baudrate = IF_Mbps(maxrate);
 
 	ether_ifattach(ifp, vap->iv_myaddr);
-	if (vap->iv_opmode == IEEE80211_M_MONITOR) {
-		/* NB: disallow transmit */
-		ifp->if_transmit = null_transmit;
-		ifp->if_output = null_output;
-	} else {
-		/* hook output method setup by ether_ifattach */
-		vap->iv_output = ifp->if_output;
-		ifp->if_output = ieee80211_output;
-	}
+	/* hook output method setup by ether_ifattach */
+	vap->iv_output = ifp->if_output;
+	ifp->if_output = ieee80211_output;
 	/* NB: if_mtu set by ether_ifattach to ETHERMTU */
 
 	IEEE80211_LOCK(ic);
@@ -1407,7 +1402,8 @@ ieee80211_media_status(struct ifnet *ifp, struct ifmediareq *imr)
 	 * rate only when running; otherwise we may have a mismatch
 	 * in which case the rate will not be convertible.
 	 */
-	if (vap->iv_state == IEEE80211_S_RUN) {
+	if (vap->iv_state == IEEE80211_S_RUN ||
+	    vap->iv_state == IEEE80211_S_SLEEP) {
 		imr->ifm_status |= IFM_ACTIVE;
 		mode = ieee80211_chan2mode(ic->ic_curchan);
 	} else
@@ -1751,3 +1747,23 @@ ieee80211_mac_hash(const struct ieee80211com *ic,
 	return c;
 }
 #undef mix
+
+char
+ieee80211_channel_type_char(const struct ieee80211_channel *c)
+{
+	if (IEEE80211_IS_CHAN_ST(c))
+		return 'S';
+	if (IEEE80211_IS_CHAN_108A(c))
+		return 'T';
+	if (IEEE80211_IS_CHAN_108G(c))
+		return 'G';
+	if (IEEE80211_IS_CHAN_HT(c))
+		return 'n';
+	if (IEEE80211_IS_CHAN_A(c))
+		return 'a';
+	if (IEEE80211_IS_CHAN_ANYG(c))
+		return 'g';
+	if (IEEE80211_IS_CHAN_B(c))
+		return 'b';
+	return 'f';
+}

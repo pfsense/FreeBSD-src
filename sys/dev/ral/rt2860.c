@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_arp.h>
 #include <net/ethernet.h>
 #include <net/if_dl.h>
@@ -1134,7 +1135,7 @@ rt2860_drain_stats_fifo(struct rt2860_softc *sc)
 		} else {
 			ieee80211_ratectl_tx_complete(ni->ni_vap, ni,
 			    IEEE80211_RATECTL_TX_FAILURE, &retrycnt, NULL);
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		}
 	}
 }
@@ -1168,7 +1169,7 @@ rt2860_tx_intr(struct rt2860_softc *sc, int qid)
 			SLIST_INSERT_HEAD(&sc->data_pool, data, next);
 			ring->data[ring->next] = NULL;
 
-			ifp->if_opackets++;
+			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 		}
 		ring->queued--;
 		ring->next = (ring->next + 1) % RT2860_TX_RING_COUNT;
@@ -1231,7 +1232,7 @@ rt2860_rx_intr(struct rt2860_softc *sc)
 
 		if (__predict_false(rxd->flags &
 		    htole32(RT2860_RX_CRCERR | RT2860_RX_ICVERR))) {
-			ifp->if_ierrors++;
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto skip;
 		}
 
@@ -1240,14 +1241,14 @@ rt2860_rx_intr(struct rt2860_softc *sc)
 			/* report MIC failures to net80211 for TKIP */
 			ic->ic_stats.is_rx_locmicfail++;
 			ieee80211_michael_mic_failure(ic, 0/* XXX */);
-			ifp->if_ierrors++;
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto skip;
 		}
 #endif
 
 		m1 = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
 		if (__predict_false(m1 == NULL)) {
-			ifp->if_ierrors++;
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto skip;
 		}
 
@@ -1271,7 +1272,7 @@ rt2860_rx_intr(struct rt2860_softc *sc)
 			}
 			/* physical address may have changed */
 			rxd->sdp0 = htole32(physaddr);
-			ifp->if_ierrors++;
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto skip;
 		}
 
@@ -1751,7 +1752,7 @@ rt2860_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
 	if (error != 0) {
 		/* NB: m is reclaimed on tx failure */
 		ieee80211_free_node(ni);
-		ifp->if_oerrors++;
+		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	}
 	sc->sc_tx_timer = 5;
 	RAL_UNLOCK(sc);
@@ -2004,7 +2005,7 @@ rt2860_start_locked(struct ifnet *ifp)
 		ni = (struct ieee80211_node *)m->m_pkthdr.rcvif;
 		if (rt2860_tx(sc, m, ni) != 0) {
 			ieee80211_free_node(ni);
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
 		sc->sc_tx_timer = 5;
@@ -2028,7 +2029,7 @@ rt2860_watchdog(void *arg)
 		if_printf(ifp, "device timeout\n");
 		rt2860_stop_locked(sc);
 		rt2860_init_locked(sc);
-		ifp->if_oerrors++;
+		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		return;
 	}
 	callout_reset(&sc->watchdog_ch, hz, rt2860_watchdog, sc);

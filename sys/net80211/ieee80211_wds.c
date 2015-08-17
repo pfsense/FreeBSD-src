@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_media.h>
 #include <net/if_llc.h>
 #include <net/ethernet.h>
@@ -257,14 +258,14 @@ ieee80211_dwds_mcast(struct ieee80211vap *vap0, struct mbuf *m)
 		 */
 		mcopy = m_copypacket(m, M_NOWAIT);
 		if (mcopy == NULL) {
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			/* XXX stat + msg */
 			continue;
 		}
 		ni = ieee80211_find_txnode(vap, eh->ether_dhost);
 		if (ni == NULL) {
 			/* NB: ieee80211_find_txnode does stat+msg */
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			m_freem(mcopy);
 			continue;
 		}
@@ -275,7 +276,7 @@ ieee80211_dwds_mcast(struct ieee80211vap *vap0, struct mbuf *m)
 			    eh->ether_dhost, NULL,
 			    "%s", "classification failure");
 			vap->iv_stats.is_tx_classify++;
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			m_freem(mcopy);
 			ieee80211_free_node(ni);
 			continue;
@@ -298,10 +299,10 @@ ieee80211_dwds_mcast(struct ieee80211vap *vap0, struct mbuf *m)
 		err = ieee80211_parent_xmitpkt(ic, mcopy);
 		if (err) {
 			/* NB: IFQ_HANDOFF reclaims mbuf */
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			ieee80211_free_node(ni);
 		} else {
-			ifp->if_opackets++;
+			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 			if_inc_counter(ifp, IFCOUNTER_OMCASTS, 1);
 			if_inc_counter(ifp, IFCOUNTER_OBYTES,
 			    m->m_pkthdr.len);
@@ -409,7 +410,6 @@ wds_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 static int
 wds_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 {
-#define	HAS_SEQ(type)	((type & 0x4) == 0)
 	struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211com *ic = ni->ni_ic;
 	struct ifnet *ifp = vap->iv_ifp;
@@ -491,7 +491,7 @@ wds_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 	}
 	IEEE80211_RSSI_LPF(ni->ni_avgrssi, rssi);
 	ni->ni_noise = nf;
-	if (HAS_SEQ(type)) {
+	if (IEEE80211_HAS_SEQ(type, subtype)) {
 		uint8_t tid = ieee80211_gettid(wh);
 		if (IEEE80211_QOS_HAS_SEQ(wh) &&
 		    TID_TO_WME_AC(tid) >= WME_AC_VI)
@@ -733,7 +733,7 @@ wds_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		break;
 	}
 err:
-	ifp->if_ierrors++;
+	if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 out:
 	if (m != NULL) {
 		if (need_tap && ieee80211_radiotap_active_vap(vap))
