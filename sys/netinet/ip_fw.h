@@ -74,6 +74,8 @@ typedef struct _ip_fw3_opheader {
 #define	IP_FW_TABLE_XDEL	87	/* delete entry */
 #define	IP_FW_TABLE_XGETSIZE	88	/* get table size */
 #define	IP_FW_TABLE_XLIST	89	/* list table contents */
+#define	IP_FW_TABLE_XLISTENTRY	90	/* list one table entry contents */
+#define	IP_FW_TABLE_XZEROENTRY	91	/* zero one table entry stats */
 
 /*
  * The kernel representation of ipfw rules is made of a list of
@@ -600,11 +602,16 @@ struct _ipfw_dyn_rule {
 
 #define	IPFW_TABLE_CIDR		1	/* Table for holding IPv4/IPv6 prefixes */
 #define	IPFW_TABLE_INTERFACE	2	/* Table for holding interface names */
-#define	IPFW_TABLE_MAXTYPE	2	/* Maximum valid number */
+#define	IPFW_TABLE_MIX		3	/* Table for holding IPv4/mac entries */
+#define	IPFW_TABLE_MAC		4	/* Table for holding mac entries */
+#define	IPFW_TABLE_MAXTYPE	5	/* Maximum valid number */
 
 typedef struct	_ipfw_table_entry {
 	in_addr_t	addr;		/* network address		*/
 	u_int32_t	value;		/* value			*/
+	uint64_t	mac_addr;
+	uint64_t	bytes;
+	uint64_t	packets;
 	u_int16_t	tbl;		/* table number			*/
 	u_int8_t	masklen;	/* mask length			*/
 } ipfw_table_entry;
@@ -614,13 +621,19 @@ typedef struct	_ipfw_table_xentry {
 	uint8_t		type;		/* entry type			*/
 	uint8_t		masklen;	/* mask length			*/
 	uint16_t	tbl;		/* table number			*/
+	uint16_t	flags;		/* record flags			*/
 	uint32_t	value;		/* value			*/
+	uint32_t	timestamp;
+	uint64_t	mac_addr;
+	uint64_t	bytes;
+	uint64_t	packets;
 	union {
 		/* Longest field needs to be aligned by 4-byte boundary	*/
 		struct in6_addr	addr6;	/* IPv6 address 		*/
 		char	iface[IF_NAMESIZE];	/* interface name	*/
 	} k;
 } ipfw_table_xentry;
+#define	IPFW_TCF_INET	0x01	 /* CIDR flags: IPv4 record	*/
 
 typedef struct	_ipfw_table {
 	u_int32_t	size;		/* size of entries in bytes	*/

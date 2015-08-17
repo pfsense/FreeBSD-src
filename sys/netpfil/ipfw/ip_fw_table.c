@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <net/route.h>
 #include <net/vnet.h>
 
+#include <net/ethernet.h>
 #include <netinet/in.h>
 #include <netinet/ip_var.h>	/* struct ipfw_rule_ref */
 #include <netinet/ip_fw.h>
@@ -74,7 +75,11 @@ static MALLOC_DEFINE(M_IPFW_TBL, "ipfw_tbl", "IpFw tables");
 struct table_entry {
 	struct radix_node	rn[2];
 	struct sockaddr_in	addr, mask;
+	u_int64_t               mac_addr;
 	u_int32_t		value;
+	u_int32_t               timestamp;
+	u_int64_t               bytes;
+	u_int64_t               packets;
 };
 
 struct xaddr_iface {
@@ -97,7 +102,11 @@ struct table_xentry {
 #endif
 		struct xaddr_iface	ifmask;
 	} m;
+	u_int64_t               mac_addr;
 	u_int32_t		value;
+	u_int32_t               timestamp;
+	u_int64_t               bytes;
+	u_int64_t               packets;
 };
 
 /*
@@ -137,7 +146,7 @@ ipv6_writemask(struct in6_addr *addr6, uint8_t mask)
 
 int
 ipfw_add_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
-    uint8_t plen, uint8_t mlen, uint8_t type, uint32_t value)
+    uint8_t plen, uint8_t mlen, uint8_t type, u_int64_t mac_addr, uint32_t value)
 {
 	struct radix_node_head *rnh, **rnh_ptr;
 	struct table_entry *ent;
@@ -161,6 +170,7 @@ ipfw_add_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
 				return (EINVAL);
 			ent = malloc(sizeof(*ent), M_IPFW_TBL, M_WAITOK | M_ZERO);
 			ent->value = value;
+			ent->mac_addr = mac_addr;
 			/* Set 'total' structure length */
 			KEY_LEN(ent->addr) = KEY_LEN_INET;
 			KEY_LEN(ent->mask) = KEY_LEN_INET;
@@ -182,6 +192,7 @@ ipfw_add_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
 				return (EINVAL);
 			xent = malloc(sizeof(*xent), M_IPFW_TBL, M_WAITOK | M_ZERO);
 			xent->value = value;
+			xent->mac_addr = mac_addr;
 			/* Set 'total' structure length */
 			KEY_LEN(xent->a.addr6) = KEY_LEN_INET6;
 			KEY_LEN(xent->m.mask6) = KEY_LEN_INET6;
@@ -281,6 +292,28 @@ ipfw_add_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
 	IPFW_WUNLOCK(ch);
 
 	if (rn == NULL) {
+		if (type == IPFW_TABLE_CIDR) {
+			/* Just update if any new value needed */
+			if (plen == sizeof(in_addr_t)) {
+				ent = (struct table_entry *)(rnh->rnh_matchaddr(addr_ptr, rnh));
+				if (ent != NULL) {
+					if (ent->mac_addr) {
+						if (!bcmp(&mac_addr, &ent->mac_addr, ETHER_ADDR_LEN))
+							ent->value = value;
+					} else
+						ent->value = value;
+				}
+			} else {
+				xent = (struct table_xentry *)(rnh->rnh_matchaddr(addr_ptr, rnh));
+				if (xent != NULL) {
+					if (xent->mac_addr) {
+						if (!bcmp(&mac_addr, &xent->mac_addr, ETHER_ADDR_LEN))
+							xent->value = value;
+					} else
+						xent->value = value;
+				}
+			}
+		}
 		free(ent_ptr, M_IPFW_TBL);
 		return (EEXIST);
 	}
@@ -530,31 +563,194 @@ ipfw_resize_tables(struct ip_fw_chain *ch, unsigned int ntables)
 	return (0);
 }
 
-int
+void *
 ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, in_addr_t addr,
-    uint32_t *val)
+    uint32_t *val, struct ether_addr *ea)
 {
 	struct radix_node_head *rnh;
 	struct table_entry *ent;
 	struct sockaddr_in sa;
 
 	if (tbl >= V_fw_tables_max)
-		return (0);
+		return (NULL);
 	if ((rnh = ch->tables[tbl]) == NULL)
-		return (0);
+		return (NULL);
 	KEY_LEN(sa) = KEY_LEN_INET;
 	sa.sin_addr.s_addr = addr;
 	ent = (struct table_entry *)(rnh->rnh_matchaddr(&sa, rnh));
 	if (ent != NULL) {
-		*val = ent->value;
-		return (1);
+		if (ea && ent->mac_addr) {
+			if (bcmp((u_char *)&ent->mac_addr, ea->octet, ETHER_ADDR_LEN) != 0)
+				ent = NULL;
+		}
+		if (ent != NULL) {
+			*val = ent->value;
+			return (ent);
+		}
 	}
-	return (0);
+	return (NULL);
+}
+
+void
+ipfw_count_table_entry_stats(void *arg, int pktlen)
+{
+	struct table_entry *xent = arg;
+
+	xent->packets++;
+	xent->bytes += pktlen;
+	xent->timestamp = time_uptime;
+}
+
+void
+ipfw_count_table_xentry_stats(void *arg, int pktlen)
+{
+	ipfw_table_xentry *xent= arg;
+
+	xent->packets++;
+	xent->bytes += pktlen;
+	xent->timestamp = time_uptime;
 }
 
 int
+ipfw_zero_table_xentry_stats(struct ip_fw_chain *ch, ipfw_table_xentry *arg)
+{
+	struct radix_node_head *rnh;
+	struct table_xentry *xent;
+	struct sockaddr_in6 sa6;
+	struct xaddr_iface iface;
+
+	if (arg->tbl >= V_fw_tables_max)
+		return (EINVAL);
+	if (ch->tables[arg->tbl] != NULL)
+		rnh = ch->tables[arg->tbl];
+	else if (ch->xtables[arg->tbl] != NULL)
+		rnh = ch->xtables[arg->tbl];
+	else
+		return (EINVAL);
+
+	switch (arg->type) {
+	case IPFW_TABLE_CIDR:
+		if (ch->tables[arg->tbl] != NULL) {
+			/* XXX: Maybe better by FreeBSD 11!! */
+			struct sockaddr_in sa;
+			struct table_entry *ent;
+
+			KEY_LEN(sa) = KEY_LEN_INET;
+			sa.sin_addr.s_addr = *((in_addr_t *)&arg->k.addr6);
+			ent = (struct table_entry *)(rnh->rnh_matchaddr(&sa, rnh));
+			if (ent == NULL)
+				return (EINVAL);
+
+			arg->bytes = 0;
+			arg->packets = 0;
+			arg->value = ent->value;
+			arg->timestamp = time_uptime;
+
+			return (0);
+		} else {
+			KEY_LEN(sa6) = KEY_LEN_INET6;
+			memcpy(&sa6.sin6_addr, &arg->k.addr6, sizeof(struct in6_addr));
+			xent = (struct table_xentry *)(rnh->rnh_matchaddr(&sa6, rnh));
+		}
+		break;
+
+	case IPFW_TABLE_INTERFACE:
+		KEY_LEN(iface) = KEY_LEN_IFACE +
+		    strlcpy(iface.ifname, arg->k.iface, IF_NAMESIZE) + 1;
+		/* Assume direct match */
+		/* FIXME: Add interface pattern matching */
+		xent = (struct table_xentry *)(rnh->rnh_lookup(&iface, NULL, rnh));
+		break;
+
+	default:
+		return (EINVAL);
+	}
+
+	if (xent != NULL) {
+		xent->bytes = 0;
+		xent->packets = 0;
+		xent->timestamp = time_uptime;
+
+		return (0);
+	}
+	return (EINVAL);
+}
+
+int
+ipfw_lookup_table_xentry(struct ip_fw_chain *ch, ipfw_table_xentry *arg)
+{
+	struct radix_node_head *rnh;
+	struct table_xentry *xent;
+
+	if (arg->tbl >= V_fw_tables_max)
+		return (EINVAL);
+	if (ch->tables[arg->tbl] != NULL)
+		rnh = ch->tables[arg->tbl];
+	else if (ch->xtables[arg->tbl] != NULL)
+		rnh = ch->xtables[arg->tbl];
+	else
+		return (EINVAL);
+
+	switch (arg->type) {
+	case IPFW_TABLE_CIDR:
+	{
+		if (ch->tables[arg->tbl] != NULL) {
+			/* XXX: Maybe better by FreeBSD 11!! */
+			struct sockaddr_in sa;
+			struct table_entry *ent;
+
+			KEY_LEN(sa) = KEY_LEN_INET;
+			sa.sin_addr.s_addr = *((in_addr_t *)&arg->k.addr6);
+			ent = (struct table_entry *)(rnh->rnh_matchaddr(&sa, rnh));
+			if (ent == NULL)
+				return (EINVAL);
+
+			arg->bytes = ent->bytes;
+			arg->packets = ent->packets;
+			arg->value = ent->value;
+			arg->timestamp = ent->timestamp;
+			arg->mac_addr = ent->mac_addr;
+			return (0);
+		} else {
+			struct sockaddr_in6 sa6;
+			KEY_LEN(sa6) = KEY_LEN_INET6;
+			memcpy(&sa6.sin6_addr, &arg->k.addr6, sizeof(struct in6_addr));
+			xent = (struct table_xentry *)(rnh->rnh_matchaddr(&sa6, rnh));
+		}
+	}
+		break;
+
+	case IPFW_TABLE_INTERFACE:
+	{
+		struct xaddr_iface iface;
+
+		KEY_LEN(iface) = KEY_LEN_IFACE +
+		    strlcpy(iface.ifname, arg->k.iface, IF_NAMESIZE) + 1;
+		/* Assume direct match */
+		/* FIXME: Add interface pattern matching */
+		xent = (struct table_xentry *)(rnh->rnh_lookup(&iface, NULL, rnh));
+	}
+		break;
+
+	default:
+		return (0);
+	}
+
+	if (xent != NULL) {
+		arg->bytes = xent->bytes;
+		arg->packets = xent->packets;
+		arg->value = xent->value;
+		arg->timestamp = xent->timestamp;
+		arg->mac_addr = xent->mac_addr;
+
+		return (0);
+	}
+	return (EINVAL);
+}
+
+void *
 ipfw_lookup_table_extended(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
-    uint32_t *val, int type)
+    uint32_t *val, int type, struct ether_addr *ea)
 {
 	struct radix_node_head *rnh;
 	struct table_xentry *xent;
@@ -562,15 +758,21 @@ ipfw_lookup_table_extended(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
 	struct xaddr_iface iface;
 
 	if (tbl >= V_fw_tables_max)
-		return (0);
+		return (NULL);
 	if ((rnh = ch->xtables[tbl]) == NULL)
-		return (0);
+		return (NULL);
 
 	switch (type) {
 	case IPFW_TABLE_CIDR:
 		KEY_LEN(sa6) = KEY_LEN_INET6;
 		memcpy(&sa6.sin6_addr, paddr, sizeof(struct in6_addr));
 		xent = (struct table_xentry *)(rnh->rnh_matchaddr(&sa6, rnh));
+		if (xent != NULL) {
+			if (ea && xent->mac_addr) {
+				if (bcmp((u_char *)&xent->mac_addr, ea->octet, ETHER_ADDR_LEN) != 0)
+					xent = NULL;
+			}
+		}
 		break;
 
 	case IPFW_TABLE_INTERFACE:
@@ -582,14 +784,14 @@ ipfw_lookup_table_extended(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
 		break;
 
 	default:
-		return (0);
+		return (NULL);
 	}
 
 	if (xent != NULL) {
 		*val = xent->value;
-		return (1);
+		return (xent);
 	}
-	return (0);
+	return (NULL);
 }
 
 static int
@@ -696,8 +898,13 @@ dump_table_xentry_base(struct radix_node *rn, void *arg)
 	else
 		xent->masklen = 33 - ffs(ntohl(n->mask.sin_addr.s_addr));
 	/* Save IPv4 address as deprecated IPv6 compatible */
-	xent->k.addr6.s6_addr32[3] = n->addr.sin_addr.s_addr;
+	xent->k.addr6.s6_addr32[0] = n->addr.sin_addr.s_addr;
+	xent->flags = IPFW_TCF_INET;
 	xent->value = n->value;
+	xent->bytes = n->bytes;
+	xent->packets = n->packets;
+	xent->timestamp = n->timestamp;
+	xent->mac_addr = n->mac_addr;
 	tbl->cnt++;
 	return (0);
 }
@@ -741,6 +948,10 @@ dump_table_xentry_extended(struct radix_node *rn, void *arg)
 	}
 
 	xent->value = n->value;
+	xent->bytes = n->bytes;
+	xent->packets = n->packets;
+	xent->timestamp = n->timestamp;
+	xent->mac_addr = n->mac_addr;
 	tbl->cnt++;
 	return (0);
 }

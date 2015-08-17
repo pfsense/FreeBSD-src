@@ -742,7 +742,11 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 
 		if (i != 0 || m == NULL)
 			return;
-	}
+
+		/* M_PROTO2 is for M_IP[6]_NEXTHOP */
+		i = m->m_flags & (M_FASTFWD_OURS|M_PROTO2);
+	} else
+		i = 0;
 
 	eh = mtod(m, struct ether_header *);
 	ether_type = ntohs(eh->ether_type);
@@ -781,6 +785,8 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 	 */
 	m->m_flags &= ~M_VLANTAG;
 	m_clrprotoflags(m);
+	if (i)
+		m->m_flags |= M_FASTFWD_OURS|M_PROTO2;
 	m_adj(m, ETHER_HDR_LEN);
 
 	/*

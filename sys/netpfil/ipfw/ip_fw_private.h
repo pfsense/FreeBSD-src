@@ -101,6 +101,7 @@ struct ip_fw_args {
 
 	struct ipfw_flow_id f_id;	/* grabbed from IP header	*/
 	//uint32_t	cookie;		/* a cookie depending on rule action */
+	uint32_t        dir;            /* direction */
 	struct inpcb	*inp;
 
 	struct _ip6dn_args	dummypar; /* dummynet->ip6_output */
@@ -303,16 +304,21 @@ int ipfw_chk(struct ip_fw_args *args);
 void ipfw_reap_rules(struct ip_fw *head);
 
 /* In ip_fw_table.c */
+struct ether_addr;
 struct radix_node;
-int ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, in_addr_t addr,
-    uint32_t *val);
-int ipfw_lookup_table_extended(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
-    uint32_t *val, int type);
+void *ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, in_addr_t addr,
+    uint32_t *val, struct ether_addr *);
+void *ipfw_lookup_table_extended(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
+    uint32_t *val, int type, struct ether_addr *);
+void ipfw_count_table_entry_stats(void *, int);
+void ipfw_count_table_xentry_stats(void *, int);
+int ipfw_zero_table_xentry_stats(struct ip_fw_chain *, ipfw_table_xentry *);
+int ipfw_lookup_table_xentry(struct ip_fw_chain *, ipfw_table_xentry *);
 int ipfw_init_tables(struct ip_fw_chain *ch);
 void ipfw_destroy_tables(struct ip_fw_chain *ch);
 int ipfw_flush_table(struct ip_fw_chain *ch, uint16_t tbl);
 int ipfw_add_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
-    uint8_t plen, uint8_t mlen, uint8_t type, uint32_t value);
+    uint8_t plen, uint8_t mlen, uint8_t type, u_int64_t mac_addr, uint32_t value);
 int ipfw_del_table_entry(struct ip_fw_chain *ch, uint16_t tbl, void *paddr,
     uint8_t plen, uint8_t mlen, uint8_t type);
 int ipfw_count_table(struct ip_fw_chain *ch, uint32_t tbl, uint32_t *cnt);
