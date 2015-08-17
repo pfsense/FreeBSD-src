@@ -154,14 +154,14 @@ static VNET_DEFINE(u_int32_t, spcache_genid) = 0;
 								/* SPD */
 static VNET_DEFINE(LIST_HEAD(_sptree, secpolicy), sptree[IPSEC_DIR_MAX]);
 #define	V_sptree		VNET(sptree)
-static struct mtx sptree_lock;
-#define	SPTREE_LOCK_INIT() \
-	mtx_init(&sptree_lock, "sptree", \
+static struct mtx sptree_lock[IPSEC_DIR_MAX];
+#define	SPTREE_LOCK_INIT(dir)			\
+	mtx_init(&sptree_lock[dir], "sptree", \
 		"fast ipsec security policy database", MTX_DEF)
-#define	SPTREE_LOCK_DESTROY()	mtx_destroy(&sptree_lock)
-#define	SPTREE_LOCK()		mtx_lock(&sptree_lock)
-#define	SPTREE_UNLOCK()	mtx_unlock(&sptree_lock)
-#define	SPTREE_LOCK_ASSERT()	mtx_assert(&sptree_lock, MA_OWNED)
+#define	SPTREE_LOCK_DESTROY(dir)	mtx_destroy(&sptree_lock[dir])
+#define	SPTREE_LOCK(dir)		mtx_lock(&sptree_lock[dir])
+#define	SPTREE_UNLOCK(dir)	mtx_unlock(&sptree_lock[dir])
+#define	SPTREE_LOCK_ASSERT(dir)	mtx_assert(&sptree_lock[dir], MA_OWNED)
 
 #define SPIHASHSIZE	1024
 #define	SPIHASH(x)	(((x) + ((x) >> 16)) % SPIHASHSIZE)
@@ -605,9 +605,9 @@ sa_delref(struct secasvar *sav)
 void
 key_addref(struct secpolicy *sp)
 {
-	SPTREE_LOCK();
+	SPTREE_LOCK(sp->spidx.dir);
 	SP_ADDREF(sp);
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(sp->spidx.dir);
 }
 
 /*
@@ -644,7 +644,7 @@ key_allocsp_slow(struct secpolicyindex *spidx, u_int dir, const char* where,
 		printf("*** objects\n");
 		kdebug_secpolicyindex(spidx));
 
-	SPTREE_LOCK_ASSERT();
+	SPTREE_LOCK_ASSERT(dir);
 	LIST_FOREACH(sp, &V_sptree[dir], chain) {
 		KEYDEBUG(KEYDEBUG_IPSEC_DATA,
 			printf("*** in SPD\n");
@@ -684,7 +684,7 @@ key_allocsp(struct secpolicyindex *spidx, u_int dir, const char* where, int tag)
 	IPSEC_ASSERT(dir == IPSEC_DIR_INBOUND || dir == IPSEC_DIR_OUTBOUND,
 		("invalid direction %u", dir));
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(dir);
 	hdir = (dir == IPSEC_DIR_INBOUND);
 	hash = key_hash_spidx(spidx) % SPCACHESIZE;
 	if (V_spcache[hdir][hash].genid == V_spcache_genid &&
@@ -704,7 +704,7 @@ key_allocsp(struct secpolicyindex *spidx, u_int dir, const char* where, int tag)
 		sp->lastused = time_second;
 		SP_ADDREF(sp);
 	}
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(dir);
 
 	return sp;
 }
@@ -734,7 +734,7 @@ key_allocsp2(u_int32_t spi, union sockaddr_union *dst, u_int8_t proto,
 		printf("spi %u proto %u dir %u\n", spi, proto, dir);
 		kdebug_sockaddr(&dst->sa));
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(dir);
 	LIST_FOREACH(sp, &V_sptree[dir], chain) {
 		KEYDEBUG(KEYDEBUG_IPSEC_DATA,
 			printf("*** in SPD\n");
@@ -761,7 +761,7 @@ found:
 		sp->lastused = time_second;
 		SP_ADDREF(sp);
 	}
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(dir);
 
 	KEYDEBUG(KEYDEBUG_IPSEC_STAMP,
 		printf("DP %s return SP:%p (ID=%u) refcnt %u\n", __func__,
@@ -796,7 +796,7 @@ key_gettunnel(const struct sockaddr *osrc,
 		goto done;
 	}
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(dir);
 	LIST_FOREACH(sp, &V_sptree[dir], chain) {
 		if (sp->state == IPSEC_SPSTATE_DEAD)
 			continue;
@@ -838,7 +838,7 @@ found:
 		sp->lastused = time_second;
 		SP_ADDREF(sp);
 	}
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(dir);
 done:
 	KEYDEBUG(KEYDEBUG_IPSEC_STAMP,
 		printf("DP %s return SP:%p (ID=%u) refcnt %u\n", __func__,
@@ -1199,7 +1199,7 @@ _key_freesp(struct secpolicy **spp, const char* where, int tag)
 
 	IPSEC_ASSERT(sp != NULL, ("null sp"));
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(sp->spidx.dir);
 	SP_DELREF(sp);
 
 	KEYDEBUG(KEYDEBUG_IPSEC_STAMP,
@@ -1210,7 +1210,7 @@ _key_freesp(struct secpolicy **spp, const char* where, int tag)
 		*spp = NULL;
 		key_delsp(sp);
 	}
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(sp->spidx.dir);
 }
 
 /*
@@ -1307,7 +1307,7 @@ key_delsp(struct secpolicy *sp)
 	struct ipsecrequest *isr, *nextisr;
 
 	IPSEC_ASSERT(sp != NULL, ("null sp"));
-	SPTREE_LOCK_ASSERT();
+	SPTREE_LOCK_ASSERT(sp->spidx.dir);
 
 	if (sp->state != IPSEC_SPSTATE_DEAD)
 		V_spcache_genid++;
@@ -1344,7 +1344,7 @@ key_getsp(struct secpolicyindex *spidx)
 
 	IPSEC_ASSERT(spidx != NULL, ("null spidx"));
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(spidx->dir);
 	LIST_FOREACH(sp, &V_sptree[spidx->dir], chain) {
 		if (sp->state == IPSEC_SPSTATE_DEAD)
 			continue;
@@ -1353,7 +1353,7 @@ key_getsp(struct secpolicyindex *spidx)
 			break;
 		}
 	}
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(spidx->dir);
 
 	return sp;
 }
@@ -1367,9 +1367,11 @@ static struct secpolicy *
 key_getspbyid(u_int32_t id)
 {
 	struct secpolicy *sp;
+	int dir;
 
-	SPTREE_LOCK();
-	LIST_FOREACH(sp, &V_sptree[IPSEC_DIR_INBOUND], chain) {
+	dir = IPSEC_DIR_INBOUND;
+	SPTREE_LOCK(dir);
+	LIST_FOREACH(sp, &V_sptree[dir], chain) {
 		if (sp->state == IPSEC_SPSTATE_DEAD)
 			continue;
 		if (sp->id == id) {
@@ -1377,8 +1379,11 @@ key_getspbyid(u_int32_t id)
 			goto done;
 		}
 	}
+	SPTREE_UNLOCK(dir);
 
-	LIST_FOREACH(sp, &V_sptree[IPSEC_DIR_OUTBOUND], chain) {
+	dir = IPSEC_DIR_OUTBOUND;
+	SPTREE_LOCK(dir);
+	LIST_FOREACH(sp, &V_sptree[dir], chain) {
 		if (sp->state == IPSEC_SPSTATE_DEAD)
 			continue;
 		if (sp->id == id) {
@@ -1387,7 +1392,7 @@ key_getspbyid(u_int32_t id)
 		}
 	}
 done:
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(dir);
 
 	return sp;
 }
@@ -1897,9 +1902,9 @@ key_spdadd(struct socket *so, struct mbuf *m, const struct sadb_msghdr *mhp)
 	newsp = key_getsp(&spidx);
 	if (mhp->msg->sadb_msg_type == SADB_X_SPDUPDATE) {
 		if (newsp) {
-			SPTREE_LOCK();
+			SPTREE_LOCK(spidx.dir);
 			newsp->state = IPSEC_SPSTATE_DEAD;
-			SPTREE_UNLOCK();
+			SPTREE_UNLOCK(spidx.dir);
 			KEY_FREESP(&newsp);
 		}
 	} else {
@@ -2133,9 +2138,9 @@ key_spddelete(struct socket *so, struct mbuf *m,
 	/* save policy id to buffer to be returned. */
 	xpl0->sadb_x_policy_id = sp->id;
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(spidx.dir);
 	sp->state = IPSEC_SPSTATE_DEAD;
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(spidx.dir);
 	KEY_FREESP(&sp);
 
     {
@@ -2200,9 +2205,9 @@ key_spddelete2(struct socket *so, struct mbuf *m,
 		return key_senderror(so, m, EINVAL);
 	}
 
-	SPTREE_LOCK();
+	SPTREE_LOCK(sp->spidx.dir);
 	sp->state = IPSEC_SPSTATE_DEAD;
-	SPTREE_UNLOCK();
+	SPTREE_UNLOCK(sp->spidx.dir);
 	KEY_FREESP(&sp);
 
     {
@@ -2394,11 +2399,11 @@ key_spdflush(struct socket *so, struct mbuf *m, const struct sadb_msghdr *mhp)
 		return key_senderror(so, m, EINVAL);
 
 	for (dir = 0; dir < IPSEC_DIR_MAX; dir++) {
-		SPTREE_LOCK();
+		SPTREE_LOCK(dir);
 		LIST_FOREACH(sp, &V_sptree[dir], chain)
 			sp->state = IPSEC_SPSTATE_DEAD;
 		V_spcache_genid++;
-		SPTREE_UNLOCK();
+		SPTREE_UNLOCK(dir);
 	}
 
 	if (sizeof(struct sadb_msg) > m->m_len + M_TRAILINGSPACE(m)) {
@@ -2443,26 +2448,28 @@ key_spddump(struct socket *so, struct mbuf *m, const struct sadb_msghdr *mhp)
 
 	/* search SPD entry and get buffer size. */
 	cnt = 0;
-	SPTREE_LOCK();
 	for (dir = 0; dir < IPSEC_DIR_MAX; dir++) {
+		SPTREE_LOCK(dir);
 		LIST_FOREACH(sp, &V_sptree[dir], chain) {
 			cnt++;
 		}
+		SPTREE_UNLOCK(dir);
 	}
 
 	if (cnt == 0) {
-		SPTREE_UNLOCK();
 		return key_senderror(so, m, ENOENT);
 	}
 
 	rh = rt = NULL;
+	/* XXX: SP tree may change from above! */
 	for (dir = 0; dir < IPSEC_DIR_MAX; dir++) {
+		SPTREE_LOCK(dir);
 		LIST_FOREACH(sp, &V_sptree[dir], chain) {
 			--cnt;
 			n = key_setdumpsp(sp, SADB_X_SPDDUMP, cnt,
 			    mhp->msg->sadb_msg_pid);
 			if (!n) {
-				SPTREE_UNLOCK();
+				SPTREE_UNLOCK(dir);
 				m_freem(rh);
 				return key_senderror(so, m, ENOBUFS);
 			}
@@ -2474,9 +2481,9 @@ key_spddump(struct socket *so, struct mbuf *m, const struct sadb_msghdr *mhp)
 			rt = n;
 
 		}
+		SPTREE_UNLOCK(dir);
 	}
 
-	SPTREE_UNLOCK();
 	m_freem(m);
 	return key_sendup_mbuf(so, rh, KEY_SENDUP_ONESHOT);
 }
@@ -4232,7 +4239,7 @@ key_flush_spd(time_t now)
 	/* SPD */
 	for (dir = 0; dir < IPSEC_DIR_MAX; dir++) {
 restart:
-		SPTREE_LOCK();
+		SPTREE_LOCK(dir);
 		LIST_FOREACH(sp, &V_sptree[dir], chain) {
 			if (sp->scangen == gen)		/* previously handled */
 				continue;
@@ -4251,7 +4258,7 @@ restart:
 				 */
 				SP_DELREF(sp);
 				key_delsp(sp);
-				SPTREE_UNLOCK();
+				SPTREE_UNLOCK(dir);
 				goto restart;
 			}
 			if (sp->lifetime == 0 && sp->validtime == 0)
@@ -4260,12 +4267,12 @@ restart:
 			 || (sp->validtime && now - sp->lastused > sp->validtime)) {
 				sp->state = IPSEC_SPSTATE_DEAD;
 				V_spcache_genid++;
-				SPTREE_UNLOCK();
+				SPTREE_UNLOCK(dir);
 				key_spdexpire(sp);
 				goto restart;
 			}
 		}
-		SPTREE_UNLOCK();
+		SPTREE_UNLOCK(dir);
 	}
 }
 
@@ -7690,7 +7697,8 @@ key_init(void)
 	if (!IS_DEFAULT_VNET(curvnet))
 		return;
 
-	SPTREE_LOCK_INIT();
+	for (i = 0; i < IPSEC_DIR_MAX; i++)
+		SPTREE_LOCK_INIT(i);
 	REGTREE_LOCK_INIT();
 	SAHTREE_LOCK_INIT();
 	ACQ_LOCK_INIT();
@@ -7717,8 +7725,8 @@ key_destroy(void)
 	struct secreg *reg;
 	int i;
 
-	SPTREE_LOCK();
 	for (i = 0; i < IPSEC_DIR_MAX; i++) {
+		SPTREE_LOCK(i);
 		for (sp = LIST_FIRST(&V_sptree[i]); 
 		    sp != NULL; sp = nextsp) {
 			nextsp = LIST_NEXT(sp, chain);
@@ -7727,8 +7735,8 @@ key_destroy(void)
 				free(sp, M_IPSEC_SP);
 			}
 		}
+		SPTREE_UNLOCK(i);
 	}
-	SPTREE_UNLOCK();
 
 	SAHTREE_LOCK();
 	for (sah = LIST_FIRST(&V_sahtree); sah != NULL; sah = nextsah) {
