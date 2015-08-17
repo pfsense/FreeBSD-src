@@ -43,6 +43,11 @@
 #include <sys/errno.h>
 #include <sys/syslog.h>
 
+#ifdef DEV_ENC
+#include <altq/if_altq.h>
+#include <netpfil/pf/pf_mtag.h>
+#endif
+
 #include <net/if.h>
 #include <net/pfil.h>
 #include <net/vnet.h>
@@ -98,6 +103,7 @@ ipsec_process_done(struct mbuf *m, struct ipsecrequest *isr)
 	struct m_tag *mtag;
 	struct secasvar *sav;
 	struct secasindex *saidx;
+	struct pf_mtag *atag = NULL;
 	int error;
 
 	IPSEC_ASSERT(m != NULL, ("null mbuf"));
@@ -188,6 +194,15 @@ ipsec_process_done(struct mbuf *m, struct ipsecrequest *isr)
 		}
 	}
 	key_sa_recordxfer(sav, m);		/* record data transfer */
+
+#ifdef DEV_ENC
+	if (saidx->qid && (atag = pf_find_mtag(m)) != NULL) {
+		atag->qid = saidx->qid;
+		/* add hints for ecn */
+		atag->af = saidx->dst.sa.sa_family;
+		atag->hdr = NULL; /* This should be safe! */
+	}
+#endif
 
 	/*
 	 * We're done with IPsec processing, transmit the packet using the
@@ -455,7 +470,8 @@ ipsec4_process_packet(
 	/* pass the mbuf to enc0 for bpf processing */
 	ipsec_bpf(m, sav, AF_INET, ENC_OUT|ENC_BEFORE);
 	/* pass the mbuf to enc0 for packet filtering */
-	if ((error = ipsec_filter(&m, PFIL_OUT, ENC_OUT|ENC_BEFORE)) != 0)
+	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_OUT,
+	    ENC_OUT|ENC_BEFORE)) != 0)
 		goto bad;
 #endif
 
@@ -554,7 +570,8 @@ ipsec4_process_packet(
 	/* pass the mbuf to enc0 for bpf processing */
 	ipsec_bpf(m, sav, sav->sah->saidx.dst.sa.sa_family, ENC_OUT|ENC_AFTER);
 	/* pass the mbuf to enc0 for packet filtering */
-	if ((error = ipsec_filter(&m, PFIL_OUT, ENC_OUT|ENC_AFTER)) != 0)
+	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_OUT,
+	    ENC_OUT|ENC_AFTER)) != 0)
 		goto bad;
 #endif
 
@@ -657,7 +674,8 @@ ipsec6_process_packet(
 	/* pass the mbuf to enc0 for bpf processing */
 	ipsec_bpf(m, isr->sav, AF_INET6, ENC_OUT|ENC_BEFORE);
 	/* pass the mbuf to enc0 for packet filtering */
-	if ((error = ipsec_filter(&m, PFIL_OUT, ENC_OUT|ENC_BEFORE)) != 0)
+	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_OUT,
+	    ENC_OUT|ENC_BEFORE)) != 0)
 		goto bad;
 #endif /* DEV_ENC */
 
@@ -709,7 +727,8 @@ ipsec6_process_packet(
 #ifdef DEV_ENC
 	ipsec_bpf(m, isr->sav, dst->sa.sa_family, ENC_OUT|ENC_AFTER);
 	/* pass the mbuf to enc0 for packet filtering */
-	if ((error = ipsec_filter(&m, PFIL_OUT, ENC_OUT|ENC_AFTER)) != 0)
+	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_OUT,
+	    ENC_OUT|ENC_AFTER)) != 0)
 		goto bad;
 #endif /* DEV_ENC */
 
