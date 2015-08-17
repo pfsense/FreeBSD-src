@@ -116,6 +116,7 @@ static	int	lagg_setflag(struct lagg_port *, int, int,
 		    int (*func)(struct ifnet *, int));
 static	int	lagg_setflags(struct lagg_port *, int status);
 static int	lagg_transmit(struct ifnet *, struct mbuf *);
+static void     lagg_start(struct ifnet *);
 static void	lagg_qflush(struct ifnet *);
 static int	lagg_media_change(struct ifnet *);
 static void	lagg_media_status(struct ifnet *, struct ifmediareq *);
@@ -353,11 +354,14 @@ lagg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	if_initname(ifp, laggname, unit);
 	ifp->if_softc = sc;
 	ifp->if_transmit = lagg_transmit;
+	ifp->if_start = lagg_start;
 	ifp->if_qflush = lagg_qflush;
 	ifp->if_init = lagg_init;
 	ifp->if_ioctl = lagg_ioctl;
 	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_capenable = ifp->if_capabilities = IFCAP_HWSTATS;
+	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
+        IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Attach as an ordinary ethernet device, children will be attached
@@ -1352,6 +1356,40 @@ lagg_transmit(struct ifnet *ifp, struct mbuf *m)
 		ifp->if_oerrors++;
 
 	return (error);
+}
+
+static void
+lagg_start(struct ifnet *ifp)
+{
+	struct lagg_softc *sc = (struct lagg_softc *)ifp->if_softc;
+	struct rm_priotracker tracker;
+	struct mbuf *m;
+	int error = 0, len;
+
+	LAGG_RLOCK(sc, &tracker);
+	/* We need a Tx algorithm and at least one port */
+	if (sc->sc_proto == LAGG_PROTO_NONE || sc->sc_count == 0) {
+		IF_DRAIN(&ifp->if_snd);
+		LAGG_RUNLOCK(sc, &tracker);
+		return;
+	}
+
+	for (;; error = 0) {
+		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == NULL)
+			break;
+
+		ETHER_BPF_MTAP(ifp, m);
+
+		len = m->m_pkthdr.len;
+		error = (*sc->sc_start)(sc, m);
+		if (error == 0) {
+			counter_u64_add(sc->sc_opackets, 1);
+			counter_u64_add(sc->sc_obytes, len);
+		} else
+			ifp->if_oerrors++;
+	}
+	LAGG_RUNLOCK(sc, &tracker);
 }
 
 /*

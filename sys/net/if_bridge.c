@@ -243,6 +243,7 @@ static void	bridge_ifdetach(void *arg __unused, struct ifnet *);
 static void	bridge_init(void *);
 static void	bridge_dummynet(struct mbuf *, struct ifnet *);
 static void	bridge_stop(struct ifnet *, int);
+static void	bridge_start(struct ifnet *);
 static int	bridge_transmit(struct ifnet *, struct mbuf *);
 static void	bridge_qflush(struct ifnet *);
 static struct mbuf *bridge_input(struct ifnet *, struct mbuf *);
@@ -607,10 +608,13 @@ bridge_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	if_initname(ifp, bridge_name, unit);
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = bridge_ioctl;
+	ifp->if_start = bridge_start;
 	ifp->if_transmit = bridge_transmit;
 	ifp->if_qflush = bridge_qflush;
 	ifp->if_init = bridge_init;
 	ifp->if_type = IFT_BRIDGE;
+	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
+	IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Generate an ethernet address with a locally administered address.
@@ -2072,6 +2076,47 @@ bridge_transmit(struct ifnet *ifp, struct mbuf *m)
 static void
 bridge_qflush(struct ifnet *ifp __unused)
 {
+}
+
+/*
+ * bridge_start:
+ *
+ *	Start output on a bridge.
+ *
+ */
+static void
+bridge_start(struct ifnet *ifp)
+{
+	struct bridge_softc *sc;
+	struct mbuf *m;
+	struct ether_header *eh;
+	struct ifnet *dst_if;
+
+	sc = ifp->if_softc;
+
+	ifp->if_drv_flags |= IFF_DRV_OACTIVE;
+	for (;;) {
+		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == 0)
+			break;
+		ETHER_BPF_MTAP(ifp, m);
+
+		eh = mtod(m, struct ether_header *);
+		dst_if = NULL;
+
+		BRIDGE_LOCK(sc);
+		if ((m->m_flags & (M_BCAST|M_MCAST)) == 0) {
+			dst_if = bridge_rtlookup(sc, eh->ether_dhost, 1);
+		}
+
+		if (dst_if == NULL)
+			bridge_broadcast(sc, ifp, m, 0);
+		else {
+			BRIDGE_UNLOCK(sc);
+			bridge_enqueue(sc, dst_if, m);
+		}
+	}
+	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 }
 
 /*
