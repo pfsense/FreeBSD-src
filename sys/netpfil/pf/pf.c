@@ -335,9 +335,7 @@ do {							\
 		}							\
 		if ((d) == PF_OUT &&					\
 		    (((s)->rule.ptr->rt == PF_ROUTETO &&		\
-		    (s)->rule.ptr->direction == PF_OUT) ||		\
-		    ((s)->rule.ptr->rt == PF_REPLYTO &&			\
-		    (s)->rule.ptr->direction == PF_IN)) &&		\
+		    (s)->rule.ptr->direction == PF_OUT)) &&		\
 		    (s)->rt_kif != NULL &&				\
 		    (s)->rt_kif != (i))					\
 			return (PF_PASS);				\
@@ -5703,7 +5701,12 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	else if (r->rt == PF_ROUTETO && r->direction == dir && in_localip(ip->ip_dst))
 		return;
 
-	if (oifp != ifp) {
+	if (s != NULL && r->rt == PF_REPLYTO) {
+		/*
+		 * Send it out since it came from state recorded ifp(rt_addr).
+		 * Routing table lookup might have chosen not correct interface!
+		 */
+	} else if (oifp != ifp) {
 		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
 			return;
 
@@ -5943,7 +5946,12 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
        } else if (r->rt == PF_ROUTETO && r->direction == dir && in6_localaddr(&ip6->ip6_dst))
 	       return;
 
-	if (oifp != ifp) {
+	if (s != NULL && r->rt == PF_REPLYTO) {
+		/*
+		 * Send it out since it came from state recorded ifp(rt_addr).
+		 * Routing table lookup might have chosen not correct interface!
+		 */
+	} else if (oifp != ifp) {
 
 		if (s && r->rt == PF_ROUTETO && pd->nat_rule != NULL &&
 			r->direction == PF_OUT && r->direction == dir && pd->pf_mtag->routed < 2) {
