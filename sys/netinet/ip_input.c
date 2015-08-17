@@ -297,6 +297,9 @@ ip_init(void)
 	if ((i = pfil_head_register(&V_inet_pfil_hook)) != 0)
 		printf("%s: WARNING: unable to register pfil hook, "
 			"error %d\n", __func__, i);
+	else
+		pfil_head_export_sysctl(&V_inet_pfil_hook,
+			SYSCTL_STATIC_CHILDREN(_net_inet_ip));
 
 	/* Skip initialization of globals for non-default instances. */
 	if (!IS_DEFAULT_VNET(curvnet))
