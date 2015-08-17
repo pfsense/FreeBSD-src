@@ -1773,7 +1773,7 @@ pfsync_undefer_state(struct pf_state *st, int drop)
 		}
 	}
 
-	panic("%s: unable to find deferred state", __func__);
+	printf("%s: unable to find deferred state", __func__);
 }
 
 static void
