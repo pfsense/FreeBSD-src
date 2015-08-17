@@ -5765,6 +5765,9 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		error = EMSGSIZE;
 		KMOD_IPSTAT_INC(ips_cantfrag);
 		if (r->rt != PF_DUPTO) {
+			if (s && pd->nat_rule != NULL)
+				pf_packet_undo_nat(m0, pd, ntohs(ip->ip_off), s, dir);
+
 			icmp_error(m0, ICMP_UNREACH, ICMP_UNREACH_NEEDFRAG, 0,
 			    ifp->if_mtu);
 			goto done;
@@ -5974,9 +5977,12 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		nd6_output(ifp, ifp, m0, &dst, NULL);
 	else {
 		in6_ifstat_inc(ifp, ifs6_in_toobig);
-		if (r->rt != PF_DUPTO)
+		if (r->rt != PF_DUPTO) {
+			if (s && pd->nat_rule != NULL)
+				pf_packet_undo_nat(m0, pd, ((caddr_t)ip6 - m0->m_data) + sizeof(struct ip6_hdr), s, dir);
+
 			icmp6_error(m0, ICMP6_PACKET_TOO_BIG, 0, ifp->if_mtu);
-		else
+		} else
 			goto bad;
 	}
 
