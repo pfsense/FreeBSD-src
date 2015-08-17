@@ -1534,7 +1534,6 @@ native-xtools: .MAKE
     bin/realpath \
     bin/rm \
     bin/rmdir \
-    bin/sh \
     bin/sleep \
     ${_clang_tblgen} \
     usr.bin/ar \
@@ -1552,7 +1551,6 @@ native-xtools: .MAKE
     usr.bin/bzip2 \
     usr.bin/cmp \
     usr.bin/dirname \
-    usr.bin/env \
     usr.bin/fetch \
     usr.bin/find \
     usr.bin/grep \
@@ -1564,7 +1562,6 @@ native-xtools: .MAKE
     usr.bin/mt \
     usr.bin/patch \
     usr.bin/sed \
-    usr.bin/sort \
     usr.bin/tar \
     usr.bin/touch \
     usr.bin/tr \
