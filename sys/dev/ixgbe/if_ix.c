@@ -621,9 +621,7 @@ ixgbe_detach(device_t dev)
 
 	for (int i = 0; i < adapter->num_queues; i++, que++, txr++) {
 		if (que->tq) {
-#ifndef IXGBE_LEGACY_TX
 			taskqueue_drain(que->tq, &txr->txq_task);
-#endif
 			taskqueue_drain(que->tq, &que->que_task);
 			taskqueue_free(que->tq);
 		}
@@ -1282,13 +1280,10 @@ ixgbe_handle_que(void *context, int pending)
 		more = ixgbe_rxeof(que);
 		IXGBE_TX_LOCK(txr);
 		ixgbe_txeof(txr);
-#ifndef IXGBE_LEGACY_TX
 		if (!drbr_empty(ifp, txr->br))
 			ixgbe_mq_start_locked(ifp, txr);
-#else
 		if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 			ixgbe_start_locked(txr, ifp);
-#endif
 		IXGBE_TX_UNLOCK(txr);
 	}
 
@@ -1331,13 +1326,10 @@ ixgbe_legacy_irq(void *arg)
 
 	IXGBE_TX_LOCK(txr);
 	ixgbe_txeof(txr);
-#ifdef IXGBE_LEGACY_TX
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		ixgbe_start_locked(txr, ifp);
-#else
 	if (!drbr_empty(ifp, txr->br))
 		ixgbe_mq_start_locked(ifp, txr);
-#endif
 	IXGBE_TX_UNLOCK(txr);
 
 	/* Check for fan failure */
@@ -1392,13 +1384,10 @@ ixgbe_msix_que(void *arg)
 
 	IXGBE_TX_LOCK(txr);
 	ixgbe_txeof(txr);
-#ifdef IXGBE_LEGACY_TX
-	if (!IFQ_DRV_IS_EMPTY(ifp->if_snd))
+	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		ixgbe_start_locked(txr, ifp);
-#else
 	if (!drbr_empty(ifp, txr->br))
 		ixgbe_mq_start_locked(ifp, txr);
-#endif
 	IXGBE_TX_UNLOCK(txr);
 
 	/* Do AIM now? */
@@ -2137,9 +2126,7 @@ ixgbe_allocate_legacy(struct adapter *adapter)
 {
 	device_t	dev = adapter->dev;
 	struct		ix_queue *que = adapter->queues;
-#ifndef IXGBE_LEGACY_TX
 	struct tx_ring		*txr = adapter->tx_rings;
-#endif
 	int		error, rid = 0;
 
 	/* MSI RID at 1 */
@@ -2159,9 +2146,7 @@ ixgbe_allocate_legacy(struct adapter *adapter)
 	 * Try allocating a fast interrupt and the associated deferred
 	 * processing contexts.
 	 */
-#ifndef IXGBE_LEGACY_TX
 	TASK_INIT(&txr->txq_task, 0, ixgbe_deferred_mq_start, txr);
-#endif
 	TASK_INIT(&que->que_task, 0, ixgbe_handle_que, que);
 	que->tq = taskqueue_create_fast("ixgbe_que", M_NOWAIT,
             taskqueue_thread_enqueue, &que->tq);
@@ -2249,9 +2234,7 @@ ixgbe_allocate_msix(struct adapter *adapter)
 		if (adapter->num_queues > 1)
 			bus_bind_intr(dev, que->res, cpu_id);
 
-#ifndef IXGBE_LEGACY_TX
 		TASK_INIT(&txr->txq_task, 0, ixgbe_deferred_mq_start, txr);
-#endif
 		TASK_INIT(&que->que_task, 0, ixgbe_handle_que, que);
 		que->tq = taskqueue_create_fast("ixgbe_que", M_NOWAIT,
 		    taskqueue_thread_enqueue, &que->tq);
@@ -2509,15 +2492,15 @@ ixgbe_setup_interface(device_t dev, struct adapter *adapter)
 	ifp->if_hw_tsomax = 65518;
 	ifp->if_hw_tsomaxsegcount = IXGBE_82599_SCATTER;
 	ifp->if_hw_tsomaxsegsize = 2048;
-#ifndef IXGBE_LEGACY_TX
+
 	ifp->if_transmit = ixgbe_mq_start;
 	ifp->if_qflush = ixgbe_qflush;
-#else
+
 	ifp->if_start = ixgbe_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, adapter->num_tx_desc - 2);
 	ifp->if_snd.ifq_drv_maxlen = adapter->num_tx_desc - 2;
 	IFQ_SET_READY(&ifp->if_snd);
-#endif
+
 
 	ether_ifattach(ifp, adapter->hw.mac.addr);
 

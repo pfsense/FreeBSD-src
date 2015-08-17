@@ -43,9 +43,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#ifndef IGB_LEGACY_TX
 #include <sys/buf_ring.h>
-#endif
 #include <sys/bus.h>
 #include <sys/endian.h>
 #include <sys/kernel.h>
@@ -189,15 +187,12 @@ static int	igb_detach(device_t);
 static int	igb_shutdown(device_t);
 static int	igb_suspend(device_t);
 static int	igb_resume(device_t);
-#ifndef IGB_LEGACY_TX
 static int	igb_mq_start(struct ifnet *, struct mbuf *);
 static int	igb_mq_start_locked(struct ifnet *, struct tx_ring *);
 static void	igb_qflush(struct ifnet *);
 static void	igb_deferred_mq_start(void *, int);
-#else
 static void	igb_start(struct ifnet *);
 static void	igb_start_locked(struct tx_ring *, struct ifnet *ifp);
-#endif
 static int	igb_ioctl(struct ifnet *, u_long, caddr_t);
 static void	igb_init(void *);
 static void	igb_init_locked(struct adapter *);
@@ -361,7 +356,6 @@ TUNABLE_INT("hw.igb.max_interrupt_rate", &igb_max_interrupt_rate);
 SYSCTL_INT(_hw_igb, OID_AUTO, max_interrupt_rate, CTLFLAG_RDTUN,
     &igb_max_interrupt_rate, 0, "Maximum interrupts per second");
 
-#ifndef IGB_LEGACY_TX
 /*
 ** Tuneable number of buffers in the buf-ring (drbr_xxx)
 */
@@ -369,7 +363,6 @@ static int igb_buf_ring_size = IGB_BR_SIZE;
 TUNABLE_INT("hw.igb.buf_ring_size", &igb_buf_ring_size);
 SYSCTL_INT(_hw_igb, OID_AUTO, buf_ring_size, CTLFLAG_RDTUN,
     &igb_buf_ring_size, 0, "Size of the bufring");
-#endif
 
 /*
 ** Header split causes the packet header to
@@ -865,15 +858,15 @@ igb_resume(device_t dev)
 	    (ifp->if_drv_flags & IFF_DRV_RUNNING) && adapter->link_active) {
 		for (int i = 0; i < adapter->num_queues; i++, txr++) {
 			IGB_TX_LOCK(txr);
-#ifndef IGB_LEGACY_TX
+
 			/* Process the stack queue only if not depleted */
 			if (((txr->queue_status & IGB_QUEUE_DEPLETED) == 0) &&
 			    !drbr_empty(ifp, txr->br))
 				igb_mq_start_locked(ifp, txr);
-#else
+
 			if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 				igb_start_locked(txr, ifp);
-#endif
+
 			IGB_TX_UNLOCK(txr);
 		}
 	}
@@ -883,7 +876,6 @@ igb_resume(device_t dev)
 }
 
 
-#ifdef IGB_LEGACY_TX
 
 /*********************************************************************
  *  Transmit entry point
@@ -961,7 +953,6 @@ igb_start(struct ifnet *ifp)
 	return;
 }
 
-#else /* ~IGB_LEGACY_TX */
 
 /*
 ** Multiqueue Transmit Entry:
@@ -1081,7 +1072,6 @@ igb_qflush(struct ifnet *ifp)
 	}
 	if_qflush(ifp);
 }
-#endif /* ~IGB_LEGACY_TX */
 
 /*********************************************************************
  *  Ioctl entry point
@@ -1415,15 +1405,15 @@ igb_handle_que(void *context, int pending)
 
 		IGB_TX_LOCK(txr);
 		igb_txeof(txr);
-#ifndef IGB_LEGACY_TX
+
 		/* Process the stack queue only if not depleted */
 		if (((txr->queue_status & IGB_QUEUE_DEPLETED) == 0) &&
 		    !drbr_empty(ifp, txr->br))
 			igb_mq_start_locked(ifp, txr);
-#else
+
 		if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 			igb_start_locked(txr, ifp);
-#endif
+
 		IGB_TX_UNLOCK(txr);
 		/* Do we need another? */
 		if (more) {
@@ -1466,15 +1456,15 @@ igb_handle_link_locked(struct adapter *adapter)
 	if ((ifp->if_drv_flags & IFF_DRV_RUNNING) && adapter->link_active) {
 		for (int i = 0; i < adapter->num_queues; i++, txr++) {
 			IGB_TX_LOCK(txr);
-#ifndef IGB_LEGACY_TX
+
 			/* Process the stack queue only if not depleted */
 			if (((txr->queue_status & IGB_QUEUE_DEPLETED) == 0) &&
 			    !drbr_empty(ifp, txr->br))
 				igb_mq_start_locked(ifp, txr);
-#else
+
 			if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 				igb_start_locked(txr, ifp);
-#endif
+
 			IGB_TX_UNLOCK(txr);
 		}
 	}
@@ -1568,13 +1558,10 @@ igb_poll(struct ifnet *ifp, enum poll_cmd cmd, int count)
 		do {
 			more = igb_txeof(txr);
 		} while (loop-- && more);
-#ifndef IGB_LEGACY_TX
 		if (!drbr_empty(ifp, txr->br))
 			igb_mq_start_locked(ifp, txr);
-#else
 		if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 			igb_start_locked(txr, ifp);
-#endif
 		IGB_TX_UNLOCK(txr);
 	}
 
@@ -1607,15 +1594,12 @@ igb_msix_que(void *arg)
 
 	IGB_TX_LOCK(txr);
 	igb_txeof(txr);
-#ifndef IGB_LEGACY_TX
 	/* Process the stack queue only if not depleted */
 	if (((txr->queue_status & IGB_QUEUE_DEPLETED) == 0) &&
 	    !drbr_empty(ifp, txr->br))
 		igb_mq_start_locked(ifp, txr);
-#else
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		igb_start_locked(txr, ifp);
-#endif
 	IGB_TX_UNLOCK(txr);
 
 	more_rx = igb_rxeof(que, adapter->rx_process_limit, NULL);
@@ -2380,9 +2364,7 @@ igb_allocate_legacy(struct adapter *adapter)
 {
 	device_t		dev = adapter->dev;
 	struct igb_queue	*que = adapter->queues;
-#ifndef IGB_LEGACY_TX
 	struct tx_ring		*txr = adapter->tx_rings;
-#endif
 	int			error, rid = 0;
 
 	/* Turn off all interrupts */
@@ -2401,9 +2383,7 @@ igb_allocate_legacy(struct adapter *adapter)
 		return (ENXIO);
 	}
 
-#ifndef IGB_LEGACY_TX
 	TASK_INIT(&txr->txq_task, 0, igb_deferred_mq_start, txr);
-#endif
 
 	/*
 	 * Try allocating a fast interrupt and the associated deferred
@@ -2485,10 +2465,8 @@ igb_allocate_msix(struct adapter *adapter)
 				i,igb_last_bind_cpu);
 			igb_last_bind_cpu = CPU_NEXT(igb_last_bind_cpu);
 		}
-#ifndef IGB_LEGACY_TX
 		TASK_INIT(&que->txr->txq_task, 0, igb_deferred_mq_start,
 		    que->txr);
-#endif
 		/* Make tasklet for deferred handling */
 		TASK_INIT(&que->que_task, 0, igb_handle_que, que);
 		que->tq = taskqueue_create("igb_que", M_NOWAIT,
@@ -2712,9 +2690,9 @@ igb_free_pci_resources(struct adapter *adapter)
 
 	for (int i = 0; i < adapter->num_queues; i++, que++) {
 		if (que->tq != NULL) {
-#ifndef IGB_LEGACY_TX
+
 			taskqueue_drain(que->tq, &que->txr->txq_task);
-#endif
+
 			taskqueue_drain(que->tq, &que->que_task);
 			taskqueue_free(que->tq);
 		}
@@ -3115,15 +3093,15 @@ igb_setup_interface(device_t dev, struct adapter *adapter)
 	ifp->if_softc = adapter;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = igb_ioctl;
-#ifndef IGB_LEGACY_TX
+
 	ifp->if_transmit = igb_mq_start;
 	ifp->if_qflush = igb_qflush;
-#else
+
 	ifp->if_start = igb_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, adapter->num_tx_desc - 1);
 	ifp->if_snd.ifq_drv_maxlen = adapter->num_tx_desc - 1;
 	IFQ_SET_READY(&ifp->if_snd);
-#endif
+
 
 	ether_ifattach(ifp, adapter->hw.mac.addr);
 
@@ -3360,11 +3338,11 @@ igb_allocate_queues(struct adapter *adapter)
 			error = ENOMEM;
 			goto err_tx_desc;
         	}
-#ifndef IGB_LEGACY_TX
+
 		/* Allocate a buf ring */
 		txr->br = buf_ring_alloc(igb_buf_ring_size, M_DEVBUF,
 		    M_WAITOK, &txr->tx_mtx);
-#endif
+
 	}
 
 	/*
@@ -3421,9 +3399,9 @@ err_tx_desc:
 		igb_dma_free(adapter, &txr->txdma);
 	free(adapter->rx_rings, M_DEVBUF);
 rx_fail:
-#ifndef IGB_LEGACY_TX
+
 	buf_ring_free(txr->br, M_DEVBUF);
-#endif
+
 	free(adapter->tx_rings, M_DEVBUF);
 tx_fail:
 	free(adapter->queues, M_DEVBUF);
@@ -3679,10 +3657,10 @@ igb_free_transmit_buffers(struct tx_ring *txr)
 			tx_buffer->map = NULL;
 		}
 	}
-#ifndef IGB_LEGACY_TX
+
 	if (txr->br != NULL)
 		buf_ring_free(txr->br, M_DEVBUF);
-#endif
+
 	if (txr->tx_buffers != NULL) {
 		free(txr->tx_buffers, M_DEVBUF);
 		txr->tx_buffers = NULL;
@@ -4986,10 +4964,10 @@ igb_rxeof(struct igb_queue *que, int count, int *done)
 				 */
 				M_HASHTYPE_SET(rxr->fmp, M_HASHTYPE_OPAQUE);
 			} else {
-#ifndef IGB_LEGACY_TX
+
 				rxr->fmp->m_pkthdr.flowid = que->msix;
 				M_HASHTYPE_SET(rxr->fmp, M_HASHTYPE_OPAQUE);
-#endif
+
 			}
 			sendmp = rxr->fmp;
 			/* Make sure to set M_PKTHDR. */

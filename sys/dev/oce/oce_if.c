@@ -1060,11 +1060,10 @@ oce_tx_restart(POCE_SOFTC sc, struct oce_wq *wq)
 	if ((sc->ifp->if_drv_flags & IFF_DRV_RUNNING) != IFF_DRV_RUNNING)
 		return;
 
-#if __FreeBSD_version >= 800000
 	if (!drbr_empty(sc->ifp, wq->br))
-#else
+		taskqueue_enqueue_fast(taskqueue_swi, &wq->txtask);
+
 	if (!IFQ_DRV_IS_EMPTY(&sc->ifp->if_snd))
-#endif
 		taskqueue_enqueue_fast(taskqueue_swi, &wq->txtask);
 
 }
@@ -1147,7 +1146,7 @@ oce_tx_task(void *arg, int npending)
 	struct ifnet *ifp = sc->ifp;
 	int rc = 0;
 
-#if __FreeBSD_version >= 800000
+
 	LOCK(&wq->tx_lock);
 	rc = oce_multiq_transmit(ifp, NULL, wq);
 	if (rc) {
@@ -1155,9 +1154,9 @@ oce_tx_task(void *arg, int npending)
 				"TX[%d] restart failed\n", wq->queue_index);
 	}
 	UNLOCK(&wq->tx_lock);
-#else
+
 	oce_start(ifp);
-#endif
+
 
 }
 

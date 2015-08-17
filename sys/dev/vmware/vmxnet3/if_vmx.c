@@ -166,15 +166,15 @@ static int	vmxnet3_txq_load_mbuf(struct vmxnet3_txqueue *, struct mbuf **,
 		    bus_dmamap_t, bus_dma_segment_t [], int *);
 static void	vmxnet3_txq_unload_mbuf(struct vmxnet3_txqueue *, bus_dmamap_t);
 static int	vmxnet3_txq_encap(struct vmxnet3_txqueue *, struct mbuf **);
-#ifdef VMXNET3_LEGACY_TX
+
 static void	vmxnet3_start_locked(struct ifnet *);
 static void	vmxnet3_start(struct ifnet *);
-#else
+
 static int	vmxnet3_txq_mq_start_locked(struct vmxnet3_txqueue *,
 		    struct mbuf *);
 static int	vmxnet3_txq_mq_start(struct ifnet *, struct mbuf *);
 static void	vmxnet3_txq_tq_deferred(void *, int);
-#endif
+
 static void	vmxnet3_txq_start(struct vmxnet3_txqueue *);
 static void	vmxnet3_tx_start_all(struct vmxnet3_softc *);
 
@@ -1724,15 +1724,15 @@ vmxnet3_setup_interface(struct vmxnet3_softc *sc)
 	ifp->if_hw_tsomaxsegcount = VMXNET3_TX_MAXSEGS;
 	ifp->if_hw_tsomaxsegsize = VMXNET3_TX_MAXSEGSIZE;
 
-#ifdef VMXNET3_LEGACY_TX
+
 	ifp->if_start = vmxnet3_start;
 	ifp->if_snd.ifq_drv_maxlen = sc->vmx_ntxdescs - 1;
 	IFQ_SET_MAXLEN(&ifp->if_snd, sc->vmx_ntxdescs - 1);
 	IFQ_SET_READY(&ifp->if_snd);
-#else
+
 	ifp->if_transmit = vmxnet3_txq_mq_start;
 	ifp->if_qflush = vmxnet3_qflush;
-#endif
+
 
 	vmxnet3_get_lladdr(sc);
 	ether_ifattach(ifp, sc->vmx_lladdr);
@@ -2865,7 +2865,7 @@ vmxnet3_txq_encap(struct vmxnet3_txqueue *txq, struct mbuf **m0)
 	return (0);
 }
 
-#ifdef VMXNET3_LEGACY_TX
+
 
 static void
 vmxnet3_start_locked(struct ifnet *ifp)
@@ -2929,7 +2929,7 @@ vmxnet3_start(struct ifnet *ifp)
 	VMXNET3_TXQ_UNLOCK(txq);
 }
 
-#else /* !VMXNET3_LEGACY_TX */
+
 
 static int
 vmxnet3_txq_mq_start_locked(struct vmxnet3_txqueue *txq, struct mbuf *m)
@@ -3036,7 +3036,7 @@ vmxnet3_txq_tq_deferred(void *xtxq, int pending)
 	VMXNET3_TXQ_UNLOCK(txq);
 }
 
-#endif /* VMXNET3_LEGACY_TX */
+
 
 static void
 vmxnet3_txq_start(struct vmxnet3_txqueue *txq)
@@ -3047,13 +3047,13 @@ vmxnet3_txq_start(struct vmxnet3_txqueue *txq)
 	sc = txq->vxtxq_sc;
 	ifp = sc->vmx_ifp;
 
-#ifdef VMXNET3_LEGACY_TX
+
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		vmxnet3_start_locked(ifp);
-#else
+
 	if (!drbr_empty(ifp, txq->vxtxq_br))
 		vmxnet3_txq_mq_start_locked(txq, NULL);
-#endif
+
 }
 
 static void

@@ -646,15 +646,12 @@ ixv_check_ether_addr(u8 *addr)
 
 /* Shared Prototypes */
 
-#ifdef IXGBE_LEGACY_TX
 void     ixgbe_start(struct ifnet *);
 void     ixgbe_start_locked(struct tx_ring *, struct ifnet *);
-#else /* ! IXGBE_LEGACY_TX */
 int	ixgbe_mq_start(struct ifnet *, struct mbuf *);
 int	ixgbe_mq_start_locked(struct ifnet *, struct tx_ring *);
 void	ixgbe_qflush(struct ifnet *);
 void	ixgbe_deferred_mq_start(void *, int);
-#endif /* IXGBE_LEGACY_TX */
 
 int	ixgbe_allocate_queues(struct adapter *);
 int	ixgbe_allocate_transmit_buffers(struct tx_ring *);

@@ -118,7 +118,6 @@ static __inline void ixgbe_rx_discard(struct rx_ring *, int);
 static __inline void ixgbe_rx_input(struct rx_ring *, struct ifnet *,
 		    struct mbuf *, u32);
 
-#ifdef IXGBE_LEGACY_TX
 /*********************************************************************
  *  Transmit entry point
  *
@@ -180,7 +179,6 @@ ixgbe_start(struct ifnet *ifp)
 	return;
 }
 
-#else /* ! IXGBE_LEGACY_TX */
 
 /*
 ** Multiqueue Transmit driver
@@ -318,7 +316,6 @@ ixgbe_qflush(struct ifnet *ifp)
 	}
 	if_qflush(ifp);
 }
-#endif /* IXGBE_LEGACY_TX */
 
 
 /*********************************************************************
@@ -698,10 +695,8 @@ ixgbe_free_transmit_buffers(struct tx_ring *txr)
 			tx_buffer->map = NULL;
 		}
 	}
-#ifdef IXGBE_LEGACY_TX
 	if (txr->br != NULL)
 		buf_ring_free(txr->br, M_DEVBUF);
-#endif
 	if (txr->tx_buffers != NULL) {
 		free(txr->tx_buffers, M_DEVBUF);
 		txr->tx_buffers = NULL;
@@ -2160,7 +2155,6 @@ ixgbe_allocate_queues(struct adapter *adapter)
 			error = ENOMEM;
 			goto err_tx_desc;
         	}
-#ifndef IXGBE_LEGACY_TX
 		/* Allocate a buf ring */
 		txr->br = buf_ring_alloc(IXGBE_BR_SIZE, M_DEVBUF,
 		    M_WAITOK, &txr->tx_mtx);
@@ -2170,7 +2164,6 @@ ixgbe_allocate_queues(struct adapter *adapter)
 			error = ENOMEM;
 			goto err_tx_desc;
         	}
-#endif
 	}
 
 	/*

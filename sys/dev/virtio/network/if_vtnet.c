@@ -139,23 +139,21 @@ static struct mbuf *
 static int	vtnet_txq_enqueue_buf(struct vtnet_txq *, struct mbuf **,
 		    struct vtnet_tx_header *);
 static int	vtnet_txq_encap(struct vtnet_txq *, struct mbuf **);
-#ifdef VTNET_LEGACY_TX
+
 static void	vtnet_start_locked(struct vtnet_txq *, struct ifnet *);
 static void	vtnet_start(struct ifnet *);
-#else
+
 static int	vtnet_txq_mq_start_locked(struct vtnet_txq *, struct mbuf *);
 static int	vtnet_txq_mq_start(struct ifnet *, struct mbuf *);
 static void	vtnet_txq_tq_deferred(void *, int);
-#endif
+
 static void	vtnet_txq_start(struct vtnet_txq *);
 static void	vtnet_txq_tq_intr(void *, int);
 static int	vtnet_txq_eof(struct vtnet_txq *);
 static void	vtnet_tx_vq_intr(void *);
 static void	vtnet_tx_start_all(struct vtnet_softc *);
 
-#ifndef VTNET_LEGACY_TX
 static void	vtnet_qflush(struct ifnet *);
-#endif
 
 static int	vtnet_watchdog(struct vtnet_txq *);
 static void	vtnet_rxq_accum_stats(struct vtnet_rxq *,
@@ -922,16 +920,16 @@ vtnet_setup_interface(struct vtnet_softc *sc)
 	ifp->if_init = vtnet_init;
 	ifp->if_ioctl = vtnet_ioctl;
 
-#ifndef VTNET_LEGACY_TX
+
 	ifp->if_transmit = vtnet_txq_mq_start;
 	ifp->if_qflush = vtnet_qflush;
-#else
+
 	struct virtqueue *vq = sc->vtnet_txqs[0].vtntx_vq;
 	ifp->if_start = vtnet_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, virtqueue_size(vq) - 1);
 	ifp->if_snd.ifq_drv_maxlen = virtqueue_size(vq) - 1;
 	IFQ_SET_READY(&ifp->if_snd);
-#endif
+
 
 	ifmedia_init(&sc->vtnet_media, IFM_IMASK, vtnet_ifmedia_upd,
 	    vtnet_ifmedia_sts);
@@ -2209,7 +2207,7 @@ fail:
 	return (error);
 }
 
-#ifdef VTNET_LEGACY_TX
+
 
 static void
 vtnet_start_locked(struct vtnet_txq *txq, struct ifnet *ifp)
@@ -2275,7 +2273,7 @@ vtnet_start(struct ifnet *ifp)
 	VTNET_TXQ_UNLOCK(txq);
 }
 
-#else /* !VTNET_LEGACY_TX */
+
 
 static int
 vtnet_txq_mq_start_locked(struct vtnet_txq *txq, struct mbuf *m)
@@ -2387,7 +2385,7 @@ vtnet_txq_tq_deferred(void *xtxq, int pending)
 	VTNET_TXQ_UNLOCK(txq);
 }
 
-#endif /* VTNET_LEGACY_TX */
+
 
 static void
 vtnet_txq_start(struct vtnet_txq *txq)
@@ -2398,13 +2396,13 @@ vtnet_txq_start(struct vtnet_txq *txq)
 	sc = txq->vtntx_sc;
 	ifp = sc->vtnet_ifp;
 
-#ifdef VTNET_LEGACY_TX
+
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		vtnet_start_locked(txq, ifp);
-#else
+
 	if (!drbr_empty(ifp, txq->vtntx_br))
 		vtnet_txq_mq_start_locked(txq, NULL);
-#endif
+
 }
 
 static void
