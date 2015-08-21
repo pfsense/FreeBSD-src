@@ -1,4 +1,3 @@
-include		DEFAULTS
 include		GENERIC
 
 options		KDB
