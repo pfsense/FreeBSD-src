@@ -1,0 +1,8 @@
+FreeBSD: { enabled: no }
+
+%%PRODUCT_NAME%%: {
+  url: "%%PKG_REPO_SERVER%%/%%PRODUCT_NAME%%_%%PFSENSETAG%%_%%ARCH%%-%%PRODUCT_NAME%%_%%PFSENSETAG%%",
+  mirror_type: "srv",
+  signature_type: "none",
+  enabled: yes
+}
