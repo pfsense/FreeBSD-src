@@ -1,17 +1,17 @@
 include		GENERIC
 
 nooptions	KDB_TRACE
-options		DDB                     # Support DDB.
+options		DDB		# Support DDB.
 
 nomakeoptions	DEBUG
 
 ident		pfSense_SMP-10
 
-nooptions	MAC                     # TrustedBSD MAC Framework
-nooptions	COMPAT_FREEBSD4         # Compatible with FreeBSD4
-nooptions	COMPAT_FREEBSD5         # Compatible with FreeBSD5
-nooptions	COMPAT_FREEBSD6         # Compatible with FreeBSD6
-nooptions	COMPAT_FREEBSD7         # Compatible with FreeBSD7
+nooptions	MAC		# TrustedBSD MAC Framework
+nooptions	COMPAT_FREEBSD4	# Compatible with FreeBSD4
+nooptions	COMPAT_FREEBSD5	# Compatible with FreeBSD5
+nooptions	COMPAT_FREEBSD6	# Compatible with FreeBSD6
+nooptions	COMPAT_FREEBSD7	# Compatible with FreeBSD7
 
 options		GEOM_MIRROR
 options		GEOM_UZIP
