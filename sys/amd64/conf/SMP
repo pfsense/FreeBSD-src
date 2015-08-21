@@ -57,7 +57,6 @@ device		rsufw
 device		run		# Ralink RT2700U/RT2800U/RT3000U USB 802.11agn
 device		runfw
 device		rue
-#device		uether
 device		urtwn
 device		urtwnfw
 
@@ -77,7 +76,6 @@ device		ufoma
 device		ucom
 device		uslcom
 device		uplcom
-#device		ubsa
 device		umct
 device		uvisor
 device		uark
