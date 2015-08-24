@@ -5,7 +5,7 @@ options		DDB		# Support DDB.
 
 nomakeoptions	DEBUG
 
-ident		PFSENSE
+ident		pfSense
 
 nooptions	MAC		# TrustedBSD MAC Framework
 nooptions	COMPAT_FREEBSD4	# Compatible with FreeBSD4

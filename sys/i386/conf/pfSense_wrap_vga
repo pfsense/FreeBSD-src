@@ -5,7 +5,7 @@ options		DDB		# Support DDB.
 
 nomakeoptions	DEBUG
 
-ident		PFSENSE_WRAP
+ident		pfSense_wrap_vga
 
 nooptions	MAC		# TrustedBSD MAC Framework
 nooptions	COMPAT_FREEBSD4	# Compatible with FreeBSD4
@@ -31,20 +31,6 @@ options		PPS_SYNC
 
 # Bus support.  Do not remove isa, even if you have no isa slots
 device		isa
-
-# VGA
-nodevice	vga			# VGA video card driver
-nooptions 	VESA			# Add support for VESA BIOS Extensions (VBE)
-
-nodevice	splash			# Splash screen and screen saver support
-
-# syscons is the default console driver, resembling an SCO console
-nodevice	sc
-nooptions 	SC_PIXEL_MODE		# add support for the raster text mode
-
-# vt is the new video console driver
-nodevice	vt
-nodevice	vt_vga
 
 # Wireless
 nooptions	IEEE80211_DEBUG	# enable debug msgs
