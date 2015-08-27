@@ -106,7 +106,7 @@ pfi_initialize(void)
 	struct ifnet *ifp;
 	struct pfi_kif *kif;
 
-	V_pfi_buffer_max = 1024;
+	V_pfi_buffer_max = 64;
 	V_pfi_buffer = malloc(V_pfi_buffer_max * sizeof(*V_pfi_buffer),
 	    PFI_MTYPE, M_WAITOK);
 
