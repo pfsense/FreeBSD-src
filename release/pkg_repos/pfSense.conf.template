@@ -1,5 +1,12 @@
 FreeBSD: { enabled: no }
 
+%%PRODUCT_NAME%%-core: {
+  url: "%%PKG_REPO_SERVER%%/%%PRODUCT_NAME%%_%%GIT_REPO_BRANCH_OR_TAG%%_%%ARCH%%-core",
+  mirror_type: "srv",
+  signature_type: "none",
+  enabled: yes
+}
+
 %%PRODUCT_NAME%%: {
   url: "%%PKG_REPO_SERVER%%/%%PRODUCT_NAME%%_%%GIT_REPO_BRANCH_OR_TAG%%_%%ARCH%%-%%PRODUCT_NAME%%_%%GIT_REPO_BRANCH_OR_TAG%%",
   mirror_type: "srv",
