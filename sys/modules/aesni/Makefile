@@ -15,13 +15,5 @@ aesni_wrap.o: aesni_wrap.c
 	     -mmmx -msse -maes ${.IMPSRC}
 	${CTFCONVERT_CMD}
 
-.if ${MACHINE_CPUARCH} == "amd64"
-OBJS+=	aesni_ghash.o
-aesni_ghash.o: aesni_ghash.c
-	${CC} -c ${CFLAGS:C/^-O2$/-O3/:N-nostdinc} ${WERROR} ${PROF} \
-	     -mmmx -mpclmul -msse -msse4.1 -maes ${.IMPSRC}
-	${CTFCONVERT_CMD}
-.endif
-
 .include <bsd.kmod.mk>
 

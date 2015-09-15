@@ -176,6 +176,10 @@ aesni_decrypt_ecb(int rounds, const void *key_schedule, size_t len,
 	}
 }
 
+#define	AES_XTS_BLOCKSIZE	16
+#define	AES_XTS_IVSIZE		8
+#define	AES_XTS_ALPHA		0x87	/* GF(2^128) generator polynomial */
+
 static inline __m128i
 xts_crank_lfsr(__m128i inp)
 {
@@ -343,23 +347,6 @@ aesni_cipher_setup_common(struct aesni_session *ses, const uint8_t *key,
 			ses->rounds = AES256_ROUNDS;
 			break;
 		default:
-			printf("invalid CBC/GCM key length");
-			return (EINVAL);
-		}
-		break;
-	case CRYPTO_AES_RFC4106_GCM_16:
-		switch (keylen) {
-		case 160:
-			ses->rounds = AES128_ROUNDS;
-			break;
-		case 224:
-			ses->rounds = AES192_ROUNDS;
-			break;
-		case 288:
-			ses->rounds = AES256_ROUNDS;
-			break;
-		default:
-			printf("invalid CBC/GCM key length");
 			return (EINVAL);
 		}
 		break;
@@ -372,7 +359,6 @@ aesni_cipher_setup_common(struct aesni_session *ses, const uint8_t *key,
 			ses->rounds = AES256_ROUNDS;
 			break;
 		default:
-			printf("invalid XTS key length");
 			return (EINVAL);
 		}
 		break;
@@ -382,20 +368,11 @@ aesni_cipher_setup_common(struct aesni_session *ses, const uint8_t *key,
 
 	aesni_set_enckey(key, ses->enc_schedule, ses->rounds);
 	aesni_set_deckey(ses->enc_schedule, ses->dec_schedule, ses->rounds);
-
-	/* setup IV */
-	switch (ses->algo) {
-	case CRYPTO_AES_CBC:
-		/* Nothing todo */
-		break;
-	case CRYPTO_AES_RFC4106_GCM_16:
-		bcopy(key + ((keylen - 32) / 8), ses->nonce, AESCTR_NONCESIZE);
-		arc4rand((void *)&ses->aesgcmcounter, sizeof(uint64_t), 0);
-                break;
-	case CRYPTO_AES_XTS:
+	if (ses->algo == CRYPTO_AES_CBC)
+		arc4rand(ses->iv, sizeof(ses->iv), 0);
+	else /* if (ses->algo == CRYPTO_AES_XTS) */ {
 		aesni_set_enckey(key + keylen / 16, ses->xts_schedule,
 		    ses->rounds);
-		break;
 	}
 
 	return (0);

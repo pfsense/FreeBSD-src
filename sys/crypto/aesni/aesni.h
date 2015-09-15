@@ -56,9 +56,7 @@ struct aesni_session {
 	uint8_t enc_schedule[AES_SCHED_LEN] __aligned(16);
 	uint8_t dec_schedule[AES_SCHED_LEN] __aligned(16);
 	uint8_t xts_schedule[AES_SCHED_LEN] __aligned(16);
-	/* AES-GCM needs a counter hence the separated enc/dec IV */
-        uint8_t nonce[4];
-        volatile uint64_t aesgcmcounter;
+	uint8_t iv[AES_BLOCK_LEN];
 	int algo;
 	int rounds;
 	/* uint8_t *ses_ictx; */
@@ -66,6 +64,7 @@ struct aesni_session {
 	/* int ses_mlen; */
 	int used;
 	uint32_t id;
+	TAILQ_ENTRY(aesni_session) next;
 	struct fpu_kern_ctx *fpu_ctx;
 };
 
@@ -96,16 +95,6 @@ void aesni_encrypt_xts(int rounds, const void *data_schedule /*__aligned(16)*/,
 void aesni_decrypt_xts(int rounds, const void *data_schedule /*__aligned(16)*/,
     const void *tweak_schedule /*__aligned(16)*/, size_t len,
     const uint8_t *from, uint8_t *to, const uint8_t iv[AES_BLOCK_LEN]);
-
-/* GCM & GHASH functions */
-void AES_GCM_encrypt(const unsigned char *in, unsigned char *out,
-    const unsigned char *addt, const unsigned char *ivec,
-    unsigned char *tag, int nbytes, int abytes, int ibytes,
-    const unsigned char *key, int nr);
-int AES_GCM_decrypt(const unsigned char *in, unsigned char *out,
-    const unsigned char *addt, const unsigned char *ivec,
-    unsigned char *tag, int nbytes, int abytes, int ibytes,
-    const unsigned char *key, int nr);
 
 int aesni_cipher_setup_common(struct aesni_session *ses, const uint8_t *key,
     int keylen);
