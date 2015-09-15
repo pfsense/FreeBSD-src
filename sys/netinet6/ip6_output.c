@@ -147,7 +147,6 @@ static int ip6_getpmtu(struct route_in6 *, struct route_in6 *,
 	struct ifnet *, struct in6_addr *, u_long *, int *, u_int);
 static int copypktopts(struct ip6_pktopts *, struct ip6_pktopts *, int);
 
-#define		V_ipipsec_in_use	VNET(ipipsec_in_use)
 
 /*
  * Make an extension header from option data.  hp is the source, and
@@ -346,21 +345,19 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt,
 	}
 
 #ifdef IPSEC
-	if (V_ipipsec_in_use) {
-		/*
-		 * IPSec checking which handles several cases.
-		 * FAST IPSEC: We re-injected the packet.
-		 */
-		switch(ip6_ipsec_output(&m, inp, &flags, &error, &ifp))
-		{
-		case 1:                 /* Bad packet */
-			goto freehdrs;
-		case -1:                /* IPSec done */
-			goto done;
-		case 0:                 /* No IPSec */
-		default:
-			break;
-		}
+	/*
+	 * IPSec checking which handles several cases.
+	 * FAST IPSEC: We re-injected the packet.
+	 */
+	switch(ip6_ipsec_output(&m, inp, &flags, &error, &ifp))
+	{
+	case 1:                 /* Bad packet */
+		goto freehdrs;
+	case -1:                /* IPSec done */
+		goto done;
+	case 0:                 /* No IPSec */
+	default:
+		break;
 	}
 #endif /* IPSEC */
 
@@ -1725,21 +1722,19 @@ do { \
 #ifdef IPSEC
 			case IPV6_IPSEC_POLICY:
 			{
-				if (V_ipipsec_in_use) {
-					caddr_t req;
-					struct mbuf *m;
+				caddr_t req;
+				struct mbuf *m;
 
-					if ((error = soopt_getm(sopt, &m)) != 0) /* XXX */
-						break;
-					if ((error = soopt_mcopyin(sopt, m)) != 0) /* XXX */
-						break;
-					req = mtod(m, caddr_t);
-					error = ipsec_set_policy(in6p, optname, req,
-					    m->m_len, (sopt->sopt_td != NULL) ?
-					    sopt->sopt_td->td_ucred : NULL);
-					m_freem(m);
+				if ((error = soopt_getm(sopt, &m)) != 0) /* XXX */
 					break;
-				}
+				if ((error = soopt_mcopyin(sopt, m)) != 0) /* XXX */
+					break;
+				req = mtod(m, caddr_t);
+				error = ipsec_set_policy(in6p, optname, req,
+				    m->m_len, (sopt->sopt_td != NULL) ?
+				    sopt->sopt_td->td_ucred : NULL);
+				m_freem(m);
+				break;
 			}
 #endif /* IPSEC */
 
@@ -1938,33 +1933,31 @@ do { \
 #ifdef IPSEC
 			case IPV6_IPSEC_POLICY:
 			  {
-				if (V_ipipsec_in_use) {
-					caddr_t req = NULL;
-					size_t len = 0;
-					struct mbuf *m = NULL;
-					struct mbuf **mp = &m;
-					size_t ovalsize = sopt->sopt_valsize;
-					caddr_t oval = (caddr_t)sopt->sopt_val;
+				caddr_t req = NULL;
+				size_t len = 0;
+				struct mbuf *m = NULL;
+				struct mbuf **mp = &m;
+				size_t ovalsize = sopt->sopt_valsize;
+				caddr_t oval = (caddr_t)sopt->sopt_val;
 
-					error = soopt_getm(sopt, &m); /* XXX */
-					if (error != 0)
-						break;
-					error = soopt_mcopyin(sopt, m); /* XXX */
-					if (error != 0)
-						break;
-					sopt->sopt_valsize = ovalsize;
-					sopt->sopt_val = oval;
-					if (m) {
-						req = mtod(m, caddr_t);
-						len = m->m_len;
-					}
-					error = ipsec_get_policy(in6p, req, len, mp);
-					if (error == 0)
-						error = soopt_mcopyout(sopt, m); /* XXX */
-					if (error == 0 && m)
-						m_freem(m);
+				error = soopt_getm(sopt, &m); /* XXX */
+				if (error != 0)
 					break;
+				error = soopt_mcopyin(sopt, m); /* XXX */
+				if (error != 0)
+					break;
+				sopt->sopt_valsize = ovalsize;
+				sopt->sopt_val = oval;
+				if (m) {
+					req = mtod(m, caddr_t);
+					len = m->m_len;
 				}
+				error = ipsec_get_policy(in6p, req, len, mp);
+				if (error == 0)
+					error = soopt_mcopyout(sopt, m); /* XXX */
+				if (error == 0 && m)
+					m_freem(m);
+				break;
 			  }
 #endif /* IPSEC */
 
