@@ -47,6 +47,8 @@ OLD_FILES+=usr/include/netinet6/in6_gif.h
 OLD_FILES+=usr/tests/sbin/mdconfig/legacy_test
 OLD_FILES+=usr/tests/sbin/mdconfig/mdconfig.test
 OLD_FILES+=usr/tests/sbin/mdconfig/run.pl
+# 20141126: remove xform_ipip decapsulation fallback
+OLD_FILES+=usr/include/netipsec/ipip_var.h
 # 20141107: overhaul if_gre(4)
 OLD_FILES+=usr/include/netinet/ip_gre.h
 # 20141028: debug files accidentally installed as directory name
