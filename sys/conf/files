@@ -3266,6 +3266,7 @@ libkern/asprintf.c		standard
 libkern/bcd.c			standard
 libkern/bsearch.c		standard
 libkern/crc32.c			standard
+libkern/explicit_bzero.c	standard
 libkern/flsll.c                 standard
 libkern/fnmatch.c		standard
 libkern/iconv.c			optional libiconv

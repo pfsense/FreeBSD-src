@@ -92,6 +92,7 @@ FBSD_1.1 {
 };
 
 FBSD_1.3 {
+	explicit_bzero;
 	strcasecmp_l;
 	strcasestr_l;
 	strchrnul;
