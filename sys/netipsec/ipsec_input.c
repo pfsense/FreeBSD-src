@@ -353,9 +353,9 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 	encif->if_ibytes += m->m_pkthdr.len;
 
 	/* Pass the mbuf to enc0 for bpf and pfil. */
-	ipsec_bpf(m, sav, AF_INET, saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE);
+	ipsec_bpf(m, sav, AF_INET, ENC_IN|ENC_BEFORE);
 	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE)) != 0)
+	    ENC_IN|ENC_BEFORE)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 
@@ -657,9 +657,9 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip, int proto
 	encif->if_ibytes += m->m_pkthdr.len;
 
 	/* Pass the mbuf to enc0 for bpf and pfil. */
-	ipsec_bpf(m, sav, AF_INET6, saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE);
+	ipsec_bpf(m, sav, AF_INET6, ENC_IN|ENC_BEFORE);
 	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE)) != 0)
+	    ENC_IN|ENC_BEFORE)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 
