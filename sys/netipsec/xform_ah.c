@@ -565,6 +565,7 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 static int
 ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 {
+	char buf[128];
 	struct auth_hash *ahx;
 	struct tdb_crypto *tc;
 	struct newah *ah;
@@ -594,7 +595,7 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	if (sav->replay && !ipsec_chkreplay(ntohl(ah->ah_seq), sav)) {
 		AHSTAT_INC(ahs_replay);
 		DPRINTF(("%s: packet replay failure: %s\n", __func__,
-			  ipsec_logsastr(sav)));
+		    ipsec_logsastr(sav, buf, sizeof(buf))));
 		m_freem(m);
 		return ENOBUFS;
 	}
@@ -605,10 +606,10 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	authsize = AUTHSIZE(sav);
 	if (hl != authsize + rplen - sizeof (struct ah)) {
 		DPRINTF(("%s: bad authenticator length %u (expecting %lu)"
-			" for packet in SA %s/%08lx\n", __func__,
-			hl, (u_long) (authsize + rplen - sizeof (struct ah)),
-			ipsec_address(&sav->sah->saidx.dst),
-			(u_long) ntohl(sav->spi)));
+		    " for packet in SA %s/%08lx\n", __func__, hl,
+		    (u_long) (authsize + rplen - sizeof (struct ah)),
+		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
+		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_badauthl);
 		m_freem(m);
 		return EACCES;
@@ -693,6 +694,7 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 static int
 ah_input_cb(struct cryptop *crp)
 {
+	char buf[INET6_ADDRSTRLEN];
 	int rplen, error, skip, protoff;
 	unsigned char calc[AH_ALEN_MAX];
 	struct mbuf *m;
@@ -762,7 +764,7 @@ ah_input_cb(struct cryptop *crp)
 	if (bcmp(ptr + skip + rplen, calc, authsize)) {
 		DPRINTF(("%s: authentication hash mismatch for packet "
 		    "in SA %s/%08lx\n", __func__,
-		    ipsec_address(&saidx->dst),
+		    ipsec_address(&saidx->dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_badauth);
 		error = EACCES;
@@ -801,8 +803,8 @@ ah_input_cb(struct cryptop *crp)
 	error = m_striphdr(m, skip, rplen + authsize);
 	if (error) {
 		DPRINTF(("%s: mangled mbuf chain for SA %s/%08lx\n", __func__,
-		    ipsec_address(&saidx->dst), (u_long) ntohl(sav->spi)));
-
+		    ipsec_address(&saidx->dst, buf, sizeof(buf)),
+		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_hdrops);
 		goto bad;
 	}
@@ -841,13 +843,10 @@ bad:
  * AH output routine, called by ipsec[46]_process_packet().
  */
 static int
-ah_output(
-	struct mbuf *m,
-	struct ipsecrequest *isr,
-	struct mbuf **mp,
-	int skip,
-	int protoff)
+ah_output(struct mbuf *m, struct ipsecrequest *isr, struct mbuf **mp,
+    int skip, int protoff)
 {
+	char buf[INET6_ADDRSTRLEN];
 	struct secasvar *sav;
 	struct auth_hash *ahx;
 	struct cryptodesc *crda;
@@ -885,7 +884,7 @@ ah_output(
 		DPRINTF(("%s: unknown/unsupported protocol family %u, "
 		    "SA %s/%08lx\n", __func__,
 		    sav->sah->saidx.dst.sa.sa_family,
-		    ipsec_address(&sav->sah->saidx.dst),
+		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_nopf);
 		error = EPFNOSUPPORT;
@@ -895,7 +894,7 @@ ah_output(
 	if (rplen + authsize + m->m_pkthdr.len > maxpacketsize) {
 		DPRINTF(("%s: packet in SA %s/%08lx got too big "
 		    "(len %u, max len %u)\n", __func__,
-		    ipsec_address(&sav->sah->saidx.dst),
+		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi),
 		    rplen + authsize + m->m_pkthdr.len, maxpacketsize));
 		AHSTAT_INC(ahs_toobig);
@@ -909,7 +908,7 @@ ah_output(
 	m = m_unshare(m, M_NOWAIT);
 	if (m == NULL) {
 		DPRINTF(("%s: cannot clone mbuf chain, SA %s/%08lx\n", __func__,
-		    ipsec_address(&sav->sah->saidx.dst),
+		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_hdrops);
 		error = ENOBUFS;
@@ -922,7 +921,7 @@ ah_output(
 		DPRINTF(("%s: failed to inject %u byte AH header for SA "
 		    "%s/%08lx\n", __func__,
 		    rplen + authsize,
-		    ipsec_address(&sav->sah->saidx.dst),
+		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_hdrops);		/*XXX differs from openbsd */
 		error = ENOBUFS;
@@ -949,9 +948,8 @@ ah_output(
 		if (sav->replay->count == ~0 &&
 		    (sav->flags & SADB_X_EXT_CYCSEQ) == 0) {
 			DPRINTF(("%s: replay counter wrapped for SA %s/%08lx\n",
-				__func__,
-				ipsec_address(&sav->sah->saidx.dst),
-				(u_long) ntohl(sav->spi)));
+			    __func__, ipsec_address(&sav->sah->saidx.dst, buf,
+			    sizeof(buf)), (u_long) ntohl(sav->spi)));
 			AHSTAT_INC(ahs_wrap);
 			error = EINVAL;
 			goto bad;

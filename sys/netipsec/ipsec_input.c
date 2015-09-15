@@ -120,6 +120,7 @@ static void ipsec4_common_ctlinput(int, struct sockaddr *, void *, int);
 static int
 ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto)
 {
+	char buf[INET6_ADDRSTRLEN];
 	union sockaddr_union dst_address;
 	struct secasvar *sav;
 	u_int32_t spi;
@@ -214,8 +215,8 @@ ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto)
 	sav = KEY_ALLOCSA(&dst_address, sproto, spi);
 	if (sav == NULL) {
 		DPRINTF(("%s: no key association found for SA %s/%08lx/%u\n",
-			  __func__, ipsec_address(&dst_address),
-			  (u_long) ntohl(spi), sproto));
+		    __func__, ipsec_address(&dst_address, buf, sizeof(buf)),
+		    (u_long) ntohl(spi), sproto));
 		IPSEC_ISTAT(sproto, notdb);
 		m_freem(m);
 		return ENOENT;
@@ -223,8 +224,8 @@ ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto)
 
 	if (sav->tdb_xform == NULL) {
 		DPRINTF(("%s: attempted to use uninitialized SA %s/%08lx/%u\n",
-			 __func__, ipsec_address(&dst_address),
-			 (u_long) ntohl(spi), sproto));
+		    __func__, ipsec_address(&dst_address, buf, sizeof(buf)),
+		    (u_long) ntohl(spi), sproto));
 		IPSEC_ISTAT(sproto, noxform);
 		KEY_FREESAV(&sav);
 		m_freem(m);
@@ -301,6 +302,7 @@ int
 ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
     int protoff)
 {
+	char buf[INET6_ADDRSTRLEN];
 	int prot, af, sproto, isr_prot;
 	struct ip *ip;
 	struct m_tag *mtag;
@@ -339,8 +341,8 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 		 */
 		if (m->m_len < skip && (m = m_pullup(m, skip)) == NULL) {
 			DPRINTF(("%s: processing failed for SA %s/%08lx\n",
-			    __func__, ipsec_address(&sav->sah->saidx.dst),
-			    (u_long) ntohl(sav->spi)));
+			    __func__, ipsec_address(&sav->sah->saidx.dst,
+			    buf, sizeof(buf)), (u_long) ntohl(sav->spi)));
 			IPSEC_ISTAT(sproto, hdrops);
 			error = ENOBUFS;
 			goto bad;
@@ -596,6 +598,7 @@ int
 ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
     int protoff)
 {
+	char buf[INET6_ADDRSTRLEN];
 	int prot, af, sproto;
 	struct ip6_hdr *ip6;
 	struct m_tag *mtag;
@@ -632,8 +635,8 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 	    (m = m_pullup(m, sizeof(struct ip6_hdr))) == NULL) {
 
 		DPRINTF(("%s: processing failed for SA %s/%08lx\n",
-		    __func__, ipsec_address(&sav->sah->saidx.dst),
-		    (u_long) ntohl(sav->spi)));
+		    __func__, ipsec_address(&sav->sah->saidx.dst, buf,
+		    sizeof(buf)), (u_long) ntohl(sav->spi)));
 
 		IPSEC_ISTAT(sproto, hdrops);
 		error = EACCES;
