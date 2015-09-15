@@ -1345,6 +1345,10 @@ _texinfo=	gnu/usr.bin/texinfo/libtxi \
 ${_bt}-gnu/usr.bin/texinfo/install-info: ${_bt}-gnu/usr.bin/texinfo/libtxi
 ${_bt}-gnu/usr.bin/texinfo/makeinfo: ${_bt}-gnu/usr.bin/texinfo/libtxi
 .endif
+
+# Rebuild up-to-date libmd for xinstall
+${_bt}-usr.bin/xinstall: ${_bt}-lib/libmd
+
 bootstrap-tools: .PHONY
 
 #	Please document (add comment) why something is in 'bootstrap-tools'.
