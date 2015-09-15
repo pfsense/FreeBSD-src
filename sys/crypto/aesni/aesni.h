@@ -61,10 +61,9 @@ struct aesni_session {
         volatile uint64_t aesgcmcounter;
 	int algo;
 	int rounds;
-	struct auth_hash *ses_axf;
-	uint8_t *ses_ictx;
-	uint8_t *ses_octx;
-	int ses_mlen;
+	/* uint8_t *ses_ictx; */
+	/* uint8_t *ses_octx; */
+	/* int ses_mlen; */
 	int used;
 	uint32_t id;
 	struct fpu_kern_ctx *fpu_ctx;
@@ -112,11 +111,5 @@ int aesni_cipher_setup_common(struct aesni_session *ses, const uint8_t *key,
     int keylen);
 uint8_t *aesni_cipher_alloc(struct cryptodesc *enccrd, struct cryptop *crp,
     int *allocated);
-
-int aesni_hash_setup(struct aesni_session *ses,
-	struct cryptoini *authini);
-int aesni_hash_process(struct aesni_session *ses,
-	struct cryptodesc *authcrd, struct cryptop *crp);
-void aesni_hash_free(struct aesni_session *ses);
 
 #endif /* _AESNI_H_ */

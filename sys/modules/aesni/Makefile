@@ -3,7 +3,7 @@
 .PATH: ${.CURDIR}/../../crypto/aesni
 
 KMOD=	aesni
-SRCS=	aesni.c aesni_hash.c
+SRCS=	aesni.c
 SRCS+=	aeskeys_${MACHINE_CPUARCH}.S
 SRCS+=	device_if.h bus_if.h opt_bus.h cryptodev_if.h
 
