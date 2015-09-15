@@ -61,7 +61,6 @@ struct pfkeystat {
 #define KEY_SENDUP_ONE		0
 #define KEY_SENDUP_ALL		1
 #define KEY_SENDUP_REGISTERED	2
-#define KEY_SENDUP_ONESHOT	3
 
 #ifdef _KERNEL
 #include <sys/counter.h>

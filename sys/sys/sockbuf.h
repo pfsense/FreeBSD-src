@@ -122,10 +122,6 @@ struct	sockbuf {
 
 void	sbappend(struct sockbuf *sb, struct mbuf *m);
 void	sbappend_locked(struct sockbuf *sb, struct mbuf *m);
-int	sbappendaddrchain(struct sockbuf *sb, const struct sockaddr *asa,
-		struct mbuf *m0);
-int	sbappendaddrchain_locked(struct sockbuf *sb, const struct sockaddr *asa,
-		struct mbuf *m0);
 void	sbappendstream(struct sockbuf *sb, struct mbuf *m);
 void	sbappendstream_locked(struct sockbuf *sb, struct mbuf *m);
 int	sbappendaddr(struct sockbuf *sb, const struct sockaddr *asa,

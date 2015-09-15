@@ -439,17 +439,14 @@ sblastmbufchk(struct sockbuf *sb, const char *file, int line)
 }
 #endif /* SOCKBUF_DEBUG */
 
-#define SBLINKRECORDCHAIN(sb, m0, mlast) do {				\
+#define SBLINKRECORD(sb, m0) do {					\
 	SOCKBUF_LOCK_ASSERT(sb);					\
 	if ((sb)->sb_lastrecord != NULL)				\
 		(sb)->sb_lastrecord->m_nextpkt = (m0);			\
 	else								\
 		(sb)->sb_mb = (m0);					\
-	(sb)->sb_lastrecord = (mlast);					\
+	(sb)->sb_lastrecord = (m0);					\
 } while (/*CONSTCOND*/0)
-
-#define SBLINKRECORD(sb, m0) \
-       SBLINKRECORDCHAIN(sb, m0, m0)
 
 /*
  * Append mbuf chain m to the last record in the socket buffer sb.  The
@@ -714,74 +711,6 @@ sbappendaddr(struct sockbuf *sb, const struct sockaddr *asa,
 
 	SOCKBUF_LOCK(sb);
 	retval = sbappendaddr_locked(sb, asa, m0, control);
-	SOCKBUF_UNLOCK(sb);
-	return (retval);
-}
-
-int
-sbappendaddrchain_locked(sb, asa, m0)
-	struct sockbuf *sb;
-	const struct sockaddr *asa;
-	struct mbuf *m0;
-{
-	struct mbuf *m, *n, *n0, *nlast, *np;
-
-	SOCKBUF_LOCK_ASSERT(sb);
-
-#if MSIZE <= 256
-	if (asa->sa_len > MLEN)
-		return (0);
-#endif
-
-	n0 = np = nlast = NULL;
-	for (m = m0; m; m = m->m_nextpkt) {
-		MGET(n, M_DONTWAIT, MT_SONAME);
-		if (n == NULL)
-			goto outofmem;
-		n->m_len = asa->sa_len;
-		bcopy(asa, mtod(n, caddr_t), asa->sa_len);
-		n->m_next = m;
-
-		if (n0 == NULL)
-			n0 = n;
-		else
-			nlast->m_nextpkt = n;
-		nlast = n;
-
-		for (np = n; np->m_next; np = np->m_next)
-			sballoc(sb, np);
-		sballoc(sb, np);
-	}
-
-	SBLINKRECORDCHAIN(sb, n0, nlast);
-
-	sb->sb_mbtail = np;
-	SBLASTMBUFCHK(sb);
-
-	SBLASTRECORDCHK(sb);
-	return (1);
-
-outofmem:
-	while ((n = n0) != NULL) {
-		for (np = n; np; np = np->m_next)
-			sbfree(sb, np);
-
-		n0 = n->m_nextpkt;
-		m_free(n);
-	}
-	return (0);
-}
-
-int
-sbappendaddrchain(sb, asa, m0)
-	struct sockbuf *sb;
-	const struct sockaddr *asa;
-	struct mbuf *m0;
-{
-	int retval;
-
-	SOCKBUF_LOCK(sb);
-	retval = sbappendaddrchain_locked(sb, asa, m0);
 	SOCKBUF_UNLOCK(sb);
 	return (retval);
 }

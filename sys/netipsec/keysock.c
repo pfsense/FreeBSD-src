@@ -284,16 +284,6 @@ key_sendup_mbuf(struct socket *so, struct mbuf *m, int target)
 		msg = mtod(m, struct sadb_msg *);
 		PFKEYSTAT_INC(in_msgtype[msg->sadb_msg_type]);
 	}
-	if (target == KEY_SENDUP_ONESHOT) {
-		rp = sotorawcb(so);
-		if (!sbappendaddrchain(&rp->rcb_socket->so_rcv,
-					(struct sockaddr *) &key_src, m)) {
-			m_freem(m);
-			error = ENOBUFS;
-		}
-		sorwakeup(rp->rcb_socket);
-		return error;
-	}
 	mtx_lock(&rawcb_mtx);
 	LIST_FOREACH(rp, &V_rawcb_list, list)
 	{
@@ -349,7 +339,12 @@ key_sendup_mbuf(struct socket *so, struct mbuf *m, int target)
 			return ENOBUFS;
 		}
 
-		key_sendup0(rp, n, 0);
+		if ((error = key_sendup0(rp, n, 0)) != 0) {
+			m_freem(m);
+			mtx_unlock(&rawcb_mtx);
+			return error;
+		}
+
 		n = NULL;
 	}
 
