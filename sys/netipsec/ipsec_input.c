@@ -354,8 +354,7 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 
 	/* Pass the mbuf to enc0 for bpf and pfil. */
 	ipsec_bpf(m, sav, AF_INET, ENC_IN|ENC_BEFORE);
-	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    ENC_IN|ENC_BEFORE)) != 0)
+	if ((error = ipsec_filter(&m, PFIL_IN, ENC_IN|ENC_BEFORE)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 
@@ -499,8 +498,7 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 		ipsec_bpf(m, sav, AF_INET6, ENC_IN|ENC_AFTER);
 #endif
 
-	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    ENC_IN|ENC_AFTER)) != 0)
+	if ((error = ipsec_filter(&m, PFIL_IN, ENC_IN|ENC_AFTER)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 
@@ -655,8 +653,7 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip, int proto
 
 	/* Pass the mbuf to enc0 for bpf and pfil. */
 	ipsec_bpf(m, sav, AF_INET6, ENC_IN|ENC_BEFORE);
-	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    ENC_IN|ENC_BEFORE)) != 0)
+	if ((error = ipsec_filter(&m, PFIL_IN, ENC_IN|ENC_BEFORE)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 
@@ -785,8 +782,7 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip, int proto
 	if (prot == IPPROTO_IPV6)
 		ipsec_bpf(m, sav, AF_INET6, ENC_IN|ENC_AFTER);
 
-	if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN,
-	    ENC_IN|ENC_AFTER)) != 0)
+	if ((error = ipsec_filter(&m, PFIL_IN, ENC_IN|ENC_AFTER)) != 0)
 		return (error);
 #endif /* DEV_ENC */
 	/*
