@@ -45,7 +45,7 @@ randomdev_hash_init(struct randomdev_hash *context)
 
 /* Iterate the hash */
 void
-randomdev_hash_iterate(struct randomdev_hash *context, void *data, size_t size)
+randomdev_hash_iterate(struct randomdev_hash *context, const void *data, size_t size)
 {
 	SHA256_Update(&context->sha, data, size);
 }
@@ -64,7 +64,7 @@ randomdev_hash_finish(struct randomdev_hash *context, void *buf)
  * data. Use CBC mode for better avalanche.
  */
 void
-randomdev_encrypt_init(struct randomdev_key *context, void *data)
+randomdev_encrypt_init(struct randomdev_key *context, const void *data)
 {
 	rijndael_cipherInit(&context->cipher, MODE_CBC, NULL);
 	rijndael_makeKey(&context->key, DIR_ENCRYPT, KEYSIZE*8, data);
@@ -75,7 +75,7 @@ randomdev_encrypt_init(struct randomdev_key *context, void *data)
  * a multiple of BLOCKSIZE.
  */
 void
-randomdev_encrypt(struct randomdev_key *context, void *d_in, void *d_out, unsigned length)
+randomdev_encrypt(struct randomdev_key *context, const void *d_in, void *d_out, unsigned length)
 {
 	rijndael_blockEncrypt(&context->cipher, &context->key, d_in, length*8, d_out);
 }
