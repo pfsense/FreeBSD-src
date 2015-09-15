@@ -109,8 +109,7 @@ ip_ipsec_fwd(struct mbuf *m)
 	struct secpolicy *sp;
 	int error;
 
-	sp = ipsec_getpolicybyaddr(m, IPSEC_DIR_INBOUND,
-	    IP_FORWARDING, &error);
+	sp = ipsec_getpolicybyaddr(m, IPSEC_DIR_INBOUND, &error);
 	if (sp != NULL) {
 		/*
 		 * Check security policy against packet attributes.
@@ -141,8 +140,7 @@ ip_ipsec_input(struct mbuf *m, int nxt)
 	 * code - like udp/tcp/raw ip.
 	 */
 	if ((inetsw[ip_protox[nxt]].pr_flags & PR_LASTHDR) != 0) {
-		sp = ipsec_getpolicybyaddr(m, IPSEC_DIR_INBOUND,
-		    IP_FORWARDING, &error);
+		sp = ipsec_getpolicybyaddr(m, IPSEC_DIR_INBOUND, &error);
 		if (sp != NULL) {
 			/*
 			 * Check security policy against packet attributes.
@@ -184,7 +182,7 @@ ip_ipsec_mtu(struct mbuf *m, int mtu)
  * -1 = packet was reinjected and stop processing packet
  */
 int
-ip_ipsec_output(struct mbuf **m, struct inpcb *inp, int *flags, int *error)
+ip_ipsec_output(struct mbuf **m, struct inpcb *inp, int *error)
 {
 	struct secpolicy *sp;
 	/*
@@ -200,7 +198,7 @@ ip_ipsec_output(struct mbuf **m, struct inpcb *inp, int *flags, int *error)
 		*error = 0;
 		return (0);
 	}
-	sp = ipsec4_checkpolicy(*m, IPSEC_DIR_OUTBOUND, *flags, error, inp);
+	sp = ipsec4_checkpolicy(*m, IPSEC_DIR_OUTBOUND, error, inp);
 	/*
 	 * There are four return cases:
 	 *    sp != NULL	 	    apply IPsec policy
