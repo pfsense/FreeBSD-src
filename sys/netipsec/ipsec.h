@@ -299,7 +299,6 @@ VNET_DECLARE(int, ip4_esp_trans_deflev);
 VNET_DECLARE(int, ip4_esp_net_deflev);
 VNET_DECLARE(int, ip4_ah_trans_deflev);
 VNET_DECLARE(int, ip4_ah_net_deflev);
-VNET_DECLARE(int, ipsec_direct_dispatch);
 VNET_DECLARE(int, ip4_ah_offsetmask);
 VNET_DECLARE(int, ip4_ipsec_dfbit);
 VNET_DECLARE(int, ip4_ipsec_ecn);
@@ -313,7 +312,6 @@ VNET_DECLARE(int, crypto_support);
 #define	V_ip4_esp_net_deflev	VNET(ip4_esp_net_deflev)
 #define	V_ip4_ah_trans_deflev	VNET(ip4_ah_trans_deflev)
 #define	V_ip4_ah_net_deflev	VNET(ip4_ah_net_deflev)
-#define	V_ipsec_direct_dispatch	VNET(ipsec_direct_dispatch)
 #define	V_ip4_ah_offsetmask	VNET(ip4_ah_offsetmask)
 #define	V_ip4_ipsec_dfbit	VNET(ip4_ipsec_dfbit)
 #define	V_ip4_ipsec_ecn		VNET(ip4_ipsec_ecn)

@@ -330,13 +330,7 @@ _ipip_input(struct mbuf *m, int iphlen, struct ifnet *gifp)
 		panic("%s: bogus ip version %u", __func__, v>>4);
 	}
 
-	if (V_ipsec_direct_dispatch) {
-		if (netisr_dispatch(isr, m)) {	/* (0) on success. */
-			IPIPSTAT_INC(ipips_qfull);
-			DPRINTF(("%s: packet dropped because of full queue\n",
-				__func__));
-		}
-	} else if (netisr_queue(isr, m)) {	/* (0) on success. */
+	if (netisr_queue(isr, m)) {	/* (0) on success. */
 		IPIPSTAT_INC(ipips_qfull);
 		DPRINTF(("%s: packet dropped because of full queue\n",
 			__func__));

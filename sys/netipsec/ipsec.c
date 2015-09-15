@@ -110,7 +110,6 @@ VNET_PCPUSTAT_SYSINIT(ipsec4stat);
 VNET_PCPUSTAT_SYSUNINIT(ipsec4stat);
 #endif /* VIMAGE */
 
-VNET_DEFINE(int, ipsec_direct_dispatch) = 1;
 VNET_DEFINE(int, ip4_ah_offsetmask) = 0;	/* maybe IP_DF? */
 /* DF bit on encap. 0: clear 1: set 2: copy */
 VNET_DEFINE(int, ip4_ipsec_dfbit) = 0;
@@ -158,9 +157,6 @@ SYSCTL_VNET_INT(_net_inet_ipsec, IPSECCTL_DEF_AH_NETLEV, ah_net_deflev,
 SYSCTL_VNET_INT(_net_inet_ipsec, IPSECCTL_AH_CLEARTOS, ah_cleartos,
 	CTLFLAG_RW, &VNET_NAME(ah_cleartos), 0,
 	"If set clear type-of-service field when doing AH computation.");
-SYSCTL_VNET_INT(_net_inet_ipsec, OID_AUTO, directdispatch,
-	CTLFLAG_RW, &VNET_NAME(ipsec_direct_dispatch), 0,
-	"Use direct dispatching for incoming packets");
 SYSCTL_VNET_INT(_net_inet_ipsec, IPSECCTL_AH_OFFSETMASK, ah_offsetmask,
 	CTLFLAG_RW, &VNET_NAME(ip4_ah_offsetmask), 0,
 	"If not set clear offset field mask when doing AH computation.");

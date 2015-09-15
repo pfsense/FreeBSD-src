@@ -525,10 +525,7 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 		goto bad;
 	}
 
-	if (V_ipsec_direct_dispatch)
-		error = netisr_dispatch_src(isr_prot, (uintptr_t)sav->spi, m);
-	else
-		error = netisr_queue_src(isr_prot, (uintptr_t)sav->spi, m);
+	error = netisr_queue_src(isr_prot, (uintptr_t)sav->spi, m);
 	if (error) {
 		IPSEC_ISTAT(sproto, qfull);
 		DPRINTF(("%s: queue full; proto %u packet dropped\n",
