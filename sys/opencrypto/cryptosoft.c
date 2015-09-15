@@ -35,7 +35,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/random.h>
 #include <sys/kernel.h>
 #include <sys/uio.h>
-#include <sys/endian.h>
 
 #include <crypto/blowfish/blowfish.h>
 #include <crypto/sha1.h>
@@ -61,7 +60,6 @@ u_int8_t hmac_opad_buffer[HMAC_MAX_BLOCK_LEN];
 
 static	int swcr_encdec(struct cryptodesc *, struct swcr_data *, caddr_t, int);
 static	int swcr_authcompute(struct cryptodesc *, struct swcr_data *, caddr_t, int);
-static	int swcr_authenc(struct cryptop *crp);
 static	int swcr_compdec(struct cryptodesc *, struct swcr_data *, caddr_t, int);
 static	int swcr_freesession(device_t dev, u_int64_t tid);
 
@@ -88,21 +86,21 @@ swcr_encdec(struct cryptodesc *crd, struct swcr_data *sw, caddr_t buf,
 	if (crd->crd_flags & CRD_F_ENCRYPT) {
 		/* IV explicitly provided ? */
 		if (crd->crd_flags & CRD_F_IV_EXPLICIT)
-			bcopy(crd->crd_iv, iv, exf->ivsize);
+			bcopy(crd->crd_iv, iv, blks);
 		else
-			arc4rand(iv, exf->ivsize, 0);
+			arc4rand(iv, blks, 0);
 
 		/* Do we need to write the IV */
 		if (!(crd->crd_flags & CRD_F_IV_PRESENT))
-			crypto_copyback(flags, buf, crd->crd_inject, exf->ivsize, iv);
+			crypto_copyback(flags, buf, crd->crd_inject, blks, iv);
 
 	} else {	/* Decryption */
 			/* IV explicitly provided ? */
 		if (crd->crd_flags & CRD_F_IV_EXPLICIT)
-			bcopy(crd->crd_iv, iv, exf->ivsize);
+			bcopy(crd->crd_iv, iv, blks);
 		else {
 			/* Get IV off buf */
-			crypto_copydata(flags, buf, crd->crd_inject, exf->ivsize, iv);
+			crypto_copydata(flags, buf, crd->crd_inject, blks, iv);
 		}
 	}
 
@@ -581,165 +579,6 @@ swcr_authcompute(struct cryptodesc *crd, struct swcr_data *sw, caddr_t buf,
 }
 
 /*
- * Apply a combined encryption-authentication transformation
- */
-static int
-swcr_authenc(struct cryptop *crp)
-{
-	uint32_t blkbuf[howmany(EALG_MAX_BLOCK_LEN, sizeof(uint32_t))];
-	u_char *blk = (u_char *)blkbuf;
-	u_char aalg[AALG_MAX_RESULT_LEN];
-	u_char iv[EALG_MAX_BLOCK_LEN];
-	union authctx ctx;
-	struct cryptodesc *crd, *crda = NULL, *crde = NULL;
-	struct swcr_data *sw, *swa, *swe = NULL;
-	struct auth_hash *axf = NULL;
-	struct enc_xform *exf = NULL;
-	caddr_t buf = (caddr_t)crp->crp_buf;
-	uint32_t *blkp;
-	int aadlen, blksz, i, ivlen, len, iskip, oskip;
-
-	ivlen = blksz = iskip = oskip = 0;
-
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
-		for (sw = swcr_sessions[crp->crp_sid & 0xffffffff];
-		     sw && sw->sw_alg != crd->crd_alg;
-		     sw = sw->sw_next)
-			;
-		if (sw == NULL)
-			return (EINVAL);
-
-		switch (sw->sw_alg) {
-		case CRYPTO_AES_RFC4106_GCM_16:
-		case CRYPTO_AES_GMAC:
-			swe = sw;
-			crde = crd;
-			exf = swe->sw_exf;
-			ivlen = exf->ivsize;
-			break;
-		case CRYPTO_AES_128_GMAC:
-		case CRYPTO_AES_192_GMAC:
-		case CRYPTO_AES_256_GMAC:
-			swa = sw;
-			crda = crd;
-			axf = swa->sw_axf;
-			if (swa->sw_ictx == 0)
-				return (EINVAL);
-			bcopy(swa->sw_ictx, &ctx, axf->ctxsize);
-			blksz = axf->blocksize;
-			break;
-		default:
-			return (EINVAL);
-		}
-	}
-	if (crde == NULL || crda == NULL)
-		return (EINVAL);
-
-	/* Initialize the IV */
-	if (crde->crd_flags & CRD_F_ENCRYPT) {
-		/* IV explicitly provided ? */
-		if (crde->crd_flags & CRD_F_IV_EXPLICIT)
-			bcopy(crde->crd_iv, iv, ivlen);
-		else
-			arc4rand(iv, ivlen, 0);
-
-		/* Do we need to write the IV */
-		if (!(crde->crd_flags & CRD_F_IV_PRESENT))
-			crypto_copyback(crp->crp_flags, buf, crde->crd_inject,
-			    ivlen, iv);
-
-	} else {	/* Decryption */
-			/* IV explicitly provided ? */
-		if (crde->crd_flags & CRD_F_IV_EXPLICIT)
-			bcopy(crde->crd_iv, iv, ivlen);
-		else {
-			/* Get IV off buf */
-			crypto_copydata(crp->crp_flags, buf, crde->crd_inject,
-			    ivlen, iv);
-		}
-	}
-
-	/* Supply MAC with IV */
-	if (axf->Reinit)
-		axf->Reinit(&ctx, iv, ivlen);
-
-	/* Supply MAC with AAD */
-	aadlen = crda->crd_len;
-	/*
-	 * Section 5 of RFC 4106 specifies that AAD construction consists of
-	 * {SPI, ESN, SN} whereas the real packet contains only {SPI, SN}.
-	 * Unfortunately it doesn't follow a good example set in the Section
-	 * 3.3.2.1 of RFC 4303 where upper part of the ESN, located in the
-	 * external (to the packet) memory buffer, is processed by the hash
-	 * function in the end thus allowing to retain simple programming
-	 * interfaces and avoid kludges like the one below.
-	 */
-	if (crda->crd_flags & CRD_F_ESN) {
-		aadlen += 4;
-		/* SPI */
-		crypto_copydata(crp->crp_flags, buf, crda->crd_skip, 4, blk);
-		iskip = 4; /* loop below will start with an offset of 4 */
-		/* ESN */
-		bcopy(crda->crd_esn, blk + 4, 4);
-		oskip = iskip + 4; /* offset output buffer blk by 8 */
-	}
-	for (i = iskip; i < crda->crd_len; i += blksz) {
-		len = MIN(crda->crd_len - i, blksz - oskip);
-		crypto_copydata(crp->crp_flags, buf, crda->crd_skip + i, len,
-		    blk + oskip);
-		bzero(blk + len + oskip, blksz - len - oskip);
-		axf->Update(&ctx, blk, blksz);
-		oskip = 0; /* reset initial output offset */
-	}
-
-	if (exf->reinit)
-		exf->reinit(swe->sw_kschedule, iv);
-
-	/* Do encryption/decryption with MAC */
-	for (i = 0; i < crde->crd_len; i += blksz) {
-		len = MIN(crde->crd_len - i, blksz);
-		if (len < blksz)
-			bzero(blk, blksz);
-		crypto_copydata(crp->crp_flags, buf, crde->crd_skip + i, len,
-		    blk);
-		if (crde->crd_flags & CRD_F_ENCRYPT) {
-			exf->encrypt(swe->sw_kschedule, blk);
-			axf->Update(&ctx, blk, len);
-		} else {
-			axf->Update(&ctx, blk, len);
-			exf->decrypt(swe->sw_kschedule, blk);
-		}
-		crypto_copyback(crp->crp_flags, buf, crde->crd_skip + i, len,
-		    blk);
-	}
-
-	/* Do any required special finalization */
-	switch (crda->crd_alg) {
-		case CRYPTO_AES_128_GMAC:
-		case CRYPTO_AES_192_GMAC:
-		case CRYPTO_AES_256_GMAC:
-			/* length block */
-			bzero(blk, blksz);
-			blkp = (uint32_t *)blk + 1;
-			*blkp = htobe32(aadlen * 8);
-			blkp = (uint32_t *)blk + 3;
-			*blkp = htobe32(crde->crd_len * 8);
-			axf->Update(&ctx, blk, blksz);
-			break;
-	}
-
-	/* Finalize MAC */
-	axf->Final(aalg, &ctx);
-
-	/* Inject the authentication data */
-	crypto_copyback(crp->crp_flags, buf, crda->crd_inject, 
-		crp->crp_ilen - crda->crd_inject,
-	    aalg);
-
-	return (0);
-}
-
-/*
  * Apply a compression/decompression algorithm
  */
 static int
@@ -899,16 +738,6 @@ swcr_newsession(device_t dev, u_int32_t *sid, struct cryptoini *cri)
 		case CRYPTO_AES_XTS:
 			txf = &enc_xform_aes_xts;
 			goto enccommon;
-		case CRYPTO_AES_CTR:
-			txf = &enc_xform_aes_ctr;
-			goto enccommon;
-		case CRYPTO_AES_RFC4106_GCM_16:
-			txf = &enc_xform_aes_gcm;
-			goto enccommon;
-		case CRYPTO_AES_GMAC:
-			txf = &enc_xform_aes_gmac;
-			(*swd)->sw_exf = txf;
-			break;
 		case CRYPTO_CAMELLIA_CBC:
 			txf = &enc_xform_camellia;
 			goto enccommon;
@@ -1021,30 +850,6 @@ swcr_newsession(device_t dev, u_int32_t *sid, struct cryptoini *cri)
 			(*swd)->sw_axf = axf;
 			break;
 #endif
-
-		case CRYPTO_AES_128_GMAC:
-			axf = &auth_hash_gmac_aes_128;
-			goto auth4common;
-
-		case CRYPTO_AES_192_GMAC:
-			axf = &auth_hash_gmac_aes_192;
-			goto auth4common;
-
-		case CRYPTO_AES_256_GMAC:
-			axf = &auth_hash_gmac_aes_256;
-		auth4common:
-			(*swd)->sw_ictx = malloc(axf->ctxsize, M_CRYPTO_DATA,
-			    M_NOWAIT);
-			if ((*swd)->sw_ictx == NULL) {
-				swcr_freesession(dev, i);
-				return ENOBUFS;
-			}
-			axf->Init((*swd)->sw_ictx);
-			axf->Setkey((*swd)->sw_ictx, cri->cri_key,
-			    cri->cri_klen / 8);
-			(*swd)->sw_axf = axf;
-			break;
-
 		case CRYPTO_DEFLATE_COMP:
 			cxf = &comp_algo_deflate;
 			(*swd)->sw_cxf = cxf;
@@ -1092,9 +897,6 @@ swcr_freesession(device_t dev, u_int64_t tid)
 		case CRYPTO_SKIPJACK_CBC:
 		case CRYPTO_RIJNDAEL128_CBC:
 		case CRYPTO_AES_XTS:
-		case CRYPTO_AES_CTR:
-		case CRYPTO_AES_RFC4106_GCM_16:
-		case CRYPTO_AES_GMAC:
 		case CRYPTO_CAMELLIA_CBC:
 		case CRYPTO_NULL_CBC:
 			txf = swd->sw_exf;
@@ -1209,7 +1011,6 @@ swcr_process(device_t dev, struct cryptop *crp, int hint)
 		case CRYPTO_SKIPJACK_CBC:
 		case CRYPTO_RIJNDAEL128_CBC:
 		case CRYPTO_AES_XTS:
-		case CRYPTO_AES_CTR:
 		case CRYPTO_CAMELLIA_CBC:
 			if ((crp->crp_etype = swcr_encdec(crd, sw,
 			    crp->crp_buf, crp->crp_flags)) != 0)
@@ -1233,14 +1034,6 @@ swcr_process(device_t dev, struct cryptop *crp, int hint)
 			    crp->crp_buf, crp->crp_flags)) != 0)
 				goto done;
 			break;
-
-		case CRYPTO_AES_RFC4106_GCM_16:
-		case CRYPTO_AES_GMAC:
-		case CRYPTO_AES_128_GMAC:
-		case CRYPTO_AES_192_GMAC:
-		case CRYPTO_AES_256_GMAC:
-			crp->crp_etype = swcr_authenc(crp);
-			goto done;
 
 		case CRYPTO_DEFLATE_COMP:
 			if ((crp->crp_etype = swcr_compdec(crd, sw, 
@@ -1311,12 +1104,6 @@ swcr_attach(device_t dev)
 	REGISTER(CRYPTO_SHA1);
 	REGISTER(CRYPTO_RIJNDAEL128_CBC);
 	REGISTER(CRYPTO_AES_XTS);
-	REGISTER(CRYPTO_AES_CTR);
-	REGISTER(CRYPTO_AES_RFC4106_GCM_16);
-	REGISTER(CRYPTO_AES_GMAC);
-	REGISTER(CRYPTO_AES_128_GMAC);
-	REGISTER(CRYPTO_AES_192_GMAC);
-	REGISTER(CRYPTO_AES_256_GMAC);
  	REGISTER(CRYPTO_CAMELLIA_CBC);
 	REGISTER(CRYPTO_DEFLATE_COMP);
 #undef REGISTER

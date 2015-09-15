@@ -72,7 +72,6 @@
 #define	SHA2_512_HASH_LEN	64
 #define	MD5_KPDK_HASH_LEN	16
 #define	SHA1_KPDK_HASH_LEN	20
-#define	AES_GMAC_HASH_LEN	16
 /* Maximum hash algorithm result length */
 #define	HASH_MAX_LEN		SHA2_512_HASH_LEN /* Keep this updated */
 
@@ -101,17 +100,6 @@
 #define CAMELLIA_BLOCK_LEN	16
 #define EALG_MAX_BLOCK_LEN	AES_BLOCK_LEN /* Keep this updated */
 
-/* Maximum hash algorithm result length */
-#define AALG_MAX_RESULT_LEN	64 /* Keep this updated */
-
-#define AESCTR_NONCESIZE	4
-#define AESCTR_IVSIZE		8
-#define AESCTR_BLOCKSIZE	AES_BLOCK_LEN
-
-#define AES_XTS_BLOCKSIZE	AES_BLOCK_LEN
-#define AES_XTS_IVSIZE		8
-#define AES_XTS_ALPHA		0x87    /* GF(2^128) generator polynomial */
-
 #define	CRYPTO_ALGORITHM_MIN	1
 #define CRYPTO_DES_CBC		1
 #define CRYPTO_3DES_CBC		2
@@ -134,15 +122,9 @@
 #define	CRYPTO_SHA2_256_HMAC	18
 #define	CRYPTO_SHA2_384_HMAC	19
 #define	CRYPTO_SHA2_512_HMAC	20
-#define	CRYPTO_CAMELLIA_CBC	21
+#define CRYPTO_CAMELLIA_CBC	21
 #define	CRYPTO_AES_XTS		22
-#define	CRYPTO_AES_CTR		23
-#define	CRYPTO_AES_RFC4106_GCM_16	24
-#define	CRYPTO_AES_128_GMAC	25
-#define	CRYPTO_AES_192_GMAC	26
-#define	CRYPTO_AES_256_GMAC	27
-#define	CRYPTO_AES_GMAC		28
-#define	CRYPTO_ALGORITHM_MAX	28 /* Keep updated - see below */
+#define	CRYPTO_ALGORITHM_MAX	22 /* Keep updated - see below */
 
 /* Algorithm flags */
 #define	CRYPTO_ALG_FLAG_SUPPORTED	0x01 /* Algorithm is supported */
@@ -294,12 +276,7 @@ struct cryptoini {
 	int		cri_mlen;	/* Number of bytes we want from the
 					   entire hash. 0 means all. */
 	caddr_t		cri_key;	/* key to use */
-	union {
-		u_int8_t	iv[EALG_MAX_BLOCK_LEN];	/* IV to use */
-		u_int8_t	esn[4];			/* high-order ESN */
-	} u;
-#define cri_iv		u.iv
-#define cri_esn		u.esn
+	u_int8_t	cri_iv[EALG_MAX_BLOCK_LEN];	/* IV to use */
 	struct cryptoini *cri_next;
 };
 
@@ -317,10 +294,8 @@ struct cryptodesc {
 #define	CRD_F_DSA_SHA_NEEDED	0x08	/* Compute SHA-1 of buffer for DSA */
 #define	CRD_F_KEY_EXPLICIT	0x10	/* Key explicitly provided */
 #define CRD_F_COMP		0x0f    /* Set when doing compression */
-#define CRD_F_ESN		0x20    /* Set when doing compression */
 
 	struct cryptoini	CRD_INI; /* Initialization/context data */
-#define crd_esn		CRD_INI.cri_esn
 #define crd_iv		CRD_INI.cri_iv
 #define crd_key		CRD_INI.cri_key
 #define crd_alg		CRD_INI.cri_alg

@@ -434,16 +434,6 @@ cryptof_ioctl(
  		case CRYPTO_CAMELLIA_CBC:
  			txform = &enc_xform_camellia;
  			break;
-		case CRYPTO_AES_CTR:
-			txform = &enc_xform_aes_ctr;
- 			break;
-		case CRYPTO_AES_RFC4106_GCM_16:
-			txform = &enc_xform_aes_gcm;
- 			break;
-		case CRYPTO_AES_GMAC:
-			txform = &enc_xform_aes_gmac;
-			break;
-
 		default:
 			return (EINVAL);
 		}
@@ -469,16 +459,6 @@ cryptof_ioctl(
 		case CRYPTO_RIPEMD160_HMAC:
 			thash = &auth_hash_hmac_ripemd_160;
 			break;
-		case CRYPTO_AES_128_GMAC:
-			thash = &auth_hash_gmac_aes_128;
-			break;
-		case CRYPTO_AES_192_GMAC:
-			thash = &auth_hash_gmac_aes_192;
-			break;
-		case CRYPTO_AES_256_GMAC:
-			thash = &auth_hash_gmac_aes_256;
-			break;
-
 #ifdef notdef
 		case CRYPTO_MD5:
 			thash = &auth_hash_md5;
