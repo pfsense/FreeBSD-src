@@ -196,6 +196,8 @@
         ..
         netinet
         ..
+        opencrypto
+        ..
         pjdfstest
             chflags
             ..
