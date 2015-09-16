@@ -341,7 +341,7 @@ extern void ah4_ctlinput(int cmd, struct sockaddr *sa, void *);
 extern void esp4_input(struct mbuf *m, int off);
 extern void esp4_ctlinput(int cmd, struct sockaddr *sa, void *);
 extern void ipcomp4_input(struct mbuf *m, int off);
-extern int ipsec4_common_input(struct mbuf *m, ...);
+extern int ipsec_common_input(struct mbuf *m, int, int, int, int);
 extern int ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 			int skip, int protoff);
 extern int ipsec4_process_packet(struct mbuf *, struct ipsecrequest *);
