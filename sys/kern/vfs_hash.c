@@ -33,7 +33,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/mount.h>
-#include <sys/rwlock.h>
 #include <sys/vnode.h>
 
 static MALLOC_DEFINE(M_VFS_HASH, "vfs_hash", "VFS hash table");
@@ -41,14 +40,14 @@ static MALLOC_DEFINE(M_VFS_HASH, "vfs_hash", "VFS hash table");
 static LIST_HEAD(vfs_hash_head, vnode)	*vfs_hash_tbl;
 static LIST_HEAD(,vnode)		vfs_hash_side;
 static u_long				vfs_hash_mask;
-static struct rwlock			vfs_hash_lock;
+static struct mtx			vfs_hash_mtx;
 
 static void
 vfs_hashinit(void *dummy __unused)
 {
 
 	vfs_hash_tbl = hashinit(desiredvnodes, M_VFS_HASH, &vfs_hash_mask);
-	rw_init(&vfs_hash_lock, "vfs hash");
+	mtx_init(&vfs_hash_mtx, "vfs hash", NULL, MTX_DEF);
 	LIST_INIT(&vfs_hash_side);
 }
 
@@ -76,7 +75,7 @@ vfs_hash_get(const struct mount *mp, u_int hash, int flags, struct thread *td, s
 	int error;
 
 	while (1) {
-		rw_rlock(&vfs_hash_lock);
+		mtx_lock(&vfs_hash_mtx);
 		LIST_FOREACH(vp, vfs_hash_bucket(mp, hash), v_hashlist) {
 			if (vp->v_hash != hash)
 				continue;
@@ -85,7 +84,7 @@ vfs_hash_get(const struct mount *mp, u_int hash, int flags, struct thread *td, s
 			if (fn != NULL && fn(vp, arg))
 				continue;
 			VI_LOCK(vp);
-			rw_runlock(&vfs_hash_lock);
+			mtx_unlock(&vfs_hash_mtx);
 			error = vget(vp, flags | LK_INTERLOCK, td);
 			if (error == ENOENT && (flags & LK_NOWAIT) == 0)
 				break;
@@ -95,7 +94,7 @@ vfs_hash_get(const struct mount *mp, u_int hash, int flags, struct thread *td, s
 			return (0);
 		}
 		if (vp == NULL) {
-			rw_runlock(&vfs_hash_lock);
+			mtx_unlock(&vfs_hash_mtx);
 			*vpp = NULL;
 			return (0);
 		}
@@ -106,9 +105,9 @@ void
 vfs_hash_remove(struct vnode *vp)
 {
 
-	rw_wlock(&vfs_hash_lock);
+	mtx_lock(&vfs_hash_mtx);
 	LIST_REMOVE(vp, v_hashlist);
-	rw_wunlock(&vfs_hash_lock);
+	mtx_unlock(&vfs_hash_mtx);
 }
 
 int
@@ -119,7 +118,7 @@ vfs_hash_insert(struct vnode *vp, u_int hash, int flags, struct thread *td, stru
 
 	*vpp = NULL;
 	while (1) {
-		rw_wlock(&vfs_hash_lock);
+		mtx_lock(&vfs_hash_mtx);
 		LIST_FOREACH(vp2,
 		    vfs_hash_bucket(vp->v_mount, hash), v_hashlist) {
 			if (vp2->v_hash != hash)
@@ -129,13 +128,13 @@ vfs_hash_insert(struct vnode *vp, u_int hash, int flags, struct thread *td, stru
 			if (fn != NULL && fn(vp2, arg))
 				continue;
 			VI_LOCK(vp2);
-			rw_wunlock(&vfs_hash_lock);
+			mtx_unlock(&vfs_hash_mtx);
 			error = vget(vp2, flags | LK_INTERLOCK, td);
 			if (error == ENOENT && (flags & LK_NOWAIT) == 0)
 				break;
-			rw_wlock(&vfs_hash_lock);
+			mtx_lock(&vfs_hash_mtx);
 			LIST_INSERT_HEAD(&vfs_hash_side, vp, v_hashlist);
-			rw_wunlock(&vfs_hash_lock);
+			mtx_unlock(&vfs_hash_mtx);
 			vput(vp);
 			if (!error)
 				*vpp = vp2;
@@ -147,7 +146,7 @@ vfs_hash_insert(struct vnode *vp, u_int hash, int flags, struct thread *td, stru
 	}
 	vp->v_hash = hash;
 	LIST_INSERT_HEAD(vfs_hash_bucket(vp->v_mount, hash), vp, v_hashlist);
-	rw_wunlock(&vfs_hash_lock);
+	mtx_unlock(&vfs_hash_mtx);
 	return (0);
 }
 
@@ -155,11 +154,11 @@ void
 vfs_hash_rehash(struct vnode *vp, u_int hash)
 {
 
-	rw_wlock(&vfs_hash_lock);
+	mtx_lock(&vfs_hash_mtx);
 	LIST_REMOVE(vp, v_hashlist);
 	LIST_INSERT_HEAD(vfs_hash_bucket(vp->v_mount, hash), vp, v_hashlist);
 	vp->v_hash = hash;
-	rw_wunlock(&vfs_hash_lock);
+	mtx_unlock(&vfs_hash_mtx);
 }
 
 void
