@@ -640,7 +640,7 @@ typedef struct	_ipfw_table_xentry {
 		char	iface[IF_NAMESIZE];	/* interface name	*/
 	} k;
 } ipfw_table_xentry;
-#define	IPFW_TCF_INET	0x01	 /* CIDR flags: IPv4 record	*/
+#define	IPFW_TCF_INET	0x01		/* CIDR flags: IPv4 record	*/
 
 typedef struct	_ipfw_table {
 	u_int32_t	size;		/* size of entries in bytes	*/
