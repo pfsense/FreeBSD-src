@@ -447,11 +447,11 @@ pf_packet_undo_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 		struct tcphdr *th = pd->hdr.tcp;
 
 		if (direction == PF_OUT) {
-			pf_change_ap(pd->src, &th->th_sport, pd->ip_sum,
+			pf_change_ap(m, pd->src, &th->th_sport, pd->ip_sum,
 			    &th->th_sum, &nk->addr[pd->sidx],
 			    nk->port[pd->sidx], 0, pd->af);
 		} else {
-			pf_change_ap(pd->dst, &th->th_dport, pd->ip_sum,
+			pf_change_ap(m, pd->dst, &th->th_dport, pd->ip_sum,
 			    &th->th_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 0, pd->af);
 		}
@@ -462,11 +462,11 @@ pf_packet_undo_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 		struct udphdr *uh = pd->hdr.udp;
 
 		if (direction == PF_OUT) {
-			pf_change_ap(pd->src, &uh->uh_sport, pd->ip_sum,
+			pf_change_ap(m, pd->src, &uh->uh_sport, pd->ip_sum,
 			    &uh->uh_sum, &nk->addr[pd->sidx],
 			    nk->port[pd->sidx], 1, pd->af);
 		} else {
-			pf_change_ap(pd->dst, &uh->uh_dport, pd->ip_sum,
+			pf_change_ap(m, pd->dst, &uh->uh_dport, pd->ip_sum,
 			    &uh->uh_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 1, pd->af);
 		}
@@ -524,11 +524,11 @@ pf_packet_redo_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 		struct tcphdr *th = pd->hdr.tcp;
 
 		if (direction == PF_OUT) {
-			pf_change_ap(pd->src, &th->th_sport, pd->ip_sum,
+			pf_change_ap(m, pd->src, &th->th_sport, pd->ip_sum,
 			    &th->th_sum, &nk->addr[pd->sidx],
 			    nk->port[pd->sidx], 0, pd->af);
 		} else {
-			pf_change_ap(pd->dst, &th->th_dport, pd->ip_sum,
+			pf_change_ap(m, pd->dst, &th->th_dport, pd->ip_sum,
 			    &th->th_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 0, pd->af);
 		}
@@ -539,11 +539,11 @@ pf_packet_redo_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 		struct udphdr *uh = pd->hdr.udp;
 
 		if (direction == PF_OUT) {
-			pf_change_ap(pd->src, &uh->uh_sport, pd->ip_sum,
+			pf_change_ap(m, pd->src, &uh->uh_sport, pd->ip_sum,
 			    &uh->uh_sum, &nk->addr[pd->sidx],
 			    nk->port[pd->sidx], 1, pd->af);
 		} else {
-			pf_change_ap(pd->dst, &uh->uh_dport, pd->ip_sum,
+			pf_change_ap(m, pd->dst, &uh->uh_dport, pd->ip_sum,
 			    &uh->uh_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 1, pd->af);
 		}
