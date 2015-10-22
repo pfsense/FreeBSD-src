@@ -3,8 +3,6 @@ include		GENERIC
 nooptions	KDB_TRACE
 options		DDB		# Support DDB.
 
-nomakeoptions	DEBUG
-
 ident		pfSense_wrap
 
 nooptions	MAC		# TrustedBSD MAC Framework
