@@ -77,6 +77,8 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip_carp.h>
 #ifdef IPSEC
 #include <netinet/ip_ipsec.h>
+#include <netipsec/ipsec.h>
+#include <netipsec/key.h>
 #endif /* IPSEC */
 
 #include <sys/socketvar.h>
@@ -715,8 +717,15 @@ ours:
 	}
 
 	/* Try to forward the packet, but if we fail continue */
+#ifdef IPSEC
+	/* For now we do not handle IPSEC in tryforward. */
+	if (!key_havesp(IPSEC_DIR_INBOUND) && !key_havesp(IPSEC_DIR_OUTBOUND))
+		if (ip_tryforward(m) == NULL)
+			return;
+#else
 	if (ip_tryforward(m) == NULL)
 		return;
+#endif /* IPSEC */
 
 #ifdef IPSEC
 	/*
