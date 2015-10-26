@@ -714,6 +714,10 @@ ours:
 		hlen = ip->ip_hl << 2;
 	}
 
+	/* Try to forward the packet, but if we fail continue */
+	if (ip_tryforward(m) == NULL)
+		return;
+
 #ifdef IPSEC
 	/*
 	 * enforce IPsec policy checking if we are seeing last header.
