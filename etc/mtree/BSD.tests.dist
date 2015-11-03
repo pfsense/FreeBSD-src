@@ -12,6 +12,8 @@
         ..
         expr
         ..
+        ls
+        ..
         mv
         ..
         pax
@@ -230,6 +232,8 @@
             unlink
             ..
         ..
+        vfs
+        ..
         vm
         ..
     ..
@@ -339,6 +343,8 @@
         calendar
         ..
         cmp
+        ..
+        col
         ..
         comm
         ..
