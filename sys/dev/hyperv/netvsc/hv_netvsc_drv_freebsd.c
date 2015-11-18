@@ -739,7 +739,26 @@ hn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCSIFADDR:
 	case SIOCGIFADDR:
+#ifdef INET
+	NV_LOCK(sc);
+	if (ifa->ifa_addr->sa_family == AF_INET) {
+		ifp->if_flags |= IFF_UP;
+		if (!(ifp->if_drv_flags & IFF_DRV_RUNNING)) {
+			ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
+			if_link_state_change(ifp, LINK_STATE_DOWN);
+			ifp->if_drv_flags |= IFF_DRV_RUNNING;
+			ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
+			if_link_state_change(ifp, LINK_STATE_UP);
+		}
+		arp_ifinit(ifp, ifa);
+		NV_UNLOCK(sc);
+		} else {
+			NV_UNLOCK(sc);
+#endif
 		error = ether_ioctl(ifp, cmd, data);
+#ifdef INET
+	}
+#endif
 		break;
 	case SIOCSIFMTU:
 		hn_dev = vmbus_get_devctx(sc->hn_dev);
@@ -902,6 +921,7 @@ hn_stop(hn_softc_t *sc)
 		printf(" Closing Device ...\n");
 
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
+	if_link_state_change(ifp, LINK_STATE_DOWN);
 	sc->hn_initdone = 0;
 
 	ret = hv_rf_on_close(device_ctx);
@@ -951,6 +971,7 @@ hn_ifinit_locked(hn_softc_t *sc)
 	}
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
+	if_link_state_change(ifp, LINK_STATE_UP);
 }
 
 /*
