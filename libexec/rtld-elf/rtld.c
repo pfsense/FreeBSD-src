@@ -106,6 +106,7 @@ static void load_filtees(Obj_Entry *, int flags, RtldLockState *);
 static void unload_filtees(Obj_Entry *);
 static int load_needed_objects(Obj_Entry *, int);
 static int load_preload_objects(void);
+static int load_pbipreload_objects(void);
 static Obj_Entry *load_object(const char *, int fd, const Obj_Entry *, int);
 static void map_stacks_exec(RtldLockState *);
 static Obj_Entry *obj_from_addr(const void *);
@@ -164,6 +165,16 @@ void r_debug_state(struct r_debug *, struct link_map *) __noinline;
 void _r_debug_postinit(struct link_map *) __noinline;
 
 /*
+ * For custom rpath PBI support
+ */
+int strpos(const char *haystack, char *needle);
+const char *replace_str(const char *str, char *orig, char *rep);
+int get_modified_path(char *npath, const char *opath);
+char pbidir[MAXPATHLEN];
+int pbiinit = 0;
+static char *usingpbidir;
+
+/*
  * Data declarations.
  */
 static char *error_message;	/* Message for dlerror(), or NULL */
@@ -179,6 +190,8 @@ static char *ld_debug;		/* Environment variable for debugging */
 static char *ld_library_path;	/* Environment variable for search path */
 static char *ld_preload;	/* Environment variable for libraries to
 				   load first */
+static char *ld_pbipreload;	/* Environment variable for PBI runtime wrapper
+				   to load first */
 static char *ld_elf_hints_path;	/* Environment variable for alternative hints path */
 static char *ld_tracing;	/* Called from ldd to print libs */
 static char *ld_utrace;		/* Use utrace() to log events. */
@@ -398,7 +411,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
      * future processes to honor the potentially un-safe variables.
      */
     if (!trust) {
-        if (unsetenv(LD_ "PRELOAD") || unsetenv(LD_ "LIBMAP") ||
+        if (unsetenv(LD_ "PRELOAD") || unsetenv(LD_ "PBIPRELOAD") || unsetenv(LD_ "LIBMAP") ||
 	    unsetenv(LD_ "LIBRARY_PATH") || unsetenv(LD_ "LIBMAP_DISABLE") ||
 	    unsetenv(LD_ "DEBUG") || unsetenv(LD_ "ELF_HINTS_PATH") ||
 	    unsetenv(LD_ "LOADFLTR") || unsetenv(LD_ "LIBRARY_PATH_RPATH")) {
@@ -411,6 +424,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     libmap_override = getenv(LD_ "LIBMAP");
     ld_library_path = getenv(LD_ "LIBRARY_PATH");
     ld_preload = getenv(LD_ "PRELOAD");
+    ld_pbipreload = getenv(LD_ "PBIPRELOAD");
+    usingpbidir = getenv("PBI_RUNDIR");
     ld_elf_hints_path = getenv(LD_ "ELF_HINTS_PATH");
     ld_loadfltr = getenv(LD_ "LOADFLTR") != NULL;
     library_path_rpath = getenv(LD_ "LIBRARY_PATH_RPATH");
@@ -423,7 +438,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		    ld_library_path_rpath = false;
     }
     dangerous_ld_env = libmap_disable || (libmap_override != NULL) ||
-	(ld_library_path != NULL) || (ld_preload != NULL) ||
+	(ld_library_path != NULL) || (ld_preload != NULL) || (ld_pbipreload != NULL ) ||
 	(ld_elf_hints_path != NULL) || ld_loadfltr;
     ld_tracing = getenv(LD_ "TRACE_LOADED_OBJECTS");
     ld_utrace = getenv(LD_ "UTRACE");
@@ -531,6 +546,9 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     if (!libmap_disable)
         libmap_disable = (bool)lm_init(libmap_override);
 
+    dbg("loading LD_PBIPRELOAD libraries");
+    if (load_pbipreload_objects() == -1)
+	die();
     dbg("loading LD_PRELOAD libraries");
     if (load_preload_objects() == -1)
 	die();
@@ -2014,6 +2032,35 @@ load_preload_objects(void)
     return 0;
 }
 
+static int
+load_pbipreload_objects(void)
+{
+    char *p = ld_pbipreload;
+    Obj_Entry *obj;
+    static const char delim[] = " \t:;";
+
+    if (p == NULL)
+	return 0;
+
+    p += strspn(p, delim);
+    while (*p != '\0') {
+	size_t len = strcspn(p, delim);
+	char savech;
+
+	savech = p[len];
+	p[len] = '\0';
+	obj = load_object(p, -1, NULL, 0);
+	if (obj == NULL)
+	    return -1;	/* XXX - cleanup */
+	obj->z_interpose = true;
+	p[len] = savech;
+	p += len;
+	p += strspn(p, delim);
+    }
+    LD_UTRACE(UTRACE_PRELOAD_FINISHED, NULL, NULL, 0, 0, NULL);
+    return 0;
+}
+
 static const char *
 printable_path(const char *path)
 {
@@ -2695,16 +2742,45 @@ search_library_path(const char *name, const char *path)
     if (path == NULL)
 	return NULL;
 
-    arg.name = name;
-    arg.namelen = strlen(name);
-    arg.buffer = xmalloc(PATH_MAX);
-    arg.buflen = PATH_MAX;
+    /*
+     * When looking for libraries and running as a PBI
+     */
+    if ( usingpbidir != NULL )
+    {
+	char newname[MAXPATHLEN];
+	char newpath[MAXPATHLEN];
+	/* Do the /usr/local -> /usr/pbi mapping */
+	get_modified_path(newname, name);
+	get_modified_path(newpath, path);
+	//printf("search_library_path() name: %s - %s\n", name, newname);
+	//printf("search_library_path() path: %s - %s\n", path, newpath);
 
-    p = path_enumerate(path, try_library_path, &arg);
+        arg.name = newname;
+        arg.namelen = strlen(newname);
+        arg.buffer = xmalloc(PATH_MAX);
+        arg.buflen = PATH_MAX;
 
-    free(arg.buffer);
+        p = path_enumerate(newpath, try_library_path, &arg);
 
-    return (p);
+        free(arg.buffer);
+
+        return (p);
+    } else {
+    /*
+     * Traditional library mapping
+     */
+        arg.name = name;
+        arg.namelen = strlen(name);
+        arg.buffer = xmalloc(PATH_MAX);
+        arg.buflen = PATH_MAX;
+
+        p = path_enumerate(path, try_library_path, &arg);
+
+        free(arg.buffer);
+
+        return (p);
+    }
+
 }
 
 int
@@ -4859,4 +4935,64 @@ rtld_strerror(int errnum)
 	if (errnum < 0 || errnum >= sys_nerr)
 		return ("Unknown error");
 	return (sys_errlist[errnum]);
+}
+
+/* PC-BSD custom hacks to rtld / rpath mashing
+ * 03/28/2014
+ * Author: Kris Moore <kris@pcbsd.org>
+ */
+int strpos(const char *haystack, char *needle)
+{
+   char *p = strstr(haystack, needle);
+   if (p) {
+      return p - haystack;
+   }
+   return -1;
+}
+
+const char *replace_str(const char *str, char *orig, char *rep)
+{
+	static char buffer[4096];
+	char *p;
+
+	if(!(p = strstr(str, orig)))  // Is 'orig' even in 'str'?
+		return str;
+
+	strncpy(buffer, str, p-str); // Copy characters from 'str' start to 'orig' st$
+	buffer[p-str] = '\0';
+
+	sprintf(buffer+(p-str), "%s%s", rep, p+strlen(orig));
+
+	return buffer;
+}
+
+/**********************************************************************************
+*  OK, this is where all the path re-mapping happens.
+*  We are going to be taking the current filesystem path, and checking it against
+*  a list of ones we want to "virtualize" so that it appears we have a different
+*  /usr/local namespace
+***********************************************************************************/
+int get_modified_path(char *npath, const char *opath)
+{
+	// Just break out now if path == NULL
+	if ( opath == NULL )
+		return -1;
+
+	// Setup our pbidir variable on first time
+	if ( pbiinit == 0 )
+	{
+		strcpy(pbidir, usingpbidir);
+		strcat(pbidir, "/local");
+		pbiinit=1;
+	}
+
+	// Lastly, lets do all the parsing for /usr/local matching
+	if ( strpos(opath, "/usr/local") == 0 )
+	{
+		strcpy(npath, replace_str(opath, "/usr/local", pbidir));
+		return 0;
+	}
+
+	strcpy(npath, opath);
+	return 0;
 }
