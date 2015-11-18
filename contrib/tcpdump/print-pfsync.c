@@ -53,9 +53,8 @@ static void	print_src_dst(const struct pfsync_state_peer *,
 		    const struct pfsync_state_peer *, uint8_t);
 static void	print_state(struct pfsync_state *);
 
-#ifdef notyet
-void
-pfsync_if_print(u_char *user, const struct pcap_pkthdr *h,
+u_int
+pfsync_if_print(const struct pcap_pkthdr *h,
     register const u_char *p)
 {
 	u_int caplen = h->caplen;
@@ -75,8 +74,8 @@ out:
 		default_print((const u_char *)p, caplen);
 	}
 	putchar('\n');
+	return caplen;
 }
-#endif /* notyet */
 
 void
 pfsync_ip_print(const u_char *bp, u_int len)
