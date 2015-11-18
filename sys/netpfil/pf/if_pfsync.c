@@ -1773,7 +1773,7 @@ pfsync_undefer_state(struct pf_state *st, int drop)
 		}
 	}
 
-	panic("%s: unable to find deferred state", __func__);
+	if (V_pf_status.debug >= PF_DEBUG_MISC) printf("%s: unable to find deferred state", __func__);
 }
 
 static void
@@ -2219,11 +2219,14 @@ pfsyncintr(void *arg)
 		 */
 		if (m->m_flags & M_SKIP_FIREWALL)
 			ip_output(m, NULL, NULL, 0, NULL, NULL);
-		else if (ip_output(m, NULL, NULL, IP_RAWOUTPUT, &sc->sc_imo,
-		    NULL) == 0)
-			V_pfsyncstats.pfsyncs_opackets++;
-		else
-			V_pfsyncstats.pfsyncs_oerrors++;
+		else {
+			m->m_flags |= M_SKIP_FIREWALL;
+			if (ip_output(m, NULL, NULL, IP_RAWOUTPUT, &sc->sc_imo,
+			    NULL) == 0)
+				V_pfsyncstats.pfsyncs_opackets++;
+			else
+				V_pfsyncstats.pfsyncs_oerrors++;
+		}
 	}
 	CURVNET_RESTORE();
 }
