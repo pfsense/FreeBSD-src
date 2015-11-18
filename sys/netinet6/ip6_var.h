@@ -445,6 +445,7 @@ int	rip6_usrreq(struct socket *,
 int	dest6_input(struct mbuf **, int *, int);
 int	none_input(struct mbuf **, int *, int);
 
+void	in6_delayed_cksum(struct mbuf *, uint32_t, u_short);
 int	in6_selectsrc(struct sockaddr_in6 *, struct ip6_pktopts *,
 	struct inpcb *inp, struct route_in6 *, struct ucred *cred,
 	struct ifnet **, struct in6_addr *);
