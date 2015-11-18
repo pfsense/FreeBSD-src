@@ -681,7 +681,7 @@ passin:
 		IPSTAT_INC(ips_cantforward);
 		m_freem(m);
 	} else {
-#ifdef IPSEC
+#ifdef IPSEC_FWD_CHECK
 		if (V_ipipsec_in_use && ip_ipsec_fwd(m))
 			goto bad;
 #endif /* IPSEC */
