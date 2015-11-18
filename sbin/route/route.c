@@ -1554,10 +1554,15 @@ rtmsg(int cmd, int flags, int fib)
 		print_rtmsg(&rtm, l);
 	if (debugonly)
 		return (0);
+testagain:
 	if ((rlen = write(s, (char *)&m_rtmsg, l)) < 0) {
 		if (errno == EPERM)
 			err(1, "writing to routing socket");
 		warn("writing to routing socket");
+		if (rtm.rtm_type == RTM_CHANGE) {
+			rtm.rtm_type = RTM_ADD;
+			goto testagain;
+		}
 		return (-1);
 	}
 	if (cmd == RTM_GET) {
