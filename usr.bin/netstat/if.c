@@ -240,9 +240,9 @@ intpr(int interval, void (*pfunc)(char *), int af)
 
 	if (!pfunc) {
 		if (Wflag)
-			printf("%-7.7s", "Name");
+			printf("%-16.16s", "Name");
 		else
-			printf("%-5.5s", "Name");
+			printf("%-16.16s", "Name");
 		printf(" %5.5s %-13.13s %-17.17s %8.8s %5.5s %5.5s",
 		    "Mtu", "Network", "Address", "Ipkts", "Ierrs", "Idrop");
 		if (bflag)
@@ -282,9 +282,9 @@ intpr(int interval, void (*pfunc)(char *), int af)
 			continue;
 
 		if (Wflag)
-			printf("%-7.7s", ifa->ifa_name);
+			printf("%-16.16s", ifa->ifa_name);
 		else
-			printf("%-5.5s", ifa->ifa_name);
+			printf("%-16.16s", ifa->ifa_name);
 
 #define IFA_MTU(ifa)	(((struct if_data *)(ifa)->ifa_data)->ifi_mtu)
 		show_stat("lu", 6, IFA_MTU(ifa), IFA_MTU(ifa));
