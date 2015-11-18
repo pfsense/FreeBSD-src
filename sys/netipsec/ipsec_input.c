@@ -483,7 +483,11 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 	/*
 	 * Re-dispatch via software interrupt.
 	 */
-	if ((error = netisr_queue_src(NETISR_IP, (uintptr_t)sav->spi, m))) {
+	if (V_ipsec_direct_dispatch)
+		error = netisr_dispatch_src(NETISR_IP, (uintptr_t)sav->spi, m);
+	else
+		error = netisr_queue_src(NETISR_IP, (uintptr_t)sav->spi, m);
+	if (error) {
 		IPSEC_ISTAT(sproto, qfull);
 		DPRINTF(("%s: queue full; proto %u packet dropped\n",
 			__func__, sproto));
