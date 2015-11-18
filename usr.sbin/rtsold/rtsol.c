@@ -92,7 +92,7 @@ static int ra_opt_rdnss_dispatch(struct ifinfo *, struct rainfo *,
     struct script_msg_head_t *, struct script_msg_head_t *);
 static char *make_rsid(const char *, const char *, struct rainfo *);
 
-#define	_ARGS_OTHER	otherconf_script, ifi->ifname
+#define	_ARGS_OTHER	otherconf_script, ifi->ifname, ntopbuf
 #define	_ARGS_RESADD	resolvconf_script, "-a", rsid
 #define	_ARGS_RESDEL	resolvconf_script, "-d", rsid
 
@@ -374,8 +374,8 @@ rtsol_input(int s)
 		warnmsg(LOG_DEBUG, __func__,
 		    "OtherConfigFlag on %s is turned on", ifi->ifname);
 		ifi->otherconfig = 1;
-		CALL_SCRIPT(OTHER, NULL);
 	}
+	CALL_SCRIPT(OTHER, NULL);
 	clock_gettime(CLOCK_MONOTONIC_FAST, &now);
 	newent_rai = 0;
 	rai = find_rainfo(ifi, &from);
