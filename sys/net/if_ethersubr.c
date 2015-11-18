@@ -612,7 +612,7 @@ ether_input_internal(struct ifnet *ifp, struct mbuf *m)
 			return;
 		}
 		eh = mtod(m, struct ether_header *);
-	}
+	} else {
 
 #if defined(INET) || defined(INET6)
 	/*
@@ -640,6 +640,7 @@ ether_input_internal(struct ifnet *ifp, struct mbuf *m)
 		if (!ETHER_IS_MULTICAST(eh->ether_dhost) &&
 		    bcmp(IF_LLADDR(ifp), eh->ether_dhost, ETHER_ADDR_LEN) != 0)
 			m->m_flags |= M_PROMISC;
+	}
 	}
 
 	if (harvest.ethernet)
