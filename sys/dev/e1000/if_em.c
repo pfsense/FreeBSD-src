@@ -204,15 +204,15 @@ static int	em_detach(device_t);
 static int	em_shutdown(device_t);
 static int	em_suspend(device_t);
 static int	em_resume(device_t);
-#ifdef EM_MULTIQUEUE
+
 static int	em_mq_start(struct ifnet *, struct mbuf *);
 static int	em_mq_start_locked(struct ifnet *,
 		    struct tx_ring *, struct mbuf *);
 static void	em_qflush(struct ifnet *);
-#else
+
 static void	em_start(struct ifnet *);
 static void	em_start_locked(struct ifnet *, struct tx_ring *);
-#endif
+
 static int	em_ioctl(struct ifnet *, u_long, caddr_t);
 static void	em_init(void *);
 static void	em_init_locked(struct adapter *);
@@ -888,13 +888,13 @@ em_resume(device_t dev)
 	    (ifp->if_drv_flags & IFF_DRV_RUNNING) && adapter->link_active) {
 		for (int i = 0; i < adapter->num_queues; i++, txr++) {
 			EM_TX_LOCK(txr);
-#ifdef EM_MULTIQUEUE
+
 			if (!drbr_empty(ifp, txr->br))
 				em_mq_start_locked(ifp, txr, NULL);
-#else
+
 			if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 				em_start_locked(ifp, txr);
-#endif
+
 			EM_TX_UNLOCK(txr);
 		}
 	}
@@ -904,7 +904,7 @@ em_resume(device_t dev)
 }
 
 
-#ifdef EM_MULTIQUEUE
+
 /*********************************************************************
  *  Multiqueue Transmit routines 
  *
@@ -1003,7 +1003,7 @@ em_qflush(struct ifnet *ifp)
 	}
 	if_qflush(ifp);
 }
-#else  /* !EM_MULTIQUEUE */
+
 
 static void
 em_start_locked(struct ifnet *ifp, struct tx_ring *txr)
@@ -1066,7 +1066,7 @@ em_start(struct ifnet *ifp)
 	}
 	return;
 }
-#endif /* EM_MULTIQUEUE */
+
 
 /*********************************************************************
  *  Ioctl entry point
@@ -1460,13 +1460,13 @@ em_poll(struct ifnet *ifp, enum poll_cmd cmd, int count)
 
 	EM_TX_LOCK(txr);
 	em_txeof(txr);
-#ifdef EM_MULTIQUEUE
+
 	if (!drbr_empty(ifp, txr->br))
 		em_mq_start_locked(ifp, txr, NULL);
-#else
+
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		em_start_locked(ifp, txr);
-#endif
+
 	EM_TX_UNLOCK(txr);
 
 	return (rx_done);
@@ -1534,13 +1534,13 @@ em_handle_que(void *context, int pending)
 		bool more = em_rxeof(rxr, adapter->rx_process_limit, NULL);
 		EM_TX_LOCK(txr);
 		em_txeof(txr);
-#ifdef EM_MULTIQUEUE
+
 		if (!drbr_empty(ifp, txr->br))
 			em_mq_start_locked(ifp, txr, NULL);
-#else
+
 		if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 			em_start_locked(ifp, txr);
-#endif
+
 		EM_TX_UNLOCK(txr);
 		if (more) {
 			taskqueue_enqueue(adapter->tq, &adapter->que_task);
@@ -1568,13 +1568,13 @@ em_msix_tx(void *arg)
 	++txr->tx_irq;
 	EM_TX_LOCK(txr);
 	em_txeof(txr);
-#ifdef EM_MULTIQUEUE
+
 	if (!drbr_empty(ifp, txr->br))
 		em_mq_start_locked(ifp, txr, NULL);
-#else
+
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		em_start_locked(ifp, txr);
-#endif
+
 	/* Reenable this interrupt */
 	E1000_WRITE_REG(&adapter->hw, E1000_IMS, txr->ims);
 	EM_TX_UNLOCK(txr);
@@ -1653,13 +1653,13 @@ em_handle_tx(void *context, int pending)
 
 	EM_TX_LOCK(txr);
 	em_txeof(txr);
-#ifdef EM_MULTIQUEUE
+
 	if (!drbr_empty(ifp, txr->br))
 		em_mq_start_locked(ifp, txr, NULL);
-#else
+
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		em_start_locked(ifp, txr);
-#endif
+
 	E1000_WRITE_REG(&adapter->hw, E1000_IMS, txr->ims);
 	EM_TX_UNLOCK(txr);
 }
@@ -1683,13 +1683,13 @@ em_handle_link(void *context, int pending)
 	if (adapter->link_active) {
 		for (int i = 0; i < adapter->num_queues; i++, txr++) {
 			EM_TX_LOCK(txr);
-#ifdef EM_MULTIQUEUE
+
 			if (!drbr_empty(ifp, txr->br))
 				em_mq_start_locked(ifp, txr, NULL);
-#else
+
 			if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 				em_start_locked(ifp, txr);
-#endif
+
 			EM_TX_UNLOCK(txr);
 		}
 	}
@@ -2990,16 +2990,16 @@ em_setup_interface(device_t dev, struct adapter *adapter)
 	ifp->if_softc = adapter;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = em_ioctl;
-#ifdef EM_MULTIQUEUE
+
 	/* Multiqueue stack interface */
 	ifp->if_transmit = em_mq_start;
 	ifp->if_qflush = em_qflush;
-#else
+
 	ifp->if_start = em_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, adapter->num_tx_desc - 1);
 	ifp->if_snd.ifq_drv_maxlen = adapter->num_tx_desc - 1;
 	IFQ_SET_READY(&ifp->if_snd);
-#endif	
+
 
 	ether_ifattach(ifp, adapter->hw.mac.addr);
 
