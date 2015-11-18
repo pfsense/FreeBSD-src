@@ -47,7 +47,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/specialreg.h>
 
 #include <dev/pci/pcivar.h>
-#include <x86/pci_cfgreg.h>
+#include <machine/pci_cfgreg.h>
 
 typedef enum {
 	CORE0_SENSOR0,
