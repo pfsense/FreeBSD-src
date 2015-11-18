@@ -1124,7 +1124,7 @@ ipfw_ctl(struct sockopt *sopt)
 				break;
 			error = ipfw_add_table_entry(chain, ent.tbl,
 			    &ent.addr, sizeof(ent.addr), ent.masklen, 
-			    IPFW_TABLE_CIDR, ent.value);
+			    IPFW_TABLE_CIDR, ent.mac_addr, ent.value);
 		}
 		break;
 
@@ -1162,7 +1162,7 @@ ipfw_ctl(struct sockopt *sopt)
 
 			error = (opt == IP_FW_TABLE_XADD) ?
 				ipfw_add_table_entry(chain, xent->tbl, &xent->k, 
-					len, xent->masklen, xent->type, xent->value) :
+					len, xent->masklen, xent->type, xent->mac_addr, xent->value) :
 				ipfw_del_table_entry(chain, xent->tbl, &xent->k,
 					len, xent->masklen, xent->type);
 		}
@@ -1242,6 +1242,54 @@ ipfw_ctl(struct sockopt *sopt)
 			if (error)
 				break;
 			error = sooptcopyout(sopt, op3, sopt->sopt_valsize);
+		}
+		break;
+
+	case IP_FW_TABLE_XZEROENTRY: /* IP_FW3 */
+		{
+			ipfw_table_xentry *xent = (ipfw_table_xentry *)(op3 + 1);
+
+			/* Check minimum header size */
+			if (IP_FW3_OPLENGTH(sopt) < offsetof(ipfw_table_xentry, k)) {
+				error = EINVAL;
+				break;
+			}
+
+			/* Check if len field is valid */
+			if (xent->len > sizeof(ipfw_table_xentry)) {
+				error = EINVAL;
+				break;
+			}
+			
+			error = ipfw_zero_table_xentry_stats(chain, xent);
+			if (!error) {
+				xent->timestamp += boottime.tv_sec;
+				error = sooptcopyout(sopt, xent, sizeof(*xent));
+			}
+		}
+		break;
+
+	case IP_FW_TABLE_XLISTENTRY: /* IP_FW3 */
+		{
+			ipfw_table_xentry *xent = (ipfw_table_xentry *)(op3 + 1);
+
+			/* Check minimum header size */
+			if (IP_FW3_OPLENGTH(sopt) < offsetof(ipfw_table_xentry, k)) {
+				error = EINVAL;
+				break;
+			}
+
+			/* Check if len field is valid */
+			if (xent->len > sizeof(ipfw_table_xentry)) {
+				error = EINVAL;
+				break;
+			}
+			
+			error = ipfw_lookup_table_xentry(chain, xent);
+			if (!error) {
+				xent->timestamp += boottime.tv_sec;
+				error = sooptcopyout(sopt, xent, sizeof(*xent));
+			}
 		}
 		break;
 

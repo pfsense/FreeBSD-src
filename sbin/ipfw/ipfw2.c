@@ -4122,8 +4122,9 @@ ipfw_flush(int force)
 }
 
 
+static void table_list_entry(ipfw_table_xentry *);
 static void table_list(uint16_t num, int need_header);
-static void table_fill_xentry(char *arg, ipfw_table_xentry *xent);
+static void table_fill_xentry(int ac, char *av[], ipfw_table_xentry *xent);
 
 /*
  * Retrieve maximum number of tables supported by ipfw(4) module.
@@ -4194,29 +4195,9 @@ ipfw_table_handler(int ac, char *av[])
 	if (_substrcmp(*av, "add") == 0 ||
 	    _substrcmp(*av, "delete") == 0) {
 		do_add = **av == 'a';
-		ac--; av++;
-		if (!ac)
-			errx(EX_USAGE, "address required");
 
-		table_fill_xentry(*av, &xent);
+		table_fill_xentry(ac, av, &xent);
 
-		ac--; av++;
-		if (do_add && ac) {
-			unsigned int tval;
-			/* isdigit is a bit of a hack here.. */
-			if (strchr(*av, (int)'.') == NULL && isdigit(**av))  {
-				xent.value = strtoul(*av, NULL, 0);
-			} else {
-				if (lookup_host(*av, (struct in_addr *)&tval) == 0) {
-					/* The value must be stored in host order	 *
-					 * so that the values < 65k can be distinguished */
-		       			xent.value = ntohl(tval);
-				} else {
-					errx(EX_NOHOST, "hostname ``%s'' unknown", *av);
-				}
-			}
-		} else
-			xent.value = 0;
 		if (do_setcmd3(do_add ? IP_FW_TABLE_XADD : IP_FW_TABLE_XDEL,
 		    &xent, xent.len) < 0) {
 			/* If running silent, don't bomb out on these errors. */
@@ -4243,18 +4224,40 @@ ipfw_table_handler(int ac, char *av[])
 		do {
 			table_list(xent.tbl, is_all);
 		} while (++xent.tbl < a);
+	} else if (_substrcmp(*av, "entrystats") == 0) {
+		table_fill_xentry(ac, av, &xent);
+
+		if (do_setcmd3(IP_FW_TABLE_XLISTENTRY, &xent, xent.len) < 0) {
+			/* If running silent, don't bomb out on these errors. */
+			if (!(co.do_quiet))
+				err(EX_OSERR, "setsockopt(IP_FW_TABLE_XLISTENTRY)");
+		} else
+			table_list_entry(&xent);
+	} else if (_substrcmp(*av, "entryzerostats") == 0) {
+		table_fill_xentry(ac, av, &xent);
+
+		if (do_setcmd3(IP_FW_TABLE_XZEROENTRY, &xent, xent.len) < 0) {
+			/* If running silent, don't bomb out on these errors. */
+			if (!(co.do_quiet))
+				err(EX_OSERR, "setsockopt(IP_FW_TABLE_XZEROENTRY)");
+		}
 	} else
 		errx(EX_USAGE, "invalid table command %s", *av);
 }
 
 static void
-table_fill_xentry(char *arg, ipfw_table_xentry *xent)
+table_fill_xentry(int ac, char *av[], ipfw_table_xentry *xent)
 {
-	int addrlen, mask, masklen, type;
+	int addrlen, mask, masklen, type, do_add;
 	struct in6_addr *paddr;
 	uint32_t *pkey;
-	char *p;
+	char *p, *arg;
 	uint32_t key;
+
+	do_add = **av == 'a';
+	ac--; av++;
+	if (!ac)
+		errx(EX_USAGE, "address required");
 
 	mask = 0;
 	type = 0;
@@ -4270,7 +4273,20 @@ table_fill_xentry(char *arg, ipfw_table_xentry *xent)
 	 * 4) port, uid/gid or other u32 key (base 10 format)
 	 * 5) hostname
 	 */
-	paddr = &xent->k.addr6;
+	if (ac > 1 && av && _substrcmp(*av, "mac") == 0) {
+		uint8_t _mask[8];
+
+		type = IPFW_TABLE_MIX;
+		get_mac_addr_mask(av[1], (uint8_t *)xent->mac_addr, _mask);
+		ac-=2; av+=2;
+		if (ac <= 0)
+			errx(EX_DATAERR, "wrong argument passed.");
+
+		paddr = (struct in6_addr *)&xent->k.addr6;
+	} else
+		paddr = &xent->k.addr6;
+
+	arg = *av;
 	if (ishexnumber(*arg) != 0 || *arg == ':') {
 		/* Remove / if exists */
 		if ((p = strchr(arg, '/')) != NULL) {
@@ -4283,9 +4299,11 @@ table_fill_xentry(char *arg, ipfw_table_xentry *xent)
 				errx(EX_DATAERR, "bad IPv4 mask width: %s",
 				    p + 1);
 
-			type = IPFW_TABLE_CIDR;
+			if (type == 0)
+				type = IPFW_TABLE_CIDR;
 			masklen = p ? mask : 32;
 			addrlen = sizeof(struct in_addr);
+			xent->flags = IPFW_TCF_INET;
 		} else if (inet_pton(AF_INET6, arg, paddr) == 1) {
 			if (IN6_IS_ADDR_V4COMPAT(paddr))
 				errx(EX_DATAERR,
@@ -4294,10 +4312,14 @@ table_fill_xentry(char *arg, ipfw_table_xentry *xent)
 				errx(EX_DATAERR, "bad IPv6 mask width: %s",
 				    p + 1);
 
-			type = IPFW_TABLE_CIDR;
+			if (type == 0)
+				type = IPFW_TABLE_CIDR;
 			masklen = p ? mask : 128;
 			addrlen = sizeof(struct in6_addr);
 		} else {
+			if (type != 0 && type != IPFW_TABLE_MIX)
+				errx(EX_DATAERR, "Wrong value passed as address");
+
 			/* Port or any other key */
 			/* Skip non-base 10 entries like 'fa1' */
 			key = strtol(arg, &p, 10);
@@ -4338,11 +4360,88 @@ table_fill_xentry(char *arg, ipfw_table_xentry *xent)
 		masklen = 32;
 		type = IPFW_TABLE_CIDR;
 		addrlen = sizeof(struct in_addr);
+		xent->flags = IPFW_TCF_INET;
 	}
+
+	ac--; av++;
+	if (ac > 1 && av) {
+		if (_substrcmp(*av, "mac") == 0)  {
+			uint8_t _mask[8];
+
+			if (type == 0)
+				type = IPFW_TABLE_CIDR;
+			get_mac_addr_mask(av[1], (uint8_t *)&xent->mac_addr, _mask);
+			ac-=2; av+=2;
+		}
+	}
+
+	if (do_add && ac > 0) {
+		unsigned int tval;
+		/* isdigit is a bit of a hack here.. */
+		if (strchr(*av, (int)'.') == NULL && isdigit(**av))  {
+			xent->value = strtoul(*av, NULL, 0);
+		} else {
+			if (lookup_host(*av, (struct in_addr *)&tval) == 0) {
+				/* The value must be stored in host order	 *
+				 * so that the values < 65k can be distinguished */
+				xent->value = ntohl(tval);
+			} else {
+				errx(EX_NOHOST, "hostname ``%s'' unknown", *av);
+			}
+		}
+	} else
+		xent->value = 0;
 
 	xent->type = type;
 	xent->masklen = masklen;
-	xent->len = offsetof(ipfw_table_xentry, k) + addrlen;
+	if (type == IPFW_TABLE_MIX)
+		xent->len = offsetof(ipfw_table_xentry, k) + addrlen + ETHER_ADDR_LEN;
+	else
+		xent->len = offsetof(ipfw_table_xentry, k) + addrlen;
+}
+
+static void
+table_list_entry(ipfw_table_xentry *xent)
+{
+	struct in6_addr *addr6;
+	uint32_t tval;
+	char tbuf[128];
+
+	switch (xent->type) {
+	case IPFW_TABLE_CIDR:
+		/* IPv4 or IPv6 prefixes */
+		tval = xent->value;
+		addr6 = &xent->k.addr6;
+
+		if ((xent->flags & IPFW_TCF_INET) != 0) {
+			/* IPv4 address */
+			inet_ntop(AF_INET, (in_addr_t *)&addr6->s6_addr32[0], tbuf, sizeof(tbuf));
+		} else {
+			/* IPv6 address */
+			inet_ntop(AF_INET6, addr6, tbuf, sizeof(tbuf));
+		}
+
+		if (co.do_value_as_ip) {
+			tval = htonl(tval);
+			printf("%s/%u %s %d %d %u\n", tbuf, xent->masklen,
+			    inet_ntoa(*(struct in_addr *)&tval), pr_u64(&xent->packets, 0), pr_u64(&xent->bytes, 0), xent->timestamp);
+		} else
+			printf("%s/%u %u %d %d %u\n", tbuf, xent->masklen, tval,
+			    pr_u64(&xent->packets, 0), pr_u64(&xent->bytes, 0), xent->timestamp);
+		break;
+	case IPFW_TABLE_INTERFACE:
+		/* Interface names */
+		tval = xent->value;
+		if (co.do_value_as_ip) {
+			tval = htonl(tval);
+			printf("%s %u %s %d %d %u\n", xent->k.iface, xent->masklen,
+			    inet_ntoa(*(struct in_addr *)&tval), pr_u64(&xent->packets, 0), pr_u64(&xent->bytes, 0), xent->timestamp);
+		} else
+			printf("%s %u %u %d %d %u\n", xent->k.iface, xent->masklen, tval,
+			    pr_u64(&xent->packets, 0), pr_u64(&xent->bytes, 0), xent->timestamp);
+
+		break;
+	}
 }
 
 static void
@@ -4388,21 +4487,24 @@ table_list(uint16_t num, int need_header)
 			tval = xent->value;
 			addr6 = &xent->k.addr6;
 
-
-			if (IN6_IS_ADDR_V4COMPAT(addr6)) {
+			if ((xent->flags & IPFW_TCF_INET) != 0) {
 				/* IPv4 address */
-				inet_ntop(AF_INET, &addr6->s6_addr32[3], tbuf, sizeof(tbuf));
+				inet_ntop(AF_INET, &addr6->s6_addr32[0], tbuf, sizeof(tbuf));
 			} else {
 				/* IPv6 address */
 				inet_ntop(AF_INET6, addr6, tbuf, sizeof(tbuf));
 			}
 
+			printf("%s/%u", tbuf, xent->masklen);
+			if (xent->mac_addr)
+				printf(" mac %s", ether_ntoa((struct ether_addr *)&xent->mac_addr));
+
 			if (co.do_value_as_ip) {
 				tval = htonl(tval);
-				printf("%s/%u %s\n", tbuf, xent->masklen,
+				printf(" %s\n",
 				    inet_ntoa(*(struct in_addr *)&tval));
 			} else
-				printf("%s/%u %u\n", tbuf, xent->masklen, tval);
+				printf(" %u\n", tval);
 			break;
 		case IPFW_TABLE_INTERFACE:
 			/* Interface names */
@@ -4413,6 +4515,8 @@ table_list(uint16_t num, int need_header)
 				    inet_ntoa(*(struct in_addr *)&tval));
 			} else
 				printf("%s %u\n", xent->k.iface, tval);
+
+			break;
 		}
 
 		if (sz < xent->len)
