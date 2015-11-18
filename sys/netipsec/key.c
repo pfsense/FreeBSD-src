@@ -547,7 +547,7 @@ static int key_acquire2 __P((struct socket *, struct mbuf *,
 	const struct sadb_msghdr *));
 static int key_register __P((struct socket *, struct mbuf *,
 	const struct sadb_msghdr *));
-static int key_expire __P((struct secasvar *));
+static int key_expire __P((struct secasvar *, int));
 static int key_flush __P((struct socket *, struct mbuf *,
 	const struct sadb_msghdr *));
 static int key_dump __P((struct socket *, struct mbuf *,
@@ -4388,40 +4388,29 @@ key_flush_sad(time_t now)
 				continue;
 			}
 
-			/* check SOFT lifetime */
-			if (sav->lft_s->addtime != 0 &&
-			    now - sav->created > sav->lft_s->addtime) {
-				key_sa_chgstate(sav, SADB_SASTATE_DYING);
-				/* 
-				 * Actually, only send expire message if
-				 * SA has been used, as it was done before,
-				 * but should we always send such message,
-				 * and let IKE daemon decide if it should be
-				 * renegotiated or not ?
-				 * XXX expire message will actually NOT be
-				 * sent if SA is only used after soft
-				 * lifetime has been reached, see below
-				 * (DYING state)
+			/* check HARD lifetime */
+			if ((sav->lft_h->addtime != 0 &&
+			    now - sav->created > sav->lft_h->addtime) ||
+			    (sav->lft_h->bytes != 0 &&
+			    sav->lft_h->bytes < sav->lft_c->bytes)) {
+				/*
+				 * RFC 2367:
+				 * HARD lifetimes MUST take precedence over
+				 * SOFT lifetimes, meaning if the HARD and
+				 * SOFT lifetimes are the same, the HARD
+				 * lifetime will appear on the EXPIRE message.
 				 */
-				if (sav->lft_c->usetime != 0)
-					key_expire(sav);
+				key_sa_chgstate(sav, SADB_SASTATE_DEAD);
+				key_expire(sav, 1);
+				KEY_FREESAV(&sav);
 			}
 			/* check SOFT lifetime by bytes */
-			/*
-			 * XXX I don't know the way to delete this SA
-			 * when new SA is installed.  Caution when it's
-			 * installed too big lifetime by time.
-			 */
-			else if (sav->lft_s->bytes != 0 &&
-			    sav->lft_s->bytes < sav->lft_c->bytes) {
-
+			else if ((sav->lft_s->addtime != 0 &&
+			    now - sav->created > sav->lft_s->addtime) ||
+			    (sav->lft_s->bytes != 0 &&
+			    sav->lft_s->bytes < sav->lft_c->bytes)) {
 				key_sa_chgstate(sav, SADB_SASTATE_DYING);
-				/*
-				 * XXX If we keep to send expire
-				 * message in the status of
-				 * DYING. Do remove below code.
-				 */
-				key_expire(sav);
+				key_expire(sav, 0);
 			}
 		}
 
@@ -4441,6 +4430,7 @@ key_flush_sad(time_t now)
 			if (sav->lft_h->addtime != 0 &&
 			    now - sav->created > sav->lft_h->addtime) {
 				key_sa_chgstate(sav, SADB_SASTATE_DEAD);
+				key_expire(sav, 1);
 				KEY_FREESAV(&sav);
 			}
 #if 0	/* XXX Should we keep to send expire message until HARD lifetime ? */
@@ -4456,13 +4446,14 @@ key_flush_sad(time_t now)
 				 * If there is no SA then sending
 				 * expire message.
 				 */
-				key_expire(sav);
+				key_expire(sav, 0);
 			}
 #endif
 			/* check HARD lifetime by bytes */
 			else if (sav->lft_h->bytes != 0 &&
 			    sav->lft_h->bytes < sav->lft_c->bytes) {
 				key_sa_chgstate(sav, SADB_SASTATE_DEAD);
+				key_expire(sav, 1);
 				KEY_FREESAV(&sav);
 			}
 		}
@@ -6916,7 +6907,7 @@ key_freereg(struct socket *so)
  *	others	: error number
  */
 static int
-key_expire(struct secasvar *sav)
+key_expire(struct secasvar *sav, int hard)
 {
 	int satype;
 	struct mbuf *result = NULL, *m;
@@ -6974,11 +6965,19 @@ key_expire(struct secasvar *sav)
 	lt->sadb_lifetime_usetime = sav->lft_c->usetime;
 	lt = (struct sadb_lifetime *)(mtod(m, caddr_t) + len / 2);
 	lt->sadb_lifetime_len = PFKEY_UNIT64(sizeof(struct sadb_lifetime));
-	lt->sadb_lifetime_exttype = SADB_EXT_LIFETIME_SOFT;
-	lt->sadb_lifetime_allocations = sav->lft_s->allocations;
-	lt->sadb_lifetime_bytes = sav->lft_s->bytes;
-	lt->sadb_lifetime_addtime = sav->lft_s->addtime;
-	lt->sadb_lifetime_usetime = sav->lft_s->usetime;
+	if (hard) {
+		lt->sadb_lifetime_exttype = SADB_EXT_LIFETIME_HARD;
+		lt->sadb_lifetime_allocations = sav->lft_h->allocations;
+		lt->sadb_lifetime_bytes = sav->lft_h->bytes;
+		lt->sadb_lifetime_addtime = sav->lft_h->addtime;
+		lt->sadb_lifetime_usetime = sav->lft_h->usetime;
+	} else {
+		lt->sadb_lifetime_exttype = SADB_EXT_LIFETIME_SOFT;
+		lt->sadb_lifetime_allocations = sav->lft_s->allocations;
+		lt->sadb_lifetime_bytes = sav->lft_s->bytes;
+		lt->sadb_lifetime_addtime = sav->lft_s->addtime;
+		lt->sadb_lifetime_usetime = sav->lft_s->usetime;
+	}
 	m_cat(result, m);
 
 	/* set sadb_address for source */
