@@ -2466,7 +2466,7 @@ key_spddump(so, m, mhp)
 	struct secpolicy *sp;
 	int cnt;
 	u_int dir;
-	struct mbuf *n;
+	struct mbuf *n, *rh, *rt;
 
 	IPSEC_ASSERT(so != NULL, ("null socket"));
 	IPSEC_ASSERT(m != NULL, ("null mbuf"));
@@ -2487,20 +2487,30 @@ key_spddump(so, m, mhp)
 		return key_senderror(so, m, ENOENT);
 	}
 
+	rh = rt = NULL;
 	for (dir = 0; dir < IPSEC_DIR_MAX; dir++) {
 		LIST_FOREACH(sp, &V_sptree[dir], chain) {
 			--cnt;
 			n = key_setdumpsp(sp, SADB_X_SPDDUMP, cnt,
 			    mhp->msg->sadb_msg_pid);
+			if (!n) {
+				SPTREE_UNLOCK();
+				m_freem(rh);
+				return key_senderror(so, m, ENOBUFS);
+			}
 
-			if (n)
-				key_sendup_mbuf(so, n, KEY_SENDUP_ONE);
+			if (rt)
+				rt->m_nextpkt = n;
+			else
+				 rh = n;
+			rt = n;
+
 		}
 	}
 
 	SPTREE_UNLOCK();
 	m_freem(m);
-	return 0;
+	return key_sendup_mbuf(so, rh, KEY_SENDUP_ONESHOT);
 }
 
 static struct mbuf *
@@ -3387,7 +3397,7 @@ static struct mbuf *
 key_setdumpsa(struct secasvar *sav, u_int8_t type, u_int8_t satype,
     u_int32_t seq, u_int32_t pid)
 {
-	struct mbuf *result = NULL, *tres = NULL, *m;
+	struct mbuf *result = NULL, *m;
 	int i;
 	int dumporder[] = {
 		SADB_EXT_SA, SADB_X_EXT_SA2,
@@ -3409,7 +3419,7 @@ key_setdumpsa(struct secasvar *sav, u_int8_t type, u_int8_t satype,
 		goto fail;
 	result = m;
 
-	for (i = sizeof(dumporder)/sizeof(dumporder[0]) - 1; i >= 0; i--) {
+	for (i = 0; i < sizeof(dumporder)/sizeof(dumporder[0]); i++) {
 		m = NULL;
 		switch (dumporder[i]) {
 		case SADB_EXT_SA:
@@ -3527,13 +3537,9 @@ key_setdumpsa(struct secasvar *sav, u_int8_t type, u_int8_t satype,
 
 		if (!m)
 			goto fail;
-		if (tres)
-			m_cat(m, tres);
-		tres = m;
-		  
+		m_cat(result, m);
 	}
 
-	m_cat(result, tres);
 	if (result->m_len < sizeof(struct sadb_msg)) {
 		result = m_pullup(result, sizeof(struct sadb_msg));
 		if (result == NULL)
@@ -3551,7 +3557,6 @@ key_setdumpsa(struct secasvar *sav, u_int8_t type, u_int8_t satype,
 
 fail:
 	m_freem(result);
-	m_freem(tres);
 	return NULL;
 }
 
@@ -7137,7 +7142,7 @@ key_dump(so, m, mhp)
 	u_int8_t state;
 	int cnt;
 	struct sadb_msg *newmsg;
-	struct mbuf *n;
+	struct mbuf *rh, *rt, *n;
 
 	IPSEC_ASSERT(so != NULL, ("null socket"));
 	IPSEC_ASSERT(m != NULL, ("null mbuf"));
@@ -7176,6 +7181,7 @@ key_dump(so, m, mhp)
 
 	/* send this to the userland, one at a time. */
 	newmsg = NULL;
+	rh = rt = NULL;
 	LIST_FOREACH(sah, &V_sahtree, chain) {
 		if (mhp->msg->sadb_msg_satype != SADB_SATYPE_UNSPEC
 		 && proto != sah->saidx.proto)
@@ -7184,6 +7190,7 @@ key_dump(so, m, mhp)
 		/* map proto to satype */
 		if ((satype = key_proto2satype(sah->saidx.proto)) == 0) {
 			SAHTREE_UNLOCK();
+			m_freem(rh);
 			ipseclog((LOG_DEBUG, "%s: there was invalid proto in "
 				"SAD.\n", __func__));
 			return key_senderror(so, m, EINVAL);
@@ -7198,16 +7205,21 @@ key_dump(so, m, mhp)
 				    --cnt, mhp->msg->sadb_msg_pid);
 				if (!n) {
 					SAHTREE_UNLOCK();
+					m_freem(rh);
 					return key_senderror(so, m, ENOBUFS);
 				}
-				key_sendup_mbuf(so, n, KEY_SENDUP_ONE);
+				if (rt)
+					rt->m_nextpkt = n;
+				else
+					rh = n;
+				rt = n;
 			}
 		}
 	}
 	SAHTREE_UNLOCK();
 
 	m_freem(m);
-	return 0;
+	return key_sendup_mbuf(so, rh, KEY_SENDUP_ONESHOT);
 }
 
 /*
