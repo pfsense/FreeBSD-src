@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_misc.h 265205 2014-05-02 00:48:09Z adrian $
  */
 #ifndef	__IF_ATH_MISC_H__
 #define	__IF_ATH_MISC_H__
@@ -126,6 +126,19 @@ extern void ath_start(struct ifnet *ifp);
 extern	void ath_start_task(void *arg, int npending);
 
 extern void ath_tx_dump(struct ath_softc *sc, struct ath_txq *txq);
+
+/*
+ * Power state tracking.
+ */
+extern	void _ath_power_setpower(struct ath_softc *sc, int power_state, const char *file, int line);
+extern	void _ath_power_set_selfgen(struct ath_softc *sc, int power_state, const char *file, int line);
+extern	void _ath_power_set_power_state(struct ath_softc *sc, int power_state, const char *file, int line);
+extern	void _ath_power_restore_power_state(struct ath_softc *sc, const char *file, int line);
+
+#define	ath_power_setpower(sc, ps) _ath_power_setpower(sc, ps, __FILE__, __LINE__)
+#define	ath_power_setselfgen(sc, ps) _ath_power_set_selfgen(sc, ps, __FILE__, __LINE__)
+#define	ath_power_set_power_state(sc, ps) _ath_power_set_power_state(sc, ps, __FILE__, __LINE__)
+#define	ath_power_restore_power_state(sc) _ath_power_restore_power_state(sc, __FILE__, __LINE__)
 
 /*
  * Kick the frame TX task.

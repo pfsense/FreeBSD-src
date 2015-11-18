@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5210/ar5210.h 264899 2014-04-24 23:11:18Z adrian $
  */
 #ifndef _ATH_AR5210_H_
 #define _ATH_AR5210_H_
@@ -108,7 +108,6 @@ struct ath_hal_5210 {
 	uint32_t	ah_txDescInterruptMask;
 	uint32_t	ah_txEolInterruptMask;
 	uint32_t	ah_txUrnInterruptMask;
-	HAL_POWER_MODE	ah_powerMode;
 	uint8_t		ah_bssid[IEEE80211_ADDR_LEN];
 	HAL_TX_QUEUE_INFO ah_txq[HAL_NUM_TX_QUEUES]; /* beacon+cab+data */
 	/*
@@ -121,6 +120,8 @@ struct ath_hal_5210 {
 	u_int		ah_slottime;		/* user-specified slot time */
 	u_int		ah_acktimeout;		/* user-specified ack timeout */
 	u_int		ah_ctstimeout;		/* user-specified cts timeout */
+
+	uint16_t	ah_associd;		/* association id */
 };
 #define	AH5210(ah)	((struct ath_hal_5210 *)(ah))
 

@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5212/ar5212_attach.c 272292 2014-09-30 03:19:29Z adrian $
  */
 #include "opt_ah.h"
 
@@ -317,7 +317,7 @@ ar5212IsMacSupported(uint8_t macVersion, uint8_t macRev)
 static struct ath_hal *
 ar5212Attach(uint16_t devid, HAL_SOFTC sc,
 	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
-	HAL_STATUS *status)
+	HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
 {
 #define	AH_EEPROM_PROTECT(ah) \
 	(AH_PRIVATE(ah)->ah_ispcie)? AR_EEPROM_PROTECT_PCIE : AR_EEPROM_PROTECT)

@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_athdfs.h 244946 2013-01-02 01:36:10Z adrian $
  */
 #ifndef	__IF_ATHDFS_H__
 #define	__IF_ATHDFS_H__

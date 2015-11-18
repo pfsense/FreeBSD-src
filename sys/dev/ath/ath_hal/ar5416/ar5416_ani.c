@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5416/ar5416_ani.c 280828 2015-03-29 21:50:21Z adrian $
  */
 #include "opt_ah.h"
 
@@ -818,7 +818,6 @@ ar5416AniGetListenTime(struct ath_hal *ah)
 	int32_t listenTime = 0;
 	int good;
 	HAL_SURVEY_SAMPLE hs;
-	HAL_CHANNEL_SURVEY *cs = AH_NULL;
 
 	/*
 	 * We shouldn't see ah_curchan be NULL, but just in case..
@@ -828,21 +827,13 @@ ar5416AniGetListenTime(struct ath_hal *ah)
 		return (0);
 	}
 
-	cs = &ahp->ah_chansurvey;
-
 	/*
 	 * Fetch the current statistics, squirrel away the current
-	 * sample, bump the sequence/sample counter.
+	 * sample.
 	 */
 	OS_MEMZERO(&hs, sizeof(hs));
 	good = ar5416GetMibCycleCounts(ah, &hs);
-	if (cs != AH_NULL) {
-		OS_MEMCPY(&cs->samples[cs->cur_sample], &hs, sizeof(hs));
-		cs->samples[cs->cur_sample].seq_num = cs->cur_seq;
-		cs->cur_sample =
-		    (cs->cur_sample + 1) % CHANNEL_SURVEY_SAMPLE_COUNT;
-		cs->cur_seq++;
-	}
+	ath_hal_survey_add_sample(ah, &hs);
 
 	if (ANI_ENA(ah))
 		aniState = ahp->ah_curani;

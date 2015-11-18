@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_media.h>
 #include <net/if_llc.h>
 #include <net/ethernet.h>
@@ -127,11 +128,11 @@ SYSCTL_PROC(_net_wlan_mesh, OID_AUTO, backofftimeout, CTLTYPE_INT | CTLFLAG_RW,
     "Backoff timeout (msec). This is to throutles peering forever when "
     "not receving answer or is rejected by a neighbor");
 static int ieee80211_mesh_maxretries = 2;
-SYSCTL_INT(_net_wlan_mesh, OID_AUTO, maxretries, CTLTYPE_INT | CTLFLAG_RW,
+SYSCTL_INT(_net_wlan_mesh, OID_AUTO, maxretries, CTLFLAG_RW,
     &ieee80211_mesh_maxretries, 0,
     "Maximum retries during peer link establishment");
 static int ieee80211_mesh_maxholding = 2;
-SYSCTL_INT(_net_wlan_mesh, OID_AUTO, maxholding, CTLTYPE_INT | CTLFLAG_RW,
+SYSCTL_INT(_net_wlan_mesh, OID_AUTO, maxholding, CTLFLAG_RW,
     &ieee80211_mesh_maxholding, 0,
     "Maximum times we are allowed to transition to HOLDING state before "
     "backinoff during peer link establishment");
@@ -2692,7 +2693,7 @@ mesh_send_action(struct ieee80211_node *ni,
 		return EIO;		/* XXX */
 	}
 
-	M_PREPEND(m, sizeof(struct ieee80211_frame), M_DONTWAIT);
+	M_PREPEND(m, sizeof(struct ieee80211_frame), M_NOWAIT);
 	if (m == NULL) {
 		ieee80211_free_node(ni);
 		return ENOMEM;
@@ -3333,7 +3334,7 @@ mesh_airtime_calc(struct ieee80211_node *ni)
 	/* Error rate in percentage */
 	/* XXX assuming small failures are ok */
 	errrate = (((ifp->if_oerrors +
-	    ifp->if_ierrors) / 100) << M_BITS) / 100;
+		ifp->if_ierrors) / 100) << M_BITS) / 100;
 	res = (overhead + (nbits / rate)) *
 	    ((1 << S_FACTOR) / ((1 << M_BITS) - errrate));
 

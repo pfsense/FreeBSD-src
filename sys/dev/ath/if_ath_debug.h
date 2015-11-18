@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_debug.h 265115 2014-04-30 02:19:41Z adrian $
  */
 #ifndef	__IF_ATH_DEBUG_H__
 #define	__IF_ATH_DEBUG_H__
@@ -68,6 +68,7 @@ enum {
 	ATH_DEBUG_SW_TX_FILT	= 0x400000000ULL,	/* SW TX FF */
 	ATH_DEBUG_NODE_PWRSAVE	= 0x800000000ULL,	/* node powersave */
 	ATH_DEBUG_DIVERSITY	= 0x1000000000ULL,	/* Diversity logic */
+	ATH_DEBUG_PWRSAVE	= 0x2000000000ULL,
 
 	ATH_DEBUG_ANY		= 0xffffffffffffffffULL
 };

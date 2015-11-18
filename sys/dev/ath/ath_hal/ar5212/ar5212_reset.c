@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5212/ar5212_reset.c 280828 2015-03-29 21:50:21Z adrian $
  */
 #include "opt_ah.h"
 
@@ -197,7 +197,8 @@ ar5212Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 		saveFrameSeqCount = 0;		/* NB: silence compiler */
 
 	/* Blank the channel survey statistics */
-	OS_MEMZERO(&ahp->ah_chansurvey, sizeof(ahp->ah_chansurvey));
+	ath_hal_survey_clear(ah);
+
 #if 0
 	/*
 	 * XXX disable for now; this appears to sometimes cause OFDM
@@ -2605,6 +2606,12 @@ ar5212GetTargetPowers(struct ath_hal *ah, const struct ieee80211_channel *chan,
 		powInfo[ixlo].twicePwr54, powInfo[ixhi].twicePwr54);
 }
 
+static uint32_t
+udiff(uint32_t u, uint32_t v)
+{
+	return (u >= v ? u - v : v - u);
+}
+
 /*
  * Search a list for a specified value v that is within
  * EEP_DELTA of the search values.  Return the closest
@@ -2639,7 +2646,7 @@ ar5212GetLowerUpperValues(uint16_t v, uint16_t *lp, uint16_t listSize,
 		 * If value is close to the current value of the list
 		 * then target is not between values, it is one of the values
 		 */
-		if (abs(lp[0] * EEP_SCALE - target) < EEP_DELTA) {
+		if (udiff(lp[0] * EEP_SCALE, target) < EEP_DELTA) {
 			*vlo = *vhi = lp[0];
 			return;
 		}

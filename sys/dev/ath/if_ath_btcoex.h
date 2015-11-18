@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_btcoex.h 251487 2013-06-07 09:02:02Z adrian $
  */
 #ifndef	__IF_ATH_BTCOEX_H__
 #define	__IF_ATH_BTCOEX_H__

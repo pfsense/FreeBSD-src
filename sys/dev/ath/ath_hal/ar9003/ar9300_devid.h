@@ -32,7 +32,7 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar9003/ar9300_devid.h 250166 2013-05-02 00:59:39Z adrian $
  *
  */
 #ifndef	__AR9300_DEVID_H__

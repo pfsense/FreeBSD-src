@@ -27,7 +27,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_athrate.h 249578 2013-04-17 07:21:30Z adrian $
  */
 #ifndef _ATH_RATECTRL_H_
 #define _ATH_RATECTRL_H_

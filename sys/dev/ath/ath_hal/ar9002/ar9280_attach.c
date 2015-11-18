@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar9002/ar9280_attach.c 272292 2014-09-30 03:19:29Z adrian $
  */
 #include "opt_ah.h"
 
@@ -148,6 +148,7 @@ ar9280InitPLL(struct ath_hal *ah, const struct ieee80211_channel *chan)
 static struct ath_hal *
 ar9280Attach(uint16_t devid, HAL_SOFTC sc,
 	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config,
 	HAL_STATUS *status)
 {
 	struct ath_hal_9280 *ahp9280;

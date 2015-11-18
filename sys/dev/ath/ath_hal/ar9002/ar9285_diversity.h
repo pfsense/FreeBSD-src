@@ -23,7 +23,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar9002/ar9285_diversity.h 251655 2013-06-12 14:52:57Z adrian $
  */
 #ifndef	__AR9285_DIVERSITY_H__
 #define	__AR9285_DIVERSITY_H__

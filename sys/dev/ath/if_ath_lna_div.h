@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_lna_div.h 251730 2013-06-14 03:42:10Z adrian $
  */
 #ifndef	__IF_ATH_LNA_DIV_H__
 #define	__IF_ATH_LNA_DIV_H__

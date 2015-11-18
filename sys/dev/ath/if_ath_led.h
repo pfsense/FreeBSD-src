@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_led.h 228888 2011-12-26 05:46:22Z adrian $
  */
 #ifndef	__IF_ATH_LED_H__
 #define	__IF_ATH_LED_H__

@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5416/ar5416_reset.c 280828 2015-03-29 21:50:21Z adrian $
  */
 #include "opt_ah.h"
 
@@ -120,9 +120,10 @@ ar5416Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	HALASSERT(AH_PRIVATE(ah)->ah_eeversion >= AR_EEPROM_VER14_1);
 
 	/* Blank the channel survey statistics */
-	OS_MEMZERO(&ahp->ah_chansurvey, sizeof(ahp->ah_chansurvey));
+	ath_hal_survey_clear(ah);
 
 	/* XXX Turn on fast channel change for 5416 */
+
 	/*
 	 * Preserve the bmiss rssi threshold and count threshold
 	 * across resets

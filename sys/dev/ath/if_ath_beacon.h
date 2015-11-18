@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_beacon.h 265115 2014-04-30 02:19:41Z adrian $
  */
 #ifndef	__IF_ATH_BEACON_H__
 #define	__IF_ATH_BEACON_H__
@@ -48,5 +48,7 @@ extern	int ath_beacon_alloc(struct ath_softc *sc, struct ieee80211_node *ni);
 extern	void ath_beacon_return(struct ath_softc *sc, struct ath_buf *bf);
 extern	void ath_beacon_free(struct ath_softc *sc);
 extern	void ath_beacon_proc(void *arg, int pending);
+extern	void ath_beacon_miss(struct ath_softc *sc);
 
 #endif
+

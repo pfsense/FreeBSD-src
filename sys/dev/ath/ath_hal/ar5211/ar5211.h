@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5211/ar5211.h 262969 2014-03-10 06:03:35Z adrian $
  */
 #ifndef _ATH_AR5211_H_
 #define _ATH_AR5211_H_
@@ -119,7 +119,6 @@ struct ath_hal_5211 {
 	uint32_t	ah_txEolInterruptMask;
 	uint32_t	ah_txUrnInterruptMask;
 	HAL_TX_QUEUE_INFO ah_txq[HAL_NUM_TX_QUEUES];
-	HAL_POWER_MODE	ah_powerMode;
 	HAL_ANT_SETTING ah_diversityControl;	/* antenna setting */
 	uint32_t	ah_calibrationTime;
 	HAL_BOOL	ah_bIQCalibration;

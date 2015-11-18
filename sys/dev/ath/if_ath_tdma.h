@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_tdma.h 235679 2012-05-20 02:49:42Z adrian $
  */
 #ifndef	__IF_ATH_TDMA_H__
 #define	__IF_ATH_TDMA_H__

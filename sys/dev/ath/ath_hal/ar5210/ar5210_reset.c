@@ -14,7 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar5210/ar5210_reset.c 264899 2014-04-24 23:11:18Z adrian $
  */
 #include "opt_ah.h"
 
@@ -152,8 +152,12 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	/* Restore previous led state */
 	OS_REG_WRITE(ah, AR_PCICFG, OS_REG_READ(ah, AR_PCICFG) | ledstate);
 
+#if 0
 	OS_REG_WRITE(ah, AR_BSS_ID0, LE_READ_4(ahp->ah_bssid));
 	OS_REG_WRITE(ah, AR_BSS_ID1, LE_READ_2(ahp->ah_bssid + 4));
+#endif
+	/* BSSID, association id, ps-poll */
+	ar5210WriteAssocid(ah, ahp->ah_bssid, ahp->ah_associd);
 
 	OS_REG_WRITE(ah, AR_TXDP0, 0);
 	OS_REG_WRITE(ah, AR_TXDP1, 0);

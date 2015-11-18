@@ -23,7 +23,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ar9002/ar9285_phy.h 251643 2013-06-12 06:01:53Z adrian $
  */
 #ifndef	__AR9285_PHY_H__
 #define	__AR9285_PHY_H__

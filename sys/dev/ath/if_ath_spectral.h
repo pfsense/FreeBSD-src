@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_spectral.h 244951 2013-01-02 03:59:02Z adrian $
  */
 #ifndef	__IF_ATH_SPECTRAL_H__
 #define	__IF_ATH_SPECTRAL_H__

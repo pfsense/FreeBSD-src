@@ -15,7 +15,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/ath_hal/ah_regdomain.c 262375 2014-02-23 18:07:17Z hiren $
  */
 #include "opt_ah.h"
 
@@ -169,6 +169,11 @@ isEepromValid(struct ath_hal *ah)
 			if (regDomainPairs[i].regDmnEnum == rd)
 				return AH_TRUE;
 	}
+
+	if (rd == FCC_UBNT) {
+		return AH_TRUE;
+	}
+
 	HALDEBUG(ah, HAL_DEBUG_REGDOMAIN,
 	    "%s: invalid regulatory domain/country code 0x%x\n", __func__, rd);
 	return AH_FALSE;

@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
- * $FreeBSD$
+ * $FreeBSD: head/sys/dev/ath/if_ath_tx_ht.h 250665 2013-05-15 18:33:05Z adrian $
  */
 #ifndef	__IF_ATH_TX_HT_H__
 #define	__IF_ATH_TX_HT_H__
