@@ -472,11 +472,11 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav,
 	 * Pass the mbuf to enc0 for bpf and pfil. We will filter the IPIP
 	 * packet later after it has been decapsulated.
 	 */
-	ipsec_bpf(m, sav, AF_INET, ENC_IN|ENC_BEFORE);
+	ipsec_bpf(m, sav, AF_INET, saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE);
 
 	if (prot != IPPROTO_IPIP)
 		if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN, 
-			ENC_IN|ENC_BEFORE)) != 0)
+			saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE)) != 0)
 			return (error);
 #endif
 
@@ -727,12 +727,12 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip, int proto
 	 * Pass the mbuf to enc0 for bpf and pfil. We will filter the IPIP
 	 * packet later after it has been decapsulated.
 	 */
-	ipsec_bpf(m, sav, AF_INET6, ENC_IN|ENC_BEFORE);
+	ipsec_bpf(m, sav, AF_INET6, saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE);
 
 	/* XXX-BZ does not make sense. */
 	if (prot != IPPROTO_IPIP)
 		if ((error = ipsec_filter(&m, &sav->sah->saidx, PFIL_IN, 
-			ENC_IN|ENC_BEFORE)) != 0)
+			saidx->mode == IPSEC_MODE_TRANSPORT ? ENC_IN|ENC_AFTER : ENC_IN|ENC_BEFORE)) != 0)
 			return (error);
 #endif
 
