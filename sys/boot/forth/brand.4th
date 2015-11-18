@@ -33,15 +33,15 @@ variable brandY
 2 brandX !
 1 brandY !
 
-: fbsd-logo ( x y -- ) \ "FreeBSD" [wide] logo in B/W (7 rows x 42 columns)
+: fbsd-logo ( x y -- ) \ "pfSense" [wide] logo in B/W (7 rows x 42 columns)
 
-	2dup at-xy ."  ______               ____   _____ _____  " 1+
-	2dup at-xy ." |  ____|             |  _ \ / ____|  __ \ " 1+
-	2dup at-xy ." | |___ _ __ ___  ___ | |_) | (___ | |  | |" 1+
-	2dup at-xy ." |  ___| '__/ _ \/ _ \|  _ < \___ \| |  | |" 1+
-	2dup at-xy ." | |   | | |  __/  __/| |_) |____) | |__| |" 1+
-	2dup at-xy ." | |   | | |    |    ||     |      |      |" 1+
-	     at-xy ." |_|   |_|  \___|\___||____/|_____/|_____/ "
+	2dup at-xy ."          __ ____                          " 1+
+	2dup at-xy ."   _ __  / _/ ___|  ___ _ __  ___  ___     " 1+
+	2dup at-xy ."  | '_ \| |_\___ \ / _ \ '_ \/ __|/ _ \    " 1+
+	2dup at-xy ."  | |_) |  _|___) |  __/ | | \__ \  __/    " 1+
+	2dup at-xy ."  | .__/|_| |____/ \___|_| |_|___/\___|    " 1+
+	2dup at-xy ."  |_|                                      " 1+
+	     at-xy ."                                           "
 
 	\ Put the cursor back at the bottom
 	0 25 at-xy
