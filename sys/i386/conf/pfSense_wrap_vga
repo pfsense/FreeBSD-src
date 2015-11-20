@@ -100,6 +100,7 @@ device		gre
 device		if_bridge
 device		lagg
 device		vte
+device		netmap
 
 options		IPFIREWALL_DEFAULT_TO_ACCEPT
 options		IPFIREWALL_VERBOSE
