@@ -231,8 +231,7 @@ intpr(int interval, void (*pfunc)(char *), int af)
 {
 	struct ifaddrs *ifap, *ifa;
 	struct ifmaddrs *ifmap, *ifma;
-	u_int ifn_len_max = 5;
-
+	
 	if (interval)
 		return sidewaysintpr(interval);
 
@@ -241,19 +240,11 @@ intpr(int interval, void (*pfunc)(char *), int af)
 	if (aflag && getifmaddrs(&ifmap) != 0)
 		err(EX_OSERR, "getifmaddrs");
 
-	if (Wflag) {
-		for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
-			if (interface != NULL &&
-			    strcmp(ifa->ifa_name, interface) != 0)
-				continue;
-			if (af != AF_UNSPEC && ifa->ifa_addr->sa_family != af)
-				continue;
-			ifn_len_max = MAX(ifn_len_max, strlen(ifa->ifa_name));
-		}
-	}
-
 	if (!pfunc) {
-		printf("%-*.*s", ifn_len_max, ifn_len_max, "Name");
+		if (Wflag)
+			printf("%-7.7s", "Name");
+		else
+			printf("%-5.5s", "Name");
 		printf(" %5.5s %-13.13s %-17.17s %8.8s %5.5s %5.5s",
 		    "Mtu", "Network", "Address", "Ipkts", "Ierrs", "Idrop");
 		if (bflag)
@@ -292,7 +283,10 @@ intpr(int interval, void (*pfunc)(char *), int af)
 		if (af != AF_UNSPEC && ifa->ifa_addr->sa_family != af)
 			continue;
 
-		printf("%-*.*s", ifn_len_max, ifn_len_max, ifa->ifa_name);
+		if (Wflag)
+			printf("%-7.7s", ifa->ifa_name);
+		else
+			printf("%-5.5s", ifa->ifa_name);
 
 #define IFA_MTU(ifa)	(((struct if_data *)(ifa)->ifa_data)->ifi_mtu)
 		show_stat("lu", 6, IFA_MTU(ifa), IFA_MTU(ifa), 0);
