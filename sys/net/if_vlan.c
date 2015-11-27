@@ -117,6 +117,7 @@ struct	ifvlan {
 		int	ifvm_mintu;	/* min transmission unit */
 		uint16_t ifvm_proto;	/* encapsulation ethertype */
 		uint16_t ifvm_tag;	/* tag to apply on packets leaving if */
+		uint16_t ifvm_vid;	/* VLAN ID */
 		uint8_t	ifvm_pcp;	/* Priority Code Point (PCP). */
 	}	ifv_mib;
 	SLIST_HEAD(, vlan_mc_entry) vlan_mc_listhead;
@@ -125,7 +126,8 @@ struct	ifvlan {
 #endif
 };
 #define	ifv_proto	ifv_mib.ifvm_proto
-#define	ifv_vid		ifv_mib.ifvm_tag
+#define	ifv_tag		ifv_mib.ifvm_tag
+#define	ifv_vid		ifv_mib.ifvm_vid
 #define	ifv_pcp		ifv_mib.ifvm_pcp
 #define	ifv_encaplen	ifv_mib.ifvm_encaplen
 #define	ifv_mtufudge	ifv_mib.ifvm_mtufudge
@@ -714,7 +716,7 @@ static void
 vlan_tag_recalculate(struct ifvlan *ifv)
 {
 
-	ifv->ifv_mib.ifvm_tag = EVL_MAKETAG(ifv->ifv_vid, ifv->ifv_pcp, 0);
+	ifv->ifv_tag = EVL_MAKETAG(ifv->ifv_vid, ifv->ifv_pcp, 0);
 }
 
 /*
@@ -1133,7 +1135,7 @@ vlan_start(struct ifnet *ifp)
 		    MTAG_8021Q_PCP_OUT, NULL)) != NULL)
 			tag = EVL_MAKETAG(ifv->ifv_vid, *(uint8_t *)(mtag + 1), 0);
 		else
-			tag = EVL_MAKETAG(ifv->ifv_vid, ifv->ifv_pcp, 0);
+			tag = ifv->ifv_tag;
 		if (p->if_capenable & IFCAP_VLAN_HWTAGGING) {
 			m->m_pkthdr.ether_vtag = tag;
 			m->m_flags |= M_VLANTAG;
