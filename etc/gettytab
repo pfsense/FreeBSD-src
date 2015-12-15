@@ -166,6 +166,9 @@ X|Xwindow|X window system:\
 P|Pc|Pc console:\
 	:ht:np:sp#9600:
 
+al.Pc:\
+	:ht:np:sp#9600:al=root:
+
 #
 # Weirdo special case for fast crt's with hardcopy devices
 #
