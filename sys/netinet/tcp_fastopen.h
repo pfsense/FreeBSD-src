@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015 EMC / Isilon Storage Division
+ * Copyright (c) 2015 Patrick Kelsey
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,46 +26,22 @@
  * $FreeBSD$
  */
 
-#ifndef	_FREEBSD_TEST_MACROS_H_
-#define	_FREEBSD_TEST_MACROS_H_
+#ifndef _TCP_FASTOPEN_H_
+#define _TCP_FASTOPEN_H_
 
-#include <sys/param.h>
-#include <sys/module.h>
-#include <string.h>
-#include <errno.h>
-#include <stdio.h>
-#include <unistd.h>
+#ifdef _KERNEL
 
-#include <atf-c.h>
+#define	TCP_FASTOPEN_COOKIE_LEN	8	/* tied to SipHash24 64-bit output */
 
-#define	ATF_REQUIRE_FEATURE(_feature_name) do {				\
-	if (feature_present(_feature_name) == 0) {			\
-		atf_tc_skip("kernel feature (%s) not present",		\
-		    _feature_name);					\
-	}								\
-} while(0)
+VNET_DECLARE(unsigned int, tcp_fastopen_enabled);
+#define	V_tcp_fastopen_enabled	VNET(tcp_fastopen_enabled)
 
-#define	ATF_REQUIRE_KERNEL_MODULE(_mod_name) do {			\
-	if (modfind(_mod_name) == -1) {					\
-		atf_tc_skip("module %s could not be resolved: %s",	\
-		    _mod_name, strerror(errno));			\
-	}								\
-} while(0)
+void	tcp_fastopen_init(void);
+void	tcp_fastopen_destroy(void);
+unsigned int *tcp_fastopen_alloc_counter(void);
+void	tcp_fastopen_decrement_counter(unsigned int *counter);
+int	tcp_fastopen_check_cookie(struct in_conninfo *inc, uint8_t *cookie,
+	    unsigned int len, uint64_t *latest_cookie);
+#endif /* _KERNEL */
 
-#define	PLAIN_REQUIRE_FEATURE(_feature_name, _exit_code) do {		\
-	if (feature_present(_feature_name) == 0) {			\
-		printf("kernel feature (%s) not present\n",		\
-		    _feature_name);					\
-		_exit(_exit_code);					\
-	}								\
-} while(0)
-
-#define	PLAIN_REQUIRE_KERNEL_MODULE(_mod_name, _exit_code) do {		\
-	if (modfind(_mod_name) == -1) {					\
-		printf("module %s could not be resolved: %s\n",		\
-		    _mod_name, strerror(errno));			\
-		_exit(_exit_code);					\
-	}								\
-} while(0)
-
-#endif
+#endif /* _TCP_FASTOPEN_H_ */
