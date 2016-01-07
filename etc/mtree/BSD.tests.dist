@@ -144,6 +144,8 @@
         ..
         libmp
         ..
+        libnv
+        ..
         librt
         ..
         libthr
@@ -211,6 +213,12 @@
             ..
         ..
         kqueue
+        ..
+        mac
+            bsdextended
+            ..
+            portacl
+            ..
         ..
         mqueue
         ..
