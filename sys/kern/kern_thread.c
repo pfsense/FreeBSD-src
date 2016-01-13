@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/sleepqueue.h>
 #include <sys/selinfo.h>
+#include <sys/sysent.h>
 #include <sys/turnstile.h>
 #include <sys/ktr.h>
 #include <sys/rwlock.h>
@@ -472,6 +473,9 @@ thread_exit(void)
 		PMC_SWITCH_CONTEXT(td, PMC_FN_CSW_OUT);
 #endif
 	PROC_UNLOCK(p);
+	PROC_STATLOCK(p);
+	thread_lock(td);
+	PROC_SUNLOCK(p);
 
 	/* Do the same timestamp bookkeeping that mi_switch() would do. */
 	new_switchtime = cpu_ticks();
@@ -486,9 +490,8 @@ thread_exit(void)
 	td->td_ru.ru_nvcsw++;
 	ruxagg(p, td);
 	rucollect(&p->p_ru, &td->td_ru);
+	PROC_STATUNLOCK(p);
 
-	thread_lock(td);
-	PROC_SUNLOCK(p);
 	td->td_state = TDS_INACTIVE;
 #ifdef WITNESS
 	witness_thread_exit(td);
@@ -883,6 +886,14 @@ thread_suspend_check(int return_instead)
 		if ((p->p_flag & P_SINGLE_EXIT) && (p->p_singlethread != td)) {
 			PROC_UNLOCK(p);
 			tidhash_remove(td);
+
+			/*
+			 * Allow Linux emulation layer to do some work
+			 * before thread suicide.
+			 */
+			if (__predict_false(p->p_sysent->sv_thread_detach != NULL))
+				(p->p_sysent->sv_thread_detach)(td);
+
 			PROC_LOCK(p);
 			tdsigcleanup(td);
 			umtx_thread_exit(td);

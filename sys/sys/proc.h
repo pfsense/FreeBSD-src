@@ -323,6 +323,7 @@ struct thread {
 	void		*td_su;		/* (k) FFS SU private */
 	u_int		td_dbg_sc_code;	/* (c) Syscall code to debugger. */
 	u_int		td_dbg_sc_narg;	/* (c) Syscall arg count to debugger.*/
+	void		*td_emuldata;	/* Emulator state data */
 };
 
 struct mtx *thread_lock_block(struct thread *);
@@ -615,6 +616,18 @@ struct proc {
 #define	PROC_SLOCK(p)	mtx_lock_spin(&(p)->p_slock)
 #define	PROC_SUNLOCK(p)	mtx_unlock_spin(&(p)->p_slock)
 #define	PROC_SLOCK_ASSERT(p, type)	mtx_assert(&(p)->p_slock, (type))
+
+#define	PROC_STATLOCK(p)	mtx_lock_spin(&(p)->p_slock)
+#define	PROC_STATUNLOCK(p)	mtx_unlock_spin(&(p)->p_slock)
+#define	PROC_STATLOCK_ASSERT(p, type)	mtx_assert(&(p)->p_slock, (type))
+
+#define	PROC_ITIMLOCK(p)	mtx_lock_spin(&(p)->p_slock)
+#define	PROC_ITIMUNLOCK(p)	mtx_unlock_spin(&(p)->p_slock)
+#define	PROC_ITIMLOCK_ASSERT(p, type)	mtx_assert(&(p)->p_slock, (type))
+
+#define	PROC_PROFLOCK(p)	mtx_lock_spin(&(p)->p_slock)
+#define	PROC_PROFUNLOCK(p)	mtx_unlock_spin(&(p)->p_slock)
+#define	PROC_PROFLOCK_ASSERT(p, type)	mtx_assert(&(p)->p_slock, (type))
 
 /* These flags are kept in p_flag. */
 #define	P_ADVLOCK	0x00001	/* Process may hold a POSIX advisory lock. */

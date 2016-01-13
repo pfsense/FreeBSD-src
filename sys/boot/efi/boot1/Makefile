@@ -18,19 +18,25 @@ SRCS=	boot1.c reloc.c start.S
 CFLAGS+=	-fPIC
 CFLAGS+=	-I.
 CFLAGS+=	-I${.CURDIR}/../include
-CFLAGS+=	-I${.CURDIR}/../include/${MACHINE_CPUARCH}
+CFLAGS+=	-I${.CURDIR}/../include/${MACHINE}
 CFLAGS+=	-I${.CURDIR}/../../../contrib/dev/acpica/include
 CFLAGS+=	-I${.CURDIR}/../../..
 
 # Always add MI sources and REGULAR efi loader bits
-.PATH:		${.CURDIR}/../loader/arch/amd64 ${.CURDIR}/../../common
+.PATH:		${.CURDIR}/../loader/arch/${MACHINE}
+.PATH:		${.CURDIR}/../loader
+.PATH:		${.CURDIR}/../../common
 CFLAGS+=	-I${.CURDIR}/../../common
 
 FILES=	boot1.efi boot1.efifat
 FILESMODE_boot1.efi=	${BINMODE}
 
-LDSCRIPT=	${.CURDIR}/../loader/arch/${MACHINE_CPUARCH}/ldscript.${MACHINE_CPUARCH}
-LDFLAGS=	-Wl,-T${LDSCRIPT} -Wl,-Bsymbolic -shared -Wl,-znocombreloc
+LDSCRIPT=	${.CURDIR}/../loader/arch/${MACHINE}/ldscript.${MACHINE}
+LDFLAGS=	-Wl,-T${LDSCRIPT} -Wl,-Bsymbolic -shared
+
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386"
+LDFLAGS+=	-Wl,-znocombreloc
+.endif
 
 ${PROG}:	${LDSCRIPT}
 
@@ -62,8 +68,8 @@ boot1.o: ${.CURDIR}/../../common/ufsread.c
 
 boot1.efifat: boot1.efi
 	echo ${.OBJDIR}
-	uudecode ${.CURDIR}/fat.tmpl.bz2.uu
-	mv fat.tmpl.bz2 ${.TARGET}.bz2
+	uudecode ${.CURDIR}/fat-${MACHINE}.tmpl.bz2.uu
+	mv fat-${MACHINE}.tmpl.bz2 ${.TARGET}.bz2
 	bzip2 -f -d ${.TARGET}.bz2
 	dd if=boot1.efi of=${.TARGET} seek=${BOOT1_OFFSET} conv=notrunc
 
@@ -73,6 +79,7 @@ CLEANFILES= boot1.efifat
 
 .include <bsd.prog.mk>
 
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386"
 beforedepend ${OBJS}: machine x86
 
 CLEANFILES+=   machine x86 boot1.efi
@@ -82,3 +89,4 @@ machine:
 
 x86:
 	ln -sf ${.CURDIR}/../../../x86/include x86
+.endif

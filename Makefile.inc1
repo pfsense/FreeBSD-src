@@ -116,6 +116,7 @@ CLEANDIR=	cleandir
 .endif
 
 LOCAL_TOOL_DIRS?=
+PACKAGEDIR?=	${DESTDIR}/${DISTDIR}
 
 BUILDENV_SHELL?=/bin/sh
 
@@ -915,11 +916,11 @@ packageworld:
 	${_+_}cd ${DESTDIR}/${DISTDIR}/${dist}; \
 	    tar cvf - --exclude usr/lib/debug \
 	    @${DESTDIR}/${DISTDIR}/${dist}.meta | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/${dist}.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/${dist}.txz
 .else
 	${_+_}cd ${DESTDIR}/${DISTDIR}/${dist}; \
 	    tar cvf - --exclude usr/lib/debug . | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/${dist}.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/${dist}.txz
 .endif
 .endfor
 
@@ -928,11 +929,11 @@ packageworld:
 .  if defined(NO_ROOT)
 	${_+_}cd ${DESTDIR}/${DISTDIR}/${dist}; \
 	    tar cvf - @${DESTDIR}/${DISTDIR}/${dist}.debug.meta | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/${dist}.debug.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/${dist}.debug.txz
 .  else
 	${_+_}cd ${DESTDIR}/${DISTDIR}/${dist}; \
 	    tar cvLf - usr/lib/debug | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/${dist}-debug.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/${dist}-debug.txz
 .  endif
 . endfor
 .endif
@@ -1011,10 +1012,15 @@ KERNCONFDIR?=	${KRNLCONFDIR}
 
 BUILDKERNELS=
 INSTALLKERNEL=
+NO_INSTALLEXTRAKERNELS=yes
+.if defined(NO_INSTALLKERNEL)
+# All of the BUILDKERNELS loops start at index 1.
+BUILDKERNELS+= dummy
+.endif
 .for _kernel in ${KERNCONF}
 .if exists(${KERNCONFDIR}/${_kernel})
 BUILDKERNELS+=	${_kernel}
-.if empty(INSTALLKERNEL)
+.if empty(INSTALLKERNEL) && !defined(NO_INSTALLKERNEL)
 INSTALLKERNEL= ${_kernel}
 .endif
 .endif
@@ -1028,12 +1034,12 @@ ${WMAKE_TGTS:N_worldtmp:Nbuild32} ${.ALLTARGETS:M_*:N_worldtmp}: .MAKE .PHONY
 # Builds all kernels defined by BUILDKERNELS.
 #
 buildkernel: .MAKE .PHONY
-.if empty(BUILDKERNELS)
+.if empty(BUILDKERNELS:Ndummy)
 	@echo "ERROR: Missing kernel configuration file(s) (${KERNCONF})."; \
 	false
 .endif
 	@echo
-.for _kernel in ${BUILDKERNELS}
+.for _kernel in ${BUILDKERNELS:Ndummy}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Kernel build for ${_kernel} started on `LC_ALL=C date`"
 	@echo "--------------------------------------------------------------"
@@ -1092,6 +1098,7 @@ buildkernel: .MAKE .PHONY
 #
 installkernel installkernel.debug \
 reinstallkernel reinstallkernel.debug: _installcheck_kernel
+.if !defined(NO_INSTALLKERNEL)
 .if empty(INSTALLKERNEL)
 	@echo "ERROR: No kernel \"${KERNCONF}\" to install."; \
 	false
@@ -1102,7 +1109,8 @@ reinstallkernel reinstallkernel.debug: _installcheck_kernel
 	cd ${KRNLOBJDIR}/${INSTALLKERNEL}; \
 	    ${CROSSENV} PATH=${TMPPATH} \
 	    ${MAKE} ${IMAKE_INSTALL} KERNEL=${INSTKERNNAME} ${.TARGET:S/kernel//}
-.if ${BUILDKERNELS:[#]} > 1
+.endif
+.if ${BUILDKERNELS:[#]} > 1 && !defined(NO_INSTALLEXTRAKERNELS)
 .for _kernel in ${BUILDKERNELS:[2..-1]}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Installing kernel ${_kernel}"
@@ -1114,6 +1122,7 @@ reinstallkernel reinstallkernel.debug: _installcheck_kernel
 .endif
 
 distributekernel distributekernel.debug:
+.if !defined(NO_INSTALLKERNEL)
 .if empty(INSTALLKERNEL)
 	@echo "ERROR: No kernel \"${KERNCONF}\" to install."; \
 	false
@@ -1131,7 +1140,8 @@ distributekernel distributekernel.debug:
 	sed -e 's|^./kernel|.|' ${DESTDIR}/${DISTDIR}/kernel.premeta > \
 	    ${DESTDIR}/${DISTDIR}/kernel.meta
 .endif
-.if ${BUILDKERNELS:[#]} > 1
+.endif
+.if ${BUILDKERNELS:[#]} > 1 && !defined(NO_INSTALLEXTRAKERNELS)
 .for _kernel in ${BUILDKERNELS:[2..-1]}
 .if defined(NO_ROOT)
 	echo "#${MTREE_MAGIC}" > ${DESTDIR}/${DISTDIR}/kernel.${_kernel}.premeta
@@ -1152,25 +1162,29 @@ distributekernel distributekernel.debug:
 
 packagekernel:
 .if defined(NO_ROOT)
+.if !defined(NO_INSTALLKERNEL)
 	cd ${DESTDIR}/${DISTDIR}/kernel; \
 	    tar cvf - @${DESTDIR}/${DISTDIR}/kernel.meta | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.txz
-.if ${BUILDKERNELS:[#]} > 1
+	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.txz
+.endif
+.if ${BUILDKERNELS:[#]} > 1 && !defined(NO_INSTALLEXTRAKERNELS)
 .for _kernel in ${BUILDKERNELS:[2..-1]}
 	cd ${DESTDIR}/${DISTDIR}/kernel.${_kernel}; \
 	    tar cvf - @${DESTDIR}/${DISTDIR}/kernel.${_kernel}.meta | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.${_kernel}.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.${_kernel}.txz
 .endfor
 .endif
 .else
+.if !defined(NO_INSTALLKERNEL)
 	cd ${DESTDIR}/${DISTDIR}/kernel; \
 	    tar cvf - . | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.txz
-.if ${BUILDKERNELS:[#]} > 1
+	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.txz
+.endif
+.if ${BUILDKERNELS:[#]} > 1 && !defined(NO_INSTALLEXTRAKERNELS)
 .for _kernel in ${BUILDKERNELS:[2..-1]}
 	cd ${DESTDIR}/${DISTDIR}/kernel.${_kernel}; \
 	    tar cvf - . | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.${_kernel}.txz
+	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.${_kernel}.txz
 .endfor
 .endif
 .endif
@@ -1270,8 +1284,11 @@ _mklocale=	usr.bin/mklocale
 _sed=		usr.bin/sed
 .endif
 
-.if ${BOOTSTRAPPING} < 1000002
+.if ${BOOTSTRAPPING} < 1000033
 _m4=		usr.bin/m4
+_lex=		usr.bin/lex
+
+${_bt}-usr.bin/lex: ${_bt}-usr.bin/m4
 .endif
 
 .if ${BOOTSTRAPPING} < 1001506
@@ -1298,12 +1315,6 @@ ${_bt}-usr.sbin/nmtree: ${_bt}-lib/libnetbsd
 
 .if ${BOOTSTRAPPING} < 1000027
 _cat=		bin/cat
-.endif
-
-.if ${BOOTSTRAPPING} < 1000033
-_lex=		usr.bin/lex
-
-${_bt}-usr.bin/lex: ${_bt}-usr.bin/m4
 .endif
 
 .if ${BOOTSTRAPPING} >= 900040 && ${BOOTSTRAPPING} < 900041
