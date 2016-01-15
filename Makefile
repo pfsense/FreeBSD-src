@@ -203,7 +203,7 @@ _TARGET_ARCH?=	${MACHINE_ARCH}
 # The user can define ALWAYS_CHECK_MAKE to have this check performed
 # for all targets.
 #
-.if defined(ALWAYS_CHECK_MAKE)
+.if defined(ALWAYS_CHECK_MAKE) || !defined(.PARSEDIR)
 ${TGTS}: upgrade_checks
 .else
 buildworld: upgrade_checks
@@ -358,7 +358,7 @@ MMAKE=		${MMAKEENV} ${MAKE} \
 		-D_UPGRADING \
 		-DNOMAN -DNO_MAN -DNOSHARED -DNO_SHARED \
 		-DNO_CPU_CFLAGS -DNO_WERROR \
-		DESTDIR= MK_TESTS=no PROGNAME=${MYMAKE:T}
+		DESTDIR= -DNO_TESTS PROGNAME=${MYMAKE:T}
 
 make bmake: .PHONY
 	@echo
