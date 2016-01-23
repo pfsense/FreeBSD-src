@@ -2375,6 +2375,7 @@ in6if_do_dad(struct ifnet *ifp)
 	case IFT_DUMMY:
 #endif
 	case IFT_FAITH:
+	case IFT_STF:
 		/*
 		 * These interfaces do not have the IFF_LOOPBACK flag,
 		 * but loop packets back.  We do not have to do DAD on such

@@ -1355,6 +1355,7 @@ stf_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			ifa->ifa_dstaddr->sa_family = AF_UNSPEC;
 		ifa->ifa_rtrequest = stf_rtrequest;
 		ifp->if_flags |= IFF_UP;
+		ifp->if_drv_flags |= IFF_DRV_RUNNING;
 		break;
 
 	case SIOCADDMULTI:
