@@ -54,6 +54,13 @@ extern "C" {
  */
 #define	EF10_RX_WPTR_ALIGN 8
 
+/*
+ * Max byte offset into the packet the TCP header must start for the hardware
+ * to be able to parse the packet correctly.
+ * FIXME: Move to ef10_impl.h when it is included in all driver builds.
+ */
+#define	EF10_TCP_HEADER_OFFSET_LIMIT	208
+
 /* Invalid RSS context handle */
 #define	EF10_RSS_CONTEXT_INVALID	(0xffffffff)
 
@@ -165,6 +172,10 @@ ef10_nic_probe(
 	__in		efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
+hunt_board_cfg(
+	__in		efx_nic_t *enp);
+
+extern	__checkReturn	efx_rc_t
 ef10_nic_set_drv_limits(
 	__inout		efx_nic_t *enp,
 	__in		efx_drv_limits_t *edlp);
@@ -209,41 +220,45 @@ ef10_nic_unprobe(
 /* MAC */
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_poll(
+ef10_mac_poll(
 	__in		efx_nic_t *enp,
 	__out		efx_link_mode_t *link_modep);
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_up(
+ef10_mac_up(
 	__in		efx_nic_t *enp,
 	__out		boolean_t *mac_upp);
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_addr_set(
+ef10_mac_addr_set(
 	__in	efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_reconfigure(
+ef10_mac_pdu_set(
 	__in	efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_multicast_list_set(
+ef10_mac_reconfigure(
+	__in	efx_nic_t *enp);
+
+extern	__checkReturn	efx_rc_t
+ef10_mac_multicast_list_set(
 	__in				efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_filter_default_rxq_set(
+ef10_mac_filter_default_rxq_set(
 	__in		efx_nic_t *enp,
 	__in		efx_rxq_t *erp,
 	__in		boolean_t using_rss);
 
 extern			void
-hunt_mac_filter_default_rxq_clear(
+ef10_mac_filter_default_rxq_clear(
 	__in		efx_nic_t *enp);
 
 #if EFSYS_OPT_LOOPBACK
 
 extern	__checkReturn	efx_rc_t
-hunt_mac_loopback_set(
+ef10_mac_loopback_set(
 	__in		efx_nic_t *enp,
 	__in		efx_link_mode_t link_mode,
 	__in		efx_loopback_type_t loopback_type);
@@ -253,7 +268,7 @@ hunt_mac_loopback_set(
 #if EFSYS_OPT_MAC_STATS
 
 extern	__checkReturn			efx_rc_t
-hunt_mac_stats_update(
+ef10_mac_stats_update(
 	__in				efx_nic_t *enp,
 	__in				efsys_mem_t *esmp,
 	__inout_ecount(EFX_MAC_NSTATS)	efsys_stat_t *stat,
@@ -276,12 +291,12 @@ ef10_mcdi_fini(
 	__in		efx_nic_t *enp);
 
 extern			void
-ef10_mcdi_request_copyin(
+ef10_mcdi_send_request(
 	__in		efx_nic_t *enp,
-	__in		efx_mcdi_req_t *emrp,
-	__in		unsigned int seq,
-	__in		boolean_t ev_cpl,
-	__in		boolean_t new_epoch);
+	__in		void *hdrp,
+	__in		size_t hdr_len,
+	__in		void *sdup,
+	__in		size_t sdu_len);
 
 extern	__checkReturn	boolean_t
 ef10_mcdi_poll_response(
@@ -293,11 +308,6 @@ ef10_mcdi_read_response(
 	__out_bcount(length)	void *bufferp,
 	__in			size_t offset,
 	__in			size_t length);
-
-extern			void
-ef10_mcdi_request_copyout(
-	__in		efx_nic_t *enp,
-	__in		efx_mcdi_req_t *emrp);
 
 extern			efx_rc_t
 ef10_mcdi_poll_reboot(
@@ -359,15 +369,53 @@ ef10_nvram_partn_write_segment_tlv(
 	__in			boolean_t all_segments);
 
 extern	__checkReturn		efx_rc_t
+ef10_nvram_partn_lock(
+	__in			efx_nic_t *enp,
+	__in			uint32_t partn);
+
+extern				void
+ef10_nvram_partn_unlock(
+	__in			efx_nic_t *enp,
+	__in			uint32_t partn);
+
+#endif /* EFSYS_OPT_NVRAM || EFSYS_OPT_VPD */
+
+#if EFSYS_OPT_NVRAM
+
+#if EFSYS_OPT_DIAG
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_test(
+	__in			efx_nic_t *enp);
+
+#endif	/* EFSYS_OPT_DIAG */
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_type_to_partn(
+	__in			efx_nic_t *enp,
+	__in			efx_nvram_type_t type,
+	__out			uint32_t *partnp);
+
+extern	__checkReturn		efx_rc_t
 ef10_nvram_partn_size(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
 	__out			size_t *sizep);
 
 extern	__checkReturn		efx_rc_t
-ef10_nvram_partn_lock(
+ef10_nvram_partn_rw_start(
 	__in			efx_nic_t *enp,
-	__in			uint32_t partn);
+	__in			uint32_t partn,
+	__out			size_t *chunk_sizep);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_partn_read_mode(
+	__in			efx_nic_t *enp,
+	__in			uint32_t partn,
+	__in			unsigned int offset,
+	__out_bcount(size)	caddr_t data,
+	__in			size_t size,
+	__in			uint32_t mode);
 
 extern	__checkReturn		efx_rc_t
 ef10_nvram_partn_read(
@@ -393,66 +441,16 @@ ef10_nvram_partn_write(
 	__in			size_t size);
 
 extern				void
-ef10_nvram_partn_unlock(
+ef10_nvram_partn_rw_finish(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn);
 
-#endif /* EFSYS_OPT_NVRAM || EFSYS_OPT_VPD */
-
-#if EFSYS_OPT_NVRAM
-
-#if EFSYS_OPT_DIAG
-
 extern	__checkReturn		efx_rc_t
-ef10_nvram_test(
-	__in			efx_nic_t *enp);
-
-#endif	/* EFSYS_OPT_DIAG */
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_size(
+ef10_nvram_partn_get_version(
 	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__out			size_t *sizep);
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_get_version(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
+	__in			uint32_t partn,
 	__out			uint32_t *subtypep,
 	__out_ecount(4)		uint16_t version[4]);
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_rw_start(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__out			size_t *pref_chunkp);
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_read_chunk(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__in			unsigned int offset,
-	__out_bcount(size)	caddr_t data,
-	__in			size_t size);
-
-extern	 __checkReturn		efx_rc_t
-ef10_nvram_erase(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type);
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_write_chunk(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__in			unsigned int offset,
-	__in_bcount(size)	caddr_t data,
-	__in			size_t size);
-
-extern				void
-ef10_nvram_rw_finish(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type);
 
 extern	__checkReturn		efx_rc_t
 ef10_nvram_partn_set_version(
@@ -460,67 +458,55 @@ ef10_nvram_partn_set_version(
 	__in			uint32_t partn,
 	__in_ecount(4)		uint16_t version[4]);
 
-extern	__checkReturn		efx_rc_t
-ef10_nvram_set_version(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__in_ecount(4)		uint16_t version[4]);
-
-extern	__checkReturn		efx_rc_t
-ef10_nvram_type_to_partn(
-	__in			efx_nic_t *enp,
-	__in			efx_nvram_type_t type,
-	__out			uint32_t *partnp);
-
 #endif	/* EFSYS_OPT_NVRAM */
 
 
 /* PHY */
 
-typedef struct hunt_link_state_s {
-	uint32_t		hls_adv_cap_mask;
-	uint32_t		hls_lp_cap_mask;
-	unsigned int 		hls_fcntl;
-	efx_link_mode_t		hls_link_mode;
+typedef struct ef10_link_state_s {
+	uint32_t		els_adv_cap_mask;
+	uint32_t		els_lp_cap_mask;
+	unsigned int		els_fcntl;
+	efx_link_mode_t		els_link_mode;
 #if EFSYS_OPT_LOOPBACK
-	efx_loopback_type_t	hls_loopback;
+	efx_loopback_type_t	els_loopback;
 #endif
-	boolean_t		hls_mac_up;
-} hunt_link_state_t;
+	boolean_t		els_mac_up;
+} ef10_link_state_t;
 
 extern			void
-hunt_phy_link_ev(
+ef10_phy_link_ev(
 	__in		efx_nic_t *enp,
 	__in		efx_qword_t *eqp,
 	__out		efx_link_mode_t *link_modep);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_get_link(
+ef10_phy_get_link(
 	__in		efx_nic_t *enp,
-	__out		hunt_link_state_t *hlsp);
+	__out		ef10_link_state_t *elsp);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_power(
+ef10_phy_power(
 	__in		efx_nic_t *enp,
 	__in		boolean_t on);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_reconfigure(
+ef10_phy_reconfigure(
 	__in		efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_verify(
+ef10_phy_verify(
 	__in		efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_oui_get(
+ef10_phy_oui_get(
 	__in		efx_nic_t *enp,
 	__out		uint32_t *ouip);
 
 #if EFSYS_OPT_PHY_STATS
 
 extern	__checkReturn			efx_rc_t
-hunt_phy_stats_update(
+ef10_phy_stats_update(
 	__in				efx_nic_t *enp,
 	__in				efsys_mem_t *esmp,
 	__inout_ecount(EFX_PHY_NSTATS)	uint32_t *stat);
@@ -532,21 +518,21 @@ hunt_phy_stats_update(
 #if EFSYS_OPT_NAMES
 
 extern		const char *
-hunt_phy_prop_name(
+ef10_phy_prop_name(
 	__in	efx_nic_t *enp,
 	__in	unsigned int id);
 
 #endif	/* EFSYS_OPT_NAMES */
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_prop_get(
+ef10_phy_prop_get(
 	__in		efx_nic_t *enp,
 	__in		unsigned int id,
 	__in		uint32_t flags,
 	__out		uint32_t *valp);
 
 extern	__checkReturn	efx_rc_t
-hunt_phy_prop_set(
+ef10_phy_prop_set(
 	__in		efx_nic_t *enp,
 	__in		unsigned int id,
 	__in		uint32_t val);
@@ -696,6 +682,15 @@ hunt_tx_qdesc_tso_create(
 	__out	efx_desc_t *edp);
 
 extern	void
+ef10_tx_qdesc_tso2_create(
+	__in			efx_txq_t *etp,
+	__in			uint16_t ipv4_id,
+	__in			uint32_t tcp_seq,
+	__in			uint16_t tcp_mss,
+	__out_ecount(count)	efx_desc_t *edp,
+	__in			int count);
+
+extern	void
 ef10_tx_qdesc_vlantci_create(
 	__in	efx_txq_t *etp,
 	__in	uint16_t vlan_tci,
@@ -733,7 +728,7 @@ ef10_tx_qstats_update(
 
 #define	HUNT_MIN_PIO_ALLOC_SIZE	(HUNT_PIOBUF_SIZE / 32)
 
-#define	HUNT_LEGACY_PF_PRIVILEGE_MASK					\
+#define	EF10_LEGACY_PF_PRIVILEGE_MASK					\
 	(MC_CMD_PRIVILEGE_MASK_IN_GRP_ADMIN			|	\
 	MC_CMD_PRIVILEGE_MASK_IN_GRP_LINK			|	\
 	MC_CMD_PRIVILEGE_MASK_IN_GRP_ONLOAD			|	\
@@ -746,7 +741,7 @@ ef10_tx_qstats_update(
 	MC_CMD_PRIVILEGE_MASK_IN_GRP_ALL_MULTICAST		|	\
 	MC_CMD_PRIVILEGE_MASK_IN_GRP_PROMISCUOUS)
 
-#define	HUNT_LEGACY_VF_PRIVILEGE_MASK	0
+#define	EF10_LEGACY_VF_PRIVILEGE_MASK	0
 
 typedef uint32_t	efx_piobuf_handle_t;
 
@@ -886,13 +881,13 @@ ef10_rx_prefix_hash(
 	__in		efx_rx_hash_alg_t func,
 	__in		uint8_t *buffer);
 
+#endif /* EFSYS_OPT_RX_SCALE */
+
 extern	__checkReturn	efx_rc_t
 ef10_rx_prefix_pktlen(
 	__in		efx_nic_t *enp,
 	__in		uint8_t *buffer,
 	__out		uint16_t *lengthp);
-
-#endif /* EFSYS_OPT_RX_SCALE */
 
 extern			void
 ef10_rx_qpost(

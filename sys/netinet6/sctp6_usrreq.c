@@ -39,9 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/sctp_pcb.h>
 #include <netinet/sctp_header.h>
 #include <netinet/sctp_var.h>
-#ifdef INET6
 #include <netinet6/sctp6_var.h>
-#endif
 #include <netinet/sctp_sysctl.h>
 #include <netinet/sctp_output.h>
 #include <netinet/sctp_uio.h>
@@ -54,13 +52,12 @@ __FBSDID("$FreeBSD$");
 #include <netinet/sctp_output.h>
 #include <netinet/sctp_bsd_addr.h>
 #include <netinet/sctp_crc32.h>
+#include <netinet/icmp6.h>
 #include <netinet/udp.h>
 
 #ifdef IPSEC
 #include <netipsec/ipsec.h>
-#ifdef INET6
 #include <netipsec/ipsec6.h>
-#endif				/* INET6 */
 #endif				/* IPSEC */
 
 extern struct protosw inetsw[];
@@ -956,7 +953,7 @@ sctp6_connect(struct socket *so, struct sockaddr *addr, struct thread *p)
 		return (EALREADY);
 	}
 	/* We are GOOD to go */
-	stcb = sctp_aloc_assoc(inp, addr, &error, 0, vrf_id, p);
+	stcb = sctp_aloc_assoc(inp, addr, &error, 0, vrf_id, inp->sctp_ep.pre_open_stream_count, p);
 	SCTP_ASOC_CREATE_UNLOCK(inp);
 	if (stcb == NULL) {
 		/* Gak! no memory */

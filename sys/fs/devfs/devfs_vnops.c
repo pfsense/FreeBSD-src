@@ -146,7 +146,7 @@ devfs_get_cdevpriv(void **datap)
 }
 
 int
-devfs_set_cdevpriv(void *priv, cdevpriv_dtr_t priv_dtr)
+devfs_set_cdevpriv(void *priv, d_priv_dtor_t *priv_dtr)
 {
 	struct file *fp;
 	struct cdev_priv *cdp;
@@ -239,18 +239,18 @@ devfs_populate_vp(struct vnode *vp)
 	if (DEVFS_DMP_DROP(dmp)) {
 		sx_xunlock(&dmp->dm_lock);
 		devfs_unmount_final(dmp);
-		return (EBADF);
+		return (ERESTART);
 	}
 	if ((vp->v_iflag & VI_DOOMED) != 0) {
 		sx_xunlock(&dmp->dm_lock);
-		return (EBADF);
+		return (ERESTART);
 	}
 	de = vp->v_data;
 	KASSERT(de != NULL,
 	    ("devfs_populate_vp: vp->v_data == NULL but vnode not doomed"));
 	if ((de->de_flags & DE_DOOMED) != 0) {
 		sx_xunlock(&dmp->dm_lock);
-		return (EBADF);
+		return (ERESTART);
 	}
 
 	return (0);
