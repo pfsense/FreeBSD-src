@@ -1,6 +1,6 @@
-#!/bin/sh -
-#
-# Copyright (c) 1993  The FreeBSD Project
+#!/bin/sh
+#-
+# Copyright (c) 2014 Dag-Erling Smørgrav
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,38 +25,71 @@
 # SUCH DAMAGE.
 #
 # $FreeBSD$
-#	From: @(#)netstart	5.9 (Berkeley) 3/30/91
 #
 
-# This file is NOT called by any of the other scripts - it has been
-# obsoleted by /etc/rc.d/* and is provided here only for user
-# convenience (if you're sitting in single user mode and wish to start
-# the network by hand, this script will do it for you).
-#
+error() {
+	echo "$@" >&2
+	exit 1
+}
 
-_start=quietstart
+usage() {
+	error "usage: vigr [-d dir]"
+}
 
-/etc/rc.d/devd ${_start}
-/etc/rc.d/hostid ${_start}
-/etc/rc.d/hostname ${_start}
-/etc/rc.d/ipmon ${_start}
-/etc/rc.d/ipfilter ${_start}
-/etc/rc.d/ipnat ${_start}
-/etc/rc.d/ipfs ${_start}
-/etc/rc.d/sppp ${_start}
-# /etc/rc.d/atm1 ${_start}
-# . /etc/rc.d/atm2.sh ${_start}
-# . /etc/rc.d/atm3.sh ${_start}
-/etc/rc.d/netif ${_start}
-/etc/rc.d/ipsec ${_start}
-/etc/rc.d/ppp ${_start}
-/etc/rc.d/ipfw ${_start}
-/etc/rc.d/routing ${_start}
-/etc/rc.d/mroute6d ${_start}
-/etc/rc.d/route6d ${_start}
-/etc/rc.d/mrouted ${_start}
-/etc/rc.d/routed ${_start}
-/etc/rc.d/rtsold ${_start}
-/etc/rc.d/nisdomain ${_start}
+# Check arguments
+while getopts d: opt ; do
+	case $opt in
+	d)
+		etcdir="${OPTARG}"
+		;;
+	*)
+		usage
+		;;
+	esac
+done
 
-exit 0
+# Look for the current group file
+grpfile="${etcdir:-/etc}/group"
+if [ ! -f "${grpfile}" ] ; then
+	error "Missing group file"
+fi
+
+# Create a secure temporary working directory
+tmpdir=$(mktemp -d -t vigr)
+if [ -z "${tmpdir}" -o ! -d "${tmpdir}" ] ; then
+	error "Unable to create the temporary directory"
+fi
+tmpfile="${tmpdir}/group"
+
+# Clean up on exit
+trap "exit 1" INT
+trap "rm -rf '${tmpdir}'" EXIT
+set -e
+
+# Make a copy of the group file for the user to edit
+cp "${grpfile}" "${tmpfile}"
+
+while :; do
+	# Let the user edit the file
+	${EDITOR:-/usr/bin/vi} "${tmpfile}"
+
+	# If the result is valid, install it and exit
+	if chkgrp -q "${tmpfile}" ; then
+		install -b -m 0644 -C -S "${tmpfile}" "${grpfile}"
+		exit 0
+	fi
+
+	# If it is not, offer to re-edit
+	while :; do
+		echo -n "Re-edit the group file? "
+		read ans
+		case $ans in
+		[Yy]|[Yy][Ee][Ss])
+			break
+			;;
+		[Nn]|[Nn][Oo])
+			exit 1
+			;;
+		esac
+	done
+done
