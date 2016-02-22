@@ -6435,6 +6435,15 @@ done:
 	if (r->rtableid >= 0)
 		M_SETFIB(m, r->rtableid);
 
+	if ((r->ieee8021q_pcp.setpcp & SETPCP_VALID) &&
+	    pf_ieee8021q_setpcp(m, r)) {
+		action = PF_DROP;
+		REASON_SET(&reason, PFRES_MEMORY);
+		log = 1;
+		DPFPRINTF(PF_DEBUG_MISC,
+		    ("pf: failed to allocate 802.1q mtag\n"));
+	}
+
 #ifdef ALTQ
 	if (s && s->qid) {
 		pd.act.pqid = s->pqid;
@@ -6994,15 +7003,6 @@ done:
 	}
 	if (r->rtableid >= 0)
 		M_SETFIB(m, r->rtableid);
-
-	if ((r->ieee8021q_pcp.setpcp & SETPCP_VALID) &&
-	    pf_ieee8021q_setpcp(m, r)) {
-		action = PF_DROP;
-		REASON_SET(&reason, PFRES_MEMORY);
-		log = 1;
-		DPFPRINTF(PF_DEBUG_MISC,
-		    ("pf: failed to allocate 802.1q mtag\n"));
-	}
 
 	if ((r->ieee8021q_pcp.setpcp & SETPCP_VALID) &&
 	    pf_ieee8021q_setpcp(m, r)) {
