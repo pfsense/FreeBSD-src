@@ -42,7 +42,6 @@ __FBSDID("$FreeBSD$");
 #include <net/bpf.h>
 #include <net/ethernet.h>
 #include <net/if.h>
-#include <net/if_var.h>
 #include <net/if_llc.h>
 #include <net/if_media.h>
 #include <net/if_vlan_var.h>
@@ -158,7 +157,7 @@ ieee80211_vap_pkt_send_dest(struct ieee80211vap *vap, struct mbuf *m,
 		    ni->ni_macaddr, NULL,
 		    "%s", "classification failure");
 		vap->iv_stats.is_tx_classify++;
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		m_freem(m);
 		ieee80211_free_node(ni);
 
@@ -255,7 +254,7 @@ ieee80211_vap_pkt_send_dest(struct ieee80211vap *vap, struct mbuf *m,
 		ieee80211_free_node(ni);
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	} else {
-		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+		ifp->if_opackets++;
 		if_inc_counter(ifp, IFCOUNTER_OMCASTS, mcast);
 		if_inc_counter(ifp, IFCOUNTER_OBYTES, len);
 	}
@@ -305,7 +304,7 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 		IEEE80211_DPRINTF(vap, IEEE80211_MSG_OUTPUT,
 		    "discard frame, %s\n", "m_pullup failed");
 		vap->iv_stats.is_tx_nobuf++;	/* XXX */
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		return (ENOBUFS);
 	}
 	eh = mtod(m, struct ether_header *);
@@ -339,7 +338,7 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 		ni = ieee80211_find_txnode(vap, eh->ether_dhost);
 		if (ni == NULL) {
 			/* NB: ieee80211_find_txnode does stat+msg */
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+			ifp->if_oerrors++;
 			m_freem(m);
 			/* XXX better status? */
 			return (ENOBUFS);
@@ -351,7 +350,7 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 			    "sta not associated (type 0x%04x)",
 			    htons(eh->ether_type));
 			vap->iv_stats.is_tx_notassoc++;
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+			ifp->if_oerrors++;
 			m_freem(m);
 			ieee80211_free_node(ni);
 			/* XXX better status? */
@@ -370,7 +369,7 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 				    eh->ether_dhost, NULL,
 				    "%s", "proxy not enabled");
 				vap->iv_stats.is_mesh_notproxy++;
-				if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+				ifp->if_oerrors++;
 				m_freem(m);
 				/* XXX better status? */
 				return (ENOBUFS);
@@ -387,7 +386,7 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 			 * NB: ieee80211_mesh_discover holds/disposes
 			 * frame (e.g. queueing on path discovery).
 			 */
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+			ifp->if_oerrors++;
 			/* XXX better status? */
 			return (ENOBUFS);
 		}
@@ -397,20 +396,6 @@ ieee80211_start_pkt(struct ieee80211vap *vap, struct mbuf *m)
 	/*
 	 * We've resolved the sender, so attempt to transmit it.
 	 */
-
-	if (vap->iv_state == IEEE80211_S_SLEEP) {
-		/*
-		 * In power save; queue frame and then  wakeup device
-		 * for transmit.
-		 */
-		ic->ic_lastdata = ticks;
-		if (ieee80211_pwrsave(ni, m) != 0)
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-		ieee80211_free_node(ni);
-		ieee80211_new_state(vap, IEEE80211_S_RUN, 0);
-		return (0);
-	}
-
 	if (ieee80211_vap_pkt_send_dest(vap, m, ni) != 0)
 		return (ENOBUFS);
 	return (0);
@@ -441,19 +426,24 @@ ieee80211_vap_transmit(struct ifnet *ifp, struct mbuf *m)
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		return (ENETDOWN);
 	}
-
+	if (vap->iv_state == IEEE80211_S_SLEEP) {
+		/*
+		 * In power save, wakeup device for transmit.
+		 */
+		ieee80211_new_state(vap, IEEE80211_S_RUN, 0);
+		m_freem(m);
+		return (0);
+	}
 	/*
 	 * No data frames go out unless we're running.
 	 * Note in particular this covers CAC and CSA
 	 * states (though maybe we should check muting
 	 * for CSA).
 	 */
-	if (vap->iv_state != IEEE80211_S_RUN &&
-	    vap->iv_state != IEEE80211_S_SLEEP) {
+	if (vap->iv_state != IEEE80211_S_RUN) {
 		IEEE80211_LOCK(ic);
 		/* re-check under the com lock to avoid races */
-		if (vap->iv_state != IEEE80211_S_RUN &&
-		    vap->iv_state != IEEE80211_S_SLEEP) {
+		if (vap->iv_state != IEEE80211_S_RUN) {
 			IEEE80211_DPRINTF(vap, IEEE80211_MSG_OUTPUT,
 			    "%s: ignore queue, in %s state\n",
 			    __func__, ieee80211_state_name[vap->iv_state]);
@@ -494,13 +484,6 @@ ieee80211_vap_qflush(struct ifnet *ifp)
 
 /*
  * 802.11 raw output routine.
- *
- * XXX TODO: this (and other send routines) should correctly
- * XXX keep the pwr mgmt bit set if it decides to call into the
- * XXX driver to send a frame whilst the state is SLEEP.
- *
- * Otherwise the peer may decide that we're awake and flood us
- * with traffic we are still too asleep to receive!
  */
 int
 ieee80211_raw_output(struct ieee80211vap *vap, struct ieee80211_node *ni,
@@ -617,7 +600,7 @@ ieee80211_output(struct ifnet *ifp, struct mbuf *m,
 	if (ieee80211_classify(ni, m))
 		senderr(EIO);		/* XXX */
 
-	if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+	ifp->if_opackets++;
 	IEEE80211_NODE_STAT(ni, tx_data);
 	if (IEEE80211_IS_MULTICAST(wh->i_addr1)) {
 		IEEE80211_NODE_STAT(ni, tx_mcast);
@@ -645,7 +628,7 @@ bad:
 		m_freem(m);
 	if (ni != NULL)
 		ieee80211_free_node(ni);
-	if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+	ifp->if_oerrors++;
 	return error;
 #undef senderr
 }
@@ -739,12 +722,7 @@ ieee80211_send_setup(
 	if (tid != IEEE80211_NONQOS_TID && IEEE80211_AMPDU_RUNNING(tap))
 		m->m_flags |= M_AMPDU_MPDU;
 	else {
-		if (IEEE80211_HAS_SEQ(type & IEEE80211_FC0_TYPE_MASK,
-				      type & IEEE80211_FC0_SUBTYPE_MASK))
-			seqno = ni->ni_txseqs[tid]++;
-		else
-			seqno = 0;
-
+		seqno = ni->ni_txseqs[tid]++;
 		*(uint16_t *)&wh->i_seq[0] =
 		    htole16(seqno << IEEE80211_SEQ_SEQ_SHIFT);
 		M_SEQNO_SET(m, seqno);
@@ -1716,7 +1694,7 @@ ieee80211_add_xrates(uint8_t *frm, const struct ieee80211_rateset *rs)
 /* 
  * Add an ssid element to a frame.
  */
-uint8_t *
+static uint8_t *
 ieee80211_add_ssid(uint8_t *frm, const uint8_t *ssid, u_int len)
 {
 	*frm++ = IEEE80211_ELEMID_SSID;
@@ -2336,33 +2314,18 @@ ieee80211_send_mgmt(struct ieee80211_node *ni, int type, int arg)
 			    ic->ic_curchan);
 			frm = ieee80211_add_supportedchannels(frm, ic);
 		}
-
-		/*
-		 * Check the channel - we may be using an 11n NIC with an
-		 * 11n capable station, but we're configured to be an 11b
-		 * channel.
-		 */
 		if ((vap->iv_flags_ht & IEEE80211_FHT_HT) &&
-		    IEEE80211_IS_CHAN_HT(ni->ni_chan) &&
 		    ni->ni_ies.htcap_ie != NULL &&
-		    ni->ni_ies.htcap_ie[0] == IEEE80211_ELEMID_HTCAP) {
+		    ni->ni_ies.htcap_ie[0] == IEEE80211_ELEMID_HTCAP)
 			frm = ieee80211_add_htcap(frm, ni);
-		}
 		frm = ieee80211_add_wpa(frm, vap);
 		if ((ic->ic_flags & IEEE80211_F_WME) &&
 		    ni->ni_ies.wme_ie != NULL)
 			frm = ieee80211_add_wme_info(frm, &ic->ic_wme);
-
-		/*
-		 * Same deal - only send HT info if we're on an 11n
-		 * capable channel.
-		 */
 		if ((vap->iv_flags_ht & IEEE80211_FHT_HT) &&
-		    IEEE80211_IS_CHAN_HT(ni->ni_chan) &&
 		    ni->ni_ies.htcap_ie != NULL &&
-		    ni->ni_ies.htcap_ie[0] == IEEE80211_ELEMID_VENDOR) {
+		    ni->ni_ies.htcap_ie[0] == IEEE80211_ELEMID_VENDOR)
 			frm = ieee80211_add_htcap_vendor(frm, ni);
-		}
 #ifdef IEEE80211_SUPPORT_SUPERG
 		if (IEEE80211_ATH_CAP(vap, ni, IEEE80211_F_ATHEROS)) {
 			frm = ieee80211_add_ath(frm, 

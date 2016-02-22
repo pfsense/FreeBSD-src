@@ -38,12 +38,11 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/socket.h>
  
-#include <net/if.h>
-#include <net/if_var.h>
-#include <net/if_llc.h>
-#include <net/if_media.h>
 #include <net/bpf.h>
 #include <net/ethernet.h>
+#include <net/if.h>
+#include <net/if_llc.h>
+#include <net/if_media.h>
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_input.h>
@@ -480,7 +479,7 @@ ff_transmit(struct ieee80211_node *ni, struct mbuf *m)
 			/* NB: IFQ_HANDOFF reclaims mbuf */
 			ieee80211_free_node(ni);
 		} else {
-			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+			ifp->if_opackets++;
 		}
 	} else
 		ieee80211_free_node(ni);

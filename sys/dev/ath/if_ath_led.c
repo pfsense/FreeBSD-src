@@ -122,11 +122,6 @@ __FBSDID("$FreeBSD$");
 void
 ath_led_config(struct ath_softc *sc)
 {
-
-	ATH_LOCK(sc);
-	ath_power_set_power_state(sc, HAL_PM_AWAKE);
-	ATH_UNLOCK(sc);
-
 	/* Software LED blinking - GPIO controlled LED */
 	if (sc->sc_softled) {
 		ath_hal_gpioCfgOutput(sc->sc_ah, sc->sc_ledpin,
@@ -149,10 +144,6 @@ ath_led_config(struct ath_softc *sc)
 			ath_hal_gpioCfgOutput(sc->sc_ah, sc->sc_led_net_pin,
 			    HAL_GPIO_OUTPUT_MUX_MAC_NETWORK_LED);
 	}
-
-	ATH_LOCK(sc);
-	ath_power_restore_power_state(sc);
-	ATH_UNLOCK(sc);
 }
 
 static void

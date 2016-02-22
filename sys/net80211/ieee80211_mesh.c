@@ -54,7 +54,6 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 #include <net/if.h>
-#include <net/if_var.h>
 #include <net/if_media.h>
 #include <net/if_llc.h>
 #include <net/ethernet.h>
@@ -1047,7 +1046,7 @@ mesh_transmit_to_gate(struct ieee80211vap *vap, struct mbuf *m,
 
 	ni = ieee80211_mesh_find_txnode(vap, rt_gate->rt_dest);
 	if (ni == NULL) {
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		m_freem(m);
 		return;
 	}
@@ -1183,7 +1182,7 @@ mesh_forward(struct ieee80211vap *vap, struct mbuf *m,
 		IEEE80211_NOTE_FRAME(vap, IEEE80211_MSG_MESH, wh,
 		    "%s", "frame not fwd'd, cannot dup");
 		vap->iv_stats.is_mesh_fwd_nobuf++;
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		return;
 	}
 	mcopy = m_pullup(mcopy, ieee80211_hdrspace(ic, wh) +
@@ -1192,7 +1191,7 @@ mesh_forward(struct ieee80211vap *vap, struct mbuf *m,
 		IEEE80211_NOTE_FRAME(vap, IEEE80211_MSG_MESH, wh,
 		    "%s", "frame not fwd'd, too short");
 		vap->iv_stats.is_mesh_fwd_tooshort++;
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		m_freem(mcopy);
 		return;
 	}
@@ -1250,7 +1249,7 @@ mesh_forward(struct ieee80211vap *vap, struct mbuf *m,
 		/* NB: IFQ_HANDOFF reclaims mbuf */
 		ieee80211_free_node(ni);
 	} else {
-		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+		ifp->if_opackets++;
 	}
 }
 
@@ -1844,7 +1843,7 @@ mesh_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		break;
 	}
 err:
-	if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+	ifp->if_ierrors++;
 out:
 	if (m != NULL) {
 		if (need_tap && ieee80211_radiotap_active_vap(vap))
@@ -1906,7 +1905,7 @@ mesh_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 				ieee80211_probe_curchan(vap, 1);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
-			ieee80211_add_scan(vap, ic->ic_curchan, &scan, wh,
+			ieee80211_add_scan(vap, &scan, wh,
 			    subtype, rssi, nf);
 			return;
 		}
@@ -2693,7 +2692,7 @@ mesh_send_action(struct ieee80211_node *ni,
 		return EIO;		/* XXX */
 	}
 
-	M_PREPEND(m, sizeof(struct ieee80211_frame), M_NOWAIT);
+	M_PREPEND(m, sizeof(struct ieee80211_frame), M_DONTWAIT);
 	if (m == NULL) {
 		ieee80211_free_node(ni);
 		return ENOMEM;
@@ -3334,7 +3333,7 @@ mesh_airtime_calc(struct ieee80211_node *ni)
 	/* Error rate in percentage */
 	/* XXX assuming small failures are ok */
 	errrate = (((ifp->if_oerrors +
-		ifp->if_ierrors) / 100) << M_BITS) / 100;
+	    ifp->if_ierrors) / 100) << M_BITS) / 100;
 	res = (overhead + (nbits / rate)) *
 	    ((1 << S_FACTOR) / ((1 << M_BITS) - errrate));
 

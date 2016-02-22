@@ -215,9 +215,6 @@ struct iwi_softc {
 
 	struct iwi_rx_radiotap_header sc_rxtap;
 	struct iwi_tx_radiotap_header sc_txtap;
-
-	struct iwi_notif_link_quality sc_linkqual;
-	int			sc_linkqual_valid;
 };
 
 #define	IWI_STATE_BEGIN(_sc, _state)	do {			\

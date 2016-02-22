@@ -234,7 +234,6 @@ sta_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		switch (ostate) {
 		case IEEE80211_S_SLEEP:
 			/* XXX wakeup */
-			/* XXX driver hook to wakeup the hardware? */
 		case IEEE80211_S_RUN:
 			IEEE80211_SEND_MGMT(ni,
 			    IEEE80211_FC0_SUBTYPE_DISASSOC,
@@ -300,18 +299,12 @@ sta_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			if (vap->iv_roaming == IEEE80211_ROAMING_AUTO)
 				ieee80211_check_scan_current(vap);
 			break;
-		case IEEE80211_S_SLEEP:		/* beacon miss */
-			/*
-			 * XXX if in sleep we need to wakeup the hardware.
-			 */
-			/* FALLTHROUGH */
 		case IEEE80211_S_RUN:		/* beacon miss */
 			/*
 			 * Beacon miss.  Notify user space and if not
 			 * under control of a user application (roaming
 			 * manual) kick off a scan to re-connect.
 			 */
-
 			ieee80211_sta_leave(ni);
 			if (vap->iv_roaming == IEEE80211_ROAMING_AUTO)
 				ieee80211_check_scan_current(vap);
@@ -410,7 +403,6 @@ sta_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			    arg == IEEE80211_FC0_SUBTYPE_ASSOC_RESP);
 			break;
 		case IEEE80211_S_SLEEP:
-			/* Wake up from sleep */
 			vap->iv_sta_ps(vap, 0);
 			break;
 		default:
@@ -438,11 +430,9 @@ sta_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			ieee80211_node_authorize(ni);
 		/*
 		 * Fake association when joining an existing bss.
-		 *
-		 * Don't do this if we're doing SLEEP->RUN.
 		 */
-		if (ic->ic_newassoc != NULL && ostate != IEEE80211_S_SLEEP)
-			ic->ic_newassoc(vap->iv_bss, (ostate != IEEE80211_S_RUN));
+		if (ic->ic_newassoc != NULL)
+			ic->ic_newassoc(vap->iv_bss, ostate != IEEE80211_S_RUN);
 		break;
 	case IEEE80211_S_CSA:
 		if (ostate != IEEE80211_S_RUN)
@@ -527,6 +517,7 @@ doprint(struct ieee80211vap *vap, int subtype)
 static int
 sta_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 {
+#define	HAS_SEQ(type)	((type & 0x4) == 0)
 	struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211com *ic = ni->ni_ic;
 	struct ifnet *ifp = vap->iv_ifp;
@@ -622,8 +613,7 @@ sta_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 
 		IEEE80211_RSSI_LPF(ni->ni_avgrssi, rssi);
 		ni->ni_noise = nf;
-		if ( IEEE80211_HAS_SEQ(type, subtype) &&
-		    !IEEE80211_IS_MULTICAST(wh->i_addr1)) {
+		if (HAS_SEQ(type) && !IEEE80211_IS_MULTICAST(wh->i_addr1)) {
 			uint8_t tid = ieee80211_gettid(wh);
 			if (IEEE80211_QOS_HAS_SEQ(wh) &&
 			    TID_TO_WME_AC(tid) >= WME_AC_VI)
@@ -938,7 +928,7 @@ sta_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		break;
 	}
 err:
-	if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+	ifp->if_ierrors++;
 out:
 	if (m != NULL) {
 		if (need_tap && ieee80211_radiotap_active_vap(vap))
@@ -1322,7 +1312,6 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 				vap->iv_stats.is_beacon_bad++;
 			return;
 		}
-
 		/*
 		 * Count frame now that we know it's to be processed.
 		 */
@@ -1392,66 +1381,25 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 			}
 			if (scan.quiet)
 				ic->ic_set_quiet(ni, scan.quiet);
-
 			if (scan.tim != NULL) {
 				struct ieee80211_tim_ie *tim =
 				    (struct ieee80211_tim_ie *) scan.tim;
-				/*
-				 * XXX Check/debug this code; see if it's about
-				 * the right time to force the VAP awake if we
-				 * receive a frame destined for us?
-				 */
+#if 0
 				int aid = IEEE80211_AID(ni->ni_associd);
 				int ix = aid / NBBY;
 				int min = tim->tim_bitctl &~ 1;
 				int max = tim->tim_len + min - 4;
-				int tim_ucast = 0, tim_mcast = 0;
-
-				/*
-				 * Only do this for unicast traffic in the TIM
-				 * The multicast traffic notification for
-				 * the scan notification stuff should occur
-				 * differently.
-				 */
-				if (min <= ix && ix <= max &&
-				     isset(tim->tim_bitmap - min, aid)) {
-					tim_ucast = 1;
-				}
-
-				/*
-				 * Do a separate notification
-				 * for the multicast bit being set.
-				 */
-				if (tim->tim_bitctl & 1) {
-					tim_mcast = 1;
-				}
-
-				/*
-				 * If the TIM indicates there's traffic for
-				 * us then get us out of STA mode powersave.
-				 */
-				if (tim_ucast == 1) {
-
-					/*
-					 * Wake us out of SLEEP state if we're
-					 * in it; and if we're doing bgscan
-					 * then wake us out of STA powersave.
-					 */
-					ieee80211_sta_tim_notify(vap, 1);
-
-					/*
-					 * This is preventing us from
-					 * continuing a bgscan; because it
-					 * tricks the contbgscan()
-					 * routine to think there's always
-					 * traffic for us.
-					 *
-					 * I think we need both an RX and
-					 * TX ic_lastdata field.
+				if ((tim->tim_bitctl&1) ||
+				    (min <= ix && ix <= max &&
+				     isset(tim->tim_bitmap - min, aid))) {
+					/* 
+					 * XXX Do not let bg scan kick off
+					 * we are expecting data.
 					 */
 					ic->ic_lastdata = ticks;
+					vap->iv_sta_ps(vap, 0);
 				}
-
+#endif
 				ni->ni_dtim_count = tim->tim_count;
 				ni->ni_dtim_period = tim->tim_period;
 			}
@@ -1484,8 +1432,8 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 			 * our ap.
 			 */
 			if (ic->ic_flags & IEEE80211_F_SCAN) {
-				ieee80211_add_scan(vap, ic->ic_curchan,
-				    &scan, wh, subtype, rssi, nf);
+				ieee80211_add_scan(vap, &scan, wh,
+					subtype, rssi, nf);
 			} else if (contbgscan(vap)) {
 				ieee80211_bg_scan(vap, 0);
 			} else if (startbgscan(vap)) {
@@ -1496,14 +1444,6 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 #endif
 				ieee80211_bg_scan(vap, 0);
 			}
-
-			/*
-			 * Put the station to sleep if we haven't seen
-			 * traffic in a while.
-			 */
-			IEEE80211_LOCK(ic);
-			ieee80211_sta_ps_timer_check(vap);
-			IEEE80211_UNLOCK(ic);
 
 			/*
 			 * If we've had a channel width change (eg HT20<->HT40)
@@ -1529,8 +1469,7 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 				ieee80211_probe_curchan(vap, 1);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
-			ieee80211_add_scan(vap, ic->ic_curchan, &scan, wh,
-			    subtype, rssi, nf);
+			ieee80211_add_scan(vap, &scan, wh, subtype, rssi, nf);
 			return;
 		}
 		break;

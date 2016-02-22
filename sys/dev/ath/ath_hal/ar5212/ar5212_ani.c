@@ -110,7 +110,7 @@ ar5212AniGetCurrentState(struct ath_hal *ah)
 /*
  * Return the current statistics.
  */
-HAL_ANI_STATS *
+struct ar5212Stats *
 ar5212AniGetCurrentStats(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
@@ -869,6 +869,7 @@ ar5212AniGetListenTime(struct ath_hal *ah)
 	int32_t listenTime = 0;
 	int good;
 	HAL_SURVEY_SAMPLE hs;
+	HAL_CHANNEL_SURVEY *cs = AH_NULL;
 
 	/*
 	 * We shouldn't see ah_curchan be NULL, but just in case..
@@ -878,13 +879,21 @@ ar5212AniGetListenTime(struct ath_hal *ah)
 		return (0);
 	}
 
+	cs = &ahp->ah_chansurvey;
+
 	/*
 	 * Fetch the current statistics, squirrel away the current
 	 * sample, bump the sequence/sample counter.
 	 */
 	OS_MEMZERO(&hs, sizeof(hs));
 	good = ar5212GetMibCycleCounts(ah, &hs);
-	ath_hal_survey_add_sample(ah, &hs);
+	if (cs != AH_NULL) {
+		OS_MEMCPY(&cs->samples[cs->cur_sample], &hs, sizeof(hs));
+		cs->samples[cs->cur_sample].seq_num = cs->cur_seq;
+		cs->cur_sample =
+		    (cs->cur_sample + 1) % CHANNEL_SURVEY_SAMPLE_COUNT;
+		cs->cur_seq++;
+	}
 
 	if (ANI_ENA(ah))
 		aniState = ahp->ah_curani;

@@ -1594,48 +1594,6 @@ iwn1000.fw			optional iwn1000fw | iwnfw		\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"iwn1000.fw"
-iwn100fw.c                     optional iwn100fw | iwnfw               \
-	compile-with    "${AWK} -f $S/tools/fw_stub.awk iwn100.fw:iwn100fw -miwn100fw -c${.TARGET}" \
-	no-implicit-rule before-depend local                            \
-	clean           "iwn100fw.c"
-iwn100fw.fwo                   optional iwn100fw | iwnfw               \
-	dependency      "iwn100.fw"                                     \
-	compile-with    "${NORMAL_FWO}"                                 \
-	no-implicit-rule                                                \
-	clean           "iwn100fw.fwo"
-iwn100.fw                      optional iwn100fw | iwnfw               \
-	dependency      "$S/contrib/dev/iwn/iwlwifi-100-39.31.5.1.fw.uu" \
-	compile-with    "${NORMAL_FW}"                                  \
-	no-obj no-implicit-rule                                         \
-	clean           "iwn100.fw"
-iwn105fw.c                     optional iwn105fw | iwnfw               \
-	compile-with    "${AWK} -f $S/tools/fw_stub.awk iwn105.fw:iwn105fw -miwn105fw -c${.TARGET}" \
-	no-implicit-rule before-depend local                            \
-	clean           "iwn105fw.c"
-iwn105fw.fwo                   optional iwn105fw | iwnfw               \
-	dependency      "iwn105.fw"                                     \
-	compile-with    "${NORMAL_FWO}"                                 \
-	no-implicit-rule                                                \
-	clean           "iwn105fw.fwo"
-iwn105.fw                      optional iwn105fw | iwnfw               \
-	dependency      "$S/contrib/dev/iwn/iwlwifi-105-6-18.168.6.1.fw.uu" \
-	compile-with    "${NORMAL_FW}"                                  \
-	no-obj no-implicit-rule                                         \
-	clean           "iwn105.fw"
-iwn135fw.c                     optional iwn135fw | iwnfw               \
-	compile-with    "${AWK} -f $S/tools/fw_stub.awk iwn135.fw:iwn135fw -miwn135fw -c${.TARGET}" \
-	no-implicit-rule before-depend local                            \
-	clean           "iwn135fw.c"
-iwn135fw.fwo                   optional iwn135fw | iwnfw               \
-	dependency      "iwn135.fw"                                     \
-	compile-with    "${NORMAL_FWO}"                                 \
-	no-implicit-rule                                                \
-	clean           "iwn135fw.fwo"
-iwn135.fw                      optional iwn135fw | iwnfw               \
-	dependency      "$S/contrib/dev/iwn/iwlwifi-135-6-18.168.6.1.fw.uu" \
-	compile-with    "${NORMAL_FW}"                                  \
-	no-obj no-implicit-rule                                         \
-	clean           "iwn135.fw"
 iwn2000fw.c			optional iwn2000fw | iwnfw		\
 	compile-with	"${AWK} -f $S/tools/fw_stub.awk iwn2000.fw:iwn2000fw -miwn2000fw -c${.TARGET}" \
 	no-implicit-rule before-depend local				\
@@ -1730,7 +1688,7 @@ iwn6000g2afw.fwo		optional iwn6000g2afw | iwnfw		\
 	no-implicit-rule						\
 	clean		"iwn6000g2afw.fwo"
 iwn6000g2a.fw			optional iwn6000g2afw | iwnfw		\
-	dependency      "$S/contrib/dev/iwn/iwlwifi-6000g2b-18.168.6.1.fw.uu" \
+	dependency	"$S/contrib/dev/iwn/iwlwifi-6000g2a-17.168.5.2.fw.uu" \
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"iwn6000g2a.fw"
@@ -1744,7 +1702,7 @@ iwn6000g2bfw.fwo		optional iwn6000g2bfw | iwnfw		\
 	no-implicit-rule						\
 	clean		"iwn6000g2bfw.fwo"
 iwn6000g2b.fw			optional iwn6000g2bfw | iwnfw		\
-	dependency      "$S/contrib/dev/iwn/iwlwifi-6000g2b-18.168.6.1.fw.uu" \
+	dependency	"$S/contrib/dev/iwn/iwlwifi-6000g2b-17.168.5.2.fw.uu" \
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"iwn6000g2b.fw"
@@ -3416,7 +3374,6 @@ net80211/ieee80211_scan_sta.c	optional wlan
 net80211/ieee80211_sta.c	optional wlan \
 	compile-with "${NORMAL_C} -Wno-unused-function"
 net80211/ieee80211_superg.c	optional wlan ieee80211_support_superg
-net80211/ieee80211_scan_sw.c	optional wlan
 net80211/ieee80211_tdma.c	optional wlan ieee80211_support_tdma
 net80211/ieee80211_wds.c	optional wlan
 net80211/ieee80211_xauth.c	optional wlan wlan_xauth

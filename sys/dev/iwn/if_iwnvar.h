@@ -163,7 +163,6 @@ struct iwn_calib_state {
 	uint32_t	bad_plcp_cck;
 	uint32_t	fa_cck;
 	uint32_t	low_fa;
-	uint32_t	bad_plcp_ht;
 	uint8_t		cck_state;
 #define IWN_CCK_STATE_INIT	0
 #define IWN_CCK_STATE_LOFA	1
@@ -250,7 +249,6 @@ struct iwn_softc {
 #define IWN_FLAG_ENH_SENS	(1 << 7)
 #define IWN_FLAG_ADV_BTCOEX	(1 << 8)
 #define IWN_FLAG_PAN_SUPPORT	(1 << 9)
-#define IWN_FLAG_BTCOEX		(1 << 10)
 
 	uint8_t 		hw_type;
 	/* subdevice_id used to adjust configuration */
@@ -308,20 +306,14 @@ struct iwn_softc {
 	struct task		sc_reinit_task;
 	struct task		sc_radioon_task;
 	struct task		sc_radiooff_task;
-	struct task		sc_panic_task;
 
-	/* Taskqueue */
-	struct taskqueue	*sc_tq;
-
-	/* Calibration information */
 	struct callout		calib_to;
 	int			calib_cnt;
 	struct iwn_calib_state	calib;
-	int			last_calib_ticks;
 	struct callout		watchdog_to;
 	struct callout		ct_kill_exit_to;
 	struct iwn_fw_info	fw;
-	struct iwn_calib_info	calibcmd[IWN5000_PHY_CALIB_MAX_RESULT];
+	struct iwn_calib_info	calibcmd[5];
 	uint32_t		errptr;
 
 	struct iwn_rx_stat	last_rx_stat;
@@ -331,22 +323,6 @@ struct iwn_softc {
 	struct iwn_rxon		*rxon;
 	int			ctx;
 	struct ieee80211vap	*ivap[IWN_NUM_RXON_CTX];
-
-	/* General statistics */
-	/*
-	 * The statistics are reset after each channel
-	 * change.  So it may be zeroed after things like
-	 * a background scan.
-	 *
-	 * So for now, this is just a cheap hack to
-	 * expose the last received statistics dump
-	 * via an ioctl().  Later versions of this
-	 * could expose the last 'n' messages, or just
-	 * provide a pipeline for the firmware responses
-	 * via something like BPF.
-	 */
-	struct iwn_stats	last_stat;
-	int			last_stat_valid;
 
 	uint8_t			uc_scan_progress;
 	uint32_t		rawtemp;
@@ -382,9 +358,6 @@ struct iwn_softc {
 	int			sc_tx_timer;
 	int			sc_scan_timer;
 
-	/* Are we doing a scan? */
-	int			sc_is_scanning;
-
 	struct ieee80211_tx_ampdu *qid2tap[IWN5000_NTXQUEUES];
 
 	int			(*sc_ampdu_rx_start)(struct ieee80211_node *,
@@ -412,11 +385,8 @@ struct iwn_softc {
 	 */
 	int			current_pwrsave_level;
 
-	/* For specific params */
-	const struct iwn_base_params *base_params;
-
-#define	IWN_UCODE_API(ver)	(((ver) & 0x0000FF00) >> 8)
-	uint32_t		ucode_rev;
+	/* For specifique params */
+	struct iwn_base_params *base_params;
 };
 
 #define IWN_LOCK_INIT(_sc) \

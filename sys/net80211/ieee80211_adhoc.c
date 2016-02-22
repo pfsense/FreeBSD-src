@@ -48,7 +48,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 
 #include <net/if.h>
-#include <net/if_var.h>
 #include <net/if_media.h>
 #include <net/if_llc.h>
 #include <net/ethernet.h>
@@ -229,8 +228,6 @@ adhoc_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			}
 #endif
 			break;
-		case IEEE80211_S_RUN:	/* IBSS merge */
-			break;
 		default:
 			goto invalid;
 		}
@@ -291,6 +288,7 @@ doprint(struct ieee80211vap *vap, int subtype)
 static int
 adhoc_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 {
+#define	HAS_SEQ(type)	((type & 0x4) == 0)
 	struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211com *ic = ni->ni_ic;
 	struct ifnet *ifp = vap->iv_ifp;
@@ -370,10 +368,7 @@ adhoc_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		/*
 		 * Validate the bssid.
 		 */
-		if (!(type == IEEE80211_FC0_TYPE_MGT &&
-		     (subtype == IEEE80211_FC0_SUBTYPE_BEACON ||
-		      subtype == IEEE80211_FC0_SUBTYPE_PROBE_RESP)) &&
-		    !IEEE80211_ADDR_EQ(bssid, vap->iv_bss->ni_bssid) &&
+		if (!IEEE80211_ADDR_EQ(bssid, vap->iv_bss->ni_bssid) &&
 		    !IEEE80211_ADDR_EQ(bssid, ifp->if_broadcastaddr)) {
 			/* not interested in */
 			IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_INPUT,
@@ -413,8 +408,7 @@ adhoc_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		}
 		IEEE80211_RSSI_LPF(ni->ni_avgrssi, rssi);
 		ni->ni_noise = nf;
-		if (IEEE80211_HAS_SEQ(type, subtype) &&
-		    IEEE80211_ADDR_EQ(wh->i_addr2, ni->ni_macaddr)) {
+		if (HAS_SEQ(type)) {
 			uint8_t tid = ieee80211_gettid(wh);
 			if (IEEE80211_QOS_HAS_SEQ(wh) &&
 			    TID_TO_WME_AC(tid) >= WME_AC_VI)
@@ -658,7 +652,7 @@ adhoc_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		break;
 	}
 err:
-	if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+	ifp->if_ierrors++;
 out:
 	if (m != NULL) {
 		if (need_tap && ieee80211_radiotap_active_vap(vap))
@@ -735,8 +729,7 @@ adhoc_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 				ieee80211_probe_curchan(vap, 1);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
-			ieee80211_add_scan(vap, ic->ic_curchan, &scan, wh,
-			    subtype, rssi, nf);
+			ieee80211_add_scan(vap, &scan, wh, subtype, rssi, nf);
 			return;
 		}
 		if (scan.capinfo & IEEE80211_CAPINFO_IBSS) {

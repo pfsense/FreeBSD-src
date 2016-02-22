@@ -50,8 +50,8 @@
 #endif
 
 typedef struct {
-	uint32_t	start;		/* first register */
-	uint32_t	end;		/* ending register or zero */
+	uint16_t	start;		/* first register */
+	uint16_t	end;		/* ending register or zero */
 } HAL_REGRANGE;
 
 typedef struct {
@@ -91,7 +91,6 @@ struct ath_hal_chip {
 	const char	*(*probe)(uint16_t vendorid, uint16_t devid);
 	struct ath_hal	*(*attach)(uint16_t devid, HAL_SOFTC,
 			    HAL_BUS_TAG, HAL_BUS_HANDLE, uint16_t *eepromdata,
-			    HAL_OPS_CONFIG *ah,
 			    HAL_STATUS *error);
 };
 #ifndef AH_CHIP
@@ -281,9 +280,7 @@ typedef struct {
 			halAntDivCombSupportOrg		: 1,
 			halRadioRetentionSupport	: 1,
 			halSpectralScanSupport		: 1,
-			halRxUsingLnaMixing		: 1,
-			halRxDoMyBeacon			: 1,
-			halHwUapsdTrig			: 1;
+			halRxUsingLnaMixing		: 1;
 
 	uint32_t	halWirelessModes;
 	uint16_t	halTotalQueues;
@@ -422,13 +419,9 @@ struct ath_hal_private {
 	uint32_t	ah_fatalState[6];	/* AR_ISR+shadow regs */
 	int		ah_rxornIsFatal;	/* how to treat HAL_INT_RXORN */
 
-	/* Only used if ATH_NF_PER_CHAN is defined */
+#ifndef	ATH_NF_PER_CHAN
 	HAL_NFCAL_HIST_FULL	nf_cal_hist;
-
-	/*
-	 * Channel survey history - current channel only.
-	 */
-	 HAL_CHANNEL_SURVEY	ah_chansurvey;	/* channel survey */
+#endif	/* ! ATH_NF_PER_CHAN */
 };
 
 #define	AH_PRIVATE(_ah)	((struct ath_hal_private *)(_ah))
@@ -1032,16 +1025,5 @@ ath_hal_getantennaallowed(struct ath_hal *ah,
  * Map the given 2GHz channel to an IEEE number.
  */
 extern	int ath_hal_mhz2ieee_2ghz(struct ath_hal *, HAL_CHANNEL_INTERNAL *);
-
-/*
- * Clear the channel survey data.
- */
-extern	void ath_hal_survey_clear(struct ath_hal *ah);
-
-/*
- * Add a sample to the channel survey data.
- */
-extern	void ath_hal_survey_add_sample(struct ath_hal *ah,
-	    HAL_SURVEY_SAMPLE *hs);
 
 #endif /* _ATH_AH_INTERAL_H_ */

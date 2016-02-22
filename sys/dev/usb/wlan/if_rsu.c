@@ -44,7 +44,6 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 #include <net/if.h>
-#include <net/if_var.h>
 #include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
@@ -72,7 +71,7 @@ __FBSDID("$FreeBSD$");
 #ifdef USB_DEBUG
 static int rsu_debug = 0;
 SYSCTL_NODE(_hw_usb, OID_AUTO, rsu, CTLFLAG_RW, 0, "USB rsu");
-SYSCTL_INT(_hw_usb_rsu, OID_AUTO, debug, CTLFLAG_RWTUN, &rsu_debug, 0,
+SYSCTL_INT(_hw_usb_rsu, OID_AUTO, debug, CTLFLAG_RW, &rsu_debug, 0,
     "Debug level");
 #endif
 
@@ -121,7 +120,6 @@ static const STRUCT_USB_HOST_ID rsu_devs[] = {
 	RSU_DEV_HT(SITECOMEU,		WL349V1),
 	RSU_DEV_HT(SITECOMEU,		WL353),
 	RSU_DEV_HT(SWEEX2,		LW154),
-	//RSU_DEV_HT(TRENDNET,		TEW646UBH),
 #undef RSU_DEV_HT
 #undef RSU_DEV
 };
@@ -1155,9 +1153,16 @@ rsu_event_survey(struct rsu_softc *sc, uint8_t *buf, int len)
 	pktlen = sizeof(*wh) + le32toh(bss->ieslen);
 	if (__predict_false(pktlen > MCLBYTES))
 		return;
-	m = m_get2(pktlen, M_NOWAIT, MT_DATA, M_PKTHDR);
+	MGETHDR(m, M_NOWAIT, MT_DATA);
 	if (__predict_false(m == NULL))
 		return;
+	if (pktlen > MHLEN) {
+		MCLGET(m, M_NOWAIT);
+		if (!(m->m_flags & M_EXT)) {
+			m_free(m);
+			return;
+		}
+	}
 	wh = mtod(m, struct ieee80211_frame *);
 	wh->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT |
 	    IEEE80211_FC0_SUBTYPE_BEACON;
@@ -1353,11 +1358,11 @@ rsu_rx_frame(struct rsu_softc *sc, uint8_t *buf, int pktlen, int *rssi)
 	rxdw3 = le32toh(stat->rxdw3);
 
 	if (__predict_false(rxdw0 & R92S_RXDW0_CRCERR)) {
-		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+		ifp->if_ierrors++;
 		return NULL;
 	}
 	if (__predict_false(pktlen < sizeof(*wh) || pktlen > MCLBYTES)) {
-		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+		ifp->if_ierrors++;
 		return NULL;
 	}
 
@@ -1373,10 +1378,18 @@ rsu_rx_frame(struct rsu_softc *sc, uint8_t *buf, int pktlen, int *rssi)
 	DPRINTFN(5, "Rx frame len=%d rate=%d infosz=%d rssi=%d\n",
 	    pktlen, rate, infosz, *rssi);
 
-	m = m_get2(pktlen, M_NOWAIT, MT_DATA, M_PKTHDR);
+	MGETHDR(m, M_NOWAIT, MT_DATA);
 	if (__predict_false(m == NULL)) {
-		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+		ifp->if_ierrors++;
 		return NULL;
+	}
+	if (pktlen > MHLEN) {
+		MCLGET(m, M_NOWAIT);
+		if (__predict_false(!(m->m_flags & M_EXT))) {
+			ifp->if_ierrors++;
+			m_freem(m);
+			return NULL;
+		}
 	}
 	/* Finalize mbuf. */
 	m->m_pkthdr.rcvif = ifp;
@@ -1484,7 +1497,7 @@ rsu_rxeof(struct usb_xfer *xfer, struct rsu_data *data, int *rssi)
 
 	if (__predict_false(len < sizeof(*stat))) {
 		DPRINTF("xfer too short %d\n", len);
-		if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
+		sc->sc_ifp->if_ierrors++;
 		return (NULL);
 	}
 	/* Determine if it is a firmware C2H event or an 802.11 frame. */
@@ -1562,7 +1575,7 @@ tr_setup:
 		}
 		if (error != USB_ERR_CANCELLED) {
 			usbd_xfer_set_stall(xfer);
-			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+			ifp->if_ierrors++;
 			goto tr_setup;
 		}
 		break;
@@ -1597,7 +1610,7 @@ rsu_txeof(struct usb_xfer *xfer, struct rsu_data *data)
 		ieee80211_free_node(data->ni);
 		data->ni = NULL;
 	}
-	if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+	ifp->if_opackets++;
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 }
 
@@ -1641,7 +1654,7 @@ tr_setup:
 			rsu_txeof(xfer, data);
 			STAILQ_INSERT_TAIL(&sc->sc_tx_inactive, data, next);
 		}
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 
 		if (error != USB_ERR_CANCELLED) {
 			usbd_xfer_set_stall(xfer);
@@ -1802,11 +1815,11 @@ rsu_start_locked(struct ifnet *ifp)
 
 		bf = rsu_getbuf(sc);
 		if (bf == NULL) {
-			if_inc_counter(ifp, IFCOUNTER_IQDROPS, 1);
+			ifp->if_iqdrops++;
 			m_freem(m);
 			ieee80211_free_node(ni);
 		} else if (rsu_tx_start(sc, ni, m, bf) != 0) {
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+			ifp->if_oerrors++;
 			STAILQ_INSERT_HEAD(&sc->sc_tx_inactive, bf, next);
 			ieee80211_free_node(ni);
 		}
@@ -2312,10 +2325,10 @@ rsu_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
 		RSU_UNLOCK(sc);
 		return (ENOBUFS);
 	}
-	if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+	ifp->if_opackets++;
 	if (rsu_tx_start(sc, ni, m, bf) != 0) {
 		ieee80211_free_node(ni);
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		ifp->if_oerrors++;
 		STAILQ_INSERT_HEAD(&sc->sc_tx_inactive, bf, next);
 		RSU_UNLOCK(sc);
 		return (EIO);

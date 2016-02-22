@@ -120,10 +120,9 @@ ar5416Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	HALASSERT(AH_PRIVATE(ah)->ah_eeversion >= AR_EEPROM_VER14_1);
 
 	/* Blank the channel survey statistics */
-	ath_hal_survey_clear(ah);
+	OS_MEMZERO(&ahp->ah_chansurvey, sizeof(ahp->ah_chansurvey));
 
 	/* XXX Turn on fast channel change for 5416 */
-
 	/*
 	 * Preserve the bmiss rssi threshold and count threshold
 	 * across resets

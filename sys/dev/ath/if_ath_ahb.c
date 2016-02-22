@@ -39,7 +39,6 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h> 
-#include <sys/malloc.h>
 #include <sys/module.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
@@ -56,7 +55,6 @@ __FBSDID("$FreeBSD$");
 #include <net/if.h>
 #include <net/if_media.h>
 #include <net/if_arp.h>
-#include <net/ethernet.h>
 
 #include <net80211/ieee80211_var.h>
 
@@ -153,30 +151,19 @@ ath_ahb_attach(device_t dev)
 		eepromsize = ATH_EEPROM_DATA_SIZE * 2;
 	}
 
+
 	rid = 0;
 	device_printf(sc->sc_dev, "eeprom @ %p (%d bytes)\n",
 	    (void *) eepromaddr, eepromsize);
-	/*
-	 * XXX this assumes that the parent device is the nexus
-	 * and will just pass through requests for all of memory.
-	 *
-	 * Later on, when this has to attach off of the actual
-	 * AHB, this won't work.
-	 *
-	 * Ideally this would be done in machdep code in mips/atheros/
-	 * and it'd expose the EEPROM via the firmware interface,
-	 * so the ath/ath_ahb drivers can be loaded as modules
-	 * after boot-time.
-	 */
-	psc->sc_eeprom = bus_alloc_resource(dev, SYS_RES_MEMORY,
-	    &rid, (uintptr_t) eepromaddr,
-	    (uintptr_t) eepromaddr + (uintptr_t) (eepromsize - 1), 0, RF_ACTIVE);
+	psc->sc_eeprom = bus_alloc_resource(dev, SYS_RES_MEMORY, &rid, (uintptr_t) eepromaddr,
+	  (uintptr_t) eepromaddr + (uintptr_t) (eepromsize - 1), 0, RF_ACTIVE);
 	if (psc->sc_eeprom == NULL) {
 		device_printf(dev, "cannot map eeprom space\n");
 		goto bad0;
 	}
 
-	sc->sc_st = (HAL_BUS_TAG) rman_get_bustag(psc->sc_sr);
+	/* XXX uintptr_t is a bandaid for ia64; to be fixed */
+	sc->sc_st = (HAL_BUS_TAG)(uintptr_t) rman_get_bustag(psc->sc_sr);
 	sc->sc_sh = (HAL_BUS_HANDLE) rman_get_bushandle(psc->sc_sr);
 	/*
 	 * Mark device invalid so any interrupts (shared or otherwise)
@@ -361,7 +348,6 @@ static driver_t ath_ahb_driver = {
 };
 static	devclass_t ath_devclass;
 DRIVER_MODULE(ath, nexus, ath_ahb_driver, ath_devclass, 0, 0);
-DRIVER_MODULE(ath, apb, ath_ahb_driver, ath_devclass, 0, 0);
 MODULE_VERSION(ath, 1);
 MODULE_DEPEND(ath, wlan, 1, 1, 1);		/* 802.11 media layer */
 MODULE_DEPEND(ath, if_ath, 1, 1, 1);		/* if_ath driver */

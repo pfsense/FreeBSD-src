@@ -68,7 +68,6 @@ ar9300_proc_rx_desc_fast(struct ath_hal *ah, struct ath_desc *ds,
 
     rxs->rs_status = 0;
     rxs->rs_flags =  0;
-    rxs->rs_phyerr = 0;
 
     rxs->rs_datalen = rxsp->status2 & AR_data_len;
     rxs->rs_tstamp =  rxsp->status3;
@@ -130,16 +129,17 @@ ar9300_proc_rx_desc_fast(struct ath_hal *ah, struct ath_desc *ds,
          * Consequently we filter them out here so we don't
          * confuse and/or complicate drivers.
          */
-
         if (rxsp->status11 & AR_crc_err) {
             rxs->rs_status |= HAL_RXERR_CRC;
             /* 
-			 * ignore CRC flag for phy reports
+			 * ignore CRC flag for spectral phy reports
 			 */
             if (rxsp->status11 & AR_phyerr) {
                 u_int phyerr = MS(rxsp->status11, AR_phy_err_code);
-                rxs->rs_status |= HAL_RXERR_PHY;
-                rxs->rs_phyerr = phyerr;
+                if (phyerr == HAL_PHYERR_SPECTRAL) {
+                    rxs->rs_status |= HAL_RXERR_PHY;
+                    rxs->rs_phyerr = phyerr;
+                }
             }
         } else if (rxsp->status11 & AR_phyerr) {
             u_int phyerr;
@@ -165,9 +165,7 @@ ar9300_proc_rx_desc_fast(struct ath_hal *ah, struct ath_desc *ds,
             rxs->rs_status |= HAL_RXERR_MIC;
         }
     }
-#if 0
-    rxs->rs_channel = AH_PRIVATE(ah)->ah_curchan->channel;
-#endif
+
     return HAL_OK;
 }
 
