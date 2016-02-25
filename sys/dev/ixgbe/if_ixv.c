@@ -871,10 +871,13 @@ ixv_msix_que(void *arg)
 	** has anything queued the task gets
 	** scheduled to handle it.
 	*/
+#ifdef IXGBE_LEGACY_TX
 	if (!IFQ_DRV_IS_EMPTY(&adapter->ifp->if_snd))
 		ixgbe_start_locked(txr, ifp);
+#else
 	if (!drbr_empty(adapter->ifp, txr->br))
 		ixgbe_mq_start_locked(ifp, txr);
+#endif
 	IXGBE_TX_UNLOCK(txr);
 
 	/* Do AIM now? */
