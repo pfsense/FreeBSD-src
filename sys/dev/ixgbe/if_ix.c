@@ -36,7 +36,9 @@
 #ifndef IXGBE_STANDALONE_BUILD
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#ifdef	RSS
 #include "opt_rss.h"
+#endif
 #endif
 
 #include "ixgbe.h"
