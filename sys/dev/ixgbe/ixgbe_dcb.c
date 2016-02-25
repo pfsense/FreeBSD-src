@@ -375,8 +375,6 @@ s32 ixgbe_dcb_check_config_cee(struct ixgbe_dcb_config *dcb_config)
 	}
 
 err_config:
-	DEBUGOUT2("DCB error code %d while checking %s settings.\n",
-		  ret_val, (i == IXGBE_DCB_TX_CONFIG) ? "Tx" : "Rx");
 
 	return ret_val;
 }

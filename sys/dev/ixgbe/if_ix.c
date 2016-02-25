@@ -36,6 +36,7 @@
 #ifndef IXGBE_STANDALONE_BUILD
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#include "opt_rss.h"
 #endif
 
 #include "ixgbe.h"
@@ -48,7 +49,7 @@
 /*********************************************************************
  *  Driver version
  *********************************************************************/
-char ixgbe_driver_version[] = "3.1.13-k";
+char ixgbe_driver_version[] = "3.1.14";
 
 
 /*********************************************************************
@@ -165,14 +166,12 @@ static void	ixgbe_unregister_vlan(void *, struct ifnet *, u16);
 
 static void	ixgbe_add_device_sysctls(struct adapter *);
 static void     ixgbe_add_hw_stats(struct adapter *);
-static int	ixgbe_set_flowcntl(struct adapter *, int);
-static int	ixgbe_set_advertise(struct adapter *, int);
 
 /* Sysctl handlers */
 static void	ixgbe_set_sysctl_value(struct adapter *, const char *,
 		     const char *, int *, int);
-static int	ixgbe_sysctl_flowcntl(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_advertise(SYSCTL_HANDLER_ARGS);
+static int	ixgbe_set_flowcntl(SYSCTL_HANDLER_ARGS);
+static int	ixgbe_set_advertise(SYSCTL_HANDLER_ARGS);
 static int	ixgbe_sysctl_thermal_test(SYSCTL_HANDLER_ARGS);
 static int	ixgbe_sysctl_dmac(SYSCTL_HANDLER_ARGS);
 static int	ixgbe_sysctl_phy_temp(SYSCTL_HANDLER_ARGS);
@@ -183,11 +182,6 @@ static int	ixgbe_sysctl_print_rss_config(SYSCTL_HANDLER_ARGS);
 #endif
 static int	ixgbe_sysctl_wol_enable(SYSCTL_HANDLER_ARGS);
 static int	ixgbe_sysctl_wufc(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_eee_enable(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_eee_negotiated(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_eee_rx_lpi_status(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_eee_tx_lpi_status(SYSCTL_HANDLER_ARGS);
-static int	ixgbe_sysctl_eee_tx_lpi_delay(SYSCTL_HANDLER_ARGS);
 
 /* Support for pluggable optic modules */
 static bool	ixgbe_sfp_probe(struct adapter *);
@@ -210,6 +204,7 @@ static void	ixgbe_handle_phy(void *, int);
 #ifdef IXGBE_FDIR
 static void	ixgbe_reinit_fdir(void *, int);
 #endif
+
 
 #ifdef PCI_IOV
 static void	ixgbe_ping_all_vfs(struct adapter *);
@@ -270,18 +265,16 @@ static SYSCTL_NODE(_hw, OID_AUTO, ix, CTLFLAG_RD, 0,
 ** traffic for that interrupt vector
 */
 static int ixgbe_enable_aim = TRUE;
-TUNABLE_INT("hw.ix.enable_aim", &ixgbe_enable_aim);
 SYSCTL_INT(_hw_ix, OID_AUTO, enable_aim, CTLFLAG_RWTUN, &ixgbe_enable_aim, 0,
     "Enable adaptive interrupt moderation");
 
 static int ixgbe_max_interrupt_rate = (4000000 / IXGBE_LOW_LATENCY);
-TUNABLE_INT("hw.ix.max_interrupt_rate", &ixgbe_max_interrupt_rate);
 SYSCTL_INT(_hw_ix, OID_AUTO, max_interrupt_rate, CTLFLAG_RDTUN,
     &ixgbe_max_interrupt_rate, 0, "Maximum interrupts per second");
 
 /* How many packets rxeof tries to clean at a time */
 static int ixgbe_rx_process_limit = 256;
-TUNABLE_INT("hw.ix.rx_process_limit", &ixgbe_rx_process_limit);
+TUNABLE_INT("hw.ixgbe.rx_process_limit", &ixgbe_rx_process_limit);
 SYSCTL_INT(_hw_ix, OID_AUTO, rx_process_limit, CTLFLAG_RDTUN,
     &ixgbe_rx_process_limit, 0,
     "Maximum number of received packets to process at a time,"
@@ -289,21 +282,11 @@ SYSCTL_INT(_hw_ix, OID_AUTO, rx_process_limit, CTLFLAG_RDTUN,
 
 /* How many packets txeof tries to clean at a time */
 static int ixgbe_tx_process_limit = 256;
-TUNABLE_INT("hw.ix.tx_process_limit", &ixgbe_tx_process_limit);
+TUNABLE_INT("hw.ixgbe.tx_process_limit", &ixgbe_tx_process_limit);
 SYSCTL_INT(_hw_ix, OID_AUTO, tx_process_limit, CTLFLAG_RDTUN,
     &ixgbe_tx_process_limit, 0,
     "Maximum number of sent packets to process at a time,"
     "-1 means unlimited");
-
-/* Flow control setting, default to full */
-static int ixgbe_flow_control = ixgbe_fc_full;
-SYSCTL_INT(_hw_ix, OID_AUTO, flow_control, CTLFLAG_RDTUN,
-    &ixgbe_flow_control, 0, "Default flow control used for all adapters");
-
-/* Advertise Speed, default to 0 (auto) */
-static int ixgbe_advertise_speed = 0;
-SYSCTL_INT(_hw_ix, OID_AUTO, advertise_speed, CTLFLAG_RDTUN,
-    &ixgbe_advertise_speed, 0, "Default advertised speed for all adapters");
 
 /*
 ** Smart speed setting, default to on
@@ -319,7 +302,6 @@ static int ixgbe_smart_speed = ixgbe_smart_speed_on;
  * but this allows it to be forced off for testing.
  */
 static int ixgbe_enable_msix = 1;
-TUNABLE_INT("hw.ix.enable_msix", &ixgbe_enable_msix);
 SYSCTL_INT(_hw_ix, OID_AUTO, enable_msix, CTLFLAG_RDTUN, &ixgbe_enable_msix, 0,
     "Enable MSI-X interrupts");
 
@@ -330,10 +312,8 @@ SYSCTL_INT(_hw_ix, OID_AUTO, enable_msix, CTLFLAG_RDTUN, &ixgbe_enable_msix, 0,
  * can be overriden manually here.
  */
 static int ixgbe_num_queues = 0;
-TUNABLE_INT("hw.ix.num_queues", &ixgbe_num_queues);
 SYSCTL_INT(_hw_ix, OID_AUTO, num_queues, CTLFLAG_RDTUN, &ixgbe_num_queues, 0,
-    "Number of queues to configure up to a mximum of 8,"
-    "0 indicates autoconfigure");
+    "Number of queues to configure, 0 indicates autoconfigure");
 
 /*
 ** Number of TX descriptors per ring,
@@ -341,13 +321,11 @@ SYSCTL_INT(_hw_ix, OID_AUTO, num_queues, CTLFLAG_RDTUN, &ixgbe_num_queues, 0,
 ** the better performing choice.
 */
 static int ixgbe_txd = PERFORM_TXD;
-TUNABLE_INT("hw.ix.txd", &ixgbe_txd);
 SYSCTL_INT(_hw_ix, OID_AUTO, txd, CTLFLAG_RDTUN, &ixgbe_txd, 0,
     "Number of transmit descriptors per queue");
 
 /* Number of RX descriptors per ring */
 static int ixgbe_rxd = PERFORM_RXD;
-TUNABLE_INT("hw.ix.rxd", &ixgbe_rxd);
 SYSCTL_INT(_hw_ix, OID_AUTO, rxd, CTLFLAG_RDTUN, &ixgbe_rxd, 0,
     "Number of receive descriptors per queue");
 
@@ -469,6 +447,7 @@ ixgbe_attach(device_t dev)
 	adapter->init_locked = ixgbe_init_locked;
 	adapter->stop_locked = ixgbe_stop;
 #endif
+
 	/* Core Lock Init*/
 	IXGBE_CORE_LOCK_INIT(adapter, device_get_nameunit(dev));
 
@@ -587,23 +566,12 @@ ixgbe_attach(device_t dev)
 		break;
 	}
 
-	/* hw.ix defaults init */
-	ixgbe_set_advertise(adapter, ixgbe_advertise_speed);
-	ixgbe_set_flowcntl(adapter, ixgbe_flow_control);
-	adapter->enable_aim = ixgbe_enable_aim;
-
 	if ((adapter->msix > 1) && (ixgbe_enable_msix))
 		error = ixgbe_allocate_msix(adapter); 
 	else
 		error = ixgbe_allocate_legacy(adapter); 
 	if (error) 
 		goto err_late;
-
-	/* Enable the optics for 82599 SFP+ fiber */
-	ixgbe_enable_tx_laser(hw);
-
-	/* Enable power to the phy. */
-	ixgbe_set_phy_power(hw, TRUE);
 
 	/* Setup OS specific network interface */
 	if (ixgbe_setup_interface(dev, adapter) != 0)
@@ -624,7 +592,6 @@ ixgbe_attach(device_t dev)
 	/* Set an initial default flow control & dmac value */
 	adapter->fc = ixgbe_fc_full;
 	adapter->dmac = 0;
-	adapter->eee_enabled = 0;
 
 #ifdef PCI_IOV
 	if ((hw->mac.type != ixgbe_mac_82598EB) && (adapter->msix > 1)) {
@@ -718,7 +685,9 @@ ixgbe_detach(device_t dev)
 
 	for (int i = 0; i < adapter->num_queues; i++, que++, txr++) {
 		if (que->tq) {
+#ifndef IXGBE_LEGACY_TX
 			taskqueue_drain(que->tq, &txr->txq_task);
+#endif
 			taskqueue_drain(que->tq, &que->que_task);
 			taskqueue_free(que->tq);
 		}
@@ -976,7 +945,7 @@ ixgbe_ioctl(struct ifnet * ifp, u_long command, caddr_t data)
 		VLAN_CAPABILITIES(ifp);
 		break;
 	}
-#if __FreeBSD_version >= 1002500
+#if __FreeBSD_version >= 1100036
 	case SIOCGI2C:
 	{
 		struct ixgbe_hw *hw = &adapter->hw;
@@ -1264,16 +1233,6 @@ ixgbe_init_locked(struct adapter *adapter)
 	/* Set moderation on the Link interrupt */
 	IXGBE_WRITE_REG(hw, IXGBE_EITR(adapter->vector), IXGBE_LINK_ITR);
 
-	/* Configure Energy Efficient Ethernet for supported devices */
-	if (hw->mac.ops.setup_eee) {
-		err = hw->mac.ops.setup_eee(hw, adapter->eee_enabled);
-		if (err)
-			device_printf(dev, "Error setting up EEE: %d\n", err);
-	}
-
-	/* Enable power to the phy. */
-	ixgbe_set_phy_power(hw, TRUE);
-
 	/* Config/Enable Link */
 	ixgbe_config_link(adapter);
 
@@ -1462,10 +1421,13 @@ ixgbe_handle_que(void *context, int pending)
 		ixgbe_rxeof(que);
 		IXGBE_TX_LOCK(txr);
 		ixgbe_txeof(txr);
+#ifndef IXGBE_LEGACY_TX
 		if (!drbr_empty(ifp, txr->br))
 			ixgbe_mq_start_locked(ifp, txr);
+#else
 		if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 			ixgbe_start_locked(txr, ifp);
+#endif
 		IXGBE_TX_UNLOCK(txr);
 	}
 
@@ -1508,10 +1470,13 @@ ixgbe_legacy_irq(void *arg)
 
 	IXGBE_TX_LOCK(txr);
 	ixgbe_txeof(txr);
+#ifdef IXGBE_LEGACY_TX
 	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
 		ixgbe_start_locked(txr, ifp);
+#else
 	if (!drbr_empty(ifp, txr->br))
 		ixgbe_mq_start_locked(ifp, txr);
+#endif
 	IXGBE_TX_UNLOCK(txr);
 
 	/* Check for fan failure */
@@ -1567,15 +1532,18 @@ ixgbe_msix_que(void *arg)
 
 	IXGBE_TX_LOCK(txr);
 	ixgbe_txeof(txr);
-	if (!IFQ_DRV_IS_EMPTY(&ifp->if_snd))
+#ifdef IXGBE_LEGACY_TX
+	if (!IFQ_DRV_IS_EMPTY(ifp->if_snd))
 		ixgbe_start_locked(txr, ifp);
+#else
 	if (!drbr_empty(ifp, txr->br))
 		ixgbe_mq_start_locked(ifp, txr);
+#endif
 	IXGBE_TX_UNLOCK(txr);
 
 	/* Do AIM now? */
 
-	if (adapter->enable_aim == FALSE)
+	if (ixgbe_enable_aim == FALSE)
 		goto no_calc;
 	/*
 	** Do Adaptive Interrupt Moderation:
@@ -1970,16 +1938,10 @@ ixgbe_media_change(struct ifnet * ifp)
 
 	hw->mac.autotry_restart = TRUE;
 	hw->mac.ops.setup_link(hw, speed, TRUE);
-	if (IFM_SUBTYPE(ifm->ifm_media) == IFM_AUTO) {
-		adapter->advertise = 0;
-	} else {
-		if ((speed & IXGBE_LINK_SPEED_10GB_FULL) != 0)
-			adapter->advertise |= 1 << 2;
-		if ((speed & IXGBE_LINK_SPEED_1GB_FULL) != 0)
-			adapter->advertise |= 1 << 1;
-		if ((speed & IXGBE_LINK_SPEED_100_FULL) != 0)
-			adapter->advertise |= 1 << 0;
-	}
+	adapter->advertise =
+		((speed & IXGBE_LINK_SPEED_10GB_FULL) << 2) |
+		((speed & IXGBE_LINK_SPEED_1GB_FULL) << 1) |
+		((speed & IXGBE_LINK_SPEED_100_FULL) << 0);
 
 	return (0);
 
@@ -2387,7 +2349,9 @@ ixgbe_allocate_legacy(struct adapter *adapter)
 {
 	device_t	dev = adapter->dev;
 	struct		ix_queue *que = adapter->queues;
+#ifndef IXGBE_LEGACY_TX
 	struct tx_ring		*txr = adapter->tx_rings;
+#endif
 	int		error, rid = 0;
 
 	/* MSI RID at 1 */
@@ -2407,7 +2371,9 @@ ixgbe_allocate_legacy(struct adapter *adapter)
 	 * Try allocating a fast interrupt and the associated deferred
 	 * processing contexts.
 	 */
+#ifndef IXGBE_LEGACY_TX
 	TASK_INIT(&txr->txq_task, 0, ixgbe_deferred_mq_start, txr);
+#endif
 	TASK_INIT(&que->que_task, 0, ixgbe_handle_que, que);
 	que->tq = taskqueue_create_fast("ixgbe_que", M_NOWAIT,
             taskqueue_thread_enqueue, &que->tq);
@@ -2540,7 +2506,9 @@ ixgbe_allocate_msix(struct adapter *adapter)
 #endif /* IXGBE_DEBUG */
 
 
+#ifndef IXGBE_LEGACY_TX
 		TASK_INIT(&txr->txq_task, 0, ixgbe_deferred_mq_start, txr);
+#endif
 		TASK_INIT(&que->que_task, 0, ixgbe_handle_que, que);
 		que->tq = taskqueue_create_fast("ixgbe_que", M_NOWAIT,
 		    taskqueue_thread_enqueue, &que->tq);
@@ -2809,7 +2777,7 @@ ixgbe_setup_interface(device_t dev, struct adapter *adapter)
 		return (-1);
 	}
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
-	if_initbaudrate(ifp, IF_Gbps(10));
+	ifp->if_baudrate = IF_Gbps(10);
 	ifp->if_init = ixgbe_init;
 	ifp->if_softc = adapter;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
@@ -2823,15 +2791,15 @@ ixgbe_setup_interface(device_t dev, struct adapter *adapter)
 	ifp->if_hw_tsomaxsegcount = IXGBE_82599_SCATTER;
 	ifp->if_hw_tsomaxsegsize = 2048;
 #endif
-
+#ifndef IXGBE_LEGACY_TX
 	ifp->if_transmit = ixgbe_mq_start;
 	ifp->if_qflush = ixgbe_qflush;
-
+#else
 	ifp->if_start = ixgbe_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, adapter->num_tx_desc - 2);
 	ifp->if_snd.ifq_drv_maxlen = adapter->num_tx_desc - 2;
 	IFQ_SET_READY(&ifp->if_snd);
-
+#endif
 
 	ether_ifattach(ifp, adapter->hw.mac.addr);
 
@@ -2969,7 +2937,12 @@ ixgbe_config_link(struct adapter *adapter)
 	sfp = ixgbe_is_sfp(hw);
 
 	if (sfp) { 
-		taskqueue_enqueue(adapter->tq, &adapter->mod_task);
+		if (hw->phy.multispeed_fiber) {
+			hw->mac.ops.setup_sfp(hw);
+			ixgbe_enable_tx_laser(hw);
+			taskqueue_enqueue(adapter->tq, &adapter->msf_task);
+		} else
+			taskqueue_enqueue(adapter->tq, &adapter->mod_task);
 	} else {
 		if (hw->mac.ops.check_link)
 			err = ixgbe_check_link(hw, &adapter->link_speed,
@@ -3775,66 +3748,23 @@ ixgbe_handle_mod(void *context, int pending)
 {
 	struct adapter  *adapter = context;
 	struct ixgbe_hw *hw = &adapter->hw;
-	enum ixgbe_phy_type orig_type = hw->phy.type;
 	device_t	dev = adapter->dev;
 	u32 err;
-
-	IXGBE_CORE_LOCK(adapter);
-
-	/* Check to see if the PHY type changed */
-	if (hw->phy.ops.identify) {
-		hw->phy.type = ixgbe_phy_unknown;
-		hw->phy.ops.identify(hw);
-	}
-
-	if (hw->phy.type != orig_type) {
-		device_printf(dev, "Detected phy_type %d\n", hw->phy.type);
-
-		if (hw->phy.type == ixgbe_phy_none) {
-			hw->phy.sfp_type = ixgbe_sfp_type_unknown;
-			goto out;
-		}
-
-		/* Try to do the initialization that was skipped before */
-		if (hw->phy.ops.init)
-			hw->phy.ops.init(hw);
-		if (hw->phy.ops.reset)
-			hw->phy.ops.reset(hw);
-	}
 
 	err = hw->phy.ops.identify_sfp(hw);
 	if (err == IXGBE_ERR_SFP_NOT_SUPPORTED) {
 		device_printf(dev,
 		    "Unsupported SFP+ module type was detected.\n");
-		goto out;
+		return;
 	}
 
 	err = hw->mac.ops.setup_sfp(hw);
 	if (err == IXGBE_ERR_SFP_NOT_SUPPORTED) {
 		device_printf(dev,
 		    "Setup failure - unsupported SFP+ module type.\n");
-		goto out;
+		return;
 	}
-	if (hw->phy.multispeed_fiber)
-		taskqueue_enqueue(adapter->tq, &adapter->msf_task);
-out:
-	/* Update media type */
-	switch (hw->mac.ops.get_media_type(hw)) {
-		case ixgbe_media_type_fiber:
-			adapter->optics = IFM_10G_SR;
-			break;
-		case ixgbe_media_type_copper:
-			adapter->optics = IFM_10G_TWINAX;
-			break;
-		case ixgbe_media_type_cx4:
-			adapter->optics = IFM_10G_CX4;
-			break;
-		default:
-			adapter->optics = 0;
-			break;
-	}
-
-	IXGBE_CORE_UNLOCK(adapter);
+	taskqueue_enqueue(adapter->tq, &adapter->msf_task);
 	return;
 }
 
@@ -3850,7 +3780,6 @@ ixgbe_handle_msf(void *context, int pending)
 	u32 autoneg;
 	bool negotiate;
 
-	IXGBE_CORE_LOCK(adapter);
 	/* get_supported_phy_layer will call hw->phy.ops.identify_sfp() */
 	adapter->phy_layer = ixgbe_get_supported_physical_layer(hw);
 
@@ -3863,7 +3792,6 @@ ixgbe_handle_msf(void *context, int pending)
 	/* Adjust media types shown in ifconfig */
 	ifmedia_removeall(&adapter->media);
 	ixgbe_add_media_types(adapter);
-	IXGBE_CORE_UNLOCK(adapter);
 	return;
 }
 
@@ -3978,9 +3906,6 @@ ixgbe_setup_low_power_mode(struct adapter *adapter)
 	s32 error = 0;
 
 	mtx_assert(&adapter->core_mtx, MA_OWNED);
-
-	if (!hw->wol_enabled)
-		ixgbe_set_phy_power(hw, FALSE);
 
 	/* Limit power management flow to X550EM baseT */
 	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T
@@ -4295,7 +4220,7 @@ ixgbe_add_device_sysctls(struct adapter *adapter)
 	/* Sysctls for all devices */
 	SYSCTL_ADD_PROC(ctx, child, OID_AUTO, "fc",
 			CTLTYPE_INT | CTLFLAG_RW, adapter, 0,
-			ixgbe_sysctl_flowcntl, "I", IXGBE_SYSCTL_DESC_SET_FC);
+			ixgbe_set_flowcntl, "I", IXGBE_SYSCTL_DESC_SET_FC);
 
         SYSCTL_ADD_INT(ctx, child, OID_AUTO, "enable_aim",
 			CTLFLAG_RW,
@@ -4303,7 +4228,7 @@ ixgbe_add_device_sysctls(struct adapter *adapter)
 
 	SYSCTL_ADD_PROC(ctx, child, OID_AUTO, "advertise_speed",
 			CTLTYPE_INT | CTLFLAG_RW, adapter, 0,
-			ixgbe_sysctl_advertise, "I", IXGBE_SYSCTL_DESC_ADV_SPEED);
+			ixgbe_set_advertise, "I", IXGBE_SYSCTL_DESC_ADV_SPEED);
 
 	SYSCTL_ADD_PROC(ctx, child, OID_AUTO, "thermal_test",
 			CTLTYPE_INT | CTLFLAG_RW, adapter, 0,
@@ -4324,42 +4249,6 @@ ixgbe_add_device_sysctls(struct adapter *adapter)
 		SYSCTL_ADD_PROC(ctx, child, OID_AUTO, "dmac",
 				CTLTYPE_INT | CTLFLAG_RW, adapter, 0,
 				ixgbe_sysctl_dmac, "I", "DMA Coalesce");
-
-	/* for X552 backplane devices */
-	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_KR) {
-		struct sysctl_oid *eee_node;
-		struct sysctl_oid_list *eee_list;
-
-		eee_node = SYSCTL_ADD_NODE(ctx, child, OID_AUTO, "eee",
-					   CTLFLAG_RD, NULL,
-					   "Energy Efficient Ethernet sysctls");
-		eee_list = SYSCTL_CHILDREN(eee_node);
-
-		SYSCTL_ADD_PROC(ctx, eee_list, OID_AUTO, "enable",
-				CTLTYPE_INT | CTLFLAG_RW, adapter, 0,
-				ixgbe_sysctl_eee_enable, "I",
-				"Enable or Disable EEE");
-
-		SYSCTL_ADD_PROC(ctx, eee_list, OID_AUTO, "negotiated",
-				CTLTYPE_INT | CTLFLAG_RD, adapter, 0,
-				ixgbe_sysctl_eee_negotiated, "I",
-				"EEE negotiated on link");
-
-		SYSCTL_ADD_PROC(ctx, eee_list, OID_AUTO, "tx_lpi_status",
-				CTLTYPE_INT | CTLFLAG_RD, adapter, 0,
-				ixgbe_sysctl_eee_tx_lpi_status, "I",
-				"Whether or not TX link is in LPI state");
-
-		SYSCTL_ADD_PROC(ctx, eee_list, OID_AUTO, "rx_lpi_status",
-				CTLTYPE_INT | CTLFLAG_RD, adapter, 0,
-				ixgbe_sysctl_eee_rx_lpi_status, "I",
-				"Whether or not RX link is in LPI state");
-
-		SYSCTL_ADD_PROC(ctx, eee_list, OID_AUTO, "tx_lpi_delay",
-				CTLTYPE_INT | CTLFLAG_RD, adapter, 0,
-				ixgbe_sysctl_eee_tx_lpi_delay, "I",
-				"TX LPI entry delay in microseconds");
-	}
 
 	/* for WoL-capable devices */
 	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T) {
@@ -4668,51 +4557,41 @@ ixgbe_set_sysctl_value(struct adapter *adapter, const char *name,
 **	3 - full
 */
 static int
-ixgbe_sysctl_flowcntl(SYSCTL_HANDLER_ARGS)
+ixgbe_set_flowcntl(SYSCTL_HANDLER_ARGS)
 {
-	int error, fc;
-	struct adapter *adapter;
+	int error, last;
+	struct adapter *adapter = (struct adapter *) arg1;
 
-	adapter = (struct adapter *) arg1;
-	fc = adapter->fc;
-
-	error = sysctl_handle_int(oidp, &fc, 0, req);
+	last = adapter->fc;
+	error = sysctl_handle_int(oidp, &adapter->fc, 0, req);
 	if ((error) || (req->newptr == NULL))
 		return (error);
 
 	/* Don't bother if it's not changed */
-	if (adapter->fc == fc)
+	if (adapter->fc == last)
 		return (0);
 
-	return ixgbe_set_flowcntl(adapter, fc);
-}
-
-
-static int
-ixgbe_set_flowcntl(struct adapter *adapter, int fc)
-{
-
-	switch (fc) {
-	case ixgbe_fc_rx_pause:
-	case ixgbe_fc_tx_pause:
-	case ixgbe_fc_full:
-		adapter->hw.fc.requested_mode = adapter->fc;
-		if (adapter->num_queues > 1)
-			ixgbe_disable_rx_drop(adapter);
-		break;
-	case ixgbe_fc_none:
-		adapter->hw.fc.requested_mode = ixgbe_fc_none;
-		if (adapter->num_queues > 1)
-			ixgbe_enable_rx_drop(adapter);
-		break;
-	default:
-		return (EINVAL);
+	switch (adapter->fc) {
+		case ixgbe_fc_rx_pause:
+		case ixgbe_fc_tx_pause:
+		case ixgbe_fc_full:
+			adapter->hw.fc.requested_mode = adapter->fc;
+			if (adapter->num_queues > 1)
+				ixgbe_disable_rx_drop(adapter);
+			break;
+		case ixgbe_fc_none:
+			adapter->hw.fc.requested_mode = ixgbe_fc_none;
+			if (adapter->num_queues > 1)
+				ixgbe_enable_rx_drop(adapter);
+			break;
+		default:
+			adapter->fc = last;
+			return (EINVAL);
 	}
-	adapter->fc = fc;
 	/* Don't autoneg if forcing a value */
 	adapter->hw.fc.disable_fc_autoneg = TRUE;
 	ixgbe_fc_enable(&adapter->hw);
-	return (0);
+	return error;
 }
 
 /*
@@ -4723,38 +4602,30 @@ ixgbe_set_flowcntl(struct adapter *adapter, int fc)
 **	0x4 - advertise 10G
 */
 static int
-ixgbe_sysctl_advertise(SYSCTL_HANDLER_ARGS)
+ixgbe_set_advertise(SYSCTL_HANDLER_ARGS)
 {
-	int error, advertise;
-	struct adapter *adapter;
-
-	adapter = (struct adapter *) arg1;
-	advertise = adapter->advertise;
-
-	error = sysctl_handle_int(oidp, &advertise, 0, req);
-	if ((error) || (req->newptr == NULL))
-		return (error);
-
-	/* Checks to validate new value */
-	if (adapter->advertise == advertise) /* no change */
-		return (0);
-
-	return ixgbe_set_advertise(adapter, advertise);
-}
-
-static int
-ixgbe_set_advertise(struct adapter *adapter, int advertise)
-{
+	int			error = 0, requested;
+	struct adapter		*adapter;
 	device_t		dev;
 	struct ixgbe_hw		*hw;
-	ixgbe_link_speed	speed;
+	ixgbe_link_speed	speed = 0;
 
-	hw = &adapter->hw;
+	adapter = (struct adapter *) arg1;
 	dev = adapter->dev;
+	hw = &adapter->hw;
+
+	requested = adapter->advertise;
+	error = sysctl_handle_int(oidp, &requested, 0, req);
+	if ((error) || (req->newptr == NULL))
+		return (error);
 
 	/* No speed changes for backplane media */
 	if (hw->phy.media_type == ixgbe_media_type_backplane)
 		return (ENODEV);
+
+	/* Checks to validate new value */
+	if (adapter->advertise == requested) /* no change */
+		return (0);
 
 	if (!((hw->phy.media_type == ixgbe_media_type_copper) ||
 	    (hw->phy.multispeed_fiber))) {
@@ -4764,13 +4635,13 @@ ixgbe_set_advertise(struct adapter *adapter, int advertise)
 		return (EINVAL);
 	}
 
-	if (advertise < 0x1 || advertise > 0x7) {
+	if (requested < 0x1 || requested > 0x7) {
 		device_printf(dev,
 		    "Invalid advertised speed; valid modes are 0x1 through 0x7\n");
 		return (EINVAL);
 	}
 
-	if ((advertise & 0x1)
+	if ((requested & 0x1)
 	    && (hw->mac.type != ixgbe_mac_X540)
 	    && (hw->mac.type != ixgbe_mac_X550)) {
 		device_printf(dev, "Set Advertise: 100Mb on X540/X550 only\n");
@@ -4778,19 +4649,18 @@ ixgbe_set_advertise(struct adapter *adapter, int advertise)
 	}
 
 	/* Set new value and report new advertised mode */
-	speed = 0;
-	if (advertise & 0x1)
+	if (requested & 0x1)
 		speed |= IXGBE_LINK_SPEED_100_FULL;
-	if (advertise & 0x2)
+	if (requested & 0x2)
 		speed |= IXGBE_LINK_SPEED_1GB_FULL;
-	if (advertise & 0x4)
+	if (requested & 0x4)
 		speed |= IXGBE_LINK_SPEED_10GB_FULL;
-	adapter->advertise = advertise;
 
 	hw->mac.autotry_restart = TRUE;
 	hw->mac.ops.setup_link(hw, speed, TRUE);
+	adapter->advertise = requested;
 
-	return (0);
+	return (error);
 }
 
 /*
@@ -4998,104 +4868,6 @@ ixgbe_sysctl_wol_enable(SYSCTL_HANDLER_ARGS)
 		hw->wol_enabled = new_wol_enabled;
 
 	return (0);
-}
-
-/*
- * Sysctl to enable/disable the Energy Efficient Ethernet capability,
- * if supported by the adapter.
- * Values:
- *	0 - disabled
- *	1 - enabled
- */
-static int
-ixgbe_sysctl_eee_enable(SYSCTL_HANDLER_ARGS)
-{
-	struct adapter *adapter = (struct adapter *) arg1;
-	struct ixgbe_hw *hw = &adapter->hw;
-	struct ifnet *ifp = adapter->ifp;
-	int new_eee_enabled, error = 0;
-
-	new_eee_enabled = adapter->eee_enabled;
-	error = sysctl_handle_int(oidp, &new_eee_enabled, 0, req);
-	if ((error) || (req->newptr == NULL))
-		return (error);
-	new_eee_enabled = !!(new_eee_enabled);
-	if (new_eee_enabled == adapter->eee_enabled)
-		return (0);
-
-	if (new_eee_enabled > 0 && !hw->mac.ops.setup_eee)
-		return (ENODEV);
-	else
-		adapter->eee_enabled = new_eee_enabled;
-
-	/* Re-initialize hardware if it's already running */
-	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
-		ixgbe_init(adapter);
-
-	return (0);
-}
-
-/*
- * Read-only sysctl indicating whether EEE support was negotiated
- * on the link.
- */
-static int
-ixgbe_sysctl_eee_negotiated(SYSCTL_HANDLER_ARGS)
-{
-	struct adapter *adapter = (struct adapter *) arg1;
-	struct ixgbe_hw *hw = &adapter->hw;
-	bool status;
-
-	status = !!(IXGBE_READ_REG(hw, IXGBE_EEE_STAT) & IXGBE_EEE_STAT_NEG);
-
-	return (sysctl_handle_int(oidp, 0, status, req));
-}
-
-/*
- * Read-only sysctl indicating whether RX Link is in LPI state.
- */
-static int
-ixgbe_sysctl_eee_rx_lpi_status(SYSCTL_HANDLER_ARGS)
-{
-	struct adapter *adapter = (struct adapter *) arg1;
-	struct ixgbe_hw *hw = &adapter->hw;
-	bool status;
-
-	status = !!(IXGBE_READ_REG(hw, IXGBE_EEE_STAT) &
-	    IXGBE_EEE_RX_LPI_STATUS);
-
-	return (sysctl_handle_int(oidp, 0, status, req));
-}
-
-/*
- * Read-only sysctl indicating whether TX Link is in LPI state.
- */
-static int
-ixgbe_sysctl_eee_tx_lpi_status(SYSCTL_HANDLER_ARGS)
-{
-	struct adapter *adapter = (struct adapter *) arg1;
-	struct ixgbe_hw *hw = &adapter->hw;
-	bool status;
-
-	status = !!(IXGBE_READ_REG(hw, IXGBE_EEE_STAT) &
-	    IXGBE_EEE_TX_LPI_STATUS);
-
-	return (sysctl_handle_int(oidp, 0, status, req));
-}
-
-/*
- * Read-only sysctl indicating TX Link LPI delay
- */
-static int
-ixgbe_sysctl_eee_tx_lpi_delay(SYSCTL_HANDLER_ARGS)
-{
-	struct adapter *adapter = (struct adapter *) arg1;
-	struct ixgbe_hw *hw = &adapter->hw;
-	u32 reg;
-
-	reg = IXGBE_READ_REG(hw, IXGBE_EEE_SU);
-
-	return (sysctl_handle_int(oidp, 0, reg >> 26, req));
 }
 
 /*

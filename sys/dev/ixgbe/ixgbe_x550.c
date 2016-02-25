@@ -81,9 +81,13 @@ s32 ixgbe_init_ops_X550(struct ixgbe_hw *hw)
 	mac->ops.mdd_event = ixgbe_mdd_event_X550;
 	mac->ops.restore_mdd_vf = ixgbe_restore_mdd_vf_X550;
 	mac->ops.disable_rx = ixgbe_disable_rx_x550;
-	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T) {
+	switch (hw->device_id) {
+	case IXGBE_DEV_ID_X550EM_X_10G_T:
 		hw->mac.ops.led_on = ixgbe_led_on_t_X550em;
 		hw->mac.ops.led_off = ixgbe_led_off_t_X550em;
+		break;
+	default:
+		break;
 	}
 	return ret_val;
 }
@@ -336,7 +340,6 @@ static s32 ixgbe_identify_phy_x550em(struct ixgbe_hw *hw)
 		hw->phy.phy_semaphore_mask = IXGBE_GSSR_SHARED_I2C_SM;
 		ixgbe_setup_mux_ctl(hw);
 		ixgbe_check_cs4227(hw);
-
 		return ixgbe_identify_module_generic(hw);
 		break;
 	case IXGBE_DEV_ID_X550EM_X_KX4:
@@ -414,6 +417,8 @@ s32 ixgbe_init_ops_X550EM(struct ixgbe_hw *hw)
 	if (hw->mac.type == ixgbe_mac_X550EM_x) {
 		mac->ops.read_iosf_sb_reg = ixgbe_read_iosf_sb_reg_x550;
 		mac->ops.write_iosf_sb_reg = ixgbe_write_iosf_sb_reg_x550;
+		mac->ops.acquire_swfw_sync = ixgbe_acquire_swfw_sync_X550em;
+		mac->ops.release_swfw_sync = ixgbe_release_swfw_sync_X550em;
 	}
 
 	mac->ops.get_media_type = ixgbe_get_media_type_X550em;
@@ -428,8 +433,6 @@ s32 ixgbe_init_ops_X550EM(struct ixgbe_hw *hw)
 	else
 		mac->ops.setup_fc = ixgbe_setup_fc_X550em;
 
-	mac->ops.acquire_swfw_sync = ixgbe_acquire_swfw_sync_X550em;
-	mac->ops.release_swfw_sync = ixgbe_release_swfw_sync_X550em;
 
 	if (hw->device_id != IXGBE_DEV_ID_X550EM_X_KR)
 		mac->ops.setup_eee = NULL;
@@ -632,7 +635,6 @@ s32 ixgbe_setup_eee_X550(struct ixgbe_hw *hw, bool enable_eee)
 	u16 autoneg_eee_reg;
 	u32 link_reg;
 	s32 status;
-	u32 fuse;
 
 	DEBUGFUNC("ixgbe_setup_eee_X550");
 
@@ -653,9 +655,10 @@ s32 ixgbe_setup_eee_X550(struct ixgbe_hw *hw, bool enable_eee)
 			hw->phy.ops.write_reg(hw, IXGBE_MDIO_AUTO_NEG_EEE_ADVT,
 				IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_eee_reg);
 		} else if (hw->device_id == IXGBE_DEV_ID_X550EM_X_KR) {
-			/* Not supported on first revision. */
-			fuse = IXGBE_READ_REG(hw, IXGBE_FUSES0_GROUP(0));
-			if (!(fuse & IXGBE_FUSES0_REV1))
+			/* Not supported on first revision of X550EM_x. */
+			if ((hw->mac.type == ixgbe_mac_X550EM_x) &&
+			    !(IXGBE_FUSES0_REV_MASK &
+			      IXGBE_READ_REG(hw, IXGBE_FUSES0_GROUP(0))))
 				return IXGBE_SUCCESS;
 
 			status = ixgbe_read_iosf_sb_reg_x550(hw,
@@ -965,7 +968,7 @@ void ixgbe_restore_mdd_vf_X550(struct ixgbe_hw *hw, u32 vf)
 		num_qs = 4;  /* 32 VFs / pools */
 		bitmask = 0x0000000F;
 		break;
-	default:	    /* 64 VFs / pools */
+	default:            /* 64 VFs / pools */
 		num_qs = 2;
 		bitmask = 0x00000003;
 		break;
@@ -1349,7 +1352,7 @@ static s32 ixgbe_enable_lasi_ext_t_x550em(struct ixgbe_hw *hw)
 	if (status != IXGBE_SUCCESS)
 		return status;
 
-	/* Enables high temperature failure alarm */
+	/* Enable high temperature failure and global fault alarms */
 	status = hw->phy.ops.read_reg(hw, IXGBE_MDIO_GLOBAL_INT_MASK,
 				      IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
 				      &reg);
@@ -1357,7 +1360,8 @@ static s32 ixgbe_enable_lasi_ext_t_x550em(struct ixgbe_hw *hw)
 	if (status != IXGBE_SUCCESS)
 		return status;
 
-	reg |= IXGBE_MDIO_GLOBAL_INT_HI_TEMP_EN;
+	reg |= (IXGBE_MDIO_GLOBAL_INT_HI_TEMP_EN |
+		IXGBE_MDIO_GLOBAL_INT_DEV_FAULT_EN);
 
 	status = hw->phy.ops.write_reg(hw, IXGBE_MDIO_GLOBAL_INT_MASK,
 				       IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
@@ -1452,7 +1456,6 @@ static s32 ixgbe_setup_kr_speed_x550em(struct ixgbe_hw *hw,
 s32 ixgbe_init_phy_ops_X550em(struct ixgbe_hw *hw)
 {
 	struct ixgbe_phy_info *phy = &hw->phy;
-	ixgbe_link_speed speed;
 	s32 ret_val;
 
 	DEBUGFUNC("ixgbe_init_phy_ops_X550em");
@@ -1467,10 +1470,6 @@ s32 ixgbe_init_phy_ops_X550em(struct ixgbe_hw *hw)
 		 * to determine internal PHY mode.
 		 */
 		phy->nw_mng_if_sel = IXGBE_READ_REG(hw, IXGBE_NW_MNG_IF_SEL);
-		if (phy->nw_mng_if_sel & IXGBE_NW_MNG_IF_SEL_INT_PHY_MODE) {
-			speed = IXGBE_LINK_SPEED_10GB_FULL |
-				IXGBE_LINK_SPEED_1GB_FULL;
-		}
 		phy->ops.identify_sfp = ixgbe_identify_sfp_module_X550em;
 	}
 
@@ -1505,18 +1504,13 @@ s32 ixgbe_init_phy_ops_X550em(struct ixgbe_hw *hw)
 		/* If internal link mode is XFI, then setup iXFI internal link,
 		 * else setup KR now.
 		 */
-		if (!(phy->nw_mng_if_sel & IXGBE_NW_MNG_IF_SEL_INT_PHY_MODE)) {
-			phy->ops.setup_internal_link =
+		phy->ops.setup_internal_link =
 					      ixgbe_setup_internal_phy_t_x550em;
-		} else {
-			speed = IXGBE_LINK_SPEED_10GB_FULL |
-				IXGBE_LINK_SPEED_1GB_FULL;
-			ret_val = ixgbe_setup_kr_speed_x550em(hw, speed);
-		}
 
-		/* setup SW LPLU only for first revision */
-		if (!(IXGBE_FUSES0_REV1 & IXGBE_READ_REG(hw,
-						       IXGBE_FUSES0_GROUP(0))))
+		/* setup SW LPLU only for first revision of X550EM_x */
+		if ((hw->mac.type == ixgbe_mac_X550EM_x) &&
+		    !(IXGBE_FUSES0_REV_MASK &
+		      IXGBE_READ_REG(hw, IXGBE_FUSES0_GROUP(0))))
 			phy->ops.enter_lplu = ixgbe_enter_lplu_t_x550em;
 
 		phy->ops.handle_lasi = ixgbe_handle_lasi_ext_t_x550em;
@@ -1555,11 +1549,15 @@ s32 ixgbe_reset_hw_X550em(struct ixgbe_hw *hw)
 	/* flush pending Tx transactions */
 	ixgbe_clear_tx_pending(hw);
 
-	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T) {
+	switch (hw->device_id) {
+	case IXGBE_DEV_ID_X550EM_X_10G_T:
 		/* Config MDIO clock speed before the first MDIO PHY access */
 		hlreg0 = IXGBE_READ_REG(hw, IXGBE_HLREG0);
 		hlreg0 &= ~IXGBE_HLREG0_MDCSPD;
 		IXGBE_WRITE_REG(hw, IXGBE_HLREG0, hlreg0);
+		break;
+	default:
+		break;
 	}
 
 	/* PHY ops must be identified and initialized prior to reset */
@@ -1638,6 +1636,13 @@ mac_reset_top:
 	 */
 	hw->mac.num_rar_entries = 128;
 	hw->mac.ops.init_rx_addrs(hw);
+
+	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T) {
+		/* Reconfig MDIO clock speed after PHY reset */
+		hlreg0 = IXGBE_READ_REG(hw, IXGBE_HLREG0);
+		hlreg0 &= ~IXGBE_HLREG0_MDCSPD;
+		IXGBE_WRITE_REG(hw, IXGBE_HLREG0, hlreg0);
+	}
 
 	if (hw->device_id == IXGBE_DEV_ID_X550EM_X_SFP)
 		ixgbe_setup_mux_ctl(hw);
@@ -1778,46 +1783,15 @@ s32 ixgbe_setup_mac_link_sfp_x550em(struct ixgbe_hw *hw,
 }
 
 /**
- *  ixgbe_setup_ixfi_x550em - Configure the KR PHY for iXFI mode.
+ *  ixgbe_setup_ixfi_x550em_x - MAC specific iXFI configuration
  *  @hw: pointer to hardware structure
- *  @speed: the link speed to force
  *
- *  Configures the integrated KR PHY to use iXFI mode. Used to connect an
- *  internal and external PHY at a specific speed, without autonegotiation.
+ *  iXfI configuration needed for ixgbe_mac_X550EM_x devices.
  **/
-static s32 ixgbe_setup_ixfi_x550em(struct ixgbe_hw *hw, ixgbe_link_speed *speed)
+static s32 ixgbe_setup_ixfi_x550em_x(struct ixgbe_hw *hw)
 {
 	s32 status;
 	u32 reg_val;
-
-	/* Disable AN and force speed to 10G Serial. */
-	status = ixgbe_read_iosf_sb_reg_x550(hw,
-					IXGBE_KRM_LINK_CTRL_1(hw->bus.lan_id),
-					IXGBE_SB_IOSF_TARGET_KR_PHY, &reg_val);
-	if (status != IXGBE_SUCCESS)
-		return status;
-
-	reg_val &= ~IXGBE_KRM_LINK_CTRL_1_TETH_AN_ENABLE;
-	reg_val &= ~IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_MASK;
-
-	/* Select forced link speed for internal PHY. */
-	switch (*speed) {
-	case IXGBE_LINK_SPEED_10GB_FULL:
-		reg_val |= IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_10G;
-		break;
-	case IXGBE_LINK_SPEED_1GB_FULL:
-		reg_val |= IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_1G;
-		break;
-	default:
-		/* Other link speeds are not supported by internal KR PHY. */
-		return IXGBE_ERR_LINK_SETUP;
-	}
-
-	status = ixgbe_write_iosf_sb_reg_x550(hw,
-					IXGBE_KRM_LINK_CTRL_1(hw->bus.lan_id),
-					IXGBE_SB_IOSF_TARGET_KR_PHY, reg_val);
-	if (status != IXGBE_SUCCESS)
-		return status;
 
 	/* Disable training protocol FSM. */
 	status = ixgbe_read_iosf_sb_reg_x550(hw,
@@ -1873,8 +1847,57 @@ static s32 ixgbe_setup_ixfi_x550em(struct ixgbe_hw *hw, ixgbe_link_speed *speed)
 	status = ixgbe_write_iosf_sb_reg_x550(hw,
 				IXGBE_KRM_TX_COEFF_CTRL_1(hw->bus.lan_id),
 				IXGBE_SB_IOSF_TARGET_KR_PHY, reg_val);
+	return status;
+}
+
+/**
+ *  ixgbe_setup_ixfi_x550em - Configure the KR PHY for iXFI mode.
+ *  @hw: pointer to hardware structure
+ *  @speed: the link speed to force
+ *
+ *  Configures the integrated KR PHY to use iXFI mode. Used to connect an
+ *  internal and external PHY at a specific speed, without autonegotiation.
+ **/
+static s32 ixgbe_setup_ixfi_x550em(struct ixgbe_hw *hw, ixgbe_link_speed *speed)
+{
+	s32 status;
+	u32 reg_val;
+
+	/* Disable AN and force speed to 10G Serial. */
+	status = ixgbe_read_iosf_sb_reg_x550(hw,
+					IXGBE_KRM_LINK_CTRL_1(hw->bus.lan_id),
+					IXGBE_SB_IOSF_TARGET_KR_PHY, &reg_val);
 	if (status != IXGBE_SUCCESS)
 		return status;
+
+	reg_val &= ~IXGBE_KRM_LINK_CTRL_1_TETH_AN_ENABLE;
+	reg_val &= ~IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_MASK;
+
+	/* Select forced link speed for internal PHY. */
+	switch (*speed) {
+	case IXGBE_LINK_SPEED_10GB_FULL:
+		reg_val |= IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_10G;
+		break;
+	case IXGBE_LINK_SPEED_1GB_FULL:
+		reg_val |= IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_1G;
+		break;
+	default:
+		/* Other link speeds are not supported by internal KR PHY. */
+		return IXGBE_ERR_LINK_SETUP;
+	}
+
+	status = ixgbe_write_iosf_sb_reg_x550(hw,
+					IXGBE_KRM_LINK_CTRL_1(hw->bus.lan_id),
+					IXGBE_SB_IOSF_TARGET_KR_PHY, reg_val);
+	if (status != IXGBE_SUCCESS)
+		return status;
+
+	/* Additional configuration needed for x550em_x */
+	if (hw->mac.type == ixgbe_mac_X550EM_x) {
+		status = ixgbe_setup_ixfi_x550em_x(hw);
+		if (status != IXGBE_SUCCESS)
+			return status;
+	}
 
 	/* Toggle port SW reset by AN reset. */
 	status = ixgbe_read_iosf_sb_reg_x550(hw,
@@ -1944,43 +1967,50 @@ s32 ixgbe_setup_internal_phy_t_x550em(struct ixgbe_hw *hw)
 	if (hw->mac.ops.get_media_type(hw) != ixgbe_media_type_copper)
 		return IXGBE_ERR_CONFIG;
 
-	/* If link is not up, then there is no setup necessary so return  */
-	status = ixgbe_ext_phy_t_x550em_get_link(hw, &link_up);
-	if (status != IXGBE_SUCCESS)
-		return status;
+	if (!(hw->phy.nw_mng_if_sel & IXGBE_NW_MNG_IF_SEL_INT_PHY_MODE)) {
+		/* If link is down, there is no setup necessary so return  */
+		status = ixgbe_ext_phy_t_x550em_get_link(hw, &link_up);
+		if (status != IXGBE_SUCCESS)
+			return status;
 
-	if (!link_up)
-		return IXGBE_SUCCESS;
+		if (!link_up)
+			return IXGBE_SUCCESS;
 
-	status = hw->phy.ops.read_reg(hw, IXGBE_MDIO_AUTO_NEG_VENDOR_STAT,
-				      IXGBE_MDIO_AUTO_NEG_DEV_TYPE,
-				      &speed);
-	if (status != IXGBE_SUCCESS)
-		return status;
+		status = hw->phy.ops.read_reg(hw,
+					      IXGBE_MDIO_AUTO_NEG_VENDOR_STAT,
+					      IXGBE_MDIO_AUTO_NEG_DEV_TYPE,
+					      &speed);
+		if (status != IXGBE_SUCCESS)
+			return status;
 
-	/* If link is not still up, then no setup is necessary so return */
-	status = ixgbe_ext_phy_t_x550em_get_link(hw, &link_up);
-	if (status != IXGBE_SUCCESS)
-		return status;
-	if (!link_up)
-		return IXGBE_SUCCESS;
+		/* If link is still down - no setup is required so return */
+		status = ixgbe_ext_phy_t_x550em_get_link(hw, &link_up);
+		if (status != IXGBE_SUCCESS)
+			return status;
+		if (!link_up)
+			return IXGBE_SUCCESS;
 
-	/* clear everything but the speed and duplex bits */
-	speed &= IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_MASK;
+		/* clear everything but the speed and duplex bits */
+		speed &= IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_MASK;
 
-	switch (speed) {
-	case IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_10GB_FULL:
-		force_speed = IXGBE_LINK_SPEED_10GB_FULL;
-		break;
-	case IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_1GB_FULL:
-		force_speed = IXGBE_LINK_SPEED_1GB_FULL;
-		break;
-	default:
-		/* Internal PHY does not support anything else */
-		return IXGBE_ERR_INVALID_LINK_SETTINGS;
+		switch (speed) {
+		case IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_10GB_FULL:
+			force_speed = IXGBE_LINK_SPEED_10GB_FULL;
+			break;
+		case IXGBE_MDIO_AUTO_NEG_VENDOR_STATUS_1GB_FULL:
+			force_speed = IXGBE_LINK_SPEED_1GB_FULL;
+			break;
+		default:
+			/* Internal PHY does not support anything else */
+			return IXGBE_ERR_INVALID_LINK_SETTINGS;
+		}
+
+		return ixgbe_setup_ixfi_x550em(hw, &force_speed);
+	} else {
+		speed = IXGBE_LINK_SPEED_10GB_FULL |
+			IXGBE_LINK_SPEED_1GB_FULL;
+		return ixgbe_setup_kr_speed_x550em(hw, speed);
 	}
-
-	return ixgbe_setup_ixfi_x550em(hw, &force_speed);
 }
 
 /**
@@ -2695,7 +2725,9 @@ s32 ixgbe_enter_lplu_t_x550em(struct ixgbe_hw *hw)
 	bool link_up;
 
 	/* SW LPLU not required on later HW revisions. */
-	if (IXGBE_FUSES0_REV1 & IXGBE_READ_REG(hw, IXGBE_FUSES0_GROUP(0)))
+	if ((hw->mac.type == ixgbe_mac_X550EM_x) &&
+	    (IXGBE_FUSES0_REV_MASK &
+	     IXGBE_READ_REG(hw, IXGBE_FUSES0_GROUP(0))))
 		return IXGBE_SUCCESS;
 
 	/* If blocked by MNG FW, then don't restart AN */
@@ -2963,6 +2995,7 @@ void ixgbe_release_swfw_sync_X550em(struct ixgbe_hw *hw, u32 mask)
 	ixgbe_release_swfw_sync_X540(hw, mask);
 }
 
+
 /**
  * ixgbe_handle_lasi_ext_t_x550em - Handle external Base T PHY interrupt
  * @hw: pointer to hardware structure
@@ -3142,4 +3175,3 @@ s32 ixgbe_led_off_t_X550em(struct ixgbe_hw *hw, u32 led_idx)
 
 	return IXGBE_SUCCESS;
 }
-

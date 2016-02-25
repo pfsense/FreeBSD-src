@@ -1481,7 +1481,7 @@ struct ixgbe_dmac_config {
 #define IXGBE_MDIO_GLOBAL_ALARM_1		0xCC00 /* Global alarm 1 */
 #define IXGBE_MDIO_GLOBAL_ALM_1_DEV_FAULT	0x0010 /* device fault */
 #define IXGBE_MDIO_GLOBAL_ALM_1_HI_TMP_FAIL	0x4000 /* high temp failure */
-#define IXGBE_MDIO_GLOBAL_FAULT_MSG		0xC850 /* Global Fault Message */
+#define IXGBE_MDIO_GLOBAL_FAULT_MSG	0xC850 /* Global Fault Message */
 #define IXGBE_MDIO_GLOBAL_FAULT_MSG_HI_TMP	0x8007 /* high temp failure */
 #define IXGBE_MDIO_GLOBAL_INT_MASK		0xD400 /* Global int mask */
 #define IXGBE_MDIO_GLOBAL_AN_VEN_ALM_INT_EN	0x1000 /* autoneg vendor alarm int enable */
@@ -1489,6 +1489,7 @@ struct ixgbe_dmac_config {
 #define IXGBE_MDIO_GLOBAL_VEN_ALM_INT_EN	0x1 /* vendor alarm int enable */
 #define IXGBE_MDIO_GLOBAL_STD_ALM2_INT		0x200 /* vendor alarm2 int mask */
 #define IXGBE_MDIO_GLOBAL_INT_HI_TEMP_EN	0x4000 /* int high temp enable */
+#define IXGBE_MDIO_GLOBAL_INT_DEV_FAULT_EN 0x0010 /* int dev fault enable */
 #define IXGBE_MDIO_PMA_PMD_CONTROL_ADDR	0x0000 /* PMA/PMD Control Reg */
 #define IXGBE_MDIO_PMA_PMD_SDA_SCL_ADDR	0xC30A /* PHY_XS SDA/SCL Addr Reg */
 #define IXGBE_MDIO_PMA_PMD_SDA_SCL_DATA	0xC30B /* PHY_XS SDA/SCL Data Reg */
@@ -2917,6 +2918,15 @@ enum ixgbe_fdir_pballoc_type {
 #define FW_DISABLE_RXEN_CMD		0xDE
 #define FW_DISABLE_RXEN_LEN		0x1
 #define FW_PHY_MGMT_REQ_CMD		0x20
+#define FW_PHY_TOKEN_REQ_CMD		0xA
+#define FW_PHY_TOKEN_REQ_LEN		2
+#define FW_PHY_TOKEN_REQ		0
+#define FW_PHY_TOKEN_REL		1
+#define FW_PHY_TOKEN_OK			1
+#define FW_PHY_TOKEN_RETRY		0x80
+#define FW_PHY_TOKEN_DELAY		5	/* milliseconds */
+#define FW_PHY_TOKEN_WAIT		5	/* seconds */
+#define FW_PHY_TOKEN_RETRIES ((FW_PHY_TOKEN_WAIT * 1000) / FW_PHY_TOKEN_DELAY)
 #define FW_INT_PHY_REQ_CMD		0xB
 #define FW_INT_PHY_REQ_LEN		10
 #define FW_INT_PHY_REQ_READ		0
@@ -2988,6 +2998,13 @@ struct ixgbe_hic_disable_rxen {
 	u8  port_number;
 	u8  pad2;
 	u16 pad3;
+};
+
+struct ixgbe_hic_phy_token_req {
+	struct ixgbe_hic_hdr hdr;
+	u8 port_number;
+	u8 command_type;
+	u16 pad;
 };
 
 struct ixgbe_hic_internal_phy_req {
@@ -3130,6 +3147,7 @@ struct ixgbe_adv_tx_context_desc {
 #define IXGBE_ADVTXD_TUCMD_L4T_UDP	0x00000000 /* L4 Packet TYPE of UDP */
 #define IXGBE_ADVTXD_TUCMD_L4T_TCP	0x00000800 /* L4 Packet TYPE of TCP */
 #define IXGBE_ADVTXD_TUCMD_L4T_SCTP	0x00001000 /* L4 Packet TYPE of SCTP */
+#define IXGBE_ADVTXD_TUCMD_L4T_RSV	0x00001800 /* RSV L4 Packet TYPE */
 #define IXGBE_ADVTXD_TUCMD_MKRREQ	0x00002000 /* req Markers and CRC */
 #define IXGBE_ADVTXD_POPTS_IPSEC	0x00000400 /* IPSec offload request */
 #define IXGBE_ADVTXD_TUCMD_IPSEC_TYPE_ESP 0x00002000 /* IPSec Type ESP */
@@ -3943,13 +3961,15 @@ struct ixgbe_hw {
 #define IXGBE_ERR_FEATURE_NOT_SUPPORTED		-36
 #define IXGBE_ERR_EEPROM_PROTECTED_REGION	-37
 #define IXGBE_ERR_FDIR_CMD_INCOMPLETE		-38
+#define IXGBE_ERR_FW_RESP_INVALID		-39
+#define IXGBE_ERR_TOKEN_RETRY			-40
 
 #define IXGBE_NOT_IMPLEMENTED			0x7FFFFFFF
 
 
 #define IXGBE_FUSES0_GROUP(_i)		(0x11158 + ((_i) * 4))
 #define IXGBE_FUSES0_300MHZ		(1 << 5)
-#define IXGBE_FUSES0_REV1		(1 << 6)
+#define IXGBE_FUSES0_REV_MASK		(3 << 6)
 
 #define IXGBE_KRM_PORT_CAR_GEN_CTRL(P)	((P) ? 0x8010 : 0x4010)
 #define IXGBE_KRM_LINK_CTRL_1(P)	((P) ? 0x820C : 0x420C)

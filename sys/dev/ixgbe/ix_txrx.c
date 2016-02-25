@@ -36,6 +36,7 @@
 #ifndef IXGBE_STANDALONE_BUILD
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#include "opt_rss.h"
 #endif
 
 #include "ixgbe.h"
@@ -102,6 +103,7 @@ static __inline void ixgbe_rx_discard(struct rx_ring *, int);
 static __inline void ixgbe_rx_input(struct rx_ring *, struct ifnet *,
 		    struct mbuf *, u32);
 
+#ifdef IXGBE_LEGACY_TX
 /*********************************************************************
  *  Transmit entry point
  *
@@ -163,6 +165,7 @@ ixgbe_start(struct ifnet *ifp)
 	return;
 }
 
+#else /* ! IXGBE_LEGACY_TX */
 
 /*
 ** Multiqueue Transmit Entry Point
@@ -314,6 +317,7 @@ ixgbe_qflush(struct ifnet *ifp)
 	}
 	if_qflush(ifp);
 }
+#endif /* IXGBE_LEGACY_TX */
 
 
 /*********************************************************************
@@ -694,8 +698,10 @@ ixgbe_free_transmit_buffers(struct tx_ring *txr)
 			tx_buffer->map = NULL;
 		}
 	}
+#ifdef IXGBE_LEGACY_TX
 	if (txr->br != NULL)
 		buf_ring_free(txr->br, M_DEVBUF);
+#endif
 	if (txr->tx_buffers != NULL) {
 		free(txr->tx_buffers, M_DEVBUF);
 		txr->tx_buffers = NULL;
@@ -742,6 +748,7 @@ ixgbe_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 
 	if ((mp->m_pkthdr.csum_flags & CSUM_OFFLOAD) == 0)
 		offload = FALSE;
+
 
 	/* Indicate the whole packet as payload when not doing TSO */
        	*olinfo_status |= mp->m_pkthdr.len << IXGBE_ADVTXD_PAYLEN_SHIFT;
@@ -791,7 +798,6 @@ ixgbe_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 		l3d = mtod(mp, caddr_t) + ehdrlen;
 
 	switch (etype) {
-#ifdef INET
 		case ETHERTYPE_IP:
 			ip = (struct ip *)(l3d);
 			ip_hlen = ip->ip_hl << 2;
@@ -803,15 +809,12 @@ ixgbe_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 				*olinfo_status |= IXGBE_TXD_POPTS_IXSM << 8;
 			}
 			break;
-#endif
-#ifdef INET6
 		case ETHERTYPE_IPV6:
 			ip6 = (struct ip6_hdr *)(l3d);
 			ip_hlen = sizeof(struct ip6_hdr);
 			ipproto = ip6->ip6_nxt;
 			type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_IPV6;
 			break;
-#endif
 		default:
 			offload = FALSE;
 			break;
@@ -1918,12 +1921,49 @@ ixgbe_rxeof(struct ix_queue *que)
                         if (adapter->num_queues > 1) {
                                 sendmp->m_pkthdr.flowid =
                                     le32toh(cur->wb.lower.hi_dword.rss);
-				/*
-				 * Full RSS support is not avilable in
-				 * FreeBSD 10 so setting the hash type to
-				 * OPAQUE.
-				 */
-				M_HASHTYPE_SET(sendmp, M_HASHTYPE_OPAQUE);
+                                switch (pkt_info & IXGBE_RXDADV_RSSTYPE_MASK) {  
+                                    case IXGBE_RXDADV_RSSTYPE_IPV4:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_IPV4);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV4_TCP:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_TCP_IPV4);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_IPV6);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6_TCP:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_TCP_IPV6);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6_EX:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_IPV6_EX);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6_TCP_EX:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_TCP_IPV6_EX);
+                                        break;
+#if __FreeBSD_version > 1100000
+                                    case IXGBE_RXDADV_RSSTYPE_IPV4_UDP:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_UDP_IPV4);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6_UDP:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_UDP_IPV6);
+                                        break;
+                                    case IXGBE_RXDADV_RSSTYPE_IPV6_UDP_EX:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_RSS_UDP_IPV6_EX);
+                                        break;
+#endif
+                                    default:
+                                        M_HASHTYPE_SET(sendmp,
+                                            M_HASHTYPE_OPAQUE);
+                                }
                         } else {
                                 sendmp->m_pkthdr.flowid = que->msix;
 				M_HASHTYPE_SET(sendmp, M_HASHTYPE_OPAQUE);
@@ -2182,6 +2222,7 @@ ixgbe_allocate_queues(struct adapter *adapter)
 			error = ENOMEM;
 			goto err_tx_desc;
         	}
+#ifndef IXGBE_LEGACY_TX
 		/* Allocate a buf ring */
 		txr->br = buf_ring_alloc(IXGBE_BR_SIZE, M_DEVBUF,
 		    M_WAITOK, &txr->tx_mtx);
@@ -2191,6 +2232,7 @@ ixgbe_allocate_queues(struct adapter *adapter)
 			error = ENOMEM;
 			goto err_tx_desc;
         	}
+#endif
 	}
 
 	/*
