@@ -141,13 +141,13 @@ gr_tmp(int mfd)
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
-	if ((tfd = mkostemp(tempname, O_SYNC)) == -1)
+	if ((tfd = mkstemp(tempname)) == -1)
 		return (-1);
 	if (mfd != -1) {
 		while ((nr = read(mfd, buf, sizeof(buf))) > 0)
 			if (write(tfd, buf, (size_t)nr) != nr)
 				break;
-		if (nr != 0) {
+		if (nr != 0 || fsync(tfd) != 0) {
 			unlink(tempname);
 			*tempname = '\0';
 			close(tfd);
@@ -305,6 +305,8 @@ gr_copy(int ffd, int tfd, const struct group *gr, struct group *old_gr)
  done:
 	if (line != NULL)
 		free(line);
+	if (fsync(tfd) != 0)
+		goto err;
 	return (0);
  err:
 	if (line != NULL)

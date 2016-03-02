@@ -226,13 +226,13 @@ pw_tmp(int mfd)
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
-	if ((tfd = mkostemp(tempname, O_SYNC)) == -1)
+	if ((tfd = mkstemp(tempname)) == -1)
 		return (-1);
 	if (mfd != -1) {
 		while ((nr = read(mfd, buf, sizeof(buf))) > 0)
 			if (write(tfd, buf, (size_t)nr) != nr)
 				break;
-		if (nr != 0) {
+		if (nr != 0 || fsync(tfd) != 0) {
 			unlink(tempname);
 			*tempname = '\0';
 			close(tfd);
@@ -289,7 +289,7 @@ pw_edit(int notsetuid)
 	sigset_t oldsigset, nsigset;
 	struct stat st1, st2;
 	const char *editor;
-	int pstat;
+	int pstat, fd;
 
 	if ((editor = getenv("EDITOR")) == NULL)
 		editor = _PATH_VI;
@@ -344,6 +344,11 @@ pw_edit(int notsetuid)
 	sigprocmask(SIG_SETMASK, &oldsigset, NULL);
 	if (stat(tempname, &st2) == -1)
 		return (-1);
+	if ((fd = open(tempname, O_RDONLY)) == -1 || fsync(fd) == -1) {
+		close(fd);
+		return (-1);
+	}
+	close(fd);
 	return (st1.st_mtim.tv_sec != st2.st_mtim.tv_sec ||
 	    st1.st_mtim.tv_nsec != st2.st_mtim.tv_nsec);
 }
@@ -570,6 +575,8 @@ pw_copy(int ffd, int tfd, const struct passwd *pw, struct passwd *old_pw)
  done:
 	if (line != NULL)
 		free(line);
+	if (fsync(tfd) != 0)
+		goto err;
 	return (0);
  err:
 	if (line != NULL)
