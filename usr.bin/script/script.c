@@ -80,7 +80,6 @@ static struct termios tt;
 
 static void done(int) __dead2;
 static void doshell(char **);
-static void fail(void);
 static void finish(void);
 static void record(FILE *, char *, size_t, int);
 static void consume(FILE *, off_t, char *, int);
@@ -221,12 +220,18 @@ main(int argc, char *argv[])
 		warn("fork");
 		done(1);
 	}
-	if (child == 0)
-		doshell(argv);
-	close(slave);
+	if (child == 0) {
+		if (fflg) {
+			int pid;
 
-	if (fflg && ioctl(fm_fd, FILEMON_SET_PID, &child) < 0)
-		err(1, "Cannot set filemon PID");
+			pid = getpid();
+			if (ioctl(fm_fd, FILEMON_SET_PID, &pid) < 0)
+				err(1, "Cannot set filemon PID");
+		}
+
+		doshell(argv);
+	}
+	close(slave);
 
 	start = tvec = time(0);
 	readstdin = 1;
@@ -336,14 +341,7 @@ doshell(char **av)
 		execl(shell, shell, "-i", (char *)NULL);
 		warn("%s", shell);
 	}
-	fail();
-}
-
-static void
-fail(void)
-{
-	(void)kill(0, SIGTERM);
-	done(1);
+	exit(1);
 }
 
 static void
