@@ -21,11 +21,12 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2014 by Delphix. All rights reserved.
  * Copyright (c) 2015, Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2013 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
+ * Copyright (c) 2014 Integros [integros.com]
  */
 
 /*
@@ -85,16 +86,20 @@
 /* Check hostid on import? */
 static int check_hostid = 1;
 
-SYSCTL_DECL(_vfs_zfs);
-TUNABLE_INT("vfs.zfs.check_hostid", &check_hostid);
-SYSCTL_INT(_vfs_zfs, OID_AUTO, check_hostid, CTLFLAG_RW, &check_hostid, 0,
-    "Check hostid on import?");
-
 /*
  * The interval, in seconds, at which failed configuration cache file writes
  * should be retried.
  */
 static int zfs_ccw_retry_interval = 300;
+
+SYSCTL_DECL(_vfs_zfs);
+TUNABLE_INT("vfs.zfs.check_hostid", &check_hostid);
+SYSCTL_INT(_vfs_zfs, OID_AUTO, check_hostid, CTLFLAG_RWTUN, &check_hostid, 0,
+    "Check hostid on import?");
+TUNABLE_INT("vfs.zfs.ccw_retry_interval", &zfs_ccw_retry_interval);
+SYSCTL_INT(_vfs_zfs, OID_AUTO, ccw_retry_interval, CTLFLAG_RW,
+    &zfs_ccw_retry_interval, 0,
+    "Configuration cache file write, retry after failure, interval (seconds)");
 
 typedef enum zti_modes {
 	ZTI_MODE_FIXED,			/* value is # of threads (min 1) */
@@ -140,7 +145,7 @@ static const char *const zio_taskq_types[ZIO_TASKQ_TYPES] = {
 const zio_taskq_info_t zio_taskqs[ZIO_TYPES][ZIO_TASKQ_TYPES] = {
 	/* ISSUE	ISSUE_HIGH	INTR		INTR_HIGH */
 	{ ZTI_ONE,	ZTI_NULL,	ZTI_ONE,	ZTI_NULL }, /* NULL */
-	{ ZTI_N(8),	ZTI_NULL,	ZTI_BATCH,	ZTI_NULL }, /* READ */
+	{ ZTI_N(8),	ZTI_NULL,	ZTI_P(12, 8),	ZTI_NULL }, /* READ */
 	{ ZTI_BATCH,	ZTI_N(5),	ZTI_N(8),	ZTI_N(5) }, /* WRITE */
 	{ ZTI_P(12, 8),	ZTI_NULL,	ZTI_ONE,	ZTI_NULL }, /* FREE */
 	{ ZTI_ONE,	ZTI_NULL,	ZTI_ONE,	ZTI_NULL }, /* CLAIM */
@@ -3807,7 +3812,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 }
 
 #ifdef _KERNEL
-#if defined(sun)
+#ifdef illumos
 /*
  * Get the root pool information from the root disk, then import the root pool
  * during the system boot up time.
@@ -4008,7 +4013,7 @@ out:
 	return (error);
 }
 
-#else
+#else	/* !illumos */
 
 extern int vdev_geom_read_pool_label(const char *name, nvlist_t ***configs,
     uint64_t *count);
@@ -4204,8 +4209,8 @@ spa_import_rootpool(const char *name)
 	return (0);
 }
 
-#endif	/* sun */
-#endif
+#endif	/* illumos */
+#endif	/* _KERNEL */
 
 /*
  * Import a non-root pool into the system.
@@ -5381,13 +5386,13 @@ spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
 	spa_activate(newspa, spa_mode_global);
 	spa_async_suspend(newspa);
 
-#ifndef sun
+#ifndef illumos
 	/* mark that we are creating new spa by splitting */
 	newspa->spa_splitting_newspa = B_TRUE;
 #endif
 	/* create the new pool from the disks of the original pool */
 	error = spa_load(newspa, SPA_LOAD_IMPORT, SPA_IMPORT_ASSEMBLE, B_TRUE);
-#ifndef sun
+#ifndef illumos
 	newspa->spa_splitting_newspa = B_FALSE;
 #endif
 	if (error)
@@ -6343,8 +6348,7 @@ spa_sync_config_object(spa_t *spa, dmu_tx_t *tx)
 
 	spa_config_exit(spa, SCL_STATE, FTAG);
 
-	if (spa->spa_config_syncing)
-		nvlist_free(spa->spa_config_syncing);
+	nvlist_free(spa->spa_config_syncing);
 	spa->spa_config_syncing = config;
 
 	spa_sync_nvlist(spa, spa->spa_config_object, config, tx);
@@ -6644,12 +6648,12 @@ spa_sync(spa_t *spa, uint64_t txg)
 #ifdef illumos
 	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid,
 	    spa->spa_sync_starttime + spa->spa_deadman_synctime));
-#else	/* FreeBSD */
+#else	/* !illumos */
 #ifdef _KERNEL
 	callout_reset(&spa->spa_deadman_cycid,
 	    hz * spa->spa_deadman_synctime / NANOSEC, spa_deadman, spa);
 #endif
-#endif
+#endif	/* illumos */
 
 	/*
 	 * If we are upgrading to SPA_VERSION_RAIDZ_DEFLATE this txg,
@@ -6768,16 +6772,10 @@ spa_sync(spa_t *spa, uint64_t txg)
 				if (svdcount == SPA_DVAS_PER_BP)
 					break;
 			}
-			error = vdev_config_sync(svd, svdcount, txg, B_FALSE);
-			if (error != 0)
-				error = vdev_config_sync(svd, svdcount, txg,
-				    B_TRUE);
+			error = vdev_config_sync(svd, svdcount, txg);
 		} else {
 			error = vdev_config_sync(rvd->vdev_child,
-			    rvd->vdev_children, txg, B_FALSE);
-			if (error != 0)
-				error = vdev_config_sync(rvd->vdev_child,
-				    rvd->vdev_children, txg, B_TRUE);
+			    rvd->vdev_children, txg);
 		}
 
 		if (error == 0)
@@ -6794,11 +6792,11 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 #ifdef illumos
 	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid, CY_INFINITY));
-#else	/* FreeBSD */
+#else	/* !illumos */
 #ifdef _KERNEL
 	callout_drain(&spa->spa_deadman_cycid);
 #endif
-#endif
+#endif	/* illumos */
 
 	/*
 	 * Clear the dirty config list.

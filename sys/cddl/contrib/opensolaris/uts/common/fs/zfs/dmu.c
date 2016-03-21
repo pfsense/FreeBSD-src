@@ -1253,7 +1253,7 @@ dmu_write_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size,
 	return (err);
 }
 
-#ifdef sun
+#ifdef illumos
 int
 dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     page_t *pp, dmu_tx_t *tx)
@@ -1309,7 +1309,7 @@ dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	return (err);
 }
 
-#else
+#else	/* !illumos */
 
 int
 dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
@@ -1366,8 +1366,8 @@ dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 	return (err);
 }
-#endif	/* sun */
-#endif
+#endif	/* illumos */
+#endif	/* _KERNEL */
 
 /*
  * Allocate a loaned anonymous arc buffer.
@@ -1421,6 +1421,9 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 	 */
 	if (offset == db->db.db_offset && blksz == db->db.db_size &&
 	    DBUF_GET_BUFC_TYPE(db) == ARC_BUFC_DATA) {
+#ifdef _KERNEL
+		curthread->td_ru.ru_oublock++;
+#endif
 		dbuf_assign_arcbuf(db, buf, tx);
 		dbuf_rele(db, FTAG);
 	} else {

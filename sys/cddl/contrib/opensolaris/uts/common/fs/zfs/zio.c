@@ -22,6 +22,7 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
  * Copyright (c) 2011 Nexenta Systems, Inc. All rights reserved.
+ * Copyright (c) 2014 Integros [integros.com]
  */
 
 #include <sys/sysmacros.h>
@@ -92,6 +93,9 @@ kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 #ifdef _KERNEL
 extern vmem_t *zio_alloc_arena;
 #endif
+
+#define	ZIO_PIPELINE_CONTINUE		0x100
+#define	ZIO_PIPELINE_STOP		0x101
 
 #define	BP_SPANB(indblkshift, level) \
 	(((uint64_t)1) << ((level) * ((indblkshift) - SPA_BLKPTRSHIFT)))
@@ -1219,6 +1223,8 @@ zio_write_bp_init(zio_t *zio)
 			zio->io_pipeline |= ZIO_STAGE_DDT_WRITE;
 			return (ZIO_PIPELINE_CONTINUE);
 		}
+		zio->io_bp_override = NULL;
+		BP_ZERO(bp);
 	}
 
 	if (!BP_IS_HOLE(bp) && bp->blk_birth == zio->io_txg) {
@@ -1440,6 +1446,58 @@ void
 zio_interrupt(zio_t *zio)
 {
 	zio_taskq_dispatch(zio, ZIO_TASKQ_INTERRUPT, B_FALSE);
+}
+
+void
+zio_delay_interrupt(zio_t *zio)
+{
+	/*
+	 * The timeout_generic() function isn't defined in userspace, so
+	 * rather than trying to implement the function, the zio delay
+	 * functionality has been disabled for userspace builds.
+	 */
+
+#ifdef _KERNEL
+	/*
+	 * If io_target_timestamp is zero, then no delay has been registered
+	 * for this IO, thus jump to the end of this function and "skip" the
+	 * delay; issuing it directly to the zio layer.
+	 */
+	if (zio->io_target_timestamp != 0) {
+		hrtime_t now = gethrtime();
+
+		if (now >= zio->io_target_timestamp) {
+			/*
+			 * This IO has already taken longer than the target
+			 * delay to complete, so we don't want to delay it
+			 * any longer; we "miss" the delay and issue it
+			 * directly to the zio layer. This is likely due to
+			 * the target latency being set to a value less than
+			 * the underlying hardware can satisfy (e.g. delay
+			 * set to 1ms, but the disks take 10ms to complete an
+			 * IO request).
+			 */
+
+			DTRACE_PROBE2(zio__delay__miss, zio_t *, zio,
+			    hrtime_t, now);
+
+			zio_interrupt(zio);
+		} else {
+			hrtime_t diff = zio->io_target_timestamp - now;
+
+			DTRACE_PROBE3(zio__delay__hit, zio_t *, zio,
+			    hrtime_t, now, hrtime_t, diff);
+
+			(void) timeout_generic(CALLOUT_NORMAL,
+			    (void (*)(void *))zio_interrupt, zio, diff, 1, 0);
+		}
+
+		return;
+	}
+#endif
+
+	DTRACE_PROBE1(zio__delay__skip, zio_t *, zio);
+	zio_interrupt(zio);
 }
 
 /*
@@ -2662,6 +2720,18 @@ zio_free_zil(spa_t *spa, uint64_t txg, blkptr_t *bp)
  * Read, write and delete to physical devices
  * ==========================================================================
  */
+
+
+/*
+ * Issue an I/O to the underlying vdev. Typically the issue pipeline
+ * stops after this stage and will resume upon I/O completion.
+ * However, there are instances where the vdev layer may need to
+ * continue the pipeline when an I/O was not issued. Since the I/O
+ * that was sent to the vdev layer might be different than the one
+ * currently active in the pipeline (see vdev_queue_io()), we explicitly
+ * force the underlying vdev layers to call either zio_execute() or
+ * zio_interrupt() to ensure that the pipeline continues with the correct I/O.
+ */
 static int
 zio_vdev_io_start(zio_t *zio)
 {
@@ -2680,7 +2750,8 @@ zio_vdev_io_start(zio_t *zio)
 		/*
 		 * The mirror_ops handle multiple DVAs in a single BP.
 		 */
-		return (vdev_mirror_ops.vdev_op_io_start(zio));
+		vdev_mirror_ops.vdev_op_io_start(zio);
+		return (ZIO_PIPELINE_STOP);
 	}
 
 	if (vd->vdev_ops->vdev_op_leaf && zio->io_type == ZIO_TYPE_FREE &&
@@ -2694,7 +2765,7 @@ zio_vdev_io_start(zio_t *zio)
 	 * can quickly react to certain workloads.  In particular, we care
 	 * about non-scrubbing, top-level reads and writes with the following
 	 * characteristics:
-	 * 	- synchronous writes of user data to non-slog devices
+	 *	- synchronous writes of user data to non-slog devices
 	 *	- any reads of user data
 	 * When these conditions are met, adjust the timestamp of spa_last_io
 	 * which allows the scan thread to adjust its workload accordingly.
@@ -2711,8 +2782,7 @@ zio_vdev_io_start(zio_t *zio)
 
 	align = 1ULL << vd->vdev_top->vdev_ashift;
 
-	if ((!(zio->io_flags & ZIO_FLAG_PHYSICAL) ||
-	    (vd->vdev_top->vdev_physical_ashift > SPA_MINBLOCKSHIFT)) &&
+	if (!(zio->io_flags & ZIO_FLAG_PHYSICAL) &&
 	    P2PHASE(zio->io_size, align) != 0) {
 		/* Transform logical writes to be a full physical block size. */
 		uint64_t asize = P2ROUNDUP(zio->io_size, align);
@@ -2798,10 +2868,8 @@ zio_vdev_io_start(zio_t *zio)
 			return (ZIO_PIPELINE_STOP);
 	}
 
-	ret = vd->vdev_ops->vdev_op_io_start(zio);
-	ASSERT(ret == ZIO_PIPELINE_STOP);
-
-	return (ret);
+	vd->vdev_ops->vdev_op_io_start(zio);
+	return (ZIO_PIPELINE_STOP);
 }
 
 static int

@@ -21,10 +21,11 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
- * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2013 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
+ * Copyright (c) 2014 Integros [integros.com]
  */
 
 #include <sys/zfs_context.h>
@@ -263,6 +264,33 @@ TUNABLE_INT("vfs.zfs.recover", &zfs_recover);
 SYSCTL_INT(_vfs_zfs, OID_AUTO, recover, CTLFLAG_RWTUN, &zfs_recover, 0,
     "Try to recover from otherwise-fatal errors.");
 
+static int
+sysctl_vfs_zfs_debug_flags(SYSCTL_HANDLER_ARGS)
+{
+	int err, val;
+
+	val = zfs_flags;
+	err = sysctl_handle_int(oidp, &val, 0, req);
+	if (err != 0 || req->newptr == NULL)
+		return (err);
+
+	/*
+	 * ZFS_DEBUG_MODIFY must be enabled prior to boot so all
+	 * arc buffers in the system have the necessary additional
+	 * checksum data.  However, it is safe to disable at any
+	 * time.
+	 */
+	if (!(zfs_flags & ZFS_DEBUG_MODIFY))
+		val &= ~ZFS_DEBUG_MODIFY;
+	zfs_flags = val;
+
+	return (0);
+}
+TUNABLE_INT("vfs.zfs.debug_flags", &zfs_flags);
+SYSCTL_PROC(_vfs_zfs, OID_AUTO, debug_flags,
+    CTLTYPE_UINT | CTLFLAG_MPSAFE | CTLFLAG_RW, 0, sizeof(int),
+    sysctl_vfs_zfs_debug_flags, "IU", "Debug flags for ZFS testing.");
+
 /*
  * If destroy encounters an EIO while reading metadata (e.g. indirect
  * blocks), space referenced by the missing metadata can not be freed.
@@ -432,14 +460,16 @@ spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
 		if (rw == RW_READER) {
 			if (scl->scl_writer || scl->scl_write_wanted) {
 				mutex_exit(&scl->scl_lock);
-				spa_config_exit(spa, locks ^ (1 << i), tag);
+				spa_config_exit(spa, locks & ((1 << i) - 1),
+				    tag);
 				return (0);
 			}
 		} else {
 			ASSERT(scl->scl_writer != curthread);
 			if (!refcount_is_zero(&scl->scl_count)) {
 				mutex_exit(&scl->scl_lock);
-				spa_config_exit(spa, locks ^ (1 << i), tag);
+				spa_config_exit(spa, locks & ((1 << i) - 1),
+				    tag);
 				return (0);
 			}
 			scl->scl_writer = curthread;
@@ -581,6 +611,12 @@ spa_deadman(void *arg)
 	    ++spa->spa_deadman_calls);
 	if (zfs_deadman_enabled)
 		vdev_deadman(spa->spa_root_vdev);
+#ifdef __FreeBSD__
+#ifdef _KERNEL
+	callout_schedule(&spa->spa_deadman_cycid,
+	    hz * zfs_deadman_checktime_ms / MILLISEC);
+#endif
+#endif
 }
 
 /*

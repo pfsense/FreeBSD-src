@@ -24,10 +24,11 @@
  */
 /*
  * Copyright (c) 2013, Joyent, Inc.  All rights reserved.
+ * Copyright (c) 2016, Pedro Giffuni.  All rights reserved.
  */
 
 #include <sys/types.h>
-#if defined(sun)
+#ifdef illumos
 #include <sys/modctl.h>
 #include <sys/kobj.h>
 #include <sys/kobj_impl.h>
@@ -41,7 +42,7 @@
 #endif
 
 #include <unistd.h>
-#if defined(sun)
+#ifdef illumos
 #include <project.h>
 #endif
 #include <strings.h>
@@ -51,7 +52,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <dirent.h>
-#if !defined(sun)
+#ifndef illumos
 #include <fcntl.h>
 #include <libproc_compat.h>
 #endif
@@ -572,7 +573,7 @@ dt_module_load_sect(dtrace_hdl_t *dtp, dt_module_t *dmp, ctf_sect_t *ctsp)
 	if (sp == NULL || (dp = elf_getdata(sp, NULL)) == NULL)
 		return (0);
 
-#if defined(sun)
+#ifdef illumos
 	ctsp->cts_data = dp->d_buf;
 #else
 	if ((ctsp->cts_data = malloc(dp->d_size)) == NULL)
@@ -704,22 +705,20 @@ dt_module_load_proc(dtrace_hdl_t *dtp, dt_module_t *dmp)
 		return (dt_set_errno(dtp, EDT_CANTLOAD));
 	}
 
-	dmp->dm_libctfp = malloc(sizeof (ctf_file_t *) * arg.dpa_count);
+	dmp->dm_libctfp = calloc(arg.dpa_count, sizeof (ctf_file_t *));
 	if (dmp->dm_libctfp == NULL) {
 		dt_proc_unlock(dtp, p);
 		dt_proc_release(dtp, p);
 		return (dt_set_errno(dtp, EDT_NOMEM));
 	}
-	bzero(dmp->dm_libctfp, sizeof (ctf_file_t *) * arg.dpa_count);
 
-	dmp->dm_libctfn = malloc(sizeof (char *) * arg.dpa_count);
+	dmp->dm_libctfn = calloc(arg.dpa_count, sizeof (char *));
 	if (dmp->dm_libctfn == NULL) {
 		free(dmp->dm_libctfp);
 		dt_proc_unlock(dtp, p);
 		dt_proc_release(dtp, p);
 		return (dt_set_errno(dtp, EDT_NOMEM));
 	}
-	bzero(dmp->dm_libctfn, sizeof (char *) * arg.dpa_count);
 
 	dmp->dm_nctflibs = arg.dpa_count;
 
@@ -800,16 +799,13 @@ dt_module_load(dtrace_hdl_t *dtp, dt_module_t *dmp)
 	dmp->dm_nsymbuckets = _dtrace_strbuckets;
 	dmp->dm_symfree = 1;		/* first free element is index 1 */
 
-	dmp->dm_symbuckets = malloc(sizeof (uint_t) * dmp->dm_nsymbuckets);
-	dmp->dm_symchains = malloc(sizeof (dt_sym_t) * dmp->dm_nsymelems + 1);
+	dmp->dm_symbuckets = calloc(dmp->dm_nsymbuckets, sizeof (uint_t));
+	dmp->dm_symchains = calloc(dmp->dm_nsymelems + 1, sizeof (dt_sym_t));
 
 	if (dmp->dm_symbuckets == NULL || dmp->dm_symchains == NULL) {
 		dt_module_unload(dtp, dmp);
 		return (dt_set_errno(dtp, EDT_NOMEM));
 	}
-
-	bzero(dmp->dm_symbuckets, sizeof (uint_t) * dmp->dm_nsymbuckets);
-	bzero(dmp->dm_symchains, sizeof (dt_sym_t) * dmp->dm_nsymelems + 1);
 
 	/*
 	 * Iterate over the symbol table data buffer and insert each symbol
@@ -921,7 +917,7 @@ dt_module_unload(dtrace_hdl_t *dtp, dt_module_t *dmp)
 	ctf_close(dmp->dm_ctfp);
 	dmp->dm_ctfp = NULL;
 
-#if !defined(sun)
+#ifndef illumos
 	if (dmp->dm_ctdata.cts_data != NULL) {
 		free(dmp->dm_ctdata.cts_data);
 	}
@@ -1115,7 +1111,7 @@ dt_module_getctflib(dtrace_hdl_t *dtp, dt_module_t *dmp, const char *name)
  * including the path.
  */
 static void
-#if defined(sun)
+#ifdef illumos
 dt_module_update(dtrace_hdl_t *dtp, const char *name)
 #else
 dt_module_update(dtrace_hdl_t *dtp, struct kld_file_stat *k_stat)
@@ -1132,7 +1128,7 @@ dt_module_update(dtrace_hdl_t *dtp, struct kld_file_stat *k_stat)
 	Elf_Data *dp;
 	Elf_Scn *sp;
 
-#if defined(sun)
+#ifdef illumos
 	(void) snprintf(fname, sizeof (fname),
 	    "%s/%s/object", OBJFS_ROOT, name);
 #else
@@ -1242,7 +1238,7 @@ dt_module_update(dtrace_hdl_t *dtp, struct kld_file_stat *k_stat)
 	}
 
 	dmp->dm_flags |= DT_DM_KERNEL;
-#if defined(sun)
+#ifdef illumos
 	dmp->dm_modid = (int)OBJFS_MODID(st.st_ino);
 #else
 	/*
@@ -1265,7 +1261,7 @@ dt_module_update(dtrace_hdl_t *dtp, struct kld_file_stat *k_stat)
 		}
 	}
 #endif
-#endif
+#endif /* illumos */
 
 	if (dmp->dm_info.objfs_info_primary)
 		dmp->dm_flags |= DT_DM_PRIMARY;
@@ -1291,7 +1287,7 @@ dtrace_update(dtrace_hdl_t *dtp)
 	    dmp != NULL; dmp = dt_list_next(dmp))
 		dt_module_unload(dtp, dmp);
 
-#if defined(sun)
+#ifdef illumos
 	/*
 	 * Open /system/object and attempt to create a libdtrace module for
 	 * each kernel module that is loaded on the current system.
@@ -1331,11 +1327,11 @@ dtrace_update(dtrace_hdl_t *dtp)
 	dt_idhash_lookup(dtp->dt_macros, "pid")->di_id = getpid();
 	dt_idhash_lookup(dtp->dt_macros, "pgid")->di_id = getpgid(0);
 	dt_idhash_lookup(dtp->dt_macros, "ppid")->di_id = getppid();
-#if defined(sun)
+#ifdef illumos
 	dt_idhash_lookup(dtp->dt_macros, "projid")->di_id = getprojid();
 #endif
 	dt_idhash_lookup(dtp->dt_macros, "sid")->di_id = getsid(0);
-#if defined(sun)
+#ifdef illumos
 	dt_idhash_lookup(dtp->dt_macros, "taskid")->di_id = gettaskid();
 #endif
 	dt_idhash_lookup(dtp->dt_macros, "uid")->di_id = getuid();

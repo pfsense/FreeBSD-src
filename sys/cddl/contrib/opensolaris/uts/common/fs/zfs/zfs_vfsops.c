@@ -23,6 +23,7 @@
  * Copyright (c) 2011 Pawel Jakub Dawidek <pawel@dawidek.net>.
  * All rights reserved.
  * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2014 Integros [integros.com]
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -131,6 +132,13 @@ zfs_sync(vfs_t *vfsp, int waitfor)
 	 * writing to the storage pool, so we never sync during panic.
 	 */
 	if (panicstr)
+		return (0);
+
+	/*
+	 * Ignore the system syncher.  ZFS already commits async data
+	 * at zfs_txg_timeout intervals.
+	 */
+	if (waitfor == MNT_LAZY)
 		return (0);
 
 	if (vfsp != NULL) {
@@ -847,6 +855,17 @@ zfsvfs_create(const char *osname, zfsvfs_t **zfvp)
 	uint64_t zval;
 	int i, error;
 	uint64_t sa_obj;
+
+	/*
+	 * XXX: Fix struct statfs so this isn't necessary!
+	 *
+	 * The 'osname' is used as the filesystem's special node, which means
+	 * it must fit in statfs.f_mntfromname, or else it can't be
+	 * enumerated, so libzfs_mnttab_find() returns NULL, which causes
+	 * 'zfs unmount' to think it's not mounted when it is.
+	 */
+	if (strlen(osname) >= MNAMELEN)
+		return (SET_ERROR(ENAMETOOLONG));
 
 	zfsvfs = kmem_zalloc(sizeof (zfsvfs_t), KM_SLEEP);
 
@@ -1566,13 +1585,13 @@ zfs_mount(vfs_t *vfsp)
 	 * can be interrogated.
 	 */
 	if ((uap->flags & MS_DATA) && uap->datalen > 0)
-#else
+#else	/* !illumos */
 	if (!prison_allow(td->td_ucred, PR_ALLOW_MOUNT_ZFS))
 		return (SET_ERROR(EPERM));
 
 	if (vfs_getopt(vfsp->mnt_optnew, "from", (void **)&osname, NULL))
 		return (SET_ERROR(EINVAL));
-#endif	/* ! illumos */
+#endif	/* illumos */
 
 	/*
 	 * If full-owner-access is enabled and delegated administration is
@@ -1675,14 +1694,14 @@ zfs_mount(vfs_t *vfsp)
 	error = zfs_domount(vfsp, osname);
 	PICKUP_GIANT();
 
-#ifdef sun
+#ifdef illumos
 	/*
 	 * Add an extra VFS_HOLD on our parent vfs so that it can't
 	 * disappear due to a forced unmount.
 	 */
 	if (error == 0 && ((zfsvfs_t *)vfsp->vfs_data)->z_issnap)
 		VFS_HOLD(mvp->v_vfsp);
-#endif	/* sun */
+#endif
 
 out:
 	return (error);
@@ -1937,7 +1956,7 @@ zfs_umount(vfs_t *vfsp, int fflag)
 		return (ret);
 	}
 
-#ifdef sun
+#ifdef illumos
 	if (!(fflag & MS_FORCE)) {
 		/*
 		 * Check the number of active vnodes in the file system.
@@ -2264,7 +2283,7 @@ zfs_freevfs(vfs_t *vfsp)
 {
 	zfsvfs_t *zfsvfs = vfsp->vfs_data;
 
-#ifdef sun
+#ifdef illumos
 	/*
 	 * If this is a snapshot, we have an extra VFS_HOLD on our parent
 	 * from zfs_mount().  Release it here.  If we came through
@@ -2273,7 +2292,7 @@ zfs_freevfs(vfs_t *vfsp)
 	 */
 	if (zfsvfs->z_issnap && (vfsp != rootvfs))
 		VFS_RELE(zfsvfs->z_parent->z_vfs);
-#endif	/* sun */
+#endif
 
 	zfsvfs_free(zfsvfs);
 
