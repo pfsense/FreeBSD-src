@@ -843,8 +843,10 @@ print_rule(struct pf_rule *r, const char *anchor_call, int verbose, int numeric)
 				printf(" code %u", r->code-1);
 		}
 	}
-	if (r->tos)
+	if (r->tos && (r->rule_flag & PFRULE_TOS))
 		printf(" tos 0x%2.2x", r->tos);
+	if (r->tos && (r->rule_flag & PFRULE_DSCP))
+		printf(" dscp 0x%2.2x", r->tos & DSCP_MASK);
 	if (r->prio)
 		printf(" prio %u", r->prio == PF_PRIO_ZERO ? 0 : r->prio);
 	if (r->scrub_flags & PFSTATE_SETMASK) {
