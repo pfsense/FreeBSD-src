@@ -747,6 +747,7 @@ dummynet_send(struct mbuf *m)
 				dst = DIR_DROP;
 			} else {
 				dst = pkt->dn_dir;
+				pkt->rule.info |= IPFW_IS_DUMMYNET;
 				ifp = pkt->ifp;
 				tag->m_tag_cookie = MTAG_IPFW_RULE;
 				tag->m_tag_id = 0;
