@@ -491,6 +491,7 @@ struct pf_rule {
 	union pf_rule_ptr	 skip[PF_SKIP_COUNT];
 #define PF_RULE_LABEL_SIZE	 64
 	char			 label[PF_RULE_LABEL_SIZE];
+	char                     schedule[PF_RULE_LABEL_SIZE];
 	char			 ifname[IFNAMSIZ];
 	char			 qname[PF_QNAME_SIZE];
 	char			 pqname[PF_QNAME_SIZE];
@@ -1288,6 +1289,11 @@ struct pfioc_state_kill {
 	u_int			psk_killed;
 };
 
+struct pfioc_schedule_kill {
+	int		numberkilled;
+	char		schedule[PF_RULE_LABEL_SIZE];
+};
+
 struct pfioc_states {
 	int	ps_len;
 	union {
@@ -1472,6 +1478,7 @@ struct pf_ifspeed {
 	u_int32_t		baudrate;
 };
 #define	DIOCGIFSPEED	_IOWR('D', 92, struct pf_ifspeed)
+#define	DIOCKILLSCHEDULE	_IOWR('D', 96, struct pfioc_schedule_kill)
 
 #ifdef _KERNEL
 LIST_HEAD(pf_src_node_list, pf_src_node);
