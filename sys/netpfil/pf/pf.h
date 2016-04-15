@@ -128,7 +128,8 @@ enum	{ PF_ADDR_ADDRMASK, PF_ADDR_NOROUTE, PF_ADDR_DYNIFTL,
 #define PFRES_SRCLIMIT	13		/* Source node/conn limit */
 #define PFRES_SYNPROXY	14		/* SYN proxy */
 #define PFRES_MAPFAILED	15		/* pf_map_addr() failed */
-#define PFRES_MAX	16		/* total+1 */
+#define PFRES_DIVERT	16		/* Divert override */
+#define PFRES_MAX	17		/* total+1 */
 
 #define PFRES_NAMES { \
 	"match", \
@@ -147,6 +148,7 @@ enum	{ PF_ADDR_ADDRMASK, PF_ADDR_NOROUTE, PF_ADDR_DYNIFTL,
 	"src-limit", \
 	"synproxy", \
 	"map-failed", \
+	"divert", \
 	NULL \
 }
 

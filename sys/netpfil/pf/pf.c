@@ -94,6 +94,7 @@ __FBSDID("$FreeBSD$");
 #include <netpfil/ipfw/ip_fw_private.h> /* XXX: only for DIR_IN/DIR_OUT */
 #include <netinet/ip_fw.h>
 #include <netinet/ip_dummynet.h>
+#include <netinet/ip_divert.h>
 
 #ifdef INET6
 #include <netinet/ip6.h>
@@ -323,6 +324,19 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 
 #define	PACKET_LOOPED(pd)	((pd)->pf_mtag &&			\
 				 (pd)->pf_mtag->flags & PF_PACKET_LOOPED)
+
+#define	PF_DIVERT_MAXPACKETS_REACHED()					\
+do {									\
+	if (r->spare2 &&						\
+	    s->packets[dir == PF_OUT] > r->spare2) {			\
+		/* fake that divert already happened */			\
+		if (pd.pf_mtag == NULL &&				\
+                    ((pd.pf_mtag = pf_get_mtag(m)) == NULL))		\
+                        action = PF_DROP;				\
+		else							\
+			pd.pf_mtag->flags |= PF_PACKET_LOOPED;		\
+	}								\
+} while(0)
 
 #define	STATE_LOOKUP(i, k, d, s, pd)					\
 	do {								\
@@ -6244,6 +6258,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	struct pf_pdesc		 pd;
 	int			 off = 0, dirndx, pqid = 0;
 	int                      loopedfrom = 0;
+	u_int16_t		 divertcookie = 0;
+	u_int8_t		 divflags = 0;
 	struct ip_fw_args        dnflow;
 
 	PF_RULES_RLOCK_TRACKER;
@@ -6277,16 +6293,18 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(ipfwtag+1);
 		if (rr->info & IPFW_IS_DUMMYNET)
 			loopedfrom = 1;
-		if (rr->info & IPFW_IS_DUMMYNET ||
-		    (rr->info & IPFW_IS_DIVERT && rr->rulenum == 0)) {
-			if (pd.pf_mtag == NULL &&
-			    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
-				action = PF_DROP;
-				goto done;
-			}
-			pd.pf_mtag->flags |= PF_PACKET_LOOPED;
-			m_tag_delete(m, ipfwtag);
+		if (rr->info & IPFW_IS_DIVERT) {
+			divertcookie = rr->rulenum;
+			divflags = (u_int8_t)(divertcookie >> 8);
+			divertcookie &= ~PFSTATE_DIVERT_MASK;
 		}
+		if (pd.pf_mtag == NULL &&
+		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
+			action = PF_DROP;
+			goto done;
+		}
+		pd.pf_mtag->flags |= PF_PACKET_LOOPED;
+		m_tag_delete(m, ipfwtag);
 		if (pd.pf_mtag && pd.pf_mtag->flags & PF_FASTFWD_OURS_PRESENT) {
 			m->m_flags |= M_FASTFWD_OURS;
 			pd.pf_mtag->flags &= ~PF_FASTFWD_OURS_PRESENT;
@@ -6451,6 +6469,17 @@ done:
 		    ("pf: dropping packet with ip options\n"));
 	}
 
+	if (s) {
+		PF_DIVERT_MAXPACKETS_REACHED();
+
+		if (divflags) {
+			s->divert_cookie = divertcookie;
+			s->local_flags |= divflags;
+		} else {
+			divertcookie = s->divert_cookie;
+			divflags = s->local_flags;
+		}
+	}
 	if (s && s->tag > 0 && pf_tag_packet(m, &pd, s->tag)) {
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
@@ -6502,7 +6531,36 @@ done:
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
 	}
-	if (s && (s->dnpipe || s->pdnpipe)) {
+	if (divflags & PFSTATE_DIVERT_TAG)
+		pd.pf_mtag->tag = divertcookie;
+	else if (divflags & PFSTATE_DIVERT_ALTQ)
+		pd.pf_mtag->qid = divertcookie;
+	else if (divflags & PFSTATE_DIVERT_ACTION) {
+		struct pf_rule *dlr;
+		action = PF_DROP;
+		if (s)
+			pf_unlink_state(s, PF_ENTER_LOCKED);
+		REASON_SET(&reason, PFRES_DIVERT);
+		log = 1;
+		DPFPRINTF(PF_DEBUG_MISC,
+		    ("pf: changing action to with overload from divert.\n"));
+		dlr = r;
+		PFLOG_PACKET(kif, m, AF_INET, dir, reason, dlr, a, ruleset,
+		    &pd, (s == NULL));
+		m_freem(*m0);
+		*m0 = NULL;
+		/*
+		 * NOTE: Fake this to avoid divert giving errors to the
+		 * application.
+		 */
+		return (PF_PASS);
+	}
+
+	if (divflags & PFSTATE_DIVERT_DNCOOKIE) {
+		pd.act.dnpipe = divertcookie;
+		pd.act.pdnpipe = divertcookie;
+		pd.act.flags |= PFRULE_DN_IS_PIPE;
+	} else if (s && (s->dnpipe || s->pdnpipe)) {
 		pd.act.dnpipe = s->dnpipe;
 		pd.act.pdnpipe = s->pdnpipe;
 		pd.act.flags = s->state_flags;
@@ -6557,9 +6615,50 @@ done:
 				PF_STATE_UNLOCK(s);
 			return (action);
 		}
-	} else
-		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
+	}
 continueprocessing:
+
+	if (action == PF_PASS && r->divert.port && ip_divert_ptr != NULL &&
+	    !PACKET_LOOPED(&pd)) {
+		if (!r->spare2 ||
+		    (s && s->packets[dir == PF_OUT] <= r->spare2)) {
+			ipfwtag = m_tag_alloc(MTAG_IPFW_RULE, 0,
+				sizeof(struct ipfw_rule_ref), M_NOWAIT | M_ZERO);
+			if (ipfwtag != NULL) {
+				((struct ipfw_rule_ref *)(ipfwtag+1))->info =
+					ntohs(r->divert.port);
+				((struct ipfw_rule_ref *)(ipfwtag+1))->rulenum = dir;
+
+				if (s)
+					PF_STATE_UNLOCK(s);
+
+				m_tag_prepend(m, ipfwtag);
+				if (m->m_flags & M_FASTFWD_OURS) {
+					if (pd.pf_mtag == NULL &&
+					    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
+						action = PF_DROP;
+						REASON_SET(&reason, PFRES_MEMORY);
+						log = 1;
+						DPFPRINTF(PF_DEBUG_MISC,
+						   ("pf: failed to allocate tag\n"));
+					}
+					pd.pf_mtag->flags |= PF_FASTFWD_OURS_PRESENT;
+					m->m_flags &= ~M_FASTFWD_OURS;
+				}
+				ip_divert_ptr(*m0, dir ==  PF_IN ? DIR_IN : DIR_OUT);
+				*m0 = NULL;
+
+				return (action);
+			} else {
+				/* XXX: ipfw has the same behaviour! */
+				action = PF_DROP;
+				REASON_SET(&reason, PFRES_MEMORY);
+				log = 1;
+				DPFPRINTF(PF_DEBUG_MISC,
+				    ("pf: failed to allocate divert tag\n"));
+			}
+		}
+	}
 
 	/*
 	 * connections redirected to loopback should not match sockets
@@ -6570,50 +6669,14 @@ continueprocessing:
 	    pd.proto == IPPROTO_UDP) && s != NULL && s->nat_rule.ptr != NULL &&
 	    (s->nat_rule.ptr->action == PF_RDR ||
 	    s->nat_rule.ptr->action == PF_BINAT) &&
-	    (ntohl(pd.dst->v4.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET)
+	    (ntohl(pd.dst->v4.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET) {
 		m->m_flags |= M_SKIP_FIREWALL;
 
-	if (action == PF_PASS && r->divert.port && ip_divert_ptr != NULL &&
-	    !PACKET_LOOPED(&pd)) {
-
-		ipfwtag = m_tag_alloc(MTAG_IPFW_RULE, 0,
-		    sizeof(struct ipfw_rule_ref), M_NOWAIT | M_ZERO);
-		if (ipfwtag != NULL) {
-			((struct ipfw_rule_ref *)(ipfwtag+1))->info =
-			    ntohs(r->divert.port);
-			((struct ipfw_rule_ref *)(ipfwtag+1))->rulenum = dir;
-
-			if (s)
-				PF_STATE_UNLOCK(s);
-
-			m_tag_prepend(m, ipfwtag);
-			if (m->m_flags & M_FASTFWD_OURS) {
-				if (pd.pf_mtag == NULL &&
-				    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
-					action = PF_DROP;
-					REASON_SET(&reason, PFRES_MEMORY);
-					log = 1;
-					DPFPRINTF(PF_DEBUG_MISC,
-					    ("pf: failed to allocate tag\n"));
-				} else {
-					pd.pf_mtag->flags |=
-					    PF_FASTFWD_OURS_PRESENT;
-					m->m_flags &= ~M_FASTFWD_OURS;
-				}
-			}
-			ip_divert_ptr(*m0, dir ==  PF_IN ? DIR_IN : DIR_OUT);
-			*m0 = NULL;
-
-			return (action);
-		} else {
-			/* XXX: ipfw has the same behaviour! */
-			action = PF_DROP;
-			REASON_SET(&reason, PFRES_MEMORY);
-			log = 1;
-			DPFPRINTF(PF_DEBUG_MISC,
-			    ("pf: failed to allocate divert tag\n"));
-		}
+		if (PACKET_LOOPED(&pd) && !loopedfrom)
+			m->m_flags |= M_FASTFWD_OURS;
 	}
+
+	pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
 
 	if (log) {
 		struct pf_rule *lr;
@@ -6745,7 +6808,7 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 
 	PF_RULES_RLOCK();
 
-	if (ip_dn_io_ptr != NULL &&
+	if (((ip_dn_io_ptr != NULL) || (ip_divert_ptr != NULL)) &&
 	    ((dn_tag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
 		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(dn_tag+1);
 		if (pd.pf_mtag == NULL &&
@@ -6765,7 +6828,7 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 	/* We do IP header normalization and packet reassembly here */
 	else if (pf_normalize_ip6(m0, dir, kif, &reason, &pd) != PF_PASS) {
 		action = PF_DROP;
-		goto done;
+		REASON_SET(&reason, PFRES_MEMORY);
 	}
 	m = *m0;	/* pf_normalize messes with m0 */
 	h = mtod(m, struct ip6_hdr *);

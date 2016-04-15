@@ -165,6 +165,7 @@ struct node_icmp {
 enum	{ PF_STATE_OPT_MAX, PF_STATE_OPT_NOSYNC, PF_STATE_OPT_SRCTRACK,
 	    PF_STATE_OPT_MAX_SRC_STATES, PF_STATE_OPT_MAX_SRC_CONN,
 	    PF_STATE_OPT_MAX_SRC_CONN_RATE, PF_STATE_OPT_MAX_SRC_NODES,
+	    PF_STATE_OPT_MAX_PACKETS,
 	    PF_STATE_OPT_OVERLOAD, PF_STATE_OPT_STATELOCK,
 	    PF_STATE_OPT_TIMEOUT, PF_STATE_OPT_SLOPPY, };
 
@@ -176,6 +177,7 @@ struct node_state_opt {
 		u_int32_t	 max_states;
 		u_int32_t	 max_src_states;
 		u_int32_t	 max_src_conn;
+		u_int32_t	 max_packets;
 		struct {
 			u_int32_t	limit;
 			u_int32_t	seconds;
@@ -475,7 +477,7 @@ int	parseport(char *, struct range *r, int);
 %token	LOAD RULESET_OPTIMIZATION PRIO
 %token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
 %token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY
-%token	TAGGED TAG IFBOUND FLOATING STATEPOLICY STATEDEFAULTS ROUTE SETTOS
+%token	TAGGED TAG IFBOUND FLOATING STATEPOLICY STATEDEFAULTS ROUTE SETTOS MAXPCKT
 %token	DIVERTTO DIVERTREPLY
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
@@ -2163,6 +2165,14 @@ pfrule		: action dir logquick interface route af proto fromto
 					}
 					r.rule_flag |= PFRULE_NOSYNC;
 					break;
+				case PF_STATE_OPT_MAX_PACKETS:
+					if (o->data.max_packets == 0) {
+						yyerror("max_packets must be"
+							"greater than 0");
+						YYERROR;
+					}
+					r.spare2 = o->data.max_packets;
+					break;
 				case PF_STATE_OPT_SRCTRACK:
 					if (srctrack) {
 						yyerror("state option "
@@ -3833,6 +3843,15 @@ state_opt_item	: MAXIMUM NUMBER		{
 				err(1, "state_opt_item: calloc");
 			$$->type = PF_STATE_OPT_MAX_SRC_STATES;
 			$$->data.max_src_states = $2;
+			$$->next = NULL;
+			$$->tail = $$;
+		}
+		| MAXPCKT NUMBER			{
+			$$ = calloc(1, sizeof(struct node_state_opt));
+			if ($$ == NULL)
+				err(1, "state_opt_item: calloc");
+			$$->type = PF_STATE_OPT_MAX_PACKETS;
+			$$->data.max_packets = $2;
 			$$->next = NULL;
 			$$->tail = $$;
 		}
@@ -5666,6 +5685,7 @@ lookup(char *s)
 		{ "match",		MATCH},
 		{ "max",		MAXIMUM},
 		{ "max-mss",		MAXMSS},
+		{ "max-packets",	MAXPCKT},
 		{ "max-src-conn",	MAXSRCCONN},
 		{ "max-src-conn-rate",	MAXSRCCONNRATE},
 		{ "max-src-nodes",	MAXSRCNODES},
