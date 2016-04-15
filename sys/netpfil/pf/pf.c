@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
+#include <sys/ck.h>
 #include <sys/endian.h>
 #include <sys/gsb_crc32.h>
 #include <sys/hash.h>
@@ -6395,6 +6396,12 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 
 	ip = mtod(m0, struct ip *);
 
+	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr))) {
+		if (s)
+			PF_STATE_UNLOCK(s);
+		return;
+	}
+
 	bzero(&dst, sizeof(dst));
 	dst.sin_family = AF_INET;
 	dst.sin_len = sizeof(dst);
@@ -6426,8 +6433,52 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		ifp = r->rpool.cur->kif ? r->rpool.cur->kif->pfik_ifp : NULL;
 	if (ifp == NULL)
 		goto bad;
+	else if (r->rt == PF_REPLYTO || (r->rt == PF_ROUTETO && ifp->if_type == IFT_ENC)) {
+		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
+		struct sockaddr_in inaddr;
+		struct sockaddr *addr;
+		struct ifaddr *ifa;
+		char *cp, *cp2, *cp3;
+		char *cplim;
+
+		inaddr.sin_addr = ip->ip_dst;
+		inaddr.sin_family = AF_INET;
+		inaddr.sin_len = sizeof(inaddr);
+		inaddr.sin_port = 0;
+		addr = (struct sockaddr *)&inaddr;
+
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET)
+				continue;
+			if (ifa->ifa_netmask == 0) {
+				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
+				    (ifa->ifa_dstaddr &&
+				    (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
+					return;
+				continue;
+			}
+			if (ifp->if_flags & IFF_POINTOPOINT) {
+				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
+					return;
+			} else {
+				cp = addr->sa_data;
+				cp2 = ifa->ifa_addr->sa_data;
+				cp3 = ifa->ifa_netmask->sa_data;
+				cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
+				for (; cp3 < cplim; cp3++)
+					if ((*cp++ ^ *cp2++) & *cp3)
+						break;
+				if (cp3 == cplim)
+					return;
+			}
+		}
+	}
+	else if (r->rt == PF_ROUTETO && r->direction == dir && in_localip(ip->ip_dst))
+		return;
 
 	if (dir == PF_IN) {
+		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
+			return;
 		if (pf_test(PF_OUT, 0, ifp, &m0, inp) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
@@ -6597,6 +6648,12 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 
 	ip6 = mtod(m0, struct ip6_hdr *);
 
+	if (IN6_IS_ADDR_MULTICAST(&ip6->ip6_src)) {
+		if (s)
+			PF_STATE_UNLOCK(s);
+		return;
+	}
+
 	bzero(&dst, sizeof(dst));
 	dst.sin6_family = AF_INET6;
 	dst.sin6_len = sizeof(dst);
@@ -6631,6 +6688,48 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		ifp = r->rpool.cur->kif ? r->rpool.cur->kif->pfik_ifp : NULL;
 	if (ifp == NULL)
 		goto bad;
+	else if (r->rt == PF_REPLYTO) {
+		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
+		struct sockaddr_in6 inaddr6;
+		struct sockaddr *addr;
+		struct ifaddr *ifa;
+		char *cp, *cp2, *cp3;
+		char *cplim;
+
+		inaddr6.sin6_addr = ip6->ip6_dst;
+		inaddr6.sin6_family = AF_INET6;
+		inaddr6.sin6_len = sizeof(inaddr6);
+		inaddr6.sin6_port = 0;
+		inaddr6.sin6_flowinfo = 0;
+		addr = (struct sockaddr *)&inaddr6;
+
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
+			if (ifa->ifa_netmask == 0) {
+				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
+				    (ifa->ifa_dstaddr &&
+				     (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
+					return;
+				continue;
+			}
+			if (ifp->if_flags & IFF_POINTOPOINT) {
+				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
+					return;
+			} else {
+				cp = addr->sa_data;
+				cp2 = ifa->ifa_addr->sa_data;
+				cp3 = ifa->ifa_netmask->sa_data;
+				cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
+				for (; cp3 < cplim; cp3++)
+					if ((*cp++ ^ *cp2++) & *cp3)
+						break;
+				if (cp3 == cplim)
+					return;
+			}
+		}
+	} else if (r->rt == PF_ROUTETO && r->direction == dir && in6_localaddr(&ip6->ip6_dst))
+		return;
 
 	if (dir == PF_IN) {
 		if (pf_test6(PF_OUT, PFIL_FWD, ifp, &m0, inp) != PF_PASS)
