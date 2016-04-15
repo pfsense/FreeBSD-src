@@ -228,9 +228,8 @@ ip_output(struct mbuf *m, struct mbuf *opt, struct route *ro, int flags,
 	struct rtentry *rte;	/* cache for ro->ro_rt */
 	uint32_t fibnum;
 	int have_ia_ref;
-#ifdef IPSEC
-	int no_route_but_check_spd = 0;
-#endif
+	int no_route_but_check = 0;
+
 	M_ASSERTPKTHDR(m);
 
 	if (inp != NULL) {
@@ -384,10 +383,11 @@ again:
 			 * There is no route for this packet, but it is
 			 * possible that a matching SPD entry exists.
 			 */
-			no_route_but_check_spd = 1;
 			mtu = 0; /* Silence GCC warning. */
-			goto sendit;
 #endif
+			no_route_but_check = 1;
+			goto sendit;
+
 			IPSTAT_INC(ips_noroute);
 			error = EHOSTUNREACH;
 			goto bad;
@@ -559,18 +559,13 @@ sendit:
 	default:
 		break;	/* Continue with packet processing. */
 	}
-	/*
-	 * Check if there was a route for this packet; return error if not.
-	 */
-	if (no_route_but_check_spd) {
-		IPSTAT_INC(ips_noroute);
-		error = EHOSTUNREACH;
-		goto bad;
-	}
 	/* Update variables that are affected by ipsec4_output(). */
 	ip = mtod(m, struct ip *);
 	hlen = ip->ip_hl << 2;
 #endif /* IPSEC */
+
+	if (ifp == NULL)
+		ifp = V_loif;
 
 	/* Jump over all PFIL processing if hooks are not active. */
 	if (PFIL_HOOKED(&V_inet_pfil_hook)) {
@@ -594,6 +589,15 @@ sendit:
 			goto again;
 
 		}
+	}
+
+	/*
+	 * Check if there was a route for this packet; return error if not.
+	 */
+	if (no_route_but_check) {
+		IPSTAT_INC(ips_noroute);
+		error = EHOSTUNREACH;
+		goto bad;
 	}
 
 	/* 127/8 must not appear on wire - RFC1122. */
