@@ -92,6 +92,9 @@ static const struct printer printers[] = {
 #ifdef DLT_ARCNET_LINUX
 	{ arcnet_linux_if_print, DLT_ARCNET_LINUX },
 #endif
+#if defined(DLT_PFSYNC) && defined(HAVE_NET_PFVAR_H)
+	{ pfsync_if_print,	DLT_PFSYNC},
+#endif
 	{ raw_if_print,		DLT_RAW },
 #ifdef DLT_IPV4
 	{ raw_if_print,		DLT_IPV4 },
