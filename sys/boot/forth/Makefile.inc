@@ -23,3 +23,7 @@ FILES+=	shortcuts.4th
 FILES+=	support.4th
 FILES+=	version.4th
 FILESDIR_loader.conf=	/boot/defaults
+
+# pfSense
+FILES+=	logo-pfSensebw.4th
+FILES+=	brand-pfSense.4th

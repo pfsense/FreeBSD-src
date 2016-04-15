@@ -253,7 +253,7 @@ also menu-namespace also menu-command-helpers
 
 	cr
 	." To get back to the menu, type `menu' and press ENTER" cr
-	." or type `boot' and press ENTER to start FreeBSD." cr
+	." or type `boot' and press ENTER to start pfSense." cr
 	cr
 
 	FALSE \ exit the menu
