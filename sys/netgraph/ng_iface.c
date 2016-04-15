@@ -58,6 +58,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/errno.h>
+#include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
@@ -70,6 +71,7 @@
 #include <sys/libkern.h>
 
 #include <net/if.h>
+#include <net/if_dl.h>
 #include <net/if_var.h>
 #include <net/if_types.h>
 #include <net/bpf.h>
@@ -151,6 +153,13 @@ static const struct ng_cmdlist ng_iface_cmds[] = {
 	  "getifname",
 	  NULL,
 	  &ng_parse_string_type
+	},
+	{
+	  NGM_IFACE_COOKIE,
+	  NGM_IFACE_SET_IFNAME,
+	  "setifname",
+	  &ng_parse_string_type,
+	  NULL
 	},
 	{
 	  NGM_IFACE_COOKIE,
@@ -586,6 +595,10 @@ ng_iface_rcvmsg(node_p node, item_p item, hook_p lasthook)
 	struct ng_mesg *resp = NULL;
 	int error = 0;
 	struct ng_mesg *msg;
+	char *new_name;
+	size_t namelen, onamelen;
+	struct sockaddr_dl *sdl = NULL;
+	struct ifaddr *ifa = NULL;
 
 	NGI_GET_MSG(item, msg);
 	switch (msg->header.typecookie) {
@@ -598,6 +611,49 @@ ng_iface_rcvmsg(node_p node, item_p item, hook_p lasthook)
 				break;
 			}
 			strlcpy(resp->data, ifp->if_xname, IFNAMSIZ);
+			break;
+
+		case NGM_IFACE_SET_IFNAME:
+
+			new_name = (char *)msg->data;
+			/* Announce the departure of the interface. */
+			//new_name[strlen(new_name)] = '\0';
+
+			/* Deny request if interface is UP */
+			if ((ifp->if_flags & IFF_UP) != 0) {
+				error = EBUSY;
+				break;
+			}
+
+			//rt_ifannouncemsg(ifp, IFAN_DEPARTURE);
+			EVENTHANDLER_INVOKE(ifnet_departure_event, ifp);
+
+			IF_ADDR_WLOCK(ifp);
+			strlcpy(ifp->if_xname, new_name, sizeof(ifp->if_xname));
+			ifa = ifp->if_addr;
+			sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+			namelen = strlen(new_name) + 1;
+			onamelen = sdl->sdl_nlen;
+			/*
+			 * Move the address if needed.  This is safe because we
+			 * allocate space for a name of length IFNAMSIZ when we
+			 * create this in if_attach().
+			 */
+			if (namelen != onamelen) {
+				bcopy(sdl->sdl_data + onamelen,
+				    sdl->sdl_data + namelen, sdl->sdl_alen);
+			}
+			bcopy(new_name, sdl->sdl_data, namelen);
+			sdl->sdl_nlen = namelen;
+			sdl = (struct sockaddr_dl *)ifa->ifa_netmask;
+			bzero(sdl->sdl_data, onamelen);
+			while (namelen != 0)
+				sdl->sdl_data[--namelen] = 0xff;
+			IF_ADDR_WUNLOCK(ifp);
+
+			EVENTHANDLER_INVOKE(ifnet_arrival_event, ifp);
+			/* Announce the return of the interface. */
+			//rt_ifannouncemsg(ifp, IFAN_ARRIVAL);
 			break;
 
 		case NGM_IFACE_POINT2POINT:
