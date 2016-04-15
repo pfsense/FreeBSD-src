@@ -65,6 +65,10 @@
 #include <machine/cpu.h>
 #include <vm/uma.h>
 
+#include <sys/socket.h>
+#include <net/if.h>
+#include <net/if_var.h>
+
 #include <net/netisr.h>
 #include <net/vnet.h>
 
@@ -245,6 +249,8 @@ int	ng_make_node(const char *type, node_p *nodepp);
 int	ng_path_parse(char *addr, char **node, char **path, char **hook);
 void	ng_rmnode(node_p node, hook_p dummy1, void *dummy2, int dummy3);
 void	ng_unname(node_p node);
+
+extern void    (*ng_ether_attach_p)(struct ifnet *ifp);
 
 /* Our own netgraph malloc type */
 MALLOC_DEFINE(M_NETGRAPH, "netgraph", "netgraph structures and ctrl messages");
@@ -580,6 +586,13 @@ static const struct ng_cmdlist ng_generic_cmds[] = {
 	  &ng_parse_ng_mesg_type,
 	  &ng_parse_ng_mesg_type
 	},
+	{
+          NGM_GENERIC_COOKIE,
+          NGM_ETHER_ATTACH,
+          "attach",
+          &ng_parse_string_type,
+          NULL
+        },
 	{ 0 }
 };
 
@@ -2913,6 +2926,17 @@ ng_generic_msg(node_p here, item_p item, hook_p lasthook)
 		resp->header.arglen = sizeof(*binary) + bufSize;
 		break;
 	    }
+
+	case NGM_ETHER_ATTACH:
+		{
+			struct ifnet *ifp;
+			ifp = ifunit((char *)msg->data);
+			if (ifp && ng_ether_attach_p != NULL) {
+				ng_ether_attach_p(ifp);
+			}
+
+			break;
+                }
 
 	case NGM_TEXT_CONFIG:
 	case NGM_TEXT_STATUS:
