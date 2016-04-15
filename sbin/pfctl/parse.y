@@ -248,6 +248,9 @@ static struct filter_opts {
 	char			*tag;
 	char			*match_tag;
 	u_int8_t		 match_tag_not;
+	u_int32_t		 dnpipe;
+	u_int32_t		 pdnpipe;
+	u_int32_t		 free_flags;
 	u_int			 rtableid;
 	u_int8_t		 prio;
 	u_int8_t		 set_prio[2];
@@ -466,6 +469,7 @@ int	parseport(char *, struct range *r, int);
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN STATICPORT PROBABILITY
 %token	ALTQ CBQ CODEL PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME
 %token	UPPERLIMIT QUEUE PRIORITY QLIMIT HOGS BUCKETS RTABLE TARGET INTERVAL
+%token	DNPIPE DNQUEUE
 %token	LOAD RULESET_OPTIMIZATION PRIO
 %token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
 %token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY
@@ -2440,6 +2444,15 @@ pfrule		: action dir logquick interface route af proto fromto
 			}
 #endif
 
+			if ($9.dnpipe) {
+				r.dnpipe = $9.dnpipe;
+				if ($9.free_flags & PFRULE_DN_IS_PIPE)
+					r.free_flags |= PFRULE_DN_IS_PIPE;
+				else
+					r.free_flags |= PFRULE_DN_IS_QUEUE;
+				r.pdnpipe = $9.pdnpipe;
+			}
+
 			expand_rule(&r, $4, $5.host, $7, $8.src_os,
 			    $8.src.host, $8.src.port, $8.dst.host, $8.dst.port,
 			    $9.uid, $9.gid, $9.icmpspec, "");
@@ -2548,6 +2561,32 @@ filter_opt	: USER uids {
 				YYERROR;
 			}
 			filter_opts.queues = $1;
+		}
+		| DNPIPE number				{
+			filter_opts.dnpipe = $2;
+			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
+		}
+		| DNPIPE '(' number ')'			{
+			filter_opts.dnpipe = $3;
+			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
+		}
+		| DNPIPE '(' number comma number ')' {
+			filter_opts.pdnpipe = $5;
+			filter_opts.dnpipe = $3;
+			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
+		}
+		| DNQUEUE number			{
+			filter_opts.dnpipe = $2;
+			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
+		}
+		| DNQUEUE '(' number comma number ')'	{
+			filter_opts.pdnpipe = $5;
+			filter_opts.dnpipe = $3;
+			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
+		}
+		| DNQUEUE '(' number ')'		{
+			filter_opts.dnpipe = $3;
+			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
 		}
 		| TAG string				{
 			filter_opts.tag = $2;
@@ -4757,6 +4796,11 @@ filter_consistent(struct pf_rule *r, int anchor_call)
 		yyerror("tos and dscp cannot be used together");
 		problems++;
 	}
+	if (r->dnpipe && r->pdnpipe && !r->direction) {
+		yyerror("dummynet cannot be specified without direction");
+		problems++;
+	}
+
 	return (-problems);
 }
 
@@ -5553,6 +5597,8 @@ lookup(char *s)
 		{ "debug",		DEBUG},
 		{ "divert-reply",	DIVERTREPLY},
 		{ "divert-to",		DIVERTTO},
+		{ "dnpipe",		DNPIPE},
+		{ "dnqueue",		DNQUEUE},
 		{ "drop",		DROP},
 		{ "drop-ovl",		FRAGDROP},
 		{ "dscp",		DSCP},
