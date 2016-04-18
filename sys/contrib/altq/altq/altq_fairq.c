@@ -103,12 +103,9 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_var.h>
 #include <netinet/in.h>
 
-#include <netpfil/pf/pf.h>
-#include <netpfil/pf/pf_altq.h>
-#include <netpfil/pf/pf_mtag.h>
+#include <net/pfvar.h>
 #include <altq/altq.h>
 #include <altq/altq_fairq.h>
 
@@ -409,6 +406,24 @@ fairq_class_create(struct fairq_if *pif, int pri, int qlimit,
 #endif /* ALTQ_RED */
 
 	return (cl);
+
+err_buckets:
+	if (cl->cl_buckets != NULL)
+		free(cl->cl_buckets, M_DEVBUF);
+err_ret:
+        if (cl->cl_red != NULL) {
+#ifdef ALTQ_RIO
+                if (cl->cl_qtype == Q_RIO)
+                        rio_destroy((rio_t *)cl->cl_red);
+#endif
+#ifdef ALTQ_RED
+               if (cl->cl_qtype == Q_RED)
+                       red_destroy(cl->cl_red);
+#endif
+        }
+        if (cl != NULL)
+                free(cl, M_DEVBUF);
+        return (NULL);
 }
 
 static int
