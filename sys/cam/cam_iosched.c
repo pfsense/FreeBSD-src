@@ -63,7 +63,6 @@ static MALLOC_DEFINE(M_CAMSCHED, "CAM I/O Scheduler",
 
 #ifdef CAM_NETFLIX_IOSCHED
 
-SYSCTL_DECL(_kern_cam);
 static int do_netflix_iosched = 1;
 TUNABLE_INT("kern.cam.do_netflix_iosched", &do_netflix_iosched);
 SYSCTL_INT(_kern_cam, OID_AUTO, do_netflix_iosched, CTLFLAG_RD,
@@ -606,10 +605,10 @@ cam_iosched_cl_maybe_steer(struct control_loop *clp)
 			isc->write_stats.current = isc->write_stats.min;
 		if (isc->write_stats.current > isc->write_stats.max)
 			isc->write_stats.current = isc->write_stats.max;
-		if (old != isc->write_stats.current)
-			printf("Steering write from %d kBps to %d kBps due to latency of %ldus\n",
+		if (old != isc->write_stats.current && 	iosched_debug)
+			printf("Steering write from %d kBps to %d kBps due to latency of %jdms\n",
 			    old, isc->write_stats.current,
-			    ((uint64_t)1000000 * (uint32_t)lat) >> 32);
+			    (uintmax_t)((uint64_t)1000000 * (uint32_t)lat) >> 32);
 		break;
 	case cl_max:
 		break;
