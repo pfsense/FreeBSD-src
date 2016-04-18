@@ -6549,7 +6549,7 @@ done:
 continueprocessing:
 
 	if (action == PF_PASS && r->divert.port && ip_divert_ptr != NULL &&
-	    !PACKET_LOOPED(&pd)) {
+	    !PACKET_LOOPED(pd.pf_mtag)) {
 		if (!r->spare2 ||
 		    (s && s->packets[dir == PF_OUT] <= r->spare2)) {
 			ipfwtag = m_tag_alloc(MTAG_IPFW_RULE, 0,
