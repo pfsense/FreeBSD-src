@@ -54,6 +54,9 @@ HTAGSFLAGS?=
 .MAKE.DEPENDFILE= ${DEPENDFILE}
 .endif
 CLEANDEPENDFILES+=	${DEPENDFILE} ${DEPENDFILE}.*
+.if ${MK_META_MODE} == "yes"
+CLEANDEPENDFILES+=	*.meta
+.endif
 
 # Keep `tags' here, before SRCS are mangled below for `depend'.
 .if !target(tags) && defined(SRCS) && !defined(NO_TAGS)
@@ -235,7 +238,7 @@ DPSRCS+= ${SRCS}
 # beforedepend/_EXTRADEPEND/afterdepend.  The target is kept
 # to allow 'make depend' to generate files.
 ${DEPENDFILE}: ${DPSRCS}
-.if exists(${.OBJDIR}/${DEPENDFILE})
+.if !empty(.MAKE.MODE:Mmeta) || exists(${.OBJDIR}/${DEPENDFILE})
 	rm -f ${DEPENDFILE}
 .endif
 .if target(_EXTRADEPEND)
