@@ -111,56 +111,60 @@ static const struct bhndb_pci_id *bhndb_pci_find_core_id(
  */
 static const struct bhndb_pci_id bhndb_pci_ids[] = {
 	/* PCI */
-	BHNDB_PCI_ID(PCI,
-		BHND_QUIRK_HWREV_GTE	(0,
-		    BHNDB_PCI_QUIRK_EXT_CLOCK_GATING | 
-		    BHNDB_PCI_QUIRK_SBTOPCI2_PREF_BURST),
+	{ BHND_COREID_PCI, BHND_PCI_REGFMT_PCI,
+		(struct bhnd_device_quirk[]) {
+			{ BHND_HWREV_GTE	(0),
+				BHNDB_PCI_QUIRK_EXT_CLOCK_GATING | 
+				BHNDB_PCI_QUIRK_SBTOPCI2_PREF_BURST },
 
-		BHND_QUIRK_HWREV_RANGE	(0, 5,
-		    BHNDB_PCI_QUIRK_SBINTVEC),
+			{ BHND_HWREV_RANGE	(0, 5),
+				BHNDB_PCI_QUIRK_SBINTVEC },
 
-		BHND_QUIRK_HWREV_GTE	(11,
-		    BHNDB_PCI_QUIRK_SBTOPCI2_READMULTI |
-		    BHNDB_PCI_QUIRK_CLKRUN_DSBL),
+			{ BHND_HWREV_GTE	(11),
+				BHNDB_PCI_QUIRK_SBTOPCI2_READMULTI |
+				BHNDB_PCI_QUIRK_CLKRUN_DSBL },
 
-		BHND_QUIRK_HWREV_END
-	),
+			BHND_DEVICE_QUIRK_END
+		}
+	},
 
 	/* PCI Gen 1 */
-	BHNDB_PCI_ID(PCIE,
-		BHND_QUIRK_HWREV_EQ	(0,
-		    BHNDB_PCIE_QUIRK_SDR9_L0s_HANG),
+	{ BHND_COREID_PCIE, BHND_PCI_REGFMT_PCIE,
+		(struct bhnd_device_quirk[]) {
+			{ BHND_HWREV_EQ		(0),
+				BHNDB_PCIE_QUIRK_SDR9_L0s_HANG },
 
-		BHND_QUIRK_HWREV_RANGE	(0, 1,
-		    BHNDB_PCIE_QUIRK_UR_STATUS_FIX),
+			{ BHND_HWREV_RANGE	(0, 1),
+				BHNDB_PCIE_QUIRK_UR_STATUS_FIX },
 
-		BHND_QUIRK_HWREV_EQ	(1,
-		    BHNDB_PCIE_QUIRK_PCIPM_REQEN),
+			{ BHND_HWREV_EQ		(1),
+				BHNDB_PCIE_QUIRK_PCIPM_REQEN },
 
-		BHND_QUIRK_HWREV_RANGE	(3, 5,
-		    BHNDB_PCIE_QUIRK_ASPM_OVR |
-		    BHNDB_PCIE_QUIRK_SDR9_POLARITY |
-		    BHNDB_PCIE_QUIRK_SDR9_NO_FREQRETRY),
+			{ BHND_HWREV_RANGE	(3, 5),
+				BHNDB_PCIE_QUIRK_ASPM_OVR |
+				BHNDB_PCIE_QUIRK_SDR9_POLARITY |
+				BHNDB_PCIE_QUIRK_SDR9_NO_FREQRETRY },
 
-		BHND_QUIRK_HWREV_LTE	(6,
-		    BHNDB_PCIE_QUIRK_L1_IDLE_THRESH),
+			{ BHND_HWREV_LTE	(6),
+				BHNDB_PCIE_QUIRK_L1_IDLE_THRESH },
 
-		BHND_QUIRK_HWREV_GTE	(6,
-		    BHNDB_PCIE_QUIRK_SPROM_L23_PCI_RESET),
+			{ BHND_HWREV_GTE	(6),
+				BHNDB_PCIE_QUIRK_SPROM_L23_PCI_RESET },
 
-		BHND_QUIRK_HWREV_EQ	(7,
-		    BHNDB_PCIE_QUIRK_SERDES_NOPLLDOWN),
+			{ BHND_HWREV_EQ		(7),
+				BHNDB_PCIE_QUIRK_SERDES_NOPLLDOWN },
 
-		BHND_QUIRK_HWREV_GTE	(8,
-		    BHNDB_PCIE_QUIRK_L1_TIMER_PERF),
+			{ BHND_HWREV_GTE	(8),
+				BHNDB_PCIE_QUIRK_L1_TIMER_PERF },
 
-		BHND_QUIRK_HWREV_GTE	(10,
-		    BHNDB_PCIE_QUIRK_SD_C22_EXTADDR),
+			{ BHND_HWREV_GTE	(10),
+				BHNDB_PCIE_QUIRK_SD_C22_EXTADDR },
 
-		BHND_QUIRK_HWREV_END
-	),
+			BHND_DEVICE_QUIRK_END
+		}
+	},
 
-	{ BHND_COREID_INVALID, BHND_PCI_REGFMT_PCI, NULL }
+	{ BHND_COREID_INVALID, BHND_PCI_REGFMT_PCI }
 };
 
 
@@ -375,10 +379,18 @@ bhndb_pci_init_full_config(device_t dev, device_t child,
 	 * access to the PCIe SerDes required by the quirk workarounds.
 	 */
 	if (sc->pci_devclass == BHND_DEVCLASS_PCIE) {
-		sc->mdio = device_add_child(dev, 
+		sc->mdio = BUS_ADD_CHILD(dev, 0,
 		    devclass_get_name(bhnd_mdio_pci_devclass), 0);
 		if (sc->mdio == NULL)
 			return (ENXIO);
+		
+		error = bus_set_resource(sc->mdio, SYS_RES_MEMORY, 0,
+		    rman_get_start(sc->mem_res) + sc->mem_off +
+		    BHND_PCIE_MDIO_CTL, sizeof(uint32_t)*2);
+		if (error) {
+			device_printf(dev, "failed to set MDIO resource\n");
+			return (error);
+		}
 
 		if ((error = device_probe_and_attach(sc->mdio))) {
 			device_printf(dev, "failed to attach MDIO device\n");
@@ -1021,25 +1033,6 @@ bhndb_pci_discover_quirks(struct bhndb_pci_softc *sc,
 static int
 bhndb_mdio_pcie_probe(device_t dev)
 {
-	struct bhndb_softc	*psc;
-	device_t		 parent;
-
-	/* Parent must be a bhndb_pcie instance */
-	parent = device_get_parent(dev);
-	if (device_get_driver(parent) != &bhndb_pci_driver)
-		return (ENXIO);
-
-	/* Parent must have PCIe-Gen1 hostb device */
-	psc = device_get_softc(parent);
-	if (psc->hostb_dev == NULL)
-		return (ENXIO);
-
-	if (bhnd_get_vendor(psc->hostb_dev) != BHND_MFGID_BCM ||
-	    bhnd_get_device(psc->hostb_dev) != BHND_COREID_PCIE)
-	{
-		return (ENXIO);
-	}
-
 	device_quiet(dev);
 	return (BUS_PROBE_NOWILDCARD);
 }
@@ -1048,15 +1041,11 @@ static int
 bhndb_mdio_pcie_attach(device_t dev)
 {
 	struct bhndb_pci_softc	*psc;
-	
 	psc = device_get_softc(device_get_parent(dev));
-
 	return (bhnd_mdio_pcie_attach(dev,
 	    &psc->bhnd_mem_res, -1,
 	    psc->mem_off + BHND_PCIE_MDIO_CTL,
 	    (psc->quirks & BHNDB_PCIE_QUIRK_SD_C22_EXTADDR) != 0));
-
-	return (ENXIO);
 }
 
 static device_method_t bhnd_mdio_pcie_methods[] = {
