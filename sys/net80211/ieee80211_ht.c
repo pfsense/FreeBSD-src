@@ -1424,7 +1424,7 @@ ieee80211_parse_htcap(struct ieee80211_node *ni, const uint8_t *ie)
 	} else
 		ni->ni_flags &= ~IEEE80211_NODE_HTCOMPAT;
 
-	ni->ni_htcap = LE_READ_2(ie +
+	ni->ni_htcap = le16dec(ie +
 		__offsetof(struct ieee80211_ie_htcap, hc_cap));
 	ni->ni_htparam = ie[__offsetof(struct ieee80211_ie_htcap, hc_param)];
 }
@@ -1437,9 +1437,9 @@ htinfo_parse(struct ieee80211_node *ni,
 
 	ni->ni_htctlchan = htinfo->hi_ctrlchannel;
 	ni->ni_ht2ndchan = SM(htinfo->hi_byte1, IEEE80211_HTINFO_2NDCHAN);
-	w = LE_READ_2(&htinfo->hi_byte2);
+	w = le16dec(&htinfo->hi_byte2);
 	ni->ni_htopmode = SM(w, IEEE80211_HTINFO_OPMODE);
-	w = LE_READ_2(&htinfo->hi_byte45);
+	w = le16dec(&htinfo->hi_byte45);
 	ni->ni_htstbc = SM(w, IEEE80211_HTINFO_BASIC_STBCMCS);
 }
 
@@ -1932,9 +1932,9 @@ ht_recv_action_ba_addba_request(struct ieee80211_node *ni,
 	int tid;
 
 	dialogtoken = frm[2];
-	baparamset = LE_READ_2(frm+3);
-	batimeout = LE_READ_2(frm+5);
-	baseqctl = LE_READ_2(frm+7);
+	baparamset = le16dec(frm+3);
+	batimeout = le16dec(frm+5);
+	baseqctl = le16dec(frm+7);
 
 	tid = MS(baparamset, IEEE80211_BAPS_TID);
 
@@ -1997,12 +1997,12 @@ ht_recv_action_ba_addba_response(struct ieee80211_node *ni,
 	int tid, bufsiz;
 
 	dialogtoken = frm[2];
-	code = LE_READ_2(frm+3);
-	baparamset = LE_READ_2(frm+5);
+	code = le16dec(frm+3);
+	baparamset = le16dec(frm+5);
 	tid = MS(baparamset, IEEE80211_BAPS_TID);
 	bufsiz = MS(baparamset, IEEE80211_BAPS_BUFSIZ);
 	policy = MS(baparamset, IEEE80211_BAPS_POLICY);
-	batimeout = LE_READ_2(frm+7);
+	batimeout = le16dec(frm+7);
 
 	tap = &ni->ni_tx_ampdu[tid];
 	if ((tap->txa_flags & IEEE80211_AGGR_XCHGPEND) == 0) {
@@ -2069,8 +2069,8 @@ ht_recv_action_ba_delba(struct ieee80211_node *ni,
 	uint16_t baparamset, code;
 	int tid;
 
-	baparamset = LE_READ_2(frm+2);
-	code = LE_READ_2(frm+4);
+	baparamset = le16dec(frm+2);
+	code = le16dec(frm+4);
 
 	tid = MS(baparamset, IEEE80211_DELBAPS_TID);
 
@@ -2243,8 +2243,9 @@ ieee80211_ampdu_stop(struct ieee80211_node *ni, struct ieee80211_tx_ampdu *tap,
 	tap->txa_flags &= ~IEEE80211_AGGR_BARPEND;
 	if (IEEE80211_AMPDU_RUNNING(tap)) {
 		IEEE80211_NOTE(vap, IEEE80211_MSG_ACTION | IEEE80211_MSG_11N,
-		    ni, "%s: stop BA stream for TID %d (reason %d)",
-		    __func__, tap->txa_tid, reason);
+		    ni, "%s: stop BA stream for TID %d (reason: %d (%s))",
+		    __func__, tap->txa_tid, reason,
+		    ieee80211_reason_to_string(reason));
 		vap->iv_stats.is_ampdu_stop++;
 
 		ic->ic_addba_stop(ni, tap);
@@ -2255,8 +2256,9 @@ ieee80211_ampdu_stop(struct ieee80211_node *ni, struct ieee80211_tx_ampdu *tap,
 			IEEE80211_ACTION_BA_DELBA, args);
 	} else {
 		IEEE80211_NOTE(vap, IEEE80211_MSG_ACTION | IEEE80211_MSG_11N,
-		    ni, "%s: BA stream for TID %d not running (reason %d)",
-		    __func__, tap->txa_tid, reason);
+		    ni, "%s: BA stream for TID %d not running "
+		    "(reason: %d (%s))", __func__, tap->txa_tid, reason,
+		    ieee80211_reason_to_string(reason));
 		vap->iv_stats.is_ampdu_stop_failed++;
 	}
 }
@@ -2584,8 +2586,8 @@ ht_send_action_ba_delba(struct ieee80211_node *ni,
 		   | args[1]
 		   ;
 	IEEE80211_NOTE(vap, IEEE80211_MSG_ACTION | IEEE80211_MSG_11N, ni,
-	    "send DELBA action: tid %d, initiator %d reason %d",
-	    args[0], args[1], args[2]);
+	    "send DELBA action: tid %d, initiator %d reason %d (%s)",
+	    args[0], args[1], args[2], ieee80211_reason_to_string(args[2]));
 
 	IEEE80211_DPRINTF(vap, IEEE80211_MSG_NODE,
 	    "ieee80211_ref_node (%s:%u) %p<%s> refcnt %d\n", __func__, __LINE__,

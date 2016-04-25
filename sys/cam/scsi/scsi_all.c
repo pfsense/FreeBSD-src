@@ -154,7 +154,7 @@ static struct scsi_op_quirk_entry scsi_op_quirk_table[] = {
 		 * feel free to change this quirk entry.
 		 */
 		{T_CDROM, SIP_MEDIA_REMOVABLE, "PLEXTOR", "CD-ROM PX*", "*"},
-		sizeof(plextor_cd_ops)/sizeof(struct op_table_entry),
+		nitems(plextor_cd_ops),
 		plextor_cd_ops
 	}
 };
@@ -645,8 +645,7 @@ scsi_op_desc(u_int16_t opcode, struct scsi_inquiry_data *inq_data)
 
 		match = cam_quirkmatch((caddr_t)inq_data,
 				       (caddr_t)scsi_op_quirk_table,
-				       sizeof(scsi_op_quirk_table)/
-				       sizeof(*scsi_op_quirk_table),
+				       nitems(scsi_op_quirk_table),
 				       sizeof(*scsi_op_quirk_table),
 				       scsi_inquiry_match);
 	}
@@ -655,7 +654,7 @@ scsi_op_desc(u_int16_t opcode, struct scsi_inquiry_data *inq_data)
 		table[0] = ((struct scsi_op_quirk_entry *)match)->op_table;
 		num_ops[0] = ((struct scsi_op_quirk_entry *)match)->num_ops;
 		table[1] = scsi_op_codes;
-		num_ops[1] = sizeof(scsi_op_codes)/sizeof(scsi_op_codes[0]);
+		num_ops[1] = nitems(scsi_op_codes);
 		num_tables = 2;
 	} else {
 		/*	
@@ -666,7 +665,7 @@ scsi_op_desc(u_int16_t opcode, struct scsi_inquiry_data *inq_data)
 			return("Vendor Specific Command");
 
 		table[0] = scsi_op_codes;
-		num_ops[0] = sizeof(scsi_op_codes)/sizeof(scsi_op_codes[0]);
+		num_ops[0] = nitems(scsi_op_codes);
 		num_tables = 1;
 	}
 
@@ -736,9 +735,6 @@ const struct sense_key_table_entry sense_key_table[] =
 	{ SSD_KEY_MISCOMPARE, SS_NOP, "MISCOMPARE" },
 	{ SSD_KEY_COMPLETED, SS_NOP, "COMPLETED" }
 };
-
-const int sense_key_table_size =
-    sizeof(sense_key_table)/sizeof(sense_key_table[0]);
 
 static struct asc_table_entry quantum_fireball_entries[] = {
 	{ SST(0x04, 0x0b, SS_START | SSQ_DECREMENT_COUNT | ENXIO, 
@@ -924,7 +920,7 @@ static struct scsi_sense_quirk_entry sense_quirk_table[] = {
 		 */
 		{T_DIRECT, SIP_MEDIA_FIXED, "QUANTUM", "FIREBALL S*", "*"},
 		/*num_sense_keys*/0,
-		sizeof(quantum_fireball_entries)/sizeof(struct asc_table_entry),
+		nitems(quantum_fireball_entries),
 		/*sense key entries*/NULL,
 		quantum_fireball_entries
 	},
@@ -935,7 +931,7 @@ static struct scsi_sense_quirk_entry sense_quirk_table[] = {
 		 */
 		{T_DIRECT, SIP_MEDIA_REMOVABLE, "SONY", "SMO-*", "*"},
 		/*num_sense_keys*/0,
-		sizeof(sony_mo_entries)/sizeof(struct asc_table_entry),
+		nitems(sony_mo_entries),
 		/*sense key entries*/NULL,
 		sony_mo_entries
 	},
@@ -945,7 +941,7 @@ static struct scsi_sense_quirk_entry sense_quirk_table[] = {
 		 */
 		{T_DIRECT, SIP_MEDIA_FIXED, "HGST", "*", "*"},
 		/*num_sense_keys*/0,
-		sizeof(hgst_entries)/sizeof(struct asc_table_entry),
+		nitems(hgst_entries),
 		/*sense key entries*/NULL,
 		hgst_entries
 	},
@@ -955,14 +951,13 @@ static struct scsi_sense_quirk_entry sense_quirk_table[] = {
 		 */
 		{T_DIRECT, SIP_MEDIA_FIXED, "SEAGATE", "*", "*"},
 		/*num_sense_keys*/0,
-		sizeof(seagate_entries)/sizeof(struct asc_table_entry),
+		nitems(seagate_entries),
 		/*sense key entries*/NULL,
 		seagate_entries
 	}
 };
 
-const int sense_quirk_table_size =
-    sizeof(sense_quirk_table)/sizeof(sense_quirk_table[0]);
+const int sense_quirk_table_size = nitems(sense_quirk_table);
 
 static struct asc_table_entry asc_table[] = {
 	/*
@@ -3198,7 +3193,7 @@ static struct asc_table_entry asc_table[] = {
 	    "Security conflict in translated device") }
 };
 
-const int asc_table_size = sizeof(asc_table)/sizeof(asc_table[0]);
+const int asc_table_size = nitems(asc_table);
 
 struct asc_key
 {
@@ -3291,14 +3286,14 @@ fetchtableentries(int sense_key, int asc, int ascq,
 		sense_tables[0] = quirk->sense_key_info;
 		sense_tables_size[0] = quirk->num_sense_keys;
 		sense_tables[1] = sense_key_table;
-		sense_tables_size[1] = sense_key_table_size;
+		sense_tables_size[1] = nitems(sense_key_table);
 		num_sense_tables = 2;
 	} else {
 		asc_tables[0] = asc_table;
 		asc_tables_size[0] = asc_table_size;
 		num_asc_tables = 1;
 		sense_tables[0] = sense_key_table;
-		sense_tables_size[0] = sense_key_table_size;
+		sense_tables_size[0] = nitems(sense_key_table);
 		num_sense_tables = 1;
 	}
 
@@ -4707,8 +4702,7 @@ scsi_sense_desc_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 {
 	int i;
 
-	for (i = 0; i < (sizeof(scsi_sense_printers) /
-	     sizeof(scsi_sense_printers[0])); i++) {
+	for (i = 0; i < nitems(scsi_sense_printers); i++) {
 		struct scsi_sense_desc_printer *printer;
 
 		printer = &scsi_sense_printers[i];
@@ -5493,7 +5487,7 @@ scsi_calc_syncsrate(u_int period_factor)
 		return (3300);
 	}
 
-	num_syncrates = sizeof(scsi_syncrates) / sizeof(scsi_syncrates[0]);
+	num_syncrates = nitems(scsi_syncrates);
 	/* See if the period is in the "exception" table */
 	for (i = 0; i < num_syncrates; i++) {
 
@@ -5525,7 +5519,7 @@ scsi_calc_syncparam(u_int period)
 
 	/* Adjust for exception table being in 100ths. */
 	period *= 10;
-	num_syncrates = sizeof(scsi_syncrates) / sizeof(scsi_syncrates[0]);
+	num_syncrates = nitems(scsi_syncrates);
 	/* See if the period is in the "exception" table */
 	for (i = 0; i < num_syncrates; i++) {
 
@@ -6571,8 +6565,7 @@ scsi_parse_transportid(char *transportid_str,
 		goto bailout;
 	}
 
-	num_proto_entries = sizeof(scsi_proto_map) /
-			    sizeof(scsi_proto_map[0]);
+	num_proto_entries = nitems(scsi_proto_map);
 	status = scsi_get_nv(scsi_proto_map, num_proto_entries, tmpstr,
 			     &table_entry, SCSI_NV_FLAG_IG_CASE);
 	if (status != SCSI_NV_FOUND) {
@@ -7292,8 +7285,7 @@ struct scsi_attrib_table_entry *
 scsi_get_attrib_entry(uint32_t id)
 {
 	return (scsi_find_attrib_entry(scsi_mam_attr_table,
-		sizeof(scsi_mam_attr_table) / sizeof(scsi_mam_attr_table[0]),
-		id));
+	    nitems(scsi_mam_attr_table), id));
 }
 
 int
@@ -7419,19 +7411,16 @@ scsi_attrib_sbuf(struct sbuf *sb, struct scsi_mam_attribute_header *hdr,
 			table1 = user_table;
 			table1_size = num_user_entries;
 			table2 = scsi_mam_attr_table;
-			table2_size = sizeof(scsi_mam_attr_table) /
-				      sizeof(scsi_mam_attr_table[0]);
+			table2_size = nitems(scsi_mam_attr_table);
 		} else {
 			table1 = scsi_mam_attr_table;
-			table1_size = sizeof(scsi_mam_attr_table) /
-				      sizeof(scsi_mam_attr_table[0]);
+			table1_size = nitems(scsi_mam_attr_table);
 			table2 = user_table;
 			table2_size = num_user_entries;
 		}
 	} else {
 		table1 = scsi_mam_attr_table;
-		table1_size = sizeof(scsi_mam_attr_table) /
-			      sizeof(scsi_mam_attr_table[0]);
+		table1_size = nitems(scsi_mam_attr_table);
 	}
 
 	entry = scsi_find_attrib_entry(table1, table1_size, id);

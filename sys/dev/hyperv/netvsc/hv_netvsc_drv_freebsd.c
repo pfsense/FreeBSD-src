@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2010-2012 Citrix Inc.
- * Copyright (c) 2009-2012 Microsoft Corp.
+ * Copyright (c) 2009-2012,2016 Microsoft Corp.
  * Copyright (c) 2012 NetApp Inc.
  * All rights reserved.
  *
@@ -291,6 +291,10 @@ static int hn_tx_ring_cnt = 0;
 SYSCTL_INT(_hw_hn, OID_AUTO, tx_ring_cnt, CTLFLAG_RDTUN,
     &hn_tx_ring_cnt, 0, "# of TX rings to use");
 
+static int hn_tx_swq_depth = 0;
+SYSCTL_INT(_hw_hn, OID_AUTO, tx_swq_depth, CTLFLAG_RDTUN,
+    &hn_tx_swq_depth, 0, "Depth of IFQ or BUFRING");
+
 static u_int hn_cpu_index;
 
 /*
@@ -346,6 +350,16 @@ hn_set_lro_lenlim(struct hn_softc *sc, int lenlim)
 		sc->hn_rx_ring[i].hn_lro.lro_length_lim = lenlim;
 }
 #endif
+
+static int
+hn_get_txswq_depth(const struct hn_tx_ring *txr)
+{
+
+	KASSERT(txr->hn_txdesc_cnt > 0, ("tx ring is not setup yet"));
+	if (hn_tx_swq_depth < txr->hn_txdesc_cnt)
+		return txr->hn_txdesc_cnt;
+	return hn_tx_swq_depth;
+}
 
 static int
 hn_ifmedia_upd(struct ifnet *ifp __unused)
@@ -407,7 +421,7 @@ static int
 netvsc_attach(device_t dev)
 {
 	struct hv_device *device_ctx = vmbus_get_devctx(dev);
-	struct hv_vmbus_channel *chan;
+	struct hv_vmbus_channel *pri_chan;
 	netvsc_device_info device_info;
 	hn_softc_t *sc;
 	int unit = device_get_unit(dev);
@@ -488,12 +502,12 @@ netvsc_attach(device_t dev)
 	/*
 	 * Associate the first TX/RX ring w/ the primary channel.
 	 */
-	chan = device_ctx->channel;
-	KASSERT(HV_VMBUS_CHAN_ISPRIMARY(chan), ("not primary channel"));
-	KASSERT(chan->offer_msg.offer.sub_channel_index == 0,
+	pri_chan = device_ctx->channel;
+	KASSERT(HV_VMBUS_CHAN_ISPRIMARY(pri_chan), ("not primary channel"));
+	KASSERT(pri_chan->offer_msg.offer.sub_channel_index == 0,
 	    ("primary channel subidx %u",
-	     chan->offer_msg.offer.sub_channel_index));
-	hn_channel_attach(sc, chan);
+	     pri_chan->offer_msg.offer.sub_channel_index));
+	hn_channel_attach(sc, pri_chan);
 
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = hn_ioctl;
@@ -501,9 +515,11 @@ netvsc_attach(device_t dev)
 	/* needed by hv_rf_on_device_add() code */
 	ifp->if_mtu = ETHERMTU;
 	if (hn_use_if_start) {
+		int qdepth = hn_get_txswq_depth(&sc->hn_tx_ring[0]);
+
 		ifp->if_start = hn_start;
-		IFQ_SET_MAXLEN(&ifp->if_snd, 512);
-		ifp->if_snd.ifq_drv_maxlen = 511;
+		IFQ_SET_MAXLEN(&ifp->if_snd, qdepth);
+		ifp->if_snd.ifq_drv_maxlen = qdepth - 1;
 		IFQ_SET_READY(&ifp->if_snd);
 	} else {
 		ifp->if_transmit = hn_transmit;
@@ -531,6 +547,19 @@ netvsc_attach(device_t dev)
 	error = hv_rf_on_device_add(device_ctx, &device_info, ring_cnt);
 	if (error)
 		goto failed;
+
+	if (sc->net_dev->num_channel > 1) {
+		struct hv_vmbus_channel **subchan;
+		int subchan_cnt = sc->net_dev->num_channel - 1;
+
+		/*
+		 * Wait for sub-channels setup to complete.
+		 */
+		subchan = vmbus_get_subchan(pri_chan, subchan_cnt);
+		vmbus_rel_subchan(subchan, subchan_cnt);
+		device_printf(dev, "%d sub-channels setup done\n", subchan_cnt);
+	}
+
 	KASSERT(sc->net_dev->num_channel > 0 &&
 	    sc->net_dev->num_channel <= sc->hn_rx_ring_inuse,
 	    ("invalid channel count %u, should be less than %d",
@@ -2285,10 +2314,14 @@ hn_create_tx_ring(struct hn_softc *sc, int id)
 		TASK_INIT(&txr->hn_tx_task, 0, hn_start_taskfunc, txr);
 		TASK_INIT(&txr->hn_txeof_task, 0, hn_start_txeof_taskfunc, txr);
 	} else {
+		int br_depth;
+
 		txr->hn_txeof = hn_xmit_txeof;
 		TASK_INIT(&txr->hn_tx_task, 0, hn_xmit_taskfunc, txr);
 		TASK_INIT(&txr->hn_txeof_task, 0, hn_xmit_txeof_taskfunc, txr);
-		txr->hn_mbuf_br = buf_ring_alloc(txr->hn_txdesc_cnt, M_NETVSC,
+
+		br_depth = hn_get_txswq_depth(txr);
+		txr->hn_mbuf_br = buf_ring_alloc(br_depth, M_NETVSC,
 		    M_WAITOK, &txr->hn_tx_lock);
 	}
 
@@ -2700,8 +2733,10 @@ hn_transmit(struct ifnet *ifp, struct mbuf *m)
 	txr = &sc->hn_tx_ring[idx];
 
 	error = drbr_enqueue(ifp, txr->hn_mbuf_br, m);
-	if (error)
+	if (error) {
+		if_inc_counter(ifp, IFCOUNTER_OQDROPS, 1);
 		return error;
+	}
 
 	if (txr->hn_oactive)
 		return 0;

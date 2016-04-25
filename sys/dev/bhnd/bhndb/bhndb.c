@@ -757,7 +757,7 @@ bhndb_suspend_resource(device_t dev, device_t child, int type,
 	}
 
 	if (BHNDB_DEBUG(PRIO))
-		device_printf(child, "suspend resource type=%d 0x%lx+0x%lx\n",
+		device_printf(child, "suspend resource type=%d 0x%jx+0x%jx\n",
 		    type, rman_get_start(r), rman_get_size(r));
 
 	/* Release the resource's window reference */
@@ -785,7 +785,7 @@ bhndb_resume_resource(device_t dev, device_t child, int type,
 		return (0);
 
 	if (BHNDB_DEBUG(PRIO))
-		device_printf(child, "resume resource type=%d 0x%lx+0x%lx\n",
+		device_printf(child, "resume resource type=%d 0x%jx+0x%jx\n",
 		    type, rman_get_start(r), rman_get_size(r));
 
 	return (bhndb_try_activate_resource(sc, rman_get_device(r), type,
@@ -1928,7 +1928,7 @@ static device_method_t bhndb_methods[] = {
 	DEVMETHOD(bhnd_bus_is_hostb_device,	bhndb_is_hostb_device),
 	DEVMETHOD(bhnd_bus_get_chipid,		bhndb_get_chipid),
 	DEVMETHOD(bhnd_bus_activate_resource,	bhndb_activate_bhnd_resource),
-	DEVMETHOD(bhnd_bus_activate_resource,	bhndb_deactivate_bhnd_resource),
+	DEVMETHOD(bhnd_bus_deactivate_resource,	bhndb_deactivate_bhnd_resource),
 	DEVMETHOD(bhnd_bus_read_1,		bhndb_bus_read_1),
 	DEVMETHOD(bhnd_bus_read_2,		bhndb_bus_read_2),
 	DEVMETHOD(bhnd_bus_read_4,		bhndb_bus_read_4),

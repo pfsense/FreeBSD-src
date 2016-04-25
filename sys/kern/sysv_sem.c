@@ -164,7 +164,7 @@ struct sem_undo {
  * SEMUSZ is properly aligned.
  */
 
-#define SEM_ALIGN(bytes) (((bytes) + (sizeof(long) - 1)) & ~(sizeof(long) - 1))
+#define	SEM_ALIGN(bytes) roundup2(bytes, sizeof(long))
 
 /* actual size of an undo structure */
 #define SEMUSZ	SEM_ALIGN(offsetof(struct sem_undo, un_ent[SEMUME]))
@@ -1400,8 +1400,7 @@ sys_semsys(td, uap)
 
 	if (!prison_allow(td->td_ucred, PR_ALLOW_SYSVIPC))
 		return (ENOSYS);
-	if (uap->which < 0 ||
-	    uap->which >= nitems(semcalls))
+	if (uap->which < 0 || uap->which >= nitems(semcalls))
 		return (EINVAL);
 	error = (*semcalls[uap->which])(td, &uap->a2);
 	return (error);

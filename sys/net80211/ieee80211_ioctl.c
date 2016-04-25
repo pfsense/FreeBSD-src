@@ -1281,18 +1281,20 @@ mlmedebug(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN],
 	if (op == IEEE80211_MLME_AUTH) {
 		IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_IOCTL |
 		    IEEE80211_MSG_STATE | IEEE80211_MSG_AUTH, mac,
-		    "station authenticate %s via MLME (reason %d)",
+		    "station authenticate %s via MLME (reason: %d (%s))",
 		    reason == IEEE80211_STATUS_SUCCESS ? "ACCEPT" : "REJECT",
-		    reason);
+		    reason, ieee80211_reason_to_string(reason));
 	} else if (!(IEEE80211_MLME_ASSOC <= op && op <= IEEE80211_MLME_AUTH)) {
 		IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, mac,
-		    "unknown MLME request %d (reason %d)", op, reason);
+		    "unknown MLME request %d (reason: %d (%s))", op, reason,
+		    ieee80211_reason_to_string(reason));
 	} else if (reason == IEEE80211_STATUS_SUCCESS) {
 		IEEE80211_NOTE_MAC(vap, ops[op].mask, mac,
 		    "station %s via MLME", ops[op].opstr);
 	} else {
 		IEEE80211_NOTE_MAC(vap, ops[op].mask, mac,
-		    "station %s via MLME (reason %d)", ops[op].opstr, reason);
+		    "station %s via MLME (reason: %d (%s))", ops[op].opstr,
+		    reason, ieee80211_reason_to_string(reason));
 	}
 #endif /* IEEE80211_DEBUG */
 }
@@ -3304,11 +3306,27 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	switch (cmd) {
 	case SIOCSIFFLAGS:
 		IEEE80211_LOCK(ic);
-		if ((ifp->if_flags ^ vap->iv_ifflags) & IFF_PROMISC)
-			ieee80211_promisc(vap, ifp->if_flags & IFF_PROMISC);
-		if ((ifp->if_flags ^ vap->iv_ifflags) & IFF_ALLMULTI)
+		if ((ifp->if_flags ^ vap->iv_ifflags) & IFF_PROMISC) {
+			/*
+			 * Enable promiscuous mode when:
+			 * 1. Interface is not a member of bridge, or
+			 * 2. Requested by user, or
+			 * 3. In monitor (or adhoc-demo) mode.
+			 */
+			if (ifp->if_bridge == NULL ||
+			    (ifp->if_flags & IFF_PPROMISC) != 0 ||
+			    vap->iv_opmode == IEEE80211_M_MONITOR ||
+			    (vap->iv_opmode == IEEE80211_M_AHDEMO &&
+			    (vap->iv_caps & IEEE80211_C_TDMA) == 0)) {
+				ieee80211_promisc(vap,
+				    ifp->if_flags & IFF_PROMISC);
+				vap->iv_ifflags ^= IFF_PROMISC;
+			}
+		}
+		if ((ifp->if_flags ^ vap->iv_ifflags) & IFF_ALLMULTI) {
 			ieee80211_allmulti(vap, ifp->if_flags & IFF_ALLMULTI);
-		vap->iv_ifflags = ifp->if_flags;
+			vap->iv_ifflags ^= IFF_ALLMULTI;
+		}
 		if (ifp->if_flags & IFF_UP) {
 			/*
 			 * Bring ourself up unless we're already operational.

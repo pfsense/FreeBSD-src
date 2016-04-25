@@ -210,7 +210,6 @@ struct prison_racct {
 					/* primary jail address. */
 
 /* Internal flag bits */
-#define	PR_REMOVE	0x01000000	/* In process of being removed */
 #define	PR_IP4		0x02000000	/* IPv4 restricted or disabled */
 					/* by this jail or an ancestor */
 #define	PR_IP6		0x04000000	/* IPv6 restricted or disabled */
@@ -242,7 +241,8 @@ struct prison_racct {
 #define	PR_METHOD_SET		2
 #define	PR_METHOD_CHECK		3
 #define	PR_METHOD_ATTACH	4
-#define	PR_MAXMETHOD		5
+#define	PR_METHOD_REMOVE	5
+#define	PR_MAXMETHOD		6
 
 /*
  * Lock/unlock a prison.

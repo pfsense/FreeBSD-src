@@ -73,18 +73,19 @@
 	sd	t1, 8(t0)	/* zero used */
 	mv	t2, t0
 	mv	t3, t0
-	li	t5, (HTIF_RING_SIZE - HTIF_RING_ENTRY_SZ)
+	li	t5, (HTIF_RING_SIZE)
 	li	t6, 0
 	add	t4, t0, t5
 1:
-	addi	t3, t3, 24	/* pointer to next */
-	beq	t3, t4, 2f	/* finish */
-	sd	t3, 16(t2)	/* store pointer */
-	addi	t2, t2, 24	/* next entry */
-	addi	t6, t6, 1	/* counter */
+	addi	t3, t3, HTIF_RING_ENTRY_SZ	/* pointer to next */
+	beq	t3, t4, 2f			/* finish */
+	sd	t3, 16(t2)			/* store pointer */
+	addi	t2, t2, HTIF_RING_ENTRY_SZ	/* next entry */
+	addi	t6, t6, 1			/* counter */
 	j	1b
 2:
-	sd	t0, 16(t3)	/* last -> first */
+	addi	t3, t3, -HTIF_RING_ENTRY_SZ
+	sd	t0, 16(t3)			/* last -> first */
 
 	li	t2, (HTIF_RING_SIZE)
 	add	s0, t0, t2
@@ -124,6 +125,17 @@ _start:
 	/* Direct secondary cores to mpentry */
 	csrr	a0, mhartid
 	bnez	a0, mpentry
+
+#if defined(DDR_CLEAR_SIZE)
+	/* Clear DDR memory */
+	la	t0, _end
+	li	t1, DDR_CLEAR_SIZE
+1:
+	sd	zero, 0(t0)
+	addi	t0, t0, 8
+	bltu	t0, t1, 1b
+	/* End */
+#endif
 
 	/* Build event queue for current core */
 	build_ring

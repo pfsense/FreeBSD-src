@@ -496,7 +496,7 @@ pmap_kmem_choose(vm_offset_t addr)
 {
 	vm_offset_t newaddr = addr;
 
-	newaddr = (addr + (NBPDR - 1)) & ~(NBPDR - 1);
+	newaddr = roundup2(addr, NBPDR);
 	return (newaddr);
 }
 
@@ -676,7 +676,7 @@ allocpages(vm_paddr_t *firstaddr, int n)
 CTASSERT(powerof2(NDMPML4E));
 
 /* number of kernel PDP slots */
-#define	NKPDPE(ptpgs)		howmany((ptpgs), NPDEPG)
+#define	NKPDPE(ptpgs)		howmany(ptpgs, NPDEPG)
 
 static void
 nkpt_init(vm_paddr_t addr)
@@ -721,7 +721,7 @@ create_pagetables(vm_paddr_t *firstaddr)
 	pml4_entry_t *p4_p;
 
 	/* Allocate page table pages for the direct map */
-	ndmpdp = (ptoa(Maxmem) + NBPDP - 1) >> PDPSHIFT;
+	ndmpdp = howmany(ptoa(Maxmem), NBPDP);
 	if (ndmpdp < 4)		/* Minimum 4GB of dirmap */
 		ndmpdp = 4;
 	ndmpdpphys = howmany(ndmpdp, NPDPEPG);
