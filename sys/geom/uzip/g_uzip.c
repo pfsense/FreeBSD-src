@@ -195,9 +195,8 @@ g_uzip_cached(struct g_geom *gp, struct bio *bp)
 
 #define TOFF_2_BOFF(sc, pp, bi)	    ((sc)->toc[(bi)].offset - \
     (sc)->toc[(bi)].offset % (pp)->sectorsize)
-#define TLEN_2_BLEN(sc, pp, bp, ei) ((BLK_ENDS((sc), (ei)) - \
-    (bp)->bio_offset + (pp)->sectorsize - 1) / \
-    (pp)->sectorsize * (pp)->sectorsize)
+#define	TLEN_2_BLEN(sc, pp, bp, ei) roundup(BLK_ENDS((sc), (ei)) - \
+    (bp)->bio_offset, (pp)->sectorsize)
 
 static int
 g_uzip_request(struct g_geom *gp, struct bio *bp)
@@ -220,7 +219,7 @@ g_uzip_request(struct g_geom *gp, struct bio *bp)
 	ofs = bp->bio_offset + bp->bio_completed;
 	start_blk = ofs / sc->blksz;
 	KASSERT(start_blk < sc->nblocks, ("start_blk out of range"));
-	end_blk = (ofs + bp->bio_resid + sc->blksz - 1) / sc->blksz;
+	end_blk = howmany(ofs + bp->bio_resid, sc->blksz);
 	KASSERT(end_blk <= sc->nblocks, ("end_blk out of range"));
 
 	for (; BLK_IS_NIL(sc, start_blk) && start_blk < end_blk; start_blk++) {
@@ -492,7 +491,7 @@ g_uzip_parse_toc(struct g_uzip_softc *sc, struct g_provider *pp,
 	for (i = 0; i < sc->nblocks; i++) {
 		/* First do some bounds checking */
 		if ((sc->toc[i].offset < min_offset) ||
-		    (sc->toc[i].offset >= pp->mediasize)) {
+		    (sc->toc[i].offset > pp->mediasize)) {
 			goto error_offset;
 		}
 		DPRINTF_BLK(GUZ_DBG_IO, i, ("%s: cluster #%u "
@@ -711,6 +710,11 @@ g_uzip_taste(struct g_class *mp, struct g_provider *pp, int flags)
 		    sc->nblocks < offsets_read ? "more" : "less"));
 		goto e5;
 	}
+	/*
+	 * "Fake" last+1 block, to make it easier for the TOC parser to
+	 * iterate without making the last element a special case.
+	 */
+	sc->toc[sc->nblocks].offset = pp->mediasize;
 	/* Massage TOC (table of contents), make sure it is sound */
 	if (g_uzip_parse_toc(sc, pp, gp) != 0) {
 		DPRINTF(GUZ_DBG_ERR, ("%s: TOC error\n", gp->name));

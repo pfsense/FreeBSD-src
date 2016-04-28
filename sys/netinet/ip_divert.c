@@ -763,9 +763,6 @@ static int
 div_modevent(module_t mod, int type, void *unused)
 {
 	int err = 0;
-#ifndef VIMAGE
-	int n;
-#endif
 
 	switch (type) {
 	case MOD_LOAD:
@@ -806,8 +803,7 @@ div_modevent(module_t mod, int type, void *unused)
 		 * we destroy the lock.
 		 */
 		INP_INFO_WLOCK(&V_divcbinfo);
-		n = V_divcbinfo.ipi_count;
-		if (n != 0) {
+		if (V_divcbinfo.ipi_count != 0) {
 			err = EBUSY;
 			INP_INFO_WUNLOCK(&V_divcbinfo);
 			break;

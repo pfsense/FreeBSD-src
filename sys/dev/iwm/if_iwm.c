@@ -2410,6 +2410,17 @@ iwm_mvm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	KASSERT(tx_resp->frame_count == 1, ("too many frames"));
 
 	/* Update rate control statistics. */
+	IWM_DPRINTF(sc, IWM_DEBUG_XMIT, "%s: status=0x%04x, seq=%d, fc=%d, btc=%d, frts=%d, ff=%d, irate=%08x, wmt=%d\n",
+	    __func__,
+	    (int) le16toh(tx_resp->status.status),
+	    (int) le16toh(tx_resp->status.sequence),
+	    tx_resp->frame_count,
+	    tx_resp->bt_kill_count,
+	    tx_resp->failure_rts,
+	    tx_resp->failure_frame,
+	    le32toh(tx_resp->initial_rate),
+	    (int) le16toh(tx_resp->wireless_media_time));
+
 	if (status != IWM_TX_STATUS_SUCCESS &&
 	    status != IWM_TX_STATUS_DIRECT_DONE) {
 		ieee80211_ratectl_tx_complete(vap, ni,
@@ -2802,8 +2813,12 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	KASSERT(data->in != NULL, ("node is NULL"));
 
 	IWM_DPRINTF(sc, IWM_DEBUG_XMIT,
-	    "sending data: qid=%d idx=%d len=%d nsegs=%d\n",
-	    ring->qid, ring->cur, totlen, nsegs);
+	    "sending data: qid=%d idx=%d len=%d nsegs=%d txflags=0x%08x rate_n_flags=0x%08x rateidx=%d\n",
+	    ring->qid, ring->cur, totlen, nsegs,
+	    le32toh(tx->tx_flags),
+	    le32toh(tx->rate_n_flags),
+	    (int) tx->initial_rate_index
+	    );
 
 	/* Fill TX descriptor. */
 	desc->num_tbs = 2 + nsegs;
@@ -3159,7 +3174,6 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 	struct iwm_node *in;
 	struct iwm_vap *iv = IWM_VAP(vap);
 	uint32_t duration;
-	uint32_t min_duration;
 	int error;
 
 	/*
@@ -3201,7 +3215,25 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 	if (iv->is_uploaded) {
 		if ((error = iwm_mvm_mac_ctxt_changed(sc, vap)) != 0) {
 			device_printf(sc->sc_dev,
-			    "%s: failed to add MAC\n", __func__);
+			    "%s: failed to update MAC\n", __func__);
+			goto out;
+		}
+		if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
+		    in->in_ni.ni_chan, 1, 1)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed update phy ctxt\n", __func__);
+			goto out;
+		}
+		in->in_phyctxt = &sc->sc_phyctxt[0];
+
+		if ((error = iwm_mvm_binding_update(sc, in)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: binding update cmd\n", __func__);
+			goto out;
+		}
+		if ((error = iwm_mvm_update_sta(sc, in)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to update sta\n", __func__);
 			goto out;
 		}
 	} else {
@@ -3210,61 +3242,36 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			    "%s: failed to add MAC\n", __func__);
 			goto out;
 		}
-	}
-
-	if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
-	    in->in_ni.ni_chan, 1, 1)) != 0) {
-		device_printf(sc->sc_dev,
-		    "%s: failed add phy ctxt\n", __func__);
-		goto out;
-	}
-	in->in_phyctxt = &sc->sc_phyctxt[0];
-
-	if ((error = iwm_mvm_binding_add_vif(sc, in)) != 0) {
-		device_printf(sc->sc_dev,
-		    "%s: binding cmd\n", __func__);
-		goto out;
-	}
-
-	if ((error = iwm_mvm_add_sta(sc, in)) != 0) {
-		device_printf(sc->sc_dev,
-		    "%s: failed to add MAC\n", __func__);
-		goto out;
-	}
-
-	/* a bit superfluous? */
-	while (sc->sc_auth_prot)
-		msleep(&sc->sc_auth_prot, &sc->sc_mtx, 0, "iwmauth", 0);
-	sc->sc_auth_prot = 1;
-
-	duration = min(IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS,
-	    200 + in->in_ni.ni_intval);
-	min_duration = min(IWM_MVM_TE_SESSION_PROTECTION_MIN_TIME_MS,
-	    100 + in->in_ni.ni_intval);
-	iwm_mvm_protect_session(sc, in, duration, min_duration, 500);
-
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET,
-	    "%s: waiting for auth_prot\n", __func__);
-	while (sc->sc_auth_prot != 2) {
-		/*
-		 * well, meh, but if the kernel is sleeping for half a
-		 * second, we have bigger problems
-		 */
-		if (sc->sc_auth_prot == 0) {
+		if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
+		    in->in_ni.ni_chan, 1, 1)) != 0) {
 			device_printf(sc->sc_dev,
-			    "%s: missed auth window!\n", __func__);
+			    "%s: failed add phy ctxt!\n", __func__);
 			error = ETIMEDOUT;
 			goto out;
-		} else if (sc->sc_auth_prot == -1) {
+		}
+		in->in_phyctxt = &sc->sc_phyctxt[0];
+
+		if ((error = iwm_mvm_binding_add_vif(sc, in)) != 0) {
 			device_printf(sc->sc_dev,
-			    "%s: no time event, denied!\n", __func__);
-			sc->sc_auth_prot = 0;
-			error = EAUTH;
+			    "%s: binding add cmd\n", __func__);
 			goto out;
 		}
-		msleep(&sc->sc_auth_prot, &sc->sc_mtx, 0, "iwmau2", 0);
+		if ((error = iwm_mvm_add_sta(sc, in)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to add sta\n", __func__);
+			goto out;
+		}
 	}
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET, "<-%s\n", __func__);
+
+	/*
+	 * Prevent the FW from wandering off channel during association
+	 * by "protecting" the session with a time event.
+	 */
+	/* XXX duration is in units of TU, not MS */
+	duration = IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS;
+	iwm_mvm_protect_session(sc, in, duration, 500 /* XXX magic number */);
+	DELAY(100);
+
 	error = 0;
 out:
 	ieee80211_free_node(ni);
@@ -4352,7 +4359,6 @@ iwm_intr(void *arg)
 	handled |= (r1 & (IWM_CSR_INT_BIT_ALIVE /*| IWM_CSR_INT_BIT_SCD*/));
 
 	if (r1 & IWM_CSR_INT_BIT_SW_ERR) {
-#ifdef IWM_DEBUG
 		int i;
 		struct ieee80211com *ic = &sc->sc_ic;
 		struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
@@ -4371,14 +4377,22 @@ iwm_intr(void *arg)
 		device_printf(sc->sc_dev,
 		    "  rx ring: cur=%d\n", sc->rxq.cur);
 		device_printf(sc->sc_dev,
-		    "  802.11 state %d\n", vap->iv_state);
-#endif
+		    "  802.11 state %d\n", (vap == NULL) ? -1 : vap->iv_state);
 
-		device_printf(sc->sc_dev, "fatal firmware error\n");
-		iwm_stop(sc);
-		rv = 1;
-		goto out;
+		/* Don't stop the device; just do a VAP restart */
+		IWM_UNLOCK(sc);
 
+		if (vap == NULL) {
+			printf("%s: null vap\n", __func__);
+			return;
+		}
+
+		device_printf(sc->sc_dev, "%s: controller panicked, iv_state = %d; "
+		    "restarting\n", __func__, vap->iv_state);
+
+		/* XXX TODO: turn this into a callout/taskqueue */
+		ieee80211_restart_all(ic);
+		return;
 	}
 
 	if (r1 & IWM_CSR_INT_BIT_HW_ERR) {
@@ -4920,6 +4934,8 @@ iwm_init_task(void *arg1)
 static int
 iwm_resume(device_t dev)
 {
+	struct iwm_softc *sc = device_get_softc(dev);
+	int do_reinit = 0;
 	uint16_t reg;
 
 	/* Clear device-specific "PCI retry timeout" register (41h). */
@@ -4927,17 +4943,33 @@ iwm_resume(device_t dev)
 	pci_write_config(dev, 0x40, reg & ~0xff00, sizeof(reg));
 	iwm_init_task(device_get_softc(dev));
 
+	IWM_LOCK(sc);
+	if (sc->sc_flags & IWM_FLAG_DORESUME) {
+		sc->sc_flags &= ~IWM_FLAG_DORESUME;
+		do_reinit = 1;
+	}
+	IWM_UNLOCK(sc);
+
+	if (do_reinit)
+		ieee80211_resume_all(&sc->sc_ic);
+
 	return 0;
 }
 
 static int
 iwm_suspend(device_t dev)
 {
+	int do_stop = 0;
 	struct iwm_softc *sc = device_get_softc(dev);
 
-	if (sc->sc_ic.ic_nrunning > 0) {
+	do_stop = !! (sc->sc_ic.ic_nrunning > 0);
+
+	ieee80211_suspend_all(&sc->sc_ic);
+
+	if (do_stop) {
 		IWM_LOCK(sc);
 		iwm_stop(sc);
+		sc->sc_flags |= IWM_FLAG_DORESUME;
 		IWM_UNLOCK(sc);
 	}
 

@@ -1,14 +1,6 @@
 /*-
- * Copyright (c) 2015 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
- *
- * Portions of this software were developed by SRI International and the
- * University of Cambridge Computer Laboratory under DARPA/AFRL contract
- * FA8750-10-C-0237 ("CTSRD"), as part of the DARPA CRASH research programme.
- *
- * Portions of this software were developed by the University of Cambridge
- * Computer Laboratory as part of the CTSRD Project, with support from the
- * UK Higher Education Innovation Fund (HEIF).
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,27 +27,32 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-/* RISC-V doesn't provide memory-mapped devices yet */
-
-#include "opt_ddb.h"
-
 #include <sys/param.h>
-#include <sys/systm.h>
-#include <vm/vm.h>
-#include <vm/vm_extern.h>
-#include <vm/pmap.h>
-#include <machine/riscvreg.h>
-#include <machine/vmparam.h>
+#include <sys/bus.h>
 
-void *
-pmap_mapdev(vm_offset_t pa, vm_size_t size)
+#include <machine/bus.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_subr.h>
+
+extern struct bus_space memmap_bus;
+
+int
+OF_decode_addr(phandle_t dev, int regno, bus_space_tag_t *tag,
+    bus_space_handle_t *handle, bus_size_t *sz)
 {
+	bus_addr_t addr;
+	bus_size_t size;
+	int err;
 
-	return (NULL);
-}
+	err = ofw_reg_to_paddr(dev, regno, &addr, &size, NULL);
+	if (err != 0)
+		return (err);
 
-void
-pmap_unmapdev(vm_offset_t va, vm_size_t size)
-{
+	*tag = &memmap_bus;
 
+	if (sz != NULL)
+		*sz = size;
+
+	return (bus_space_map(*tag, addr, size, 0, handle));
 }
