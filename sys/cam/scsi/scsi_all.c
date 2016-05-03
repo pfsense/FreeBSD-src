@@ -3644,7 +3644,7 @@ scsi_desc_iterate(struct scsi_sense_data_desc *sense, u_int sense_len,
 
 	/*
 	 * The length of data actually returned may be different than the
-	 * extra_len recorded in the sturcture.
+	 * extra_len recorded in the structure.
 	 */
 	desc_len = sense_len -offsetof(struct scsi_sense_data_desc, sense_desc);
 
@@ -5505,7 +5505,7 @@ scsi_calc_syncsrate(u_int period_factor)
 }
 
 /*
- * Return the SCSI sync parameter that corresponsd to
+ * Return the SCSI sync parameter that corresponds to
  * the passed in period in 10ths of ns.
  */
 u_int
@@ -5956,7 +5956,7 @@ scsi_parse_transportid_64bit(int proto_id, char *id_str,
 		break;
 	default:
 		if (error_str != NULL) {
-			snprintf(error_str, error_str_len, "%s: unsupoprted "
+			snprintf(error_str, error_str_len, "%s: unsupported "
 				 "protocol %d", __func__, proto_id);
 		}
 		retval = 1;
@@ -8704,7 +8704,7 @@ scsi_static_inquiry_match(caddr_t inqbuffer, caddr_t table_entry)
  * \return  0 on a match, -1 otherwise.
  *
  * Treat rhs and lhs as arrays of vpd device id descriptors.  Walk lhs matching
- * agains each element in rhs until all data are exhausted or we have found
+ * against each element in rhs until all data are exhausted or we have found
  * a match.
  */
 int

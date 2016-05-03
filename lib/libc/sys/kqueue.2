@@ -24,7 +24,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd August 4, 2015
+.Dd May 2, 2016
 .Dt KQUEUE 2
 .Os
 .Sh NAME
@@ -376,11 +376,21 @@ was called on the file referenced by the descriptor.
 .It Dv NOTE_WRITE
 A write occurred on the file referenced by the descriptor.
 .It Dv NOTE_EXTEND
-The file referenced by the descriptor was extended.
+For regular file, the file referenced by the descriptor was extended.
+.Pp
+For directory, reports that a directory entry was added or removed,
+as the result of rename operation.
+The
+.Dv NOTE_EXTEND
+event is not reported when a name is changed inside the directory.
 .It Dv NOTE_ATTRIB
 The file referenced by the descriptor had its attributes changed.
 .It Dv NOTE_LINK
 The link count on the file changed.
+In particular, the
+.Dv NOTE_LINK
+event is reported if a subdirectory was created or deleted inside
+the directory referenced by the descriptor.
 .It Dv NOTE_RENAME
 The file referenced by the descriptor was renamed.
 .It Dv NOTE_REVOKE
@@ -603,6 +613,57 @@ will be set to indicate the error condition.
 If the time limit expires, then
 .Fn kevent
 returns 0.
+.Sh EXAMPLES
+.Bd -literal -compact
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/time.h>
+#include <err.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int
+main(int argc, char **argv)
+{
+    struct kevent event;    /* Event we want to monitor */
+    struct kevent tevent;   /* Event triggered */
+    int kq, fd, ret;
+
+    if (argc != 2)
+	err(EXIT_FAILURE, "Usage: %s path\en", argv[0]);
+    fd = open(argv[1], O_RDONLY);
+    if (fd == -1)
+	err(EXIT_FAILURE, "Failed to open '%s'", argv[1]);
+
+    /* Create kqueue. */
+    kq = kqueue();
+    if (kq == -1)
+	err(EXIT_FAILURE, "kqueue() failed");
+
+    /* Initialize kevent structure. */
+    EV_SET(&event, fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, NOTE_WRITE,
+	0, NULL);
+    /* Attach event to the kqueue. */
+    ret = kevent(kq, &event, 1, NULL, 0, NULL);
+    if (ret == -1)
+	err(EXIT_FAILURE, "kevent register");
+    if (event.flags & EV_ERROR)
+	errx(EXIT_FAILURE, "Event error: %s", strerror(event.data));
+
+    for (;;) {
+	/* Sleep until something happens. */
+	ret = kevent(kq, NULL, 0, &tevent, 1, NULL);
+	if (ret == -1) {
+	    err(EXIT_FAILURE, "kevent wait");
+	} else if (ret > 0) {
+	    printf("Something was written in '%s'\en", argv[1]);
+	}
+    }
+}
+.Ed
 .Sh ERRORS
 The
 .Fn kqueue

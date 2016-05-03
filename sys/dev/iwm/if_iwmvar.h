@@ -196,6 +196,9 @@ struct iwm_nvm_data {
 	uint8_t radio_cfg_dash;
 	uint8_t radio_cfg_pnum;
 	uint8_t valid_tx_ant, valid_rx_ant;
+#define IWM_NUM_CHANNELS	39
+
+	uint16_t nvm_ch_flags[IWM_NUM_CHANNELS];
 
 	uint16_t nvm_version;
 	uint8_t max_tx_pwr_half_dbm;
@@ -455,7 +458,7 @@ struct iwm_softc {
 
 	/*
 	 * So why do we need a separate stopped flag and a generation?
-	 * the former protects the device from issueing commands when it's
+	 * the former protects the device from issuing commands when it's
 	 * stopped (duh).  The latter protects against race from a very
 	 * fast stop/unstop cycle where threads waiting for responses do
 	 * not have a chance to run in between.  Notably: we want to stop
