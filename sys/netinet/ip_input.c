@@ -99,6 +99,11 @@ SYSCTL_VNET_INT(_net_inet_ip, IPCTL_FORWARDING, forwarding, CTLFLAG_RW,
     &VNET_NAME(ipforwarding), 0,
     "Enable IP forwarding between interfaces");
 
+static VNET_DEFINE(int, ipfastforward) = 1;
+#define	V_ipfastforward		VNET(ipfastforward)
+SYSCTL_VNET_INT(_net_inet_ip, OID_AUTO, fastforwarding, CTLFLAG_RW,
+    &VNET_NAME(ipfastforward), 0, "Enable fast IP forwarding");
+
 static VNET_DEFINE(int, ipsendredirects) = 1;	/* XXX */
 #define	V_ipsendredirects	VNET(ipsendredirects)
 SYSCTL_VNET_INT(_net_inet_ip, IPCTL_SENDREDIRECTS, redirect, CTLFLAG_RW,
@@ -473,7 +478,7 @@ tooshort:
 #ifdef IPSEC
 	/* For now we do not handle IPSEC in tryforward. */
 	if (!key_havesp(IPSEC_DIR_INBOUND) && !key_havesp(IPSEC_DIR_OUTBOUND) &&
-	    (V_ipforwarding == 1))
+	    (V_ipforwarding == 1 && V_ipfastforward == 1))
 		if (ip_tryforward(m) == NULL)
 			return;
 	/*
@@ -482,7 +487,7 @@ tooshort:
 	if (ip_ipsec_filtertunnel(m))
 		goto passin;
 #else
-	if (V_ipforwarding == 1)
+	if (V_ipforwarding == 1 && V_ipfastforward == 1)
 		if (ip_tryforward(m) == NULL)
 			return;
 #endif /* IPSEC */
