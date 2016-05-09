@@ -100,7 +100,7 @@ static struct arm_tmr_softc *arm_tmr_sc = NULL;
 static struct resource_spec timer_spec[] = {
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },	/* Secure */
 	{ SYS_RES_IRQ,		1,	RF_ACTIVE },	/* Non-secure */
-	{ SYS_RES_IRQ,		2,	RF_ACTIVE },	/* Virt */
+	{ SYS_RES_IRQ,		2,	RF_ACTIVE | RF_OPTIONAL }, /* Virt */
 	{ SYS_RES_IRQ,		3,	RF_ACTIVE | RF_OPTIONAL	}, /* Hyp */
 	{ -1, 0 }
 };
@@ -392,13 +392,17 @@ arm_tmr_attach(device_t dev)
 #ifdef __arm__
 	sc->physical = true;
 #else /* __aarch64__ */
-	sc->physical = false;
+	/* If we do not have a virtual timer use the physical. */
+	sc->physical = (sc->res[2] == NULL) ? true : false;
 #endif
 
 	arm_tmr_sc = sc;
 
 	/* Setup secure, non-secure and virtual IRQs handler */
 	for (i = 0; i < 3; i++) {
+		/* If we do not have the interrupt, skip it. */
+		if (sc->res[i] == NULL)
+			continue;
 		error = bus_setup_intr(dev, sc->res[i], INTR_TYPE_CLK,
 		    arm_tmr_intr, NULL, sc, &sc->ihl[i]);
 		if (error) {
@@ -417,7 +421,7 @@ arm_tmr_attach(device_t dev)
 	sc->et.et_quality = 1000;
 
 	sc->et.et_frequency = sc->clkfreq;
-	sc->et.et_min_period = (0x00000002LLU << 32) / sc->et.et_frequency;
+	sc->et.et_min_period = (0x00000010LLU << 32) / sc->et.et_frequency;
 	sc->et.et_max_period = (0xfffffffeLLU << 32) / sc->et.et_frequency;
 	sc->et.et_start = arm_tmr_start;
 	sc->et.et_stop = arm_tmr_stop;

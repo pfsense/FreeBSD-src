@@ -3987,6 +3987,33 @@ bwn_fw_loaducode(struct bwn_mac *mac)
 		error = EOPNOTSUPP;
 		goto error;
 	}
+
+	/*
+	 * Determine firmware header version; needed for TX/RX packet
+	 * handling.
+	 */
+	if (mac->mac_fw.rev >= 598)
+		mac->mac_fw.fw_hdr_format = BWN_FW_HDR_598;
+	else if (mac->mac_fw.rev >= 410)
+		mac->mac_fw.fw_hdr_format = BWN_FW_HDR_410;
+	else
+		mac->mac_fw.fw_hdr_format = BWN_FW_HDR_351;
+
+	/*
+	 * We don't support rev 598 or later; that requires
+	 * another round of changes to the TX/RX descriptor
+	 * and status layout.
+	 *
+	 * So, complain this is the case and exit out, rather
+	 * than attaching and then failing.
+	 */
+	if (mac->mac_fw.fw_hdr_format == BWN_FW_HDR_598) {
+		device_printf(sc->sc_dev,
+		    "firmware is too new (>=598); not supported\n");
+		error = EOPNOTSUPP;
+		goto error;
+	}
+
 	mac->mac_fw.patch = bwn_shm_read_2(mac, BWN_SHARED,
 	    BWN_SHARED_UCODE_PATCH);
 	date = bwn_shm_read_2(mac, BWN_SHARED, BWN_SHARED_UCODE_DATE);
@@ -4942,6 +4969,12 @@ bwn_intr_txeof(struct bwn_mac *mac)
 			break;
 		stat1 = BWN_READ_4(mac, BWN_XMITSTAT_1);
 
+		DPRINTF(mac->mac_sc, BWN_DEBUG_XMIT,
+		    "%s: stat0=0x%08x, stat1=0x%08x\n",
+		    __func__,
+		    stat0,
+		    stat1);
+
 		stat.cookie = (stat0 >> 16);
 		stat.seq = (stat1 & 0x0000ffff);
 		stat.phy_stat = ((stat1 & 0x00ff0000) >> 16);
@@ -5132,16 +5165,8 @@ bwn_dma_rxeof(struct bwn_dma_ring *dr, int *slot)
 static void
 bwn_handle_txeof(struct bwn_mac *mac, const struct bwn_txstatus *status)
 {
-	struct bwn_dma_ring *dr;
-	struct bwn_dmadesc_generic *desc;
-	struct bwn_dmadesc_meta *meta;
-	struct bwn_pio_txqueue *tq;
-	struct bwn_pio_txpkt *tp = NULL;
 	struct bwn_softc *sc = mac->mac_sc;
 	struct bwn_stats *stats = &mac->mac_stats;
-	struct ieee80211_node *ni;
-	struct ieee80211vap *vap;
-	int retrycnt = 0, slot;
 
 	BWN_ASSERT_LOCKED(mac->mac_sc);
 
@@ -5157,46 +5182,8 @@ bwn_handle_txeof(struct bwn_mac *mac, const struct bwn_txstatus *status)
 	}
 
 	if (mac->mac_flags & BWN_MAC_FLAG_DMA) {
-		if (status->ack) {
-			dr = bwn_dma_parse_cookie(mac, status,
-			    status->cookie, &slot);
-			if (dr == NULL) {
-				device_printf(sc->sc_dev,
-				    "failed to parse cookie\n");
-				return;
-			}
-			while (1) {
-				dr->getdesc(dr, slot, &desc, &meta);
-				if (meta->mt_islast) {
-					ni = meta->mt_ni;
-					vap = ni->ni_vap;
-					ieee80211_ratectl_tx_complete(vap, ni,
-					    status->ack ?
-					      IEEE80211_RATECTL_TX_SUCCESS :
-					      IEEE80211_RATECTL_TX_FAILURE,
-					    &retrycnt, 0);
-					break;
-				}
-				slot = bwn_dma_nextslot(dr, slot);
-			}
-		}
 		bwn_dma_handle_txeof(mac, status);
 	} else {
-		if (status->ack) {
-			tq = bwn_pio_parse_cookie(mac, status->cookie, &tp);
-			if (tq == NULL) {
-				device_printf(sc->sc_dev,
-				    "failed to parse cookie\n");
-				return;
-			}
-			ni = tp->tp_ni;
-			vap = ni->ni_vap;
-			ieee80211_ratectl_tx_complete(vap, ni,
-			    status->ack ?
-			      IEEE80211_RATECTL_TX_SUCCESS :
-			      IEEE80211_RATECTL_TX_FAILURE,
-			    &retrycnt, 0);
-		}
 		bwn_pio_handle_txeof(mac, status);
 	}
 
@@ -5441,6 +5428,63 @@ bwn_hwrate2ieeerate(int rate)
 	}
 }
 
+/*
+ * Post process the RX provided RSSI.
+ *
+ * Valid for A, B, G, LP PHYs.
+ */
+static int8_t
+bwn_rx_rssi_calc(struct bwn_mac *mac, uint8_t in_rssi,
+    int ofdm, int adjust_2053, int adjust_2050)
+{
+	struct bwn_phy *phy = &mac->mac_phy;
+	struct bwn_phy_g *gphy = &phy->phy_g;
+	int tmp;
+
+	switch (phy->rf_ver) {
+	case 0x2050:
+		if (ofdm) {
+			tmp = in_rssi;
+			if (tmp > 127)
+				tmp -= 256;
+			tmp = tmp * 73 / 64;
+			if (adjust_2050)
+				tmp += 25;
+			else
+				tmp -= 3;
+		} else {
+			if (siba_sprom_get_bf_lo(mac->mac_sc->sc_dev)
+			    & BWN_BFL_RSSI) {
+				if (in_rssi > 63)
+					in_rssi = 63;
+				tmp = gphy->pg_nrssi_lt[in_rssi];
+				tmp = (31 - tmp) * -131 / 128 - 57;
+			} else {
+				tmp = in_rssi;
+				tmp = (31 - tmp) * -149 / 128 - 68;
+			}
+			if (phy->type == BWN_PHYTYPE_G && adjust_2050)
+				tmp += 25;
+		}
+		break;
+	case 0x2060:
+		if (in_rssi > 127)
+			tmp = in_rssi - 256;
+		else
+			tmp = in_rssi;
+		break;
+	default:
+		tmp = in_rssi;
+		tmp = (tmp - 11) * 103 / 64;
+		if (adjust_2053)
+			tmp -= 109;
+		else
+			tmp -= 83;
+	}
+
+	return (tmp);
+}
+
 static void
 bwn_rxeof(struct bwn_mac *mac, struct mbuf *m, const void *_rxhdr)
 {
@@ -5460,8 +5504,11 @@ bwn_rxeof(struct bwn_mac *mac, struct mbuf *m, const void *_rxhdr)
 
 	phystat0 = le16toh(rxhdr->phy_status0);
 	phystat3 = le16toh(rxhdr->phy_status3);
+
+	/* XXX Note: mactime, macstat, chanstat need fixing for fw 598 */
 	macstat = le32toh(rxhdr->mac_status);
 	chanstat = le16toh(rxhdr->channel);
+
 	phytype = chanstat & BWN_RX_CHAN_PHYTYPE;
 
 	if (macstat & BWN_RX_MAC_FCSERR)
@@ -5492,8 +5539,6 @@ bwn_rxeof(struct bwn_mac *mac, struct mbuf *m, const void *_rxhdr)
 		    BWN_ISOLDFMT(mac),
 		    (macstat & BWN_RX_MAC_KEYIDX) >> BWN_RX_MAC_KEYIDX_SHIFT);
 
-	/* XXX calculating RSSI & noise & antenna */
-
 	if (phystat0 & BWN_RX_PHYST0_OFDM)
 		rate = bwn_plcp_get_ofdmrate(mac, plcp,
 		    phytype == BWN_PHYTYPE_A);
@@ -5505,13 +5550,28 @@ bwn_rxeof(struct bwn_mac *mac, struct mbuf *m, const void *_rxhdr)
 	}
 	sc->sc_rx_rate = bwn_hwrate2ieeerate(rate);
 
+	/* rssi/noise */
+	switch (phytype) {
+	case BWN_PHYTYPE_A:
+	case BWN_PHYTYPE_B:
+	case BWN_PHYTYPE_G:
+	case BWN_PHYTYPE_LP:
+		rssi = bwn_rx_rssi_calc(mac, rxhdr->phy.abg.rssi,
+		    !! (phystat0 & BWN_RX_PHYST0_OFDM),
+		    !! (phystat0 & BWN_RX_PHYST0_GAINCTL),
+		    !! (phystat3 & BWN_RX_PHYST3_TRSTATE));
+		break;
+	default:
+		/* XXX TODO: implement rssi for other PHYs */
+		break;
+	}
+
+	noise = mac->mac_stats.link_noise;
+
 	/* RX radio tap */
 	if (ieee80211_radiotap_active(ic))
 		bwn_rx_radiotap(mac, m, rxhdr, plcp, rate, rssi, noise);
 	m_adj(m, -IEEE80211_CRC_LEN);
-
-	rssi = rxhdr->phy.abg.rssi;	/* XXX incorrect RSSI calculation? */
-	noise = mac->mac_stats.link_noise;
 
 	BWN_UNLOCK(sc);
 
@@ -5538,6 +5598,7 @@ bwn_dma_handle_txeof(struct bwn_mac *mac,
 	struct bwn_dmadesc_meta *meta;
 	struct bwn_softc *sc = mac->mac_sc;
 	int slot;
+	int retrycnt = 0;
 
 	BWN_ASSERT_LOCKED(sc);
 
@@ -5562,6 +5623,13 @@ bwn_dma_handle_txeof(struct bwn_mac *mac,
 			KASSERT(meta->mt_m != NULL,
 			    ("%s:%d: fail", __func__, __LINE__));
 
+			/* Just count full frame retries for now */
+			retrycnt = status->framecnt - 1;
+			ieee80211_ratectl_tx_complete(meta->mt_ni->ni_vap, meta->mt_ni,
+			    status->ack ?
+			      IEEE80211_RATECTL_TX_SUCCESS :
+			      IEEE80211_RATECTL_TX_FAILURE,
+			    &retrycnt, 0);
 			ieee80211_tx_complete(meta->mt_ni, meta->mt_m, 0);
 			meta->mt_ni = NULL;
 			meta->mt_m = NULL;
@@ -5589,6 +5657,7 @@ bwn_pio_handle_txeof(struct bwn_mac *mac,
 	struct bwn_pio_txqueue *tq;
 	struct bwn_pio_txpkt *tp = NULL;
 	struct bwn_softc *sc = mac->mac_sc;
+	int retrycnt = 0;
 
 	BWN_ASSERT_LOCKED(sc);
 
@@ -5604,6 +5673,15 @@ bwn_pio_handle_txeof(struct bwn_mac *mac,
 		 * Do any tx complete callback.  Note this must
 		 * be done before releasing the node reference.
 		 */
+
+		/* Just count full frame retries for now */
+		retrycnt = status->framecnt - 1;
+		ieee80211_ratectl_tx_complete(tp->tp_ni->ni_vap, tp->tp_ni,
+		    status->ack ?
+		      IEEE80211_RATECTL_TX_SUCCESS :
+		      IEEE80211_RATECTL_TX_FAILURE,
+		    &retrycnt, 0);
+
 		if (tp->tp_m->m_flags & M_TXCB)
 			ieee80211_process_callback(tp->tp_ni, tp->tp_m, 0);
 		ieee80211_free_node(tp->tp_ni);
@@ -5751,6 +5829,7 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 	else if (tp->ucastrate != IEEE80211_FIXED_RATE_NONE)
 		rate = rate_fb = tp->ucastrate;
 	else {
+		/* XXX TODO: don't fall back to CCK rates for OFDM */
 		rix = ieee80211_ratectl_rate(ni, NULL, 0);
 		rate = ni->ni_txrate;
 
@@ -5763,6 +5842,7 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 
 	sc->sc_tx_rate = rate;
 
+	/* Note: this maps the select ieee80211 rate to hardware rate */
 	rate = bwn_ieeerate2hwrate(sc, rate);
 	rate_fb = bwn_ieeerate2hwrate(sc, rate_fb);
 
@@ -5771,6 +5851,7 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 	bcopy(wh->i_fc, txhdr->macfc, sizeof(txhdr->macfc));
 	bcopy(wh->i_addr1, txhdr->addr1, IEEE80211_ADDR_LEN);
 
+	/* XXX rate/rate_fb is the hardware rate */
 	if ((rate_fb == rate) ||
 	    (*(u_int16_t *)wh->i_dur & htole16(0x8000)) ||
 	    (*(u_int16_t *)wh->i_dur == htole16(0)))
@@ -5792,6 +5873,7 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 	txhdr->chan = phy->chan;
 	phyctl |= (BWN_ISOFDMRATE(rate)) ? BWN_TX_PHY_ENC_OFDM :
 	    BWN_TX_PHY_ENC_CCK;
+	/* XXX preamble? obey net80211 */
 	if (isshort && (rate == BWN_CCK_RATE_2MB || rate == BWN_CCK_RATE_5MB ||
 	     rate == BWN_CCK_RATE_11MB))
 		phyctl |= BWN_TX_PHY_SHORTPRMBL;
@@ -5828,9 +5910,11 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 
 	if (ic->ic_flags & IEEE80211_F_USEPROT) {
 		/* XXX RTS rate is always 1MB??? */
+		/* XXX TODO: don't fall back to CCK rates for OFDM */
 		rts_rate = BWN_CCK_RATE_1MB;
 		rts_rate_fb = bwn_get_fbrate(rts_rate);
 
+		/* XXX 'rate' here is hardware rate now, not the net80211 rate */
 		protdur = ieee80211_compute_duration(ic->ic_rt,
 		    m->m_pkthdr.len, rate, isshort) +
 		    + ieee80211_ack_duration(ic->ic_rt, rate, isshort);
@@ -5851,6 +5935,7 @@ bwn_set_txhdr(struct bwn_mac *mac, struct ieee80211_node *ni,
 			rts = (struct ieee80211_frame_rts *)(BWN_ISOLDFMT(mac) ?
 			    (txhdr->body.old.rts_frame) :
 			    (txhdr->body.new.rts_frame));
+			/* XXX rate/rate_fb is the hardware rate */
 			protdur += ieee80211_ack_duration(ic->ic_rt, rate,
 			    isshort);
 			mprot = ieee80211_alloc_rts(ic, wh->i_addr1,
@@ -5958,10 +6043,16 @@ bwn_antenna_sanitize(struct bwn_mac *mac, uint8_t n)
 	return (n);
 }
 
+/*
+ * Return a fallback rate for the given rate.
+ *
+ * Note: Don't fall back from OFDM to CCK.
+ */
 static uint8_t
 bwn_get_fbrate(uint8_t bitrate)
 {
 	switch (bitrate) {
+	/* CCK */
 	case BWN_CCK_RATE_1MB:
 		return (BWN_CCK_RATE_1MB);
 	case BWN_CCK_RATE_2MB:
@@ -5970,8 +6061,10 @@ bwn_get_fbrate(uint8_t bitrate)
 		return (BWN_CCK_RATE_2MB);
 	case BWN_CCK_RATE_11MB:
 		return (BWN_CCK_RATE_5MB);
+
+	/* OFDM */
 	case BWN_OFDM_RATE_6MB:
-		return (BWN_CCK_RATE_5MB);
+		return (BWN_OFDM_RATE_6MB);
 	case BWN_OFDM_RATE_9MB:
 		return (BWN_OFDM_RATE_6MB);
 	case BWN_OFDM_RATE_12MB:
@@ -6886,3 +6979,4 @@ MODULE_DEPEND(bwn, siba_bwn, 1, 1, 1);
 MODULE_DEPEND(bwn, wlan, 1, 1, 1);		/* 802.11 media layer */
 MODULE_DEPEND(bwn, firmware, 1, 1, 1);		/* firmware support */
 MODULE_DEPEND(bwn, wlan_amrr, 1, 1, 1);
+MODULE_VERSION(bwn, 1);

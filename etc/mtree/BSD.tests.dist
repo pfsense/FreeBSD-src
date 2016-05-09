@@ -460,6 +460,8 @@
         ..
         posixshm
         ..
+        sys
+        ..
         vfs
         ..
         vm
@@ -631,6 +633,8 @@
         uuencode
         ..
         xargs
+        ..
+        xinstall
         ..
         xo
         ..

@@ -2298,7 +2298,7 @@ bar_timeout(void *arg)
 		 * to make sure we notify the driver that a BAR
 		 * TX did occur and fail.  This gives the driver
 		 * a chance to undo any queue pause that may
-		 * have occured.
+		 * have occurred.
 		 */
 		ic->ic_bar_response(ni, tap, 1);
 		ieee80211_ampdu_stop(ni, tap, IEEE80211_REASON_TIMEOUT);
@@ -2741,6 +2741,14 @@ ieee80211_add_htcap_body(uint8_t *frm, struct ieee80211_node *ni)
 		/* Start by using the advertised settings */
 		rxmax = MS(ni->ni_htparam, IEEE80211_HTCAP_MAXRXAMPDU);
 		density = MS(ni->ni_htparam, IEEE80211_HTCAP_MPDUDENSITY);
+
+		IEEE80211_DPRINTF(vap, IEEE80211_MSG_11N,
+		    "%s: advertised rxmax=%d, density=%d, vap rxmax=%d, density=%d\n",
+		    __func__,
+		    rxmax,
+		    density,
+		    vap->iv_ampdu_rxmax,
+		    vap->iv_ampdu_density);
 
 		/* Cap at VAP rxmax */
 		if (rxmax > vap->iv_ampdu_rxmax)
