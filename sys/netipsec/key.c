@@ -7639,7 +7639,8 @@ key_init(void)
 	/* initialize key statistics */
 	keystat.getspi_count = 1;
 
-	printf("IPsec: Initialized Security Association Processing.\n");
+	if (bootverbose)
+		printf("IPsec: Initialized Security Association Processing.\n");
 }
 
 #ifdef VIMAGE
