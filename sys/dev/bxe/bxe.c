@@ -683,7 +683,6 @@ static void bxe_handle_fp_tq(void *context, int pending);
 
 static int bxe_add_cdev(struct bxe_softc *sc);
 static void bxe_del_cdev(struct bxe_softc *sc);
-static int bxe_grc_dump(struct bxe_softc *sc);
 static int bxe_alloc_buf_rings(struct bxe_softc *sc);
 static void bxe_free_buf_rings(struct bxe_softc *sc);
 
@@ -3460,6 +3459,10 @@ bxe_watchdog(struct bxe_softc    *sc,
     }
 
     BLOGE(sc, "TX watchdog timeout on fp[%02d], resetting!\n", fp->index);
+    if(sc->trigger_grcdump) {
+         /* taking grcdump */
+         bxe_grc_dump(sc);
+    }
 
     BXE_FP_TX_UNLOCK(fp);
 
@@ -4437,115 +4440,6 @@ bxe_ifmedia_status(struct ifnet *ifp, struct ifmediareq *ifmr)
     }
 }
 
-static int
-bxe_ioctl_nvram(struct bxe_softc *sc,
-                uint32_t         priv_op,
-                struct ifreq     *ifr)
-{
-    struct bxe_nvram_data nvdata_base;
-    struct bxe_nvram_data *nvdata;
-    int len;
-    int error = 0;
-
-    copyin(ifr->ifr_data, &nvdata_base, sizeof(nvdata_base));
-
-    len = (sizeof(struct bxe_nvram_data) +
-           nvdata_base.len -
-           sizeof(uint32_t));
-
-    if (len > sizeof(struct bxe_nvram_data)) {
-        if ((nvdata = (struct bxe_nvram_data *)
-                 malloc(len, M_DEVBUF,
-                        (M_NOWAIT | M_ZERO))) == NULL) {
-            BLOGE(sc, "BXE_IOC_RD_NVRAM malloc failed priv_op 0x%x "
-                " len = 0x%x\n", priv_op, len);
-            return (1);
-        }
-        memcpy(nvdata, &nvdata_base, sizeof(struct bxe_nvram_data));
-    } else {
-        nvdata = &nvdata_base;
-    }
-
-    if (priv_op == BXE_IOC_RD_NVRAM) {
-        BLOGD(sc, DBG_IOCTL, "IOC_RD_NVRAM 0x%x %d\n",
-              nvdata->offset, nvdata->len);
-        error = bxe_nvram_read(sc,
-                               nvdata->offset,
-                               (uint8_t *)nvdata->value,
-                               nvdata->len);
-        copyout(nvdata, ifr->ifr_data, len);
-    } else { /* BXE_IOC_WR_NVRAM */
-        BLOGD(sc, DBG_IOCTL, "IOC_WR_NVRAM 0x%x %d\n",
-              nvdata->offset, nvdata->len);
-        copyin(ifr->ifr_data, nvdata, len);
-        error = bxe_nvram_write(sc,
-                                nvdata->offset,
-                                (uint8_t *)nvdata->value,
-                                nvdata->len);
-    }
-
-    if (len > sizeof(struct bxe_nvram_data)) {
-        free(nvdata, M_DEVBUF);
-    }
-
-    return (error);
-}
-
-static int
-bxe_ioctl_stats_show(struct bxe_softc *sc,
-                     uint32_t         priv_op,
-                     struct ifreq     *ifr)
-{
-    const size_t str_size   = (BXE_NUM_ETH_STATS * STAT_NAME_LEN);
-    const size_t stats_size = (BXE_NUM_ETH_STATS * sizeof(uint64_t));
-    caddr_t p_tmp;
-    uint32_t *offset;
-    int i;
-
-    switch (priv_op)
-    {
-    case BXE_IOC_STATS_SHOW_NUM:
-        memset(ifr->ifr_data, 0, sizeof(union bxe_stats_show_data));
-        ((union bxe_stats_show_data *)ifr->ifr_data)->desc.num =
-            BXE_NUM_ETH_STATS;
-        ((union bxe_stats_show_data *)ifr->ifr_data)->desc.len =
-            STAT_NAME_LEN;
-        return (0);
-
-    case BXE_IOC_STATS_SHOW_STR:
-        memset(ifr->ifr_data, 0, str_size);
-        p_tmp = ifr->ifr_data;
-        for (i = 0; i < BXE_NUM_ETH_STATS; i++) {
-            strcpy(p_tmp, bxe_eth_stats_arr[i].string);
-            p_tmp += STAT_NAME_LEN;
-        }
-        return (0);
-
-    case BXE_IOC_STATS_SHOW_CNT:
-        memset(ifr->ifr_data, 0, stats_size);
-        p_tmp = ifr->ifr_data;
-        for (i = 0; i < BXE_NUM_ETH_STATS; i++) {
-            offset = ((uint32_t *)&sc->eth_stats +
-                      bxe_eth_stats_arr[i].offset);
-            switch (bxe_eth_stats_arr[i].size) {
-            case 4:
-                *((uint64_t *)p_tmp) = (uint64_t)*offset;
-                break;
-            case 8:
-                *((uint64_t *)p_tmp) = HILO_U64(*offset, *(offset + 1));
-                break;
-            default:
-                *((uint64_t *)p_tmp) = 0;
-            }
-            p_tmp += sizeof(uint64_t);
-        }
-        return (0);
-
-    default:
-        return (-1);
-    }
-}
-
 static void
 bxe_handle_chip_tq(void *context,
                    int  pending)
@@ -4585,8 +4479,6 @@ bxe_ioctl(struct ifnet *ifp,
 {
     struct bxe_softc *sc = ifp->if_softc;
     struct ifreq *ifr = (struct ifreq *)data;
-    struct bxe_nvram_data *nvdata;
-    uint32_t priv_op;
     int mask = 0;
     int reinit = 0;
     int error = 0;
@@ -4769,36 +4661,6 @@ bxe_ioctl(struct ifnet *ifp,
               "Received SIOCSIFMEDIA/SIOCGIFMEDIA ioctl (cmd=%lu)\n",
               (command & 0xff));
         error = ifmedia_ioctl(ifp, ifr, &sc->ifmedia, command);
-        break;
-
-    case SIOCGPRIVATE_0:
-        copyin(ifr->ifr_data, &priv_op, sizeof(priv_op));
-
-        switch (priv_op)
-        {
-        case BXE_IOC_RD_NVRAM:
-        case BXE_IOC_WR_NVRAM:
-            nvdata = (struct bxe_nvram_data *)ifr->ifr_data;
-            BLOGD(sc, DBG_IOCTL,
-                  "Received Private NVRAM ioctl addr=0x%x size=%u\n",
-                  nvdata->offset, nvdata->len);
-            error = bxe_ioctl_nvram(sc, priv_op, ifr);
-            break;
-
-        case BXE_IOC_STATS_SHOW_NUM:
-        case BXE_IOC_STATS_SHOW_STR:
-        case BXE_IOC_STATS_SHOW_CNT:
-            BLOGD(sc, DBG_IOCTL, "Received Private Stats ioctl (%d)\n",
-                  priv_op);
-            error = bxe_ioctl_stats_show(sc, priv_op, ifr);
-            break;
-
-        default:
-            BLOGW(sc, "Received Private Unknown ioctl (%d)\n", priv_op);
-            error = EINVAL;
-            break;
-        }
-
         break;
 
     default:
@@ -15669,30 +15531,6 @@ bxe_sysctl_state(SYSCTL_HANDLER_ARGS)
 }
 
 static int
-bxe_sysctl_trigger_grcdump(SYSCTL_HANDLER_ARGS)
-{
-    struct bxe_softc *sc;
-    int error, result;
-
-    result = 0;
-    error = sysctl_handle_int(oidp, &result, 0, req);
-
-    if (error || !req->newptr) {
-        return (error);
-    }
-
-    if (result == 1) {
-        sc = (struct bxe_softc *)arg1;
-
-        BLOGI(sc, "... grcdump start ...\n");
-        bxe_grc_dump(sc);
-        BLOGI(sc, "... grcdump done ...\n");
-    }
-
-    return (error);
-}
-
-static int
 bxe_sysctl_eth_stat(SYSCTL_HANDLER_ARGS)
 {
     struct bxe_softc *sc = (struct bxe_softc *)arg1;
@@ -15843,14 +15681,16 @@ bxe_add_sysctls(struct bxe_softc *sc)
                     "debug logging mode");
 #endif /* #if __FreeBSD_version >= 900000 */
 
-    SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "trigger_grcdump",
-                    CTLTYPE_UINT | CTLFLAG_RW, sc, 0,
-                    bxe_sysctl_trigger_grcdump, "IU",
-                    "set by driver when a grcdump is needed");
+    sc->trigger_grcdump = 0;
+    SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "trigger_grcdump",
+                   CTLFLAG_RW, &sc->trigger_grcdump, 0,
+                   "trigger grcdump should be invoked"
+                   "  before collecting grcdump");
 
+    sc->grcdump_started = 0;
     sc->grcdump_done = 0;
     SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "grcdump_done",
-                   CTLFLAG_RW, &sc->grcdump_done, 0,
+                   CTLFLAG_RD, &sc->grcdump_done, 0,
                    "set by driver when grcdump is done");
 
     sc->rx_budget = bxe_rx_budget;
@@ -18682,7 +18522,7 @@ bxe_get_preset_regs(struct bxe_softc *sc, uint32_t *p, uint32_t preset)
     return 0;
 }
 
-static int
+int
 bxe_grc_dump(struct bxe_softc *sc)
 {
     int rval = 0;
@@ -18690,11 +18530,52 @@ bxe_grc_dump(struct bxe_softc *sc)
     uint8_t *buf;
     uint32_t size;
     struct  dump_header *d_hdr;
+    uint32_t i;
+    uint32_t reg_val;
+    uint32_t reg_addr;
+    uint32_t cmd_offset;
+    int context_size;
+    int allocated;
+    struct ecore_ilt *ilt = SC_ILT(sc);
+    struct bxe_fastpath *fp;
+    struct ilt_client_info *ilt_cli;
+    int grc_dump_size;
 
-    if (sc->grcdump_done)
+
+    if (sc->grcdump_done || sc->grcdump_started)
 	return (rval);
     
+    sc->grcdump_started = 1;
+    BLOGI(sc, "Started collecting grcdump\n");
+
+    grc_dump_size = (bxe_get_total_regs_len32(sc) * sizeof(uint32_t)) +
+                sizeof(struct  dump_header);
+
+    sc->grc_dump = malloc(grc_dump_size, M_DEVBUF, M_NOWAIT);
+
+    if (sc->grc_dump == NULL) {
+        BLOGW(sc, "Unable to allocate memory for grcdump collection\n");
+        return(ENOMEM);
+    }
+
+
+
+    /* Disable parity attentions as long as following dump may
+     * cause false alarms by reading never written registers. We
+     * will re-enable parity attentions right after the dump.
+     */
+
+    /* Disable parity on path 0 */
+    bxe_pretend_func(sc, 0);
+
     ecore_disable_blocks_parity(sc);
+
+    /* Disable parity on path 1 */
+    bxe_pretend_func(sc, 1);
+    ecore_disable_blocks_parity(sc);
+
+    /* Return to current function */
+    bxe_pretend_func(sc, SC_ABS_FUNC(sc));
 
     buf = sc->grc_dump;
     d_hdr = sc->grc_dump;
@@ -18727,7 +18608,7 @@ bxe_grc_dump(struct bxe_softc *sc)
             (preset_idx == 11))
             continue;
 
-        rval = bxe_get_preset_regs(sc, sc->grc_dump, preset_idx);
+        rval = bxe_get_preset_regs(sc, (uint32_t *)buf, preset_idx);
 
 	if (rval)
             break;
@@ -18737,9 +18618,81 @@ bxe_grc_dump(struct bxe_softc *sc)
         buf += size;
     }
 
+    bxe_pretend_func(sc, 0);
     ecore_clear_blocks_parity(sc);
     ecore_enable_blocks_parity(sc);
 
+    bxe_pretend_func(sc, 1);
+    ecore_clear_blocks_parity(sc);
+    ecore_enable_blocks_parity(sc);
+
+    /* Return to current function */
+    bxe_pretend_func(sc, SC_ABS_FUNC(sc));
+
+
+    context_size = (sizeof(union cdu_context) * BXE_L2_CID_COUNT(sc));
+    for (i = 0, allocated = 0; allocated < context_size; i++) {
+
+        BLOGI(sc, "cdu_context i %d paddr %#jx vaddr %p size 0x%zx\n", i,
+            (uintmax_t)sc->context[i].vcxt_dma.paddr,
+            sc->context[i].vcxt_dma.vaddr,
+            sc->context[i].size);
+        allocated += sc->context[i].size;
+    }
+    BLOGI(sc, "fw stats start_paddr %#jx end_paddr %#jx vaddr %p size 0x%x\n",
+        (uintmax_t)sc->fw_stats_req_mapping,
+        (uintmax_t)sc->fw_stats_data_mapping,
+        sc->fw_stats_req, (sc->fw_stats_req_size + sc->fw_stats_data_size));
+    BLOGI(sc, "def_status_block paddr %p vaddr %p size 0x%zx\n",
+        (void *)sc->def_sb_dma.paddr, sc->def_sb,
+        sizeof(struct host_sp_status_block));
+    BLOGI(sc, "event_queue paddr %#jx vaddr %p size 0x%x\n",
+        (uintmax_t)sc->eq_dma.paddr, sc->eq_dma.vaddr, BCM_PAGE_SIZE);
+    BLOGI(sc, "slow path paddr %#jx vaddr %p size 0x%zx\n",
+        (uintmax_t)sc->sp_dma.paddr, sc->sp_dma.vaddr,
+        sizeof(struct bxe_slowpath));
+    BLOGI(sc, "slow path queue paddr %#jx vaddr %p size 0x%x\n",
+        (uintmax_t)sc->spq_dma.paddr, sc->spq_dma.vaddr, BCM_PAGE_SIZE);
+    BLOGI(sc, "fw_buf paddr %#jx vaddr %p size 0x%x\n",
+        (uintmax_t)sc->gz_buf_dma.paddr, sc->gz_buf_dma.vaddr,
+        FW_BUF_SIZE);
+    for (i = 0; i < sc->num_queues; i++) {
+        fp = &sc->fp[i];
+        BLOGI(sc, "FP status block fp %d paddr %#jx vaddr %p size 0x%zx\n", i,
+            (uintmax_t)fp->sb_dma.paddr, fp->sb_dma.vaddr,
+            sizeof(union bxe_host_hc_status_block));
+        BLOGI(sc, "TX BD CHAIN fp %d paddr %#jx vaddr %p size 0x%x\n", i,
+            (uintmax_t)fp->tx_dma.paddr, fp->tx_dma.vaddr,
+            (BCM_PAGE_SIZE * TX_BD_NUM_PAGES));
+        BLOGI(sc, "RX BD CHAIN fp %d paddr %#jx vaddr %p size 0x%x\n", i,
+            (uintmax_t)fp->rx_dma.paddr, fp->rx_dma.vaddr,
+            (BCM_PAGE_SIZE * RX_BD_NUM_PAGES));
+        BLOGI(sc, "RX RCQ CHAIN fp %d paddr %#jx vaddr %p size 0x%zx\n", i,
+            (uintmax_t)fp->rcq_dma.paddr, fp->rcq_dma.vaddr,
+            (BCM_PAGE_SIZE * RCQ_NUM_PAGES));
+        BLOGI(sc, "RX SGE CHAIN fp %d paddr %#jx vaddr %p size 0x%x\n", i,
+            (uintmax_t)fp->rx_sge_dma.paddr, fp->rx_sge_dma.vaddr,
+            (BCM_PAGE_SIZE * RX_SGE_NUM_PAGES));
+    }
+
+    ilt_cli = &ilt->clients[1];
+    for (i = ilt_cli->start; i <= ilt_cli->end; i++) {
+        BLOGI(sc, "ECORE_ILT paddr %#jx vaddr %p size 0x%x\n",
+            (uintmax_t)(((struct bxe_dma *)((&ilt->lines[i])->page))->paddr),
+            ((struct bxe_dma *)((&ilt->lines[i])->page))->vaddr, BCM_PAGE_SIZE);
+    }
+
+
+    cmd_offset = DMAE_REG_CMD_MEM;
+    for (i = 0; i < 224; i++) {
+        reg_addr = (cmd_offset +(i * 4));
+        reg_val = REG_RD(sc, reg_addr);
+        BLOGI(sc, "DMAE_REG_CMD_MEM i=%d reg_addr 0x%x reg_val 0x%08x\n",i,
+            reg_addr, reg_val);
+    }
+
+
+    BLOGI(sc, "Collection of grcdump done\n");
     sc->grcdump_done = 1;
     return(rval);
 }
@@ -18747,21 +18700,10 @@ bxe_grc_dump(struct bxe_softc *sc)
 static int
 bxe_add_cdev(struct bxe_softc *sc)
 {
-    int grc_dump_size;
-
-    grc_dump_size = (bxe_get_total_regs_len32(sc) * sizeof(uint32_t)) +
-				sizeof(struct  dump_header);
-
-    sc->grc_dump = malloc(grc_dump_size, M_DEVBUF, M_NOWAIT);
-
-    if (sc->grc_dump == NULL)
-        return (-1);
-
     sc->eeprom = malloc(BXE_EEPROM_MAX_DATA_LEN, M_DEVBUF, M_NOWAIT);
 
     if (sc->eeprom == NULL) {
         BLOGW(sc, "Unable to alloc for eeprom size buffer\n");
-        free(sc->grc_dump, M_DEVBUF); sc->grc_dump = NULL;
         return (-1);
     }
 
@@ -18774,11 +18716,8 @@ bxe_add_cdev(struct bxe_softc *sc)
                             if_name(sc->ifnet));
 
     if (sc->ioctl_dev == NULL) {
-
-        free(sc->grc_dump, M_DEVBUF);
         free(sc->eeprom, M_DEVBUF);
         sc->eeprom = NULL;
-
         return (-1);
     }
 
@@ -18793,13 +18732,11 @@ bxe_del_cdev(struct bxe_softc *sc)
     if (sc->ioctl_dev != NULL)
         destroy_dev(sc->ioctl_dev);
 
-    if (sc->grc_dump != NULL)
-        free(sc->grc_dump, M_DEVBUF);
-
     if (sc->eeprom != NULL) {
         free(sc->eeprom, M_DEVBUF);
         sc->eeprom = NULL;
     }
+    sc->ioctl_dev = NULL;
 
     return;
 }
@@ -18977,15 +18914,26 @@ bxe_eioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
             
             grc_dump_size = (bxe_get_total_regs_len32(sc) * sizeof(uint32_t)) +
                                 sizeof(struct  dump_header);
-
-            if ((sc->grc_dump == NULL) || (dump->grcdump == NULL) ||
-                (dump->grcdump_size < grc_dump_size) || (!sc->grcdump_done)) {
+            if ((!sc->trigger_grcdump) || (dump->grcdump == NULL) ||
+                (dump->grcdump_size < grc_dump_size)) {
                 rval = EINVAL;
                 break;
             }
-	    dump->grcdump_dwords = grc_dump_size >> 2;
-            rval = copyout(sc->grc_dump, dump->grcdump, grc_dump_size);
-            sc->grcdump_done = 0;
+
+            if((sc->trigger_grcdump) && (!sc->grcdump_done) &&
+                (!sc->grcdump_started)) {
+                rval =  bxe_grc_dump(sc);
+            }
+
+            if((!rval) && (sc->grcdump_done) && (sc->grcdump_started) &&
+                (sc->grc_dump != NULL))  {
+                dump->grcdump_dwords = grc_dump_size >> 2;
+                rval = copyout(sc->grc_dump, dump->grcdump, grc_dump_size);
+                free(sc->grc_dump, M_DEVBUF);
+                sc->grc_dump = NULL;
+                sc->grcdump_started = 0;
+                sc->grcdump_done = 0;
+            }
 
             break;
 
@@ -19005,6 +18953,7 @@ bxe_eioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
             snprintf(drv_infop->bus_info, BXE_BUS_INFO_LENGTH, "%d:%d:%d",
                 sc->pcie_bus, sc->pcie_device, sc->pcie_func);
             break;
+
         case BXE_DEV_SETTING:
             dev_p = (bxe_dev_setting_t *)data;
             bxe_get_settings(sc, &dev_set);
@@ -19023,20 +18972,20 @@ bxe_eioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
             reg_p = (bxe_get_regs_t *)data;
             grc_dump_size = reg_p->reg_buf_len;
 
-            if (sc->grc_dump == NULL) { 
-                rval = EINVAL;
-                break;
-            }
-
-            if(!sc->grcdump_done) {
+            if((!sc->grcdump_done) && (!sc->grcdump_started)) {
                 bxe_grc_dump(sc);
             }
-            if(sc->grcdump_done) {
+            if((sc->grcdump_done) && (sc->grcdump_started) &&
+                (sc->grc_dump != NULL))  {
                 rval = copyout(sc->grc_dump, reg_p->reg_buf, grc_dump_size);
+                free(sc->grc_dump, M_DEVBUF);
+                sc->grc_dump = NULL;
+                sc->grcdump_started = 0;
                 sc->grcdump_done = 0;
             }
 
             break;
+
         case BXE_RDW_REG:
             reg_rdw_p = (bxe_reg_rdw_t *)data;
             if((reg_rdw_p->reg_cmd == BXE_READ_REG_CMD) &&
