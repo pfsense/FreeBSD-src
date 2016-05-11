@@ -1730,7 +1730,7 @@ ip6_get_prevhdr(struct mbuf *m, int off)
  * get next header offset.  m will be retained.
  */
 int
-ip6_nexthdr(struct mbuf *m, int off, int proto, int *nxtp)
+ip6_nexthdr(const struct mbuf *m, int off, int proto, int *nxtp)
 {
 	struct ip6_hdr ip6;
 	struct ip6_ext ip6e;
@@ -1805,7 +1805,7 @@ ip6_nexthdr(struct mbuf *m, int off, int proto, int *nxtp)
  * get offset for the last header in the chain.  m will be kept untainted.
  */
 int
-ip6_lasthdr(struct mbuf *m, int off, int proto, int *nxtp)
+ip6_lasthdr(const struct mbuf *m, int off, int proto, int *nxtp)
 {
 	int newoff;
 	int nxt;
