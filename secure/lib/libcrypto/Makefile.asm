@@ -1,8 +1,8 @@
 # $FreeBSD$
-# Use this to help generate the asm *.[Ss] files after an import.  It is not
+# Use this to help generate the asm *.S files after an import.  It is not
 # perfect by any means, but does what is needed.
-# Do a 'make -f Makefile.asm all' and it will generate *.s.  Move them
-# to the i386 subdir, and correct any exposed paths and $ FreeBSD $ tags.
+# Do a 'make -f Makefile.asm all' and it will generate *.S.  Move them
+# to the arch subdir, and correct any exposed paths and $ FreeBSD $ tags.
 
 .include "Makefile.inc"
 
@@ -62,7 +62,9 @@ CLEANFILES+=	sha256-x86_64.cmt sha256-x86_64.S x86_64cpuid.cmt x86_64cpuid.S
 	( cd `dirname ${.IMPSRC}`/.. ; perl ${.IMPSRC} ${.OBJDIR}/${.TARGET} )
 
 .cmt.S:
-	( echo '	# $$'FreeBSD'$$'; cat ${.IMPSRC} ) > ${.TARGET}
+	( echo '	# $$'FreeBSD'$$' ;\
+	echo '	# Do not modify. This file is auto-generated.' ;\
+	cat ${.IMPSRC} ) > ${.TARGET}
 
 sha256-x86_64.cmt: sha512-x86_64.pl
 	( cd `dirname ${.ALLSRC}`/.. ; perl ${.ALLSRC} ${.OBJDIR}/${.TARGET} )
@@ -127,16 +129,22 @@ SRCS+=	wp-mmx.pl
 # cpuid
 SRCS+=	x86cpuid.pl
 
-ASM=	${SRCS:S/.pl/.s/}
+ASM=	${SRCS:S/.pl/.S/}
 
 all:	${ASM}
 
-CLEANFILES+=	${SRCS:M*.pl:S/.pl$/.s/}
+CLEANFILES+=	${SRCS:M*.pl:S/.pl$/.S/}
 .SUFFIXES:	.pl
 
-.pl.s:
+.pl.S:
 	( echo '	# $$'FreeBSD'$$' ;\
-	perl ${PERLPATH} ${.IMPSRC} elf ${CFLAGS} ) > ${.TARGET}
+	echo '	# Do not modify. This file is auto-generated.' ;\
+	echo '#ifdef PIC' ;\
+	perl ${PERLPATH} ${.IMPSRC} elf ${CFLAGS} -fpic -DPIC ;\
+	echo '#else' ;\
+	perl ${PERLPATH} ${.IMPSRC} elf ${CFLAGS} ;\
+	echo '#endif') |\
+	sed -E 's|(\.file[[:blank:]]+)".*"|\1"${.TARGET}"|' > ${.TARGET}
 .endif
 
 .include <bsd.prog.mk>

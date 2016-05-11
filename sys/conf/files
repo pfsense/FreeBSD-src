@@ -1513,6 +1513,8 @@ dev/gem/if_gem.c		optional gem
 dev/gem/if_gem_pci.c		optional gem pci
 dev/gem/if_gem_sbus.c		optional gem sbus
 dev/gpio/gpiobacklight.c	optional gpiobacklight fdt
+dev/gpio/gpiokeys.c		optional gpiokeys fdt
+dev/gpio/gpiokeys_codes.c	optional gpiokeys fdt
 dev/gpio/gpiobus.c		optional gpio				\
 	dependency	"gpiobus_if.h"
 dev/gpio/gpioc.c		optional gpio				\
@@ -2440,11 +2442,11 @@ dev/si/si3_t225.c		optional si
 dev/si/si_eisa.c		optional si eisa
 dev/si/si_isa.c			optional si isa
 dev/si/si_pci.c			optional si pci
-dev/siba/siba.c			optional siba !bhnd !bhndbus
 dev/siba/siba_bwn.c		optional siba_bwn pci
-dev/siba/siba_cc.c		optional siba !bhnd !bhndbus
-dev/siba/siba_core.c		optional siba | siba_bwn pci
-dev/siba/siba_pcib.c		optional siba pci !bhnd !bhndbus
+dev/siba/siba_cc.c		optional siba_s5 !bhnd !bhndbus
+dev/siba/siba_core.c		optional siba_s5 | siba_bwn pci
+dev/siba/siba_mips.c		optional siba_s5 !bhnd !bhndbus
+dev/siba/siba_pcib.c		optional siba_s5 pci !bhnd !bhndbus
 dev/siis/siis.c			optional siis pci
 dev/sis/if_sis.c		optional sis pci
 dev/sk/if_sk.c			optional sk pci

@@ -33,8 +33,6 @@
 #ifndef	_SYS_EFX_IMPL_H
 #define	_SYS_EFX_IMPL_H
 
-#include "efsys.h"
-#include "efx_check.h"
 #include "efx.h"
 #include "efx_regs.h"
 #include "efx_regs_ef10.h"
@@ -44,10 +42,6 @@
 #define	ESE_DZ_EV_CODE_DRV_GEN_EV FSE_AZ_EV_CODE_DRV_GEN_EV
 #endif
 
-
-#if EFSYS_OPT_FALCON
-#include "falcon_impl.h"
-#endif	/* EFSYS_OPT_FALCON */
 
 #if EFSYS_OPT_SIENA
 #include "siena_impl.h"
@@ -82,8 +76,7 @@ extern "C" {
 #define	EFX_MOD_MON		0x00000400
 #define	EFX_MOD_WOL		0x00000800
 #define	EFX_MOD_FILTER		0x00001000
-#define	EFX_MOD_PKTFILTER	0x00002000
-#define	EFX_MOD_LIC		0x00004000
+#define	EFX_MOD_LIC		0x00002000
 
 #define	EFX_RESET_MAC		0x00000001
 #define	EFX_RESET_PHY		0x00000002
@@ -92,8 +85,6 @@ extern "C" {
 
 typedef enum efx_mac_type_e {
 	EFX_MAC_INVALID = 0,
-	EFX_MAC_FALCON_GMAC,
-	EFX_MAC_FALCON_XMAC,
 	EFX_MAC_SIENA,
 	EFX_MAC_HUNTINGTON,
 	EFX_MAC_MEDFORD,
@@ -255,7 +246,7 @@ typedef struct efx_filter_ops_s {
 	efx_rc_t	(*efo_supported_filters)(efx_nic_t *, uint32_t *, size_t *);
 	efx_rc_t	(*efo_reconfigure)(efx_nic_t *, uint8_t const *, boolean_t,
 				   boolean_t, boolean_t, boolean_t,
-				   uint8_t const *, int);
+				   uint8_t const *, uint32_t);
 } efx_filter_ops_t;
 
 extern	__checkReturn	efx_rc_t
@@ -267,7 +258,7 @@ efx_filter_reconfigure(
 	__in				boolean_t all_mulcst,
 	__in				boolean_t brdcst,
 	__in_ecount(6*count)		uint8_t const *addrs,
-	__in				int count);
+	__in				uint32_t count);
 
 #endif /* EFSYS_OPT_FILTER */
 
@@ -305,19 +296,6 @@ typedef struct efx_port_s {
 	uint32_t		ep_lp_cap_mask;
 	uint32_t		ep_default_adv_cap_mask;
 	uint32_t		ep_phy_cap_mask;
-#if EFSYS_OPT_PHY_TXC43128 || EFSYS_OPT_PHY_QT2025C
-	union {
-		struct {
-			unsigned int	bug10934_count;
-		} ep_txc43128;
-		struct {
-			unsigned int	bug17190_count;
-		} ep_qt2025c;
-	};
-#endif
-	boolean_t		ep_mac_poll_needed; /* falcon only */
-	boolean_t		ep_mac_up; /* falcon only */
-	uint32_t		ep_fwver; /* falcon only */
 	boolean_t		ep_mac_drain;
 	boolean_t		ep_mac_stats_pending;
 #if EFSYS_OPT_BIST
@@ -371,7 +349,6 @@ typedef struct efx_nic_ops_s {
 	efx_rc_t	(*eno_get_bar_region)(efx_nic_t *, efx_nic_region_t,
 					uint32_t *, size_t *);
 #if EFSYS_OPT_DIAG
-	efx_rc_t	(*eno_sram_test)(efx_nic_t *, efx_sram_pattern_fn_t);
 	efx_rc_t	(*eno_register_test)(efx_nic_t *);
 #endif	/* EFSYS_OPT_DIAG */
 	void		(*eno_fini)(efx_nic_t *);
@@ -443,9 +420,9 @@ typedef struct falconsiena_filter_s {
 } falconsiena_filter_t;
 
 typedef struct efx_filter_s {
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 	falconsiena_filter_t	*ef_falconsiena_filter;
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
+#endif /* EFSYS_OPT_SIENA */
 #if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD
 	ef10_filter_table_t	*ef_ef10_filter_table;
 #endif /* EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD */
@@ -499,8 +476,18 @@ typedef struct efx_nvram_ops_s {
 					    uint32_t *, uint16_t *);
 	efx_rc_t	(*envo_partn_set_version)(efx_nic_t *, uint32_t,
 					    uint16_t *);
+	efx_rc_t	(*envo_buffer_validate)(efx_nic_t *, uint32_t,
+					    caddr_t, size_t);
 } efx_nvram_ops_t;
 #endif /* EFSYS_OPT_NVRAM */
+
+extern	__checkReturn		efx_rc_t
+efx_nvram_tlv_validate(
+	__in			efx_nic_t *enp,
+	__in			uint32_t partn,
+	__in_bcount(partn_size)	caddr_t partn_data,
+	__in			size_t partn_size);
+
 
 #if EFSYS_OPT_VPD
 typedef struct efx_vpd_ops_s {
@@ -658,21 +645,6 @@ struct efx_nic_s {
 	efx_lic_ops_t		*en_elop;
 #endif
 	union {
-#if EFSYS_OPT_FALCON
-		struct {
-			falcon_spi_dev_t	enu_fsd[FALCON_SPI_NTYPES];
-			falcon_i2c_t		enu_fip;
-			boolean_t		enu_i2c_locked;
-#if EFSYS_OPT_FALCON_NIC_CFG_OVERRIDE
-			const uint8_t		*enu_forced_cfg;
-#endif	/* EFSYS_OPT_FALCON_NIC_CFG_OVERRIDE */
-			uint8_t			enu_mon_devid;
-			uint16_t		enu_board_rev;
-			boolean_t		enu_internal_sram;
-			uint8_t			enu_sram_num_bank;
-			uint8_t			enu_sram_bank_size;
-		} falcon;
-#endif	/* EFSYS_OPT_FALCON */
 #if EFSYS_OPT_SIENA
 		struct {
 #if EFSYS_OPT_NVRAM || EFSYS_OPT_VPD
@@ -810,10 +782,6 @@ struct efx_txq_s {
 		char rev;						\
 									\
 		switch ((_enp)->en_family) {				\
-		case EFX_FAMILY_FALCON:					\
-			rev = 'B';					\
-			break;						\
-									\
 		case EFX_FAMILY_SIENA:					\
 			rev = 'C';					\
 			break;						\

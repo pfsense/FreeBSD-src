@@ -34,65 +34,13 @@ __FBSDID("$FreeBSD$");
 #include "efx.h"
 #include "efx_impl.h"
 
-#if EFSYS_OPT_MAC_FALCON_GMAC
-#include "falcon_gmac.h"
-#endif
-
-#if EFSYS_OPT_MAC_FALCON_XMAC
-#include "falcon_xmac.h"
-#endif
-
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 
 static	__checkReturn	efx_rc_t
 falconsiena_mac_multicast_list_set(
 	__in		efx_nic_t *enp);
 
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
-
-#if EFSYS_OPT_MAC_FALCON_GMAC
-static efx_mac_ops_t	__efx_falcon_gmac_ops = {
-	falcon_gmac_reset,			/* emo_reset */
-	falcon_mac_poll,			/* emo_poll */
-	falcon_mac_up,				/* emo_up */
-	falcon_gmac_reconfigure,		/* emo_addr_set */
-	falcon_gmac_reconfigure,		/* emo_pdu_set */
-	falcon_gmac_reconfigure,		/* emo_reconfigure */
-	falconsiena_mac_multicast_list_set,	/* emo_multicast_list_set */
-	NULL,					/* emo_filter_set_default_rxq */
-	NULL,				/* emo_filter_default_rxq_clear */
-#if EFSYS_OPT_LOOPBACK
-	falcon_mac_loopback_set,		/* emo_loopback_set */
-#endif	/* EFSYS_OPT_LOOPBACK */
-#if EFSYS_OPT_MAC_STATS
-	falcon_mac_stats_upload,		/* emo_stats_upload */
-	NULL,					/* emo_stats_periodic */
-	falcon_gmac_stats_update		/* emo_stats_update */
-#endif	/* EFSYS_OPT_MAC_STATS */
-};
-#endif	/* EFSYS_OPT_MAC_FALCON_GMAC */
-
-#if EFSYS_OPT_MAC_FALCON_XMAC
-static efx_mac_ops_t	__efx_falcon_xmac_ops = {
-	falcon_xmac_reset,			/* emo_reset */
-	falcon_mac_poll,			/* emo_poll */
-	falcon_mac_up,				/* emo_up */
-	falcon_xmac_reconfigure,		/* emo_addr_set */
-	falcon_xmac_reconfigure,		/* emo_pdu_set */
-	falcon_xmac_reconfigure,		/* emo_reconfigure */
-	falconsiena_mac_multicast_list_set,	/* emo_multicast_list_set */
-	NULL,					/* emo_filter_set_default_rxq */
-	NULL,				/* emo_filter_default_rxq_clear */
-#if EFSYS_OPT_LOOPBACK
-	falcon_mac_loopback_set,		/* emo_loopback_set */
-#endif	/* EFSYS_OPT_LOOPBACK */
-#if EFSYS_OPT_MAC_STATS
-	falcon_mac_stats_upload,		/* emo_stats_upload */
-	NULL,					/* emo_stats_periodic */
-	falcon_xmac_stats_update		/* emo_stats_update */
-#endif	/* EFSYS_OPT_MAC_STATS */
-};
-#endif	/* EFSYS_OPT_MAC_FALCON_XMAC */
+#endif /* EFSYS_OPT_SIENA */
 
 #if EFSYS_OPT_SIENA
 static efx_mac_ops_t	__efx_siena_mac_ops = {
@@ -139,40 +87,6 @@ static efx_mac_ops_t	__efx_ef10_mac_ops = {
 };
 #endif	/* EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD */
 
-static efx_mac_ops_t	*__efx_mac_ops[] = {
-	/* [EFX_MAC_INVALID] */
-	NULL,
-	/* [EFX_MAC_FALCON_GMAC] */
-#if EFSYS_OPT_MAC_FALCON_GMAC
-	&__efx_falcon_gmac_ops,
-#else
-	NULL,
-#endif
-	/* [EFX_MAC_FALCON_XMAC] */
-#if EFSYS_OPT_MAC_FALCON_XMAC
-	&__efx_falcon_xmac_ops,
-#else
-	NULL,
-#endif
-	/* [EFX_MAC_SIENA] */
-#if EFSYS_OPT_SIENA
-	&__efx_siena_mac_ops,
-#else
-	NULL,
-#endif
-	/* [EFX_MAC_HUNTINGTON] */
-#if EFSYS_OPT_HUNTINGTON
-	&__efx_ef10_mac_ops,
-#else
-	NULL,
-#endif
-	/* [EFX_MAC_MEDFORD] */
-#if EFSYS_OPT_MEDFORD
-	&__efx_ef10_mac_ops,
-#else
-	NULL,
-#endif
-};
 
 	__checkReturn			efx_rc_t
 efx_mac_pdu_set(
@@ -791,77 +705,43 @@ efx_mac_select(
 	efx_mac_ops_t *emop;
 	int rc = EINVAL;
 
+	switch (enp->en_family) {
 #if EFSYS_OPT_SIENA
-	if (enp->en_family == EFX_FAMILY_SIENA) {
+	case EFX_FAMILY_SIENA:
+		emop = &__efx_siena_mac_ops;
 		type = EFX_MAC_SIENA;
-		goto chosen;
-	}
-#endif
+		break;
+#endif /* EFSYS_OPT_SIENA */
 
 #if EFSYS_OPT_HUNTINGTON
-	if (enp->en_family == EFX_FAMILY_HUNTINGTON) {
+	case EFX_FAMILY_HUNTINGTON:
+		emop = &__efx_ef10_mac_ops;
 		type = EFX_MAC_HUNTINGTON;
-		goto chosen;
-	}
-#endif
+		break;
+#endif /* EFSYS_OPT_HUNTINGTON */
 
 #if EFSYS_OPT_MEDFORD
-	if (enp->en_family == EFX_FAMILY_MEDFORD) {
+	case EFX_FAMILY_MEDFORD:
+		emop = &__efx_ef10_mac_ops;
 		type = EFX_MAC_MEDFORD;
-		goto chosen;
-	}
-#endif
-
-#if EFSYS_OPT_FALCON
-	switch (epp->ep_link_mode) {
-#if EFSYS_OPT_MAC_FALCON_GMAC
-	case EFX_LINK_100HDX:
-	case EFX_LINK_100FDX:
-	case EFX_LINK_1000HDX:
-	case EFX_LINK_1000FDX:
-		type = EFX_MAC_FALCON_GMAC;
-		goto chosen;
-#endif	/* EFSYS_OPT_FALCON_GMAC */
-
-#if EFSYS_OPT_MAC_FALCON_XMAC
-	case EFX_LINK_10000FDX:
-		type = EFX_MAC_FALCON_XMAC;
-		goto chosen;
-#endif	/* EFSYS_OPT_FALCON_XMAC */
+		break;
+#endif /* EFSYS_OPT_MEDFORD */
 
 	default:
-#if EFSYS_OPT_MAC_FALCON_GMAC && EFSYS_OPT_MAC_FALCON_XMAC
-		/* Only initialise a MAC supported by the PHY */
-		if (epp->ep_phy_cap_mask &
-		    ((1 << EFX_PHY_CAP_1000FDX) |
-		    (1 << EFX_PHY_CAP_1000HDX) |
-		    (1 << EFX_PHY_CAP_100FDX) |
-		    (1 << EFX_PHY_CAP_100HDX) |
-		    (1 << EFX_PHY_CAP_10FDX) |
-		    (1 << EFX_PHY_CAP_10FDX)))
-			type = EFX_MAC_FALCON_GMAC;
-		else
-			type = EFX_MAC_FALCON_XMAC;
-#elif EFSYS_OPT_MAC_FALCON_GMAC
-		type = EFX_MAC_FALCON_GMAC;
-#else
-		type = EFX_MAC_FALCON_XMAC;
-#endif
-		goto chosen;
+		rc = EINVAL;
+		goto fail1;
 	}
-#endif	/* EFSYS_OPT_FALCON */
 
-chosen:
 	EFSYS_ASSERT(type != EFX_MAC_INVALID);
 	EFSYS_ASSERT3U(type, <, EFX_MAC_NTYPES);
-	emop = epp->ep_emop = (efx_mac_ops_t *)__efx_mac_ops[type];
 	EFSYS_ASSERT(emop != NULL);
 
+	epp->ep_emop = emop;
 	epp->ep_mac_type = type;
 
 	if (emop->emo_reset != NULL) {
 		if ((rc = emop->emo_reset(enp)) != 0)
-			goto fail1;
+			goto fail2;
 
 		EFSYS_ASSERT(enp->en_reset_flags & EFX_RESET_MAC);
 		enp->en_reset_flags &= ~EFX_RESET_MAC;
@@ -869,6 +749,8 @@ chosen:
 
 	return (0);
 
+fail2:
+	EFSYS_PROBE(fail2);
 fail1:
 	EFSYS_PROBE1(fail1, efx_rc_t, rc);
 
@@ -876,7 +758,7 @@ fail1:
 }
 
 
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 
 #define	EFX_MAC_HASH_BITS	(1 << 8)
 
@@ -943,4 +825,4 @@ fail1:
 	return (rc);
 }
 
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
+#endif /* EFSYS_OPT_SIENA */

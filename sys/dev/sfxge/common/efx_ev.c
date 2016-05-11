@@ -53,7 +53,7 @@ __FBSDID("$FreeBSD$");
 
 
 
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 
 static	__checkReturn	efx_rc_t
 falconsiena_ev_init(
@@ -106,22 +106,7 @@ falconsiena_ev_qstats_update(
 
 #endif
 
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
-
-#if EFSYS_OPT_FALCON
-static efx_ev_ops_t	__efx_ev_falcon_ops = {
-	falconsiena_ev_init,			/* eevo_init */
-	falconsiena_ev_fini,			/* eevo_fini */
-	falconsiena_ev_qcreate,			/* eevo_qcreate */
-	falconsiena_ev_qdestroy,		/* eevo_qdestroy */
-	falconsiena_ev_qprime,			/* eevo_qprime */
-	falconsiena_ev_qpost,			/* eevo_qpost */
-	falconsiena_ev_qmoderate,		/* eevo_qmoderate */
-#if EFSYS_OPT_QSTATS
-	falconsiena_ev_qstats_update,		/* eevo_qstats_update */
-#endif
-};
-#endif /* EFSYS_OPT_FALCON */
+#endif /* EFSYS_OPT_SIENA */
 
 #if EFSYS_OPT_SIENA
 static efx_ev_ops_t	__efx_ev_siena_ops = {
@@ -170,12 +155,6 @@ efx_ev_init(
 	}
 
 	switch (enp->en_family) {
-#if EFSYS_OPT_FALCON
-	case EFX_FAMILY_FALCON:
-		eevop = (efx_ev_ops_t *)&__efx_ev_falcon_ops;
-		break;
-#endif /* EFSYS_OPT_FALCON */
-
 #if EFSYS_OPT_SIENA
 	case EFX_FAMILY_SIENA:
 		eevop = (efx_ev_ops_t *)&__efx_ev_siena_ops;
@@ -451,7 +430,7 @@ efx_ev_qstats_update(
 
 #endif	/* EFSYS_OPT_QSTATS */
 
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 
 static	__checkReturn	efx_rc_t
 falconsiena_ev_init(
@@ -568,7 +547,6 @@ falconsiena_ev_rx(
 	__in		const efx_ev_callbacks_t *eecp,
 	__in_opt	void *arg)
 {
-	efx_nic_t *enp = eep->ee_enp;
 	uint32_t id;
 	uint32_t size;
 	uint32_t label;
@@ -598,8 +576,7 @@ falconsiena_ev_rx(
 
 	hdr_type = EFX_QWORD_FIELD(*eqp, FSF_AZ_RX_EV_HDR_TYPE);
 
-	is_v6 = (enp->en_family != EFX_FAMILY_FALCON &&
-		    EFX_QWORD_FIELD(*eqp, FSF_CZ_RX_EV_IPV6_PKT) != 0);
+	is_v6 = (EFX_QWORD_FIELD(*eqp, FSF_CZ_RX_EV_IPV6_PKT) != 0);
 
 	/*
 	 * If packet is marked as OK and packet type is TCP/IP or
@@ -692,7 +669,7 @@ falconsiena_ev_rx(
 	 * (which clears PKT_OK). If this is set, then don't trust
 	 * the PKT_TYPE field.
 	 */
-	if (enp->en_family != EFX_FAMILY_FALCON && !ok) {
+	if (!ok) {
 		uint32_t parse_err;
 
 		parse_err = EFX_QWORD_FIELD(*eqp, FSF_CZ_RX_EV_PKT_NOT_PARSED);
@@ -771,23 +748,11 @@ falconsiena_ev_global(
 	__in		const efx_ev_callbacks_t *eecp,
 	__in_opt	void *arg)
 {
-	efx_nic_t *enp = eep->ee_enp;
-	efx_port_t *epp = &(enp->en_port);
-	boolean_t should_abort;
+	_NOTE(ARGUNUSED(eqp, eecp, arg))
 
 	EFX_EV_QSTAT_INCR(eep, EV_GLOBAL);
-	should_abort = B_FALSE;
 
-	/* Check for a link management event */
-	if (EFX_QWORD_FIELD(*eqp, FSF_BZ_GLB_EV_XG_MNT_INTR) != 0) {
-		EFX_EV_QSTAT_INCR(eep, EV_GLOBAL_MNT);
-
-		EFSYS_PROBE(xg_mgt);
-
-		epp->ep_mac_poll_needed = B_TRUE;
-	}
-
-	return (should_abort);
+	return (B_FALSE);
 }
 
 static	__checkReturn	boolean_t
@@ -1243,14 +1208,9 @@ falconsiena_ev_qmoderate(
 
 	/* If the value is zero then disable the timer */
 	if (us == 0) {
-		if (enp->en_family == EFX_FAMILY_FALCON)
-			EFX_POPULATE_DWORD_2(dword,
-			    FRF_AB_TC_TIMER_MODE, FFE_AB_TIMER_MODE_DIS,
-			    FRF_AB_TC_TIMER_VAL, 0);
-		else
-			EFX_POPULATE_DWORD_2(dword,
-			    FRF_CZ_TC_TIMER_MODE, FFE_CZ_TIMER_MODE_DIS,
-			    FRF_CZ_TC_TIMER_VAL, 0);
+		EFX_POPULATE_DWORD_2(dword,
+		    FRF_CZ_TC_TIMER_MODE, FFE_CZ_TIMER_MODE_DIS,
+		    FRF_CZ_TC_TIMER_VAL, 0);
 	} else {
 		uint32_t timer_val;
 
@@ -1261,14 +1221,9 @@ falconsiena_ev_qmoderate(
 		if (timer_val > 0)
 			timer_val--;
 
-		if (enp->en_family == EFX_FAMILY_FALCON)
-			EFX_POPULATE_DWORD_2(dword,
-			    FRF_AB_TC_TIMER_MODE, FFE_AB_TIMER_MODE_INT_HLDOFF,
-			    FRF_AB_TIMER_VAL, timer_val);
-		else
-			EFX_POPULATE_DWORD_2(dword,
-			    FRF_CZ_TC_TIMER_MODE, FFE_CZ_TIMER_MODE_INT_HLDOFF,
-			    FRF_CZ_TC_TIMER_VAL, timer_val);
+		EFX_POPULATE_DWORD_2(dword,
+		    FRF_CZ_TC_TIMER_MODE, FFE_CZ_TIMER_MODE_INT_HLDOFF,
+		    FRF_CZ_TC_TIMER_VAL, timer_val);
 	}
 
 	locked = (eep->ee_index == 0) ? 1 : 0;
@@ -1336,10 +1291,8 @@ falconsiena_ev_qcreate(
 #endif	/* EFSYS_OPT_MCDI */
 
 	/* Set up the new event queue */
-	if (enp->en_family != EFX_FAMILY_FALCON) {
-		EFX_POPULATE_OWORD_1(oword, FRF_CZ_TIMER_Q_EN, 1);
-		EFX_BAR_TBL_WRITEO(enp, FR_AZ_TIMER_TBL, index, &oword, B_TRUE);
-	}
+	EFX_POPULATE_OWORD_1(oword, FRF_CZ_TIMER_Q_EN, 1);
+	EFX_BAR_TBL_WRITEO(enp, FR_AZ_TIMER_TBL, index, &oword, B_TRUE);
 
 	EFX_POPULATE_OWORD_3(oword, FRF_AZ_EVQ_EN, 1, FRF_AZ_EVQ_SIZE, size,
 	    FRF_AZ_EVQ_BUF_BASE_ID, id);
@@ -1362,7 +1315,7 @@ fail1:
 	return (rc);
 }
 
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
+#endif /* EFSYS_OPT_SIENA */
 
 #if EFSYS_OPT_QSTATS
 #if EFSYS_OPT_NAMES
@@ -1421,7 +1374,7 @@ efx_ev_qstat_name(
 #endif	/* EFSYS_OPT_NAMES */
 #endif	/* EFSYS_OPT_QSTATS */
 
-#if EFSYS_OPT_FALCON || EFSYS_OPT_SIENA
+#if EFSYS_OPT_SIENA
 
 #if EFSYS_OPT_QSTATS
 static					void
@@ -1453,11 +1406,8 @@ falconsiena_ev_qdestroy(
 	EFX_BAR_TBL_WRITEO(enp, FR_AZ_EVQ_PTR_TBL,
 	    eep->ee_index, &oword, B_TRUE);
 
-	if (enp->en_family != EFX_FAMILY_FALCON) {
-		EFX_ZERO_OWORD(oword);
-		EFX_BAR_TBL_WRITEO(enp, FR_AZ_TIMER_TBL,
-		    eep->ee_index, &oword, B_TRUE);
-	}
+	EFX_ZERO_OWORD(oword);
+	EFX_BAR_TBL_WRITEO(enp, FR_AZ_TIMER_TBL, eep->ee_index, &oword, B_TRUE);
 }
 
 static		void
@@ -1467,4 +1417,4 @@ falconsiena_ev_fini(
 	_NOTE(ARGUNUSED(enp))
 }
 
-#endif /* EFSYS_OPT_FALCON || EFSYS_OPT_SIENA */
+#endif /* EFSYS_OPT_SIENA */

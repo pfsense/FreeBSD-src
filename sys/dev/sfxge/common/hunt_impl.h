@@ -458,6 +458,90 @@ ef10_nvram_partn_set_version(
 	__in			uint32_t partn,
 	__in_ecount(4)		uint16_t version[4]);
 
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_validate(
+	__in			efx_nic_t *enp,
+	__in			uint32_t partn,
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_create(
+	__in			efx_nic_t *enp,
+	__in			uint16_t partn_type,
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_find_item_start(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__out			uint32_t *startp
+	);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_find_end(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__in			uint32_t offset,
+	__out			uint32_t *endp
+	);
+
+extern	__checkReturn	__success(return != B_FALSE)	boolean_t
+ef10_nvram_buffer_find_item(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__in			uint32_t offset,
+	__out			uint32_t *startp,
+	__out			uint32_t *lengthp
+	);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_get_item(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__in			uint32_t offset,
+	__in			uint32_t length,
+	__out_bcount_part(item_max_size, *lengthp)
+				caddr_t itemp,
+	__in			size_t item_max_size,
+	__out			uint32_t *lengthp
+	);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_insert_item(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__in			uint32_t offset,
+	__in_bcount(length)	caddr_t keyp,
+	__in			uint32_t length,
+	__out			uint32_t *lengthp
+	);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_delete_item(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size,
+	__in			uint32_t offset,
+	__in			uint32_t length,
+	__in			uint32_t end
+	);
+
+extern	__checkReturn		efx_rc_t
+ef10_nvram_buffer_finish(
+	__in_bcount(buffer_size)
+				caddr_t bufferp,
+	__in			size_t buffer_size
+	);
+
 #endif	/* EFSYS_OPT_NVRAM */
 
 
@@ -567,18 +651,6 @@ hunt_bist_stop(
 	__in			efx_bist_type_t type);
 
 #endif	/* EFSYS_OPT_BIST */
-
-
-/* SRAM */
-
-#if EFSYS_OPT_DIAG
-
-extern	__checkReturn	efx_rc_t
-ef10_sram_test(
-	__in		efx_nic_t *enp,
-	__in		efx_sram_pattern_fn_t func);
-
-#endif	/* EFSYS_OPT_DIAG */
 
 
 /* TX */
@@ -958,6 +1030,9 @@ typedef struct ef10_filter_entry_s {
  */
 #define	EFX_EF10_FILTER_TBL_ROWS 8192
 
+/* Only need to allow for one directed and one unknown unicast filter */
+#define	EFX_EF10_FILTER_UNICAST_FILTERS_MAX	2
+
 /* Allow for the broadcast address to be added to the multicast list */
 #define	EFX_EF10_FILTER_MULTICAST_FILTERS_MAX	(EFX_MAC_MULTICAST_LIST_MAX + 1)
 
@@ -965,8 +1040,9 @@ typedef struct ef10_filter_table_s {
 	ef10_filter_entry_t	eft_entry[EFX_EF10_FILTER_TBL_ROWS];
 	efx_rxq_t *		eft_default_rxq;
 	boolean_t 		eft_using_rss;
-	uint32_t 		eft_unicst_filter_index;
-	boolean_t 		eft_unicst_filter_set;
+	uint32_t 		eft_unicst_filter_indexes[
+	    EFX_EF10_FILTER_UNICAST_FILTERS_MAX];
+	boolean_t		eft_unicst_filter_count;
 	uint32_t 		eft_mulcst_filter_indexes[
 	    EFX_EF10_FILTER_MULTICAST_FILTERS_MAX];
 	uint32_t 		eft_mulcst_filter_count;
@@ -1010,7 +1086,7 @@ ef10_filter_reconfigure(
 	__in				boolean_t all_mulcst,
 	__in				boolean_t brdcst,
 	__in_ecount(6*count)		uint8_t const *addrs,
-	__in				int count);
+	__in				uint32_t count);
 
 extern		void
 ef10_filter_get_default_rxq(
