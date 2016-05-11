@@ -946,6 +946,7 @@ fail:
 		ipsec_delisr(p);
 		p = NULL;
 	}
+	KEY_FREESP(&dst);
 	return (NULL);
 }
 
