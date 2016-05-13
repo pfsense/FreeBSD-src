@@ -162,8 +162,10 @@
 /*
  * Ring Descriptors Valid Range: 32-4096 Default Value: 1024 This value is the
  * number of tx/rx descriptors allocated by the driver. Increasing this
- * value allows the driver to queue more operations. Each descriptor is 16
- * or 32 bytes (configurable in FVL)
+ * value allows the driver to queue more operations.
+ *
+ * Tx descriptors are always 16 bytes, but Rx descriptors can be 32 bytes.
+ * The driver currently always uses 32 byte Rx descriptors.
  */
 #define DEFAULT_RING	1024
 #define PERFORM_RING	2048
@@ -215,7 +217,7 @@
 #define IXL_TX_ITR		1
 #define IXL_ITR_NONE		3
 #define IXL_QUEUE_EOL		0x7FF
-#define IXL_MAX_FRAME		0x2600
+#define IXL_MAX_FRAME		9728
 #define IXL_MAX_TX_SEGS		8
 #define IXL_MAX_TSO_SEGS	66 
 #define IXL_SPARSE_CHAIN	6
@@ -397,8 +399,8 @@ struct tx_ring {
 	u16			next_to_clean;
 	u16			atr_rate;
 	u16			atr_count;
-	u16			itr;
-	u16			latency;
+	u32			itr;
+	u32			latency;
 	struct ixl_tx_buf	*buffers;
 	volatile u16		avail;
 	u32			cmd;
@@ -430,10 +432,10 @@ struct rx_ring {
 	bool			lro_enabled;
 	bool			hdr_split;
 	bool			discard;
-        u16			next_refresh;
-        u16 			next_check;
-	u16			itr;
-	u16			latency;
+        u32			next_refresh;
+        u32 			next_check;
+	u32			itr;
+	u32			latency;
 	char			mtx_name[16];
 	struct ixl_rx_buf	*buffers;
 	u32			mbuf_sz;
@@ -449,7 +451,7 @@ struct rx_ring {
 	u64			split;
 	u64			rx_packets;
 	u64 			rx_bytes;
-	u64 			discarded;
+	u64 			desc_errs;
 	u64 			not_done;
 };
 
@@ -502,8 +504,8 @@ struct ixl_vsi {
 	u16			msix_base;	/* station base MSIX vector */
 	u16			first_queue;
 	u16			num_queues;
-	u16			rx_itr_setting;
-	u16			tx_itr_setting;
+	u32			rx_itr_setting;
+	u32			tx_itr_setting;
 	struct ixl_queue	*queues;	/* head of queues */
 	bool			link_active;
 	u16			seid;

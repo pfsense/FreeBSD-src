@@ -746,7 +746,7 @@ ef10_tx_qdesc_dma_create(
 	__out	efx_desc_t *edp);
 
 extern	void
-hunt_tx_qdesc_tso_create(
+ef10_tx_qdesc_tso_create(
 	__in	efx_txq_t *etp,
 	__in	uint16_t ipv4_id,
 	__in	uint32_t tcp_seq,
@@ -1046,6 +1046,7 @@ typedef struct ef10_filter_table_s {
 	uint32_t 		eft_mulcst_filter_indexes[
 	    EFX_EF10_FILTER_MULTICAST_FILTERS_MAX];
 	uint32_t 		eft_mulcst_filter_count;
+	boolean_t		eft_using_all_mulcst;
 } ef10_filter_table_t;
 
 	__checkReturn	efx_rc_t
