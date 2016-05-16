@@ -41,19 +41,10 @@ static const efx_phy_ops_t	__efx_phy_siena_ops = {
 	NULL,				/* epo_reset */
 	siena_phy_reconfigure,		/* epo_reconfigure */
 	siena_phy_verify,		/* epo_verify */
-	NULL,				/* epo_uplink_check */
-	NULL,				/* epo_downlink_check */
 	siena_phy_oui_get,		/* epo_oui_get */
 #if EFSYS_OPT_PHY_STATS
 	siena_phy_stats_update,		/* epo_stats_update */
 #endif	/* EFSYS_OPT_PHY_STATS */
-#if EFSYS_OPT_PHY_PROPS
-#if EFSYS_OPT_NAMES
-	siena_phy_prop_name,		/* epo_prop_name */
-#endif
-	siena_phy_prop_get,		/* epo_prop_get */
-	siena_phy_prop_set,		/* epo_prop_set */
-#endif	/* EFSYS_OPT_PHY_PROPS */
 #if EFSYS_OPT_BIST
 	NULL,				/* epo_bist_enable_offline */
 	siena_phy_bist_start, 		/* epo_bist_start */
@@ -69,19 +60,10 @@ static const efx_phy_ops_t	__efx_phy_ef10_ops = {
 	NULL,				/* epo_reset */
 	ef10_phy_reconfigure,		/* epo_reconfigure */
 	ef10_phy_verify,		/* epo_verify */
-	NULL,				/* epo_uplink_check */
-	NULL,				/* epo_downlink_check */
 	ef10_phy_oui_get,		/* epo_oui_get */
 #if EFSYS_OPT_PHY_STATS
 	ef10_phy_stats_update,		/* epo_stats_update */
 #endif	/* EFSYS_OPT_PHY_STATS */
-#if EFSYS_OPT_PHY_PROPS
-#if EFSYS_OPT_NAMES
-	ef10_phy_prop_name,		/* epo_prop_name */
-#endif
-	ef10_phy_prop_get,		/* epo_prop_get */
-	ef10_phy_prop_set,		/* epo_prop_set */
-#endif	/* EFSYS_OPT_PHY_PROPS */
 #if EFSYS_OPT_BIST
 	/* FIXME: Are these BIST methods appropriate for Medford? */
 	hunt_bist_enable_offline,	/* epo_bist_enable_offline */
@@ -437,55 +419,6 @@ efx_phy_stats_update(
 
 #endif	/* EFSYS_OPT_PHY_STATS */
 
-#if EFSYS_OPT_PHY_PROPS
-
-#if EFSYS_OPT_NAMES
-		const char *
-efx_phy_prop_name(
-	__in	efx_nic_t *enp,
-	__in	unsigned int id)
-{
-	efx_port_t *epp = &(enp->en_port);
-	const efx_phy_ops_t *epop = epp->ep_epop;
-
-	EFSYS_ASSERT3U(enp->en_magic, ==, EFX_NIC_MAGIC);
-	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_PROBE);
-
-	return (epop->epo_prop_name(enp, id));
-}
-#endif	/* EFSYS_OPT_NAMES */
-
-	__checkReturn	efx_rc_t
-efx_phy_prop_get(
-	__in		efx_nic_t *enp,
-	__in		unsigned int id,
-	__in		uint32_t flags,
-	__out		uint32_t *valp)
-{
-	efx_port_t *epp = &(enp->en_port);
-	const efx_phy_ops_t *epop = epp->ep_epop;
-
-	EFSYS_ASSERT3U(enp->en_magic, ==, EFX_NIC_MAGIC);
-	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_PORT);
-
-	return (epop->epo_prop_get(enp, id, flags, valp));
-}
-
-	__checkReturn	efx_rc_t
-efx_phy_prop_set(
-	__in		efx_nic_t *enp,
-	__in		unsigned int id,
-	__in		uint32_t val)
-{
-	efx_port_t *epp = &(enp->en_port);
-	const efx_phy_ops_t *epop = epp->ep_epop;
-
-	EFSYS_ASSERT3U(enp->en_magic, ==, EFX_NIC_MAGIC);
-	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_PORT);
-
-	return (epop->epo_prop_set(enp, id, val));
-}
-#endif	/* EFSYS_OPT_PHY_STATS */
 
 #if EFSYS_OPT_BIST
 

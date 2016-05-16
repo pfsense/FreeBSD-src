@@ -10,12 +10,12 @@ acpi_quirks.h			optional acpi				   \
 	no-obj no-implicit-rule before-depend				   \
 	clean		"acpi_quirks.h"
 bhnd_nvram_map.h		optional bhndbus | bhnd			   \
-	dependency	"sh $S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/tools/nvram_map_gen.awk $S/dev/bhnd/nvram/nvram_map" \
+	dependency	"$S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/tools/nvram_map_gen.awk $S/dev/bhnd/nvram/nvram_map" \
 	compile-with	"sh $S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/nvram/nvram_map -h" \
 	no-obj no-implicit-rule before-depend				   \
 	clean		"bhnd_nvram_map.h"
 bhnd_nvram_map_data.h		optional bhndbus | bhnd			   \
-	dependency	"sh $S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/tools/nvram_map_gen.awk $S/dev/bhnd/nvram/nvram_map" \
+	dependency	"$S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/tools/nvram_map_gen.awk $S/dev/bhnd/nvram/nvram_map" \
 	compile-with	"sh $S/dev/bhnd/tools/nvram_map_gen.sh $S/dev/bhnd/nvram/nvram_map -d" \
 	no-obj no-implicit-rule before-depend				   \
 	clean		"bhnd_nvram_map_data.h"
@@ -1171,10 +1171,12 @@ dev/bwi/if_bwi_pci.c		optional bwi pci
 dev/bwn/if_bwn.c		optional bwn siba_bwn \
 	compile-with "${NORMAL_C} ${NO_WSOMETIMES_UNINITIALIZED}"
 dev/bwn/if_bwn_pci.c		optional bwn pci bhnd | bwn pci bhndbus
+dev/bwn/if_bwn_phy_common.c	optional bwn siba_bwn
 dev/bwn/if_bwn_phy_g.c		optional bwn siba_bwn \
 	compile-with "${NORMAL_C} ${NO_WSOMETIMES_UNINITIALIZED}"
 dev/bwn/if_bwn_phy_lp.c		optional bwn siba_bwn \
 	compile-with "${NORMAL_C} ${NO_WSOMETIMES_UNINITIALIZED}"
+dev/bwn/if_bwn_util.c		optional bwn siba_bwn
 dev/bwn/bwn_mac.c		optional bwn bhnd | bwn bhndbus
 dev/cardbus/cardbus.c		optional cardbus
 dev/cardbus/cardbus_cis.c	optional cardbus
@@ -1263,7 +1265,7 @@ t4fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t4fw.fwo"
 t4fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t4fw-1.15.28.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t4fw-1.15.37.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t4fw.fw"
@@ -1287,7 +1289,7 @@ t5fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t5fw.fwo"
 t5fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t5fw-1.15.28.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t5fw-1.15.37.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t5fw.fw"

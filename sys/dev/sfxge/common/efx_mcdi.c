@@ -632,6 +632,8 @@ efx_mcdi_request_errcode(
 		return (EALREADY);
 
 		/* MCDI v2 */
+	case MC_CMD_ERR_EEXIST:
+		return (EEXIST);
 #ifdef MC_CMD_ERR_EAGAIN
 	case MC_CMD_ERR_EAGAIN:
 		return (EAGAIN);
@@ -1427,10 +1429,6 @@ efx_mcdi_get_phy_cfg(
 			    (1 << EFX_PHY_LED_OFF) |
 			    (1 << EFX_PHY_LED_ON));
 #endif	/* EFSYS_OPT_PHY_LED_CONTROL */
-
-#if EFSYS_OPT_PHY_PROPS
-	encp->enc_phy_nprops  = 0;
-#endif	/* EFSYS_OPT_PHY_PROPS */
 
 	/* Get the media type of the fixed port, if recognised. */
 	EFX_STATIC_ASSERT(MC_CMD_MEDIA_XAUI == EFX_PHY_MEDIA_XAUI);

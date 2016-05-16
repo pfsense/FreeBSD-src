@@ -42,9 +42,6 @@ __FBSDID("$FreeBSD$");
 
 static const char	*__efx_mon_name[] = {
 	"",
-	"nullmon",
-	"lm87",
-	"max6647",
 	"sfx90x0",
 	"sfx91x0"
 	"sfx92x0"
@@ -67,8 +64,6 @@ efx_mon_name(
 
 #if EFSYS_OPT_MON_MCDI
 static const efx_mon_ops_t	__efx_mon_mcdi_ops = {
-	NULL,				/* emo_reset */
-	NULL,				/* emo_reconfigure */
 #if EFSYS_OPT_MON_STATS
 	mcdi_mon_stats_update		/* emo_stats_update */
 #endif	/* EFSYS_OPT_MON_STATS */
@@ -111,29 +106,11 @@ efx_mon_init(
 		goto fail2;
 	}
 
-	if (emop->emo_reset != NULL) {
-		if ((rc = emop->emo_reset(enp)) != 0)
-			goto fail3;
-	}
-
-	if (emop->emo_reconfigure != NULL) {
-		if ((rc = emop->emo_reconfigure(enp)) != 0)
-			goto fail4;
-	}
-
 	emp->em_emop = emop;
 	return (0);
 
-fail4:
-	EFSYS_PROBE(fail5);
-
-	if (emop->emo_reset != NULL)
-		(void) emop->emo_reset(enp);
-
-fail3:
-	EFSYS_PROBE(fail4);
 fail2:
-	EFSYS_PROBE(fail3);
+	EFSYS_PROBE(fail2);
 
 	emp->em_type = EFX_MON_INVALID;
 
@@ -268,20 +245,12 @@ efx_mon_fini(
 	__in	efx_nic_t *enp)
 {
 	efx_mon_t *emp = &(enp->en_mon);
-	const efx_mon_ops_t *emop = emp->em_emop;
-	efx_rc_t rc;
 
 	EFSYS_ASSERT3U(enp->en_magic, ==, EFX_NIC_MAGIC);
 	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_PROBE);
 	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_MON);
 
 	emp->em_emop = NULL;
-
-	if (emop->emo_reset != NULL) {
-		rc = emop->emo_reset(enp);
-		if (rc != 0)
-			EFSYS_PROBE1(fail1, efx_rc_t, rc);
-	}
 
 	emp->em_type = EFX_MON_INVALID;
 
