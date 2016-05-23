@@ -169,6 +169,36 @@
 			AM33XX_IOPAD(0x81c, PIN_INPUT_PULLUP | MUX_MODE1) /* gpmc_ad7.mmc1_dat7 */
 		>;
 	};
+
+	ecap0_pins: pinmux_ecap0_pins {
+		pinctrl-single,pins = <
+			AM33XX_IOPAD(0x964, PIN_INPUT | MUX_MODE0) /* ecap0_in_pwm0_out.ecap0_in_pwm0_out */
+		>;
+	};
+
+	ecap1_pins: pinmux_ecap1_pins {
+		pinctrl-single,pins = <
+			AM33XX_IOPAD(0x960, PIN_INPUT | MUX_MODE2) /* spi0_cs1.ecap1_in_pwm1_out */
+		>;
+	};
+
+	ehrpwm1_pins: pinmux_ehrpwm1_pins {
+		pinctrl-single,pins = <
+			AM33XX_IOPAD(0x8c8, PIN_OUTPUT | MUX_MODE2) /* lcd_data10.ehrpwm1a */
+		>;
+	};
+
+	ecap2_pins: pinmux_ecap2_pins {
+		pinctrl-single,pins = <
+			AM33XX_IOPAD(0x99c, PIN_INPUT | MUX_MODE4) /* mcasp0_ahclkr.ecap2_in_pwm2_out */
+		>;
+	};
+
+	ehrpwm2_pins: pinmux_ehrpwm2_pins {
+		pinctrl-single,pins = <
+			AM33XX_IOPAD(0x8a0, PIN_OUTPUT | MUX_MODE3) /* lcd_data0.ehrpwm2a */
+		>;
+	};
 };
 
 &uart0 {
@@ -282,5 +312,51 @@
 };
 
 &sham {
+	status = "okay";
+};
+
+&epwmss0 {
+	status = "okay";
+};
+
+&ecap0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap0_pins>;
+	status = "okay";
+};
+
+&ehrpwm0 {
+	status = "okay";
+};
+
+&epwmss1 {
+	status = "okay";
+};
+
+&ecap1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap1_pins>;
+	status = "okay";
+};
+
+&ehrpwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ehrpwm1_pins>;
+	status = "okay";
+};
+
+&epwmss2 {
+	status = "okay";
+};
+
+&ecap2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap2_pins>;
+	status = "okay";
+};
+
+&ehrpwm2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ehrpwm2_pins>;
 	status = "okay";
 };

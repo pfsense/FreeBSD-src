@@ -33,7 +33,7 @@
 
 / {
 	model = "AM335x uBMC";
-	compatible = "ti,am335x-ubmc";
+	compatible = "ti,am335x-ubmc", "ti,am33xx";
 };
 
 &mmc1 {
