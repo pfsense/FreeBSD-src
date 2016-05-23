@@ -1635,22 +1635,14 @@ bandwidth	: STRING {
 
 			bps = strtod($1, &cp);
 			if (cp != NULL) {
-				if (!strcmp(cp, "b") || !strcmp(cp, "bit"))
+				if (!strcmp(cp, "b"))
 					; /* nothing */
-				else if (!strcmp(cp, "Kb") || !strcmp(cp, "Kbit"))
+				else if (!strcmp(cp, "Kb"))
 					bps *= 1000;
-				else if (!strcmp(cp, "Mb") || !strcmp(cp, "Mbit"))
+				else if (!strcmp(cp, "Mb"))
 					bps *= 1000 * 1000;
-				else if (!strcmp(cp, "Gb") || !strcmp(cp, "Gbit"))
+				else if (!strcmp(cp, "Gb"))
 					bps *= 1000 * 1000 * 1000;
-				else if (!strcmp(cp, "B") || !strcmp(cp, "Byte"))
-					; /* nothing */
-				else if (!strcmp(cp, "KB") || !strcmp(cp, "Kbyte"))
-					bps *= 1024;
-				else if (!strcmp(cp, "MB") || !strcmp(cp, "Mbyte"))
-					bps *= 1024 * 1024;
-				else if (!strcmp(cp, "GB") || !strcmp(cp, "Gbyte"))
-					bps *= 1024 * 1024 * 1024;
 				else if (!strcmp(cp, "%")) {
 					if (bps < 0 || bps > 100) {
 						yyerror("bandwidth spec "
