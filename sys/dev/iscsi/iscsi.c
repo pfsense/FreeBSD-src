@@ -713,6 +713,8 @@ iscsi_receive_callback(struct icl_pdu *response)
 
 	ISCSI_SESSION_LOCK(is);
 
+	iscsi_pdu_update_statsn(response);
+
 #ifdef ICL_KERNEL_PROXY
 	if (is->is_login_phase) {
 		if (is->is_login_pdu == NULL)
@@ -725,8 +727,6 @@ iscsi_receive_callback(struct icl_pdu *response)
 	}
 #endif
 
-	iscsi_pdu_update_statsn(response);
-	
 	/*
 	 * The handling routine is responsible for freeing the PDU
 	 * when it's no longer needed.
@@ -1403,6 +1403,7 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 		ic->ic_data_crc32c = true;
 	else
 		ic->ic_data_crc32c = false;
+	ic->ic_maxtags = maxtags;
 
 	is->is_cmdsn = 0;
 	is->is_expcmdsn = 0;
@@ -1415,21 +1416,17 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 
 	ISCSI_SESSION_UNLOCK(is);
 
-#ifdef ICL_KERNEL_PROXY
-	if (handoff->idh_socket != 0) {
-#endif
-		/*
-		 * Handoff without using ICL proxy.
-		 */
-		error = icl_conn_handoff(ic, handoff->idh_socket);
-		if (error != 0) {
-			sx_sunlock(&sc->sc_lock);
-			iscsi_session_terminate(is);
-			return (error);
-		}
-#ifdef ICL_KERNEL_PROXY
+	/*
+	 * If we're going through the proxy, the idh_socket will be 0,
+	 * and the ICL module can simply ignore this call.  It can also
+	 * use it to determine it's no longer in the Login phase.
+	 */
+	error = icl_conn_handoff(ic, handoff->idh_socket);
+	if (error != 0) {
+		sx_sunlock(&sc->sc_lock);
+		iscsi_session_terminate(is);
+		return (error);
 	}
-#endif
 
 	sx_sunlock(&sc->sc_lock);
 
@@ -1446,7 +1443,7 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 
 	} else {
 		ISCSI_SESSION_LOCK(is);
-		is->is_devq = cam_simq_alloc(maxtags);
+		is->is_devq = cam_simq_alloc(ic->ic_maxtags);
 		if (is->is_devq == NULL) {
 			ISCSI_SESSION_WARN(is, "failed to allocate simq");
 			iscsi_session_terminate(is);
@@ -1455,7 +1452,7 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 
 		is->is_sim = cam_sim_alloc(iscsi_action, iscsi_poll, "iscsi",
 		    is, is->is_id /* unit */, &is->is_lock,
-		    1, maxtags, is->is_devq);
+		    1, ic->ic_maxtags, is->is_devq);
 		if (is->is_sim == NULL) {
 			ISCSI_SESSION_UNLOCK(is);
 			ISCSI_SESSION_WARN(is, "failed to allocate SIM");
@@ -1555,6 +1552,10 @@ iscsi_ioctl_daemon_connect(struct iscsi_softc *sc,
 	}
 
 	ISCSI_SESSION_LOCK(is);
+	is->is_statsn = 0;
+	is->is_cmdsn = 0;
+	is->is_expcmdsn = 0;
+	is->is_maxcmdsn = 0;
 	is->is_waiting_for_iscsid = false;
 	is->is_login_phase = true;
 	is->is_timeout = 0;
@@ -1620,9 +1621,7 @@ iscsi_ioctl_daemon_send(struct iscsi_softc *sc,
 		KASSERT(error == 0, ("icl_pdu_append_data(..., M_WAITOK) failed"));
 		free(data, M_ISCSI);
 	}
-	ISCSI_SESSION_LOCK(is);
-	icl_pdu_queue(ip);
-	ISCSI_SESSION_UNLOCK(is);
+	iscsi_pdu_queue(ip);
 
 	return (0);
 }
@@ -1634,6 +1633,7 @@ iscsi_ioctl_daemon_receive(struct iscsi_softc *sc,
 	struct iscsi_session *is;
 	struct icl_pdu *ip;
 	void *data;
+	int error;
 
 	sx_slock(&sc->sc_lock);
 	TAILQ_FOREACH(is, &sc->sc_sessions, is_next) {
@@ -1652,8 +1652,13 @@ iscsi_ioctl_daemon_receive(struct iscsi_softc *sc,
 	ISCSI_SESSION_LOCK(is);
 	while (is->is_login_pdu == NULL &&
 	    is->is_terminating == false &&
-	    is->is_reconnecting == false)
-		cv_wait(&is->is_login_cv, &is->is_lock);
+	    is->is_reconnecting == false) {
+		error = cv_wait_sig(&is->is_login_cv, &is->is_lock);
+		if (error != 0) {
+			ISCSI_SESSION_UNLOCK(is);
+			return (error);
+		}
+	}
 	if (is->is_terminating || is->is_reconnecting) {
 		ISCSI_SESSION_UNLOCK(is);
 		return (EIO);
@@ -2265,6 +2270,14 @@ iscsi_action(struct cam_sim *sim, union ccb *ccb)
 		cpi->hba_inquiry = PI_TAG_ABLE;
 		cpi->target_sprt = 0;
 		cpi->hba_misc = PIM_EXTLUNS;
+		/*
+		 * XXX: It shouldn't ever be NULL; this could be turned
+		 *      into a KASSERT eventually.
+		 */
+		if (is->is_conn == NULL)
+			ISCSI_WARN("NULL conn");
+		else if (is->is_conn->ic_unmapped)
+			cpi->hba_misc |= PIM_UNMAPPED;
 		cpi->hba_eng_cnt = 0;
 		cpi->max_target = 0;
 		/*

@@ -561,6 +561,21 @@ bhnd_get_chipid(device_t dev) {
 };
 
 /**
+ * Return the BHND attachment type of the parent bhnd bus.
+ *
+ * @param dev A bhnd bus child device.
+ *
+ * @retval BHND_ATTACH_ADAPTER if the bus is resident on a bridged adapter,
+ * such as a WiFi chipset.
+ * @retval BHND_ATTACH_NATIVE if the bus provides hardware services (clock,
+ * CPU, etc) to a directly attached native host.
+ */
+static inline bhnd_attach_type
+bhnd_get_attach_type (device_t dev) {
+	return (BHND_BUS_GET_ATTACH_TYPE(device_get_parent(dev), dev));
+}
+
+/**
  * Attempt to read the BHND board identification from the bhnd bus.
  *
  * This relies on NVRAM access, and will fail if a valid NVRAM device cannot
@@ -869,6 +884,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_READ_MULTI_1( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_1(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_1((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_1(r, o, v) \
     ((r)->direct) ? \
 	bus_write_1((r)->res, (o), (v)) : \
@@ -879,6 +900,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     ((r)->direct) ? \
 	bus_write_multi_1((r)->res, (o), (d), (c)) : \
 	BHND_BUS_WRITE_MULTI_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_1(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_1((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_1( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_read_stream_1(r, o) \
@@ -893,6 +920,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_READ_MULTI_STREAM_1( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_stream_1(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_stream_1((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_STREAM_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_stream_1(r, o, v) \
     ((r)->direct) ? \
 	bus_write_stream_1((r)->res, (o), (v)) : \
@@ -905,6 +938,24 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_WRITE_MULTI_STREAM_1( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_stream_1(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_stream_1((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_STREAM_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_set_multi_1(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_multi_1((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_MULTI_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
+#define bhnd_bus_set_region_1(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_region_1((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_REGION_1( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
 #define bhnd_bus_read_2(r, o) \
     ((r)->direct) ? \
 	bus_read_2((r)->res, (o)) : \
@@ -915,6 +966,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     ((r)->direct) ? \
 	bus_read_multi_2((r)->res, (o), (d), (c)) : \
 	BHND_BUS_READ_MULTI_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_2(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_2((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_2( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_2(r, o, v) \
@@ -929,6 +986,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_WRITE_MULTI_2( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_2(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_2((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_read_stream_2(r, o) \
     ((r)->direct) ? \
 	bus_read_stream_2((r)->res, (o)) : \
@@ -939,6 +1002,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     ((r)->direct) ? \
 	bus_read_multi_stream_2((r)->res, (o), (d), (c)) : \
 	BHND_BUS_READ_MULTI_STREAM_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_stream_2(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_stream_2((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_STREAM_2( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_stream_2(r, o, v) \
@@ -953,6 +1022,24 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_WRITE_MULTI_STREAM_2( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_stream_2(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_stream_2((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_STREAM_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_set_multi_2(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_multi_2((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_MULTI_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
+#define bhnd_bus_set_region_2(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_region_2((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_REGION_2( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
 #define bhnd_bus_read_4(r, o) \
     ((r)->direct) ? \
 	bus_read_4((r)->res, (o)) : \
@@ -963,6 +1050,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     ((r)->direct) ? \
 	bus_read_multi_4((r)->res, (o), (d), (c)) : \
 	BHND_BUS_READ_MULTI_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_4(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_4((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_4( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_4(r, o, v) \
@@ -977,6 +1070,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_WRITE_MULTI_4( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_4(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_4((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_read_stream_4(r, o) \
     ((r)->direct) ? \
 	bus_read_stream_4((r)->res, (o)) : \
@@ -987,6 +1086,12 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     ((r)->direct) ? \
 	bus_read_multi_stream_4((r)->res, (o), (d), (c)) : \
 	BHND_BUS_READ_MULTI_STREAM_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_read_region_stream_4(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_read_region_stream_4((r)->res, (o), (d), (c)) : \
+	BHND_BUS_READ_REGION_STREAM_4( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
 #define bhnd_bus_write_stream_4(r, o, v) \
@@ -1001,5 +1106,23 @@ bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
 	BHND_BUS_WRITE_MULTI_STREAM_4( \
 	    device_get_parent(rman_get_device((r)->res)),	\
 	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_write_region_stream_4(r, o, d, c) \
+    ((r)->direct) ? \
+	bus_write_region_stream_4((r)->res, (o), (d), (c)) : \
+	BHND_BUS_WRITE_REGION_STREAM_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (d), (c))
+#define bhnd_bus_set_multi_4(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_multi_4((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_MULTI_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
+#define bhnd_bus_set_region_4(r, o, v, c) \
+    ((r)->direct) ? \
+	bus_set_region_4((r)->res, (o), (v), (c)) : \
+	BHND_BUS_SET_REGION_4( \
+	    device_get_parent(rman_get_device((r)->res)),	\
+	    rman_get_device((r)->res), (r), (o), (v), (c))
 
 #endif /* _BHND_BHND_H_ */
