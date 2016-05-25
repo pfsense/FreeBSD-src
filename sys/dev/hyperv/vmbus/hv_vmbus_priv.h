@@ -200,24 +200,6 @@ enum {
 struct vmbus_message;
 union vmbus_event_flags;
 
-typedef struct {
-	hv_bool_uint8_t	syn_ic_initialized;
-
-	struct vmbus_message	*syn_ic_msg_page[MAXCPU];
-	union vmbus_event_flags	*syn_ic_event_page[MAXCPU];
-	/*
-	 * For FreeBSD cpuid to Hyper-V vcpuid mapping.
-	 */
-	uint32_t	hv_vcpu_index[MAXCPU];
-	/*
-	 * Each cpu has its own software interrupt handler for channel
-	 * event and msg handling.
-	 */
-	struct taskqueue		*hv_event_queue[MAXCPU];
-	struct taskqueue		*hv_msg_tq[MAXCPU];
-	struct task			hv_msg_task[MAXCPU];
-} hv_vmbus_context;
-
 /*
  * Define hypervisor message types
  */
@@ -649,7 +631,6 @@ typedef enum {
  * Global variables
  */
 
-extern hv_vmbus_context		hv_vmbus_g_context;
 extern hv_vmbus_connection	hv_vmbus_g_connection;
 
 extern u_int			hyperv_features;
@@ -727,8 +708,6 @@ uint16_t		hv_vmbus_post_msg_via_msg_ipc(
 				size_t			payload_size);
 
 uint16_t		hv_vmbus_signal_event(void *con_id);
-void			hv_vmbus_synic_init(void *irq_arg);
-void			hv_vmbus_synic_cleanup(void *arg);
 
 struct hv_device*	hv_vmbus_child_device_create(
 				hv_guid			device_type,
@@ -756,9 +735,5 @@ void			hv_et_intr(struct trapframe*);
 
 /* Wait for device creation */
 void			vmbus_scan(void);
-
-typedef struct {
-	void		*page_buffers[2 * MAXCPU];
-} hv_setup_args;
 
 #endif  /* __HYPERV_PRIV_H__ */
