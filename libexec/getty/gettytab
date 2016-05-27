@@ -237,3 +237,7 @@ al.Pc:\
 	:np:nc:sp#115200:
 3wire.230400|230400-3wire:\
 	:np:nc:sp#230400:
+
+# autologin for 3wire serial terminals.
+al.3wire:\
+	:al=root:tc=3wire
