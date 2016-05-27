@@ -125,6 +125,7 @@ SUBDIR=	\
 	geom \
 	${_glxiic} \
 	${_glxsb} \
+	${_gpio} \
 	hatm \
 	hifn \
 	hme \
@@ -173,6 +174,7 @@ SUBDIR=	\
 	${_ipw} \
 	${_ipwfw} \
 	${_isci} \
+	${_iser} \
 	isp \
 	${_ispfw} \
 	${_iwi} \
@@ -555,6 +557,7 @@ _igb=		igb
 _io=		io
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _ipoib=         ipoib
+_iser=		iser
 .endif
 _ix=		ix
 _ixv=		ixv
@@ -732,6 +735,10 @@ _cfi=		cfi
 _cpsw=		cpsw
 .endif
 
+.if ${MACHINE_ARCH} == "armv6"
+_gpio=		gpio
+.endif
+
 .if ${MACHINE_CPUARCH} == "powerpc"
 _agp=		agp
 _an=		an
@@ -773,7 +780,7 @@ SUBDIR:= ${SUBDIR:N${reject}}
 # Calling kldxref(8) for each module is expensive.
 .if !defined(NO_XREF)
 .MAKEFLAGS+=	-DNO_XREF
-afterinstall:
+afterinstall: .PHONY
 	@if type kldxref >/dev/null 2>&1; then \
 		${ECHO} kldxref ${DESTDIR}${KMODDIR}; \
 		kldxref ${DESTDIR}${KMODDIR}; \
