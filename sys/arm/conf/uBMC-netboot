@@ -55,8 +55,8 @@ options 	BOOTP_COMPAT
 options 	BOOTP_NFSV3
 options 	BOOTP_WIRED_TO=cpsw0
 
-# Boot device is 1st slice on eMMC card
-options 	ROOTDEVNAME=\"ufs:mmcsd0s1a\"
+# Boot device is 2nd slice on eMMC card
+options 	ROOTDEVNAME=\"ufs:mmcsd0s2a\"
 
 # MMC/SD/SDIO Card slot support
 device		mmc			# mmc/sd bus
