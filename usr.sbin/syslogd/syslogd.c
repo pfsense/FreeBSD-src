@@ -145,6 +145,8 @@ __FBSDID("$FreeBSD$");
 #include <utmpx.h>
 
 #include "pathnames.h"
+#include "clog.h"
+
 #include "ttymsg.h"
 
 #define SYSLOG_NAMES
@@ -155,6 +157,7 @@ static const char *PidFile = _PATH_LOGPID;
 static const char ctty[] = _PATH_CONSOLE;
 static const char include_str[] = "include";
 static const char include_ext[] = ".conf";
+static const char  ring_magic[] = "CLOG";
 
 #define	dprintf		if (Debug) printf
 
@@ -244,6 +247,11 @@ struct filed {
 			char	f_pname[MAXPATHLEN];
 			pid_t	f_pid;
 		} f_pipe;
+		struct {
+		  char		f_rname[MAXPATHLEN];
+			struct clog_footer *f_footer;
+			size_t	f_size;
+		} f_ring;
 	} f_un;
 #define	fu_uname	f_un.f_uname
 #define	fu_forw_hname	f_un.f_forw.f_hname
@@ -325,10 +333,12 @@ static int repeatinterval[] = { 30, 120, 600 };	/* # of secs before flush */
 #define F_USERS		5		/* list of users */
 #define F_WALL		6		/* everyone logged on */
 #define F_PIPE		7		/* pipe to program */
+#define F_RING		8		/* ring buffer (circular log) */
 
 static const char *TypeNames[] = {
 	"UNUSED",	"FILE",		"TTY",		"CONSOLE",
-	"FORW",		"USERS",	"WALL",		"PIPE"
+	"FORW",		"USERS",	"WALL",		"PIPE",
+	"RING"
 };
 
 static STAILQ_HEAD(, filed) fhead =
@@ -407,6 +417,8 @@ static int	skip_message(const char *, const char *, int);
 static void	parsemsg(const char *, char *);
 static void	printsys(char *);
 static int	p_open(const char *, pid_t *);
+ssize_t	rbwrite __P((struct filed *, char *, size_t));
+ssize_t	rbwritev __P((struct filed *, struct iovec *, int));
 static void	reapchild(int);
 static const char *ttymsg_check(struct iovec *, int, char *, int);
 static void	usage(void);
@@ -1441,6 +1453,7 @@ logmsg(int pri, const struct logtime *timestamp, const char *hostname,
 	size_t savedlen;
 	int fac, prilev;
 	char saved[MAXSVLINE];
+	const char *timestamp;
 
 	dprintf("logmsg: pri %o, flags %x, from %s, msg %s\n",
 	    pri, flags, hostname, msg);
@@ -1729,6 +1742,20 @@ fprintlog_write(struct filed *f, struct iovlist *il, int flags)
 			f->f_flags |= FFLAG_NEEDSYNC;
 			needdofsync = 1;
 		}
+		break;
+	case F_RING:
+		dprintf(" %s\n", f->f_un.f_ring.f_rname);
+		v->iov_base = "\n";
+		v->iov_len = 1;
+		if (rbwritev(f, iov, 7)==-1) {
+			int e = errno;
+			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
+			(void)close(f->f_file);
+			f->f_type = F_UNUSED;
+			errno = e;
+			logerror(f->f_un.f_fname);
+		}
+
 		break;
 
 	case F_PIPE:
@@ -2397,6 +2424,10 @@ init(int signo)
 			deadq_enter(f->fu_pipe_pid, f->fu_pipe_pname);
 			close_filed(f);
 			break;
+		case F_RING:
+			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
+			(void)close(f->f_file);
+			break;
 		}
 	}
 	while(!STAILQ_EMPTY(&fhead)) {
@@ -2472,6 +2503,10 @@ init(int signo)
 				}
 				break;
 
+			case F_RING:
+				printf("%s", f->f_un.f_ring.f_rname);
+				break;
+
 			case F_PIPE:
 				printf("%s", f->fu_pipe_pname);
 				break;
@@ -2526,6 +2561,7 @@ cfline(const char *line, const char *prog, const char *host)
 	const char *p, *q;
 	char *bp;
 	char buf[MAXLINE], ebuf[100];
+	struct stat sb;
 
 	dprintf("cfline(\"%s\", f, \"%s\", \"%s\")\n", line, prog, host);
 
@@ -2704,8 +2740,15 @@ cfline(const char *line, const char *prog, const char *host)
 				p++;
 				endkey = ']';
 			}
-			while (*p && (*p != endkey) && (i-- > 0)) {
+			while (*p && (*p != endkey) && (*p != '[') && (i-- > 0)) {
 				*tp++ = *p++;
+			}
+			if (*p == '[') {
+				p++;
+				while (*p && (*p != ']') && (i-- > 0)) {
+					*tp++ = *p++;
+				}
+				p++;
 			}
 			if (endkey == ']' && *p == endkey)
 				p++;
@@ -2750,6 +2793,38 @@ cfline(const char *line, const char *prog, const char *host)
 			(void)strlcpy(f->fu_fname, p, sizeof(f->fu_fname));
 			f->f_type = F_FILE;
 		}
+		break;
+
+	case '%':
+		if ((f->f_file = open(p+1, O_RDWR, 0 )) < 0) {
+			f->f_type = F_UNUSED;
+			logerror(p+1);
+			break;
+		}
+		if (fstat(f->f_file,&sb)<0) {
+			(void)close(f->f_file);
+			f->f_type = F_UNUSED;
+			logerror(p+1);
+			break;
+		}
+		f->f_un.f_ring.f_footer = mmap(NULL,sizeof(struct clog_footer),PROT_READ|PROT_WRITE,MAP_SHARED,f->f_file,sb.st_size-sizeof(struct clog_footer));
+		if (f->f_un.f_ring.f_footer==NULL) {
+			(void)close(f->f_file);
+			f->f_type = F_UNUSED;
+			logerror(p+1);
+			break;
+		}
+		if (memcmp(&(f->f_un.f_ring.f_footer->cf_magic),MAGIC_CONST,4)!=0) {
+			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
+			(void)close(f->f_file);
+			f->f_type = F_UNUSED;
+			errno = ENODEV;
+			logerror(p+1);
+			break;
+		}
+		f->f_un.f_ring.f_size = sb.st_size;
+		(void)strcpy(f->f_un.f_ring.f_rname, p + 1);
+		f->f_type = F_RING;
 		break;
 
 	case '|':
@@ -3537,6 +3612,49 @@ socksetup(struct peer *pe)
 	freeaddrinfo(res0);
 
 	return(error);
+}
+
+ssize_t rbwritev(struct filed *f, struct iovec *iov, int iovcnt) {
+	int i;
+	ssize_t out = 0;
+	ssize_t err;
+
+	for(i=0;i<iovcnt;i++) {
+		err = rbwrite(f,iov[i].iov_base,iov[i].iov_len);
+		if (err==-1) return -1;
+		out += err;
+	}
+	return out;
+}
+
+
+ssize_t rbwrite(struct filed *f, char *buf, size_t nbytes) {
+	size_t maxwrite = f->f_un.f_ring.f_footer->cf_max - f->f_un.f_ring.f_footer->cf_next;
+	ssize_t err;
+	ssize_t out = 0;
+
+	f->f_un.f_ring.f_footer->cf_lock = 1;
+	while (nbytes>0) {
+		maxwrite = f->f_un.f_ring.f_footer->cf_max - f->f_un.f_ring.f_footer->cf_next;
+		if (maxwrite>nbytes) maxwrite = nbytes;
+		err = pwrite(f->f_file,buf,maxwrite,f->f_un.f_ring.f_footer->cf_next);
+		if (err==-1) {
+			f->f_un.f_ring.f_footer->cf_lock = 0;
+			return -1;
+		}
+		nbytes -= err;
+		out += err;
+		buf += err;
+		f->f_un.f_ring.f_footer->cf_next += err;
+		if (f->f_un.f_ring.f_footer->cf_next==f->f_un.f_ring.f_footer->cf_max) {
+			f->f_un.f_ring.f_footer->cf_next = 0;
+			f->f_un.f_ring.f_footer->cf_wrap = 1;
+		}
+
+	}
+
+	f->f_un.f_ring.f_footer->cf_lock = 0;
+	return out;
 }
 
 static void
