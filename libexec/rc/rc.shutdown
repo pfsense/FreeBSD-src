@@ -27,6 +27,12 @@
 # $FreeBSD$
 #
 
+# Call pfSense version of this script when it's available
+if [ -f /etc/pfSense-rc.shutdown ]; then
+	. /etc/pfSense-rc.shutdown
+	exit 0
+fi
+
 # Site-specific closing actions for daemons run by init on shutdown,
 # or before going single-user from multi-user.
 # Output and errors are directed to console by init, and the
