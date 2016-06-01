@@ -28,6 +28,12 @@
 # $FreeBSD$
 #
 
+# Call pfSense version of this script when it's available
+if [ -f /etc/pfSense-rc ]; then
+	. /etc/pfSense-rc
+	exit 0
+fi
+
 # System startup script run by init on autoboot
 # or after single-user.
 # Output and error are redirected to console by init,
