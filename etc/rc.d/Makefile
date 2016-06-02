@@ -17,6 +17,7 @@ FILES=	DAEMON \
 	auditd \
 	auditdistd \
 	bgfsck \
+	${_blacklistd} \
 	${_bluetooth} \
 	bridge \
 	${_bthidd} \
@@ -123,7 +124,7 @@ FILES=	DAEMON \
 	ypserv \
 	ypset \
 	ypupdated \
-	ypxfrd \
+	ypxfrd
 
 .if ${MK_ACCT} != "no"
 FILESGROUPS+=	ACCT
@@ -166,6 +167,10 @@ ATMPACKAGE=	atm
 FILES+=		automount
 FILES+=		automountd
 FILES+=		autounmountd
+.endif
+
+.if ${MK_BLACKLIST_SUPPORT} != "no"
+_blacklistd+=	blacklistd
 .endif
 
 .if ${MK_BLUETOOTH} != "no"
@@ -308,6 +313,7 @@ FILES+=		wpa_supplicant
 .if ${MK_ZFS} != "no"
 FILESGROUPS+=	ZFS
 ZFS+=		zfs
+ZFS+=		zfsd
 ZFS+=		zvol
 ZFSPACKAGE=	zfs
 .endif
