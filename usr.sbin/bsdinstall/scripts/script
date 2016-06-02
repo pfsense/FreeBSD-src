@@ -81,7 +81,7 @@ mkdir $BSDINSTALL_TMPETC
 split -a 2 -p '^#!.*' "$SCRIPT" /tmp/bsdinstall-installscript-
 
 . /tmp/bsdinstall-installscript-aa
-: ${DISTRIBUTIONS="base.txz"}; export DISTRIBUTIONS
+: ${DISTRIBUTIONS="kernel.txz base.txz"}; export DISTRIBUTIONS
 export BSDINSTALL_DISTDIR
 
 # Re-initialize a new log if preamble changed BSDINSTALL_LOG
