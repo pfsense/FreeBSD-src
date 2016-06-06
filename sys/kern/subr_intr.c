@@ -64,12 +64,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/smp.h>
 #include <machine/stdarg.h>
 
-#ifdef FDT
-#include <dev/ofw/openfirm.h>
-#include <dev/ofw/ofw_bus.h>
-#include <dev/ofw/ofw_bus_subr.h>
-#endif
-
 #ifdef DDB
 #include <ddb/ddb.h>
 #endif
@@ -98,6 +92,15 @@ static intr_irq_filter_t *irq_root_filter;
 static void *irq_root_arg;
 static u_int irq_root_ipicount;
 
+struct intr_pic_child {
+	SLIST_ENTRY(intr_pic_child)	 pc_next;
+	struct intr_pic			*pc_pic;
+	intr_child_irq_filter_t		*pc_filter;
+	void				*pc_filter_arg;
+	uintptr_t			 pc_start;
+	uintptr_t			 pc_length;
+};
+
 /* Interrupt controller definition. */
 struct intr_pic {
 	SLIST_ENTRY(intr_pic)	pic_next;
@@ -106,6 +109,8 @@ struct intr_pic {
 #define	FLAG_PIC	(1 << 0)
 #define	FLAG_MSI	(1 << 1)
 	u_int			pic_flags;
+	struct mtx		pic_child_lock;
+	SLIST_HEAD(, intr_pic_child) pic_children;
 };
 
 static struct mtx pic_list_lock;
@@ -323,6 +328,29 @@ intr_irq_handler(struct trapframe *tf)
 #endif
 }
 
+int
+intr_child_irq_handler(struct intr_pic *parent, uintptr_t irq)
+{
+	struct intr_pic_child *child;
+	bool found;
+
+	found = false;
+	mtx_lock_spin(&parent->pic_child_lock);
+	SLIST_FOREACH(child, &parent->pic_children, pc_next) {
+		if (child->pc_start <= irq &&
+		    irq < (child->pc_start + child->pc_length)) {
+			found = true;
+			break;
+		}
+	}
+	mtx_unlock_spin(&parent->pic_child_lock);
+
+	if (found)
+		return (child->pc_filter(child->pc_filter_arg, irq));
+
+	return (FILTER_STRAY);
+}
+
 /*
  *  interrupt controller dispatch function for interrupts. It should
  *  be called straight from the interrupt controller, when associated interrupt
@@ -526,7 +554,6 @@ intr_ddata_alloc(u_int extsize)
 	mtx_unlock(&isrc_table_lock);
 
 	ddata->idd_data = (struct intr_map_data *)((uintptr_t)ddata + size);
-	ddata->idd_data->size = extsize;
 	return (ddata);
 }
 
@@ -589,33 +616,6 @@ intr_acpi_map_irq(device_t dev, u_int irq, enum intr_polarity pol,
 	daa->pol = pol;
 	daa->trig = trig;
 
-	return (ddata->idd_irq);
-}
-#endif
-#ifdef FDT
-/*
- *  Map interrupt source according to FDT data into framework. If such mapping
- *  does not exist, create it. Return unique interrupt number (resource handle)
- *  associated with mapped interrupt source.
- */
-u_int
-intr_fdt_map_irq(phandle_t node, pcell_t *cells, u_int ncells)
-{
-	size_t cellsize;
-	struct intr_dev_data *ddata;
-	struct intr_map_data_fdt *daf;
-
-	cellsize = ncells * sizeof(*cells);
-	ddata = intr_ddata_alloc(sizeof(struct intr_map_data_fdt) + cellsize);
-	if (ddata == NULL)
-		return (INTR_IRQ_INVALID);	/* no space left */
-
-	ddata->idd_xref = (intptr_t)node;
-	ddata->idd_data->type = INTR_MAP_DATA_FDT;
-
-	daf = (struct intr_map_data_fdt *)ddata->idd_data;
-	daf->ncells = ncells;
-	memcpy(daf->cells, cells, cellsize);
 	return (ddata->idd_irq);
 }
 #endif
@@ -892,6 +892,7 @@ pic_create(device_t dev, intptr_t xref)
 	}
 	pic->pic_xref = xref;
 	pic->pic_dev = dev;
+	mtx_init(&pic->pic_child_lock, "pic child lock", NULL, MTX_SPIN);
 	SLIST_INSERT_HEAD(&pic_list, pic, pic_next);
 	mtx_unlock(&pic_list_lock);
 
@@ -1001,6 +1002,44 @@ intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
 	return (0);
 }
 
+/*
+ * Add a handler to manage a sub range of a parents interrupts.
+ */
+struct intr_pic *
+intr_pic_add_handler(device_t parent, struct intr_pic *pic,
+    intr_child_irq_filter_t *filter, void *arg, uintptr_t start,
+    uintptr_t length)
+{
+	struct intr_pic *parent_pic;
+	struct intr_pic_child *newchild;
+#ifdef INVARIANTS
+	struct intr_pic_child *child;
+#endif
+
+	parent_pic = pic_lookup(parent, 0);
+	if (parent_pic == NULL)
+		return (NULL);
+
+	newchild = malloc(sizeof(*newchild), M_INTRNG, M_WAITOK | M_ZERO);
+	newchild->pc_pic = pic;
+	newchild->pc_filter = filter;
+	newchild->pc_filter_arg = arg;
+	newchild->pc_start = start;
+	newchild->pc_length = length;
+
+	mtx_lock_spin(&parent_pic->pic_child_lock);
+#ifdef INVARIANTS
+	SLIST_FOREACH(child, &parent_pic->pic_children, pc_next) {
+		KASSERT(child->pc_pic != pic, ("%s: Adding a child PIC twice",
+		    __func__));
+	}
+#endif
+	SLIST_INSERT_HEAD(&parent_pic->pic_children, newchild, pc_next);
+	mtx_unlock_spin(&parent_pic->pic_child_lock);
+
+	return (pic);
+}
+
 int
 intr_map_irq(device_t dev, intptr_t xref, struct intr_map_data *data,
     u_int *irqp)
@@ -1035,7 +1074,11 @@ intr_alloc_irq(device_t dev, struct resource *res)
 	KASSERT(rman_get_start(res) == rman_get_end(res),
 	    ("%s: more interrupts in resource", __func__));
 
-	isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	data = rman_get_virtual(res);
+	if (data == NULL)
+		isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	else
+		isrc = isrc_lookup(rman_get_start(res));
 	if (isrc == NULL)
 		return (EINVAL);
 
@@ -1051,7 +1094,11 @@ intr_release_irq(device_t dev, struct resource *res)
 	KASSERT(rman_get_start(res) == rman_get_end(res),
 	    ("%s: more interrupts in resource", __func__));
 
-	isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	data = rman_get_virtual(res);
+	if (data == NULL)
+		isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	else
+		isrc = isrc_lookup(rman_get_start(res));
 	if (isrc == NULL)
 		return (EINVAL);
 
@@ -1070,7 +1117,11 @@ intr_setup_irq(device_t dev, struct resource *res, driver_filter_t filt,
 	KASSERT(rman_get_start(res) == rman_get_end(res),
 	    ("%s: more interrupts in resource", __func__));
 
-	isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	data = rman_get_virtual(res);
+	if (data == NULL)
+		isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	else
+		isrc = isrc_lookup(rman_get_start(res));
 	if (isrc == NULL)
 		return (EINVAL);
 
@@ -1130,7 +1181,11 @@ intr_teardown_irq(device_t dev, struct resource *res, void *cookie)
 	KASSERT(rman_get_start(res) == rman_get_end(res),
 	    ("%s: more interrupts in resource", __func__));
 
-	isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	data = rman_get_virtual(res);
+	if (data == NULL)
+		isrc = intr_ddata_lookup(rman_get_start(res), &data);
+	else
+		isrc = isrc_lookup(rman_get_start(res));
 	if (isrc == NULL || isrc->isrc_handlers == 0)
 		return (EINVAL);
 

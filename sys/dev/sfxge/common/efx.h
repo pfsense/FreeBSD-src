@@ -1129,6 +1129,7 @@ typedef struct efx_nic_cfg_s {
 	boolean_t		enc_bug26807_workaround;
 	boolean_t		enc_bug35388_workaround;
 	boolean_t		enc_bug41750_workaround;
+	boolean_t		enc_bug61265_workaround;
 	boolean_t		enc_rx_batching_enabled;
 	/* Maximum number of descriptors completed in an rx event. */
 	uint32_t		enc_rx_batch_max;
@@ -1147,6 +1148,7 @@ typedef struct efx_nic_cfg_s {
 	boolean_t               enc_rx_disable_scatter_supported;
 	boolean_t               enc_allow_set_mac_with_installed_filters;
 	boolean_t		enc_enhanced_set_mac_supported;
+	boolean_t		enc_init_evq_v2_supported;
 	/* External port identifier */
 	uint8_t			enc_external_port;
 	uint32_t		enc_mcdi_max_payload_length;
@@ -1770,6 +1772,12 @@ efx_ev_qpoll(
 	__inout		unsigned int *countp,
 	__in		const efx_ev_callbacks_t *eecp,
 	__in_opt	void *arg);
+
+extern	__checkReturn	efx_rc_t
+efx_ev_usecs_to_ticks(
+	__in		efx_nic_t *enp,
+	__in		unsigned int usecs,
+	__out		unsigned int *ticksp);
 
 extern	__checkReturn	efx_rc_t
 efx_ev_qmoderate(
