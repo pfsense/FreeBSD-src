@@ -512,7 +512,7 @@ ffs_mount(struct mount *mp)
 		 * We need the name for the mount point (also used for
 		 * "last mounted on") copied in. If an error occurs,
 		 * the mount point is discarded by the upper level code.
-		 * Note that vfs_mount() populates f_mntonname for us.
+		 * Note that vfs_mount_alloc() populates f_mntonname for us.
 		 */
 		if ((error = ffs_mountfs(devvp, mp, td)) != 0) {
 			vrele(devvp);
@@ -764,22 +764,30 @@ ffs_mountfs(devvp, mp, td)
 	cred = td ? td->td_ucred : NOCRED;
 	ronly = (mp->mnt_flag & MNT_RDONLY) != 0;
 
+	KASSERT(devvp->v_type == VCHR, ("reclaimed devvp"));
 	dev = devvp->v_rdev;
-	dev_ref(dev);
+	if (atomic_cmpset_acq_ptr((uintptr_t *)&dev->si_mountpt, 0,
+	    (uintptr_t)mp) == 0) {
+		VOP_UNLOCK(devvp, 0);
+		return (EBUSY);
+	}
 	DROP_GIANT();
 	g_topology_lock();
 	error = g_vfs_open(devvp, &cp, "ffs", ronly ? 0 : 1);
 	g_topology_unlock();
 	PICKUP_GIANT();
+	if (error != 0) {
+		atomic_store_rel_ptr((uintptr_t *)&dev->si_mountpt, 0);
+		VOP_UNLOCK(devvp, 0);
+		return (error);
+	}
+	dev_ref(dev);
+	devvp->v_bufobj.bo_ops = &ffs_ops;
 	VOP_UNLOCK(devvp, 0);
-	if (error)
-		goto out;
-	if (devvp->v_rdev->si_iosize_max != 0)
-		mp->mnt_iosize_max = devvp->v_rdev->si_iosize_max;
+	if (dev->si_iosize_max != 0)
+		mp->mnt_iosize_max = dev->si_iosize_max;
 	if (mp->mnt_iosize_max > MAXPHYS)
 		mp->mnt_iosize_max = MAXPHYS;
-
-	devvp->v_bufobj.bo_ops = &ffs_ops;
 
 	fs = NULL;
 	sblockloc = 0;
@@ -1049,8 +1057,6 @@ ffs_mountfs(devvp, mp, td)
 			ffs_flushfiles(mp, FORCECLOSE, td);
 			goto out;
 		}
-		if (devvp->v_type == VCHR && devvp->v_rdev != NULL)
-			devvp->v_rdev->si_mountpt = mp;
 		if (fs->fs_snapinum[0] != 0)
 			ffs_snapshot_mount(mp);
 		fs->fs_fmod = 1;
@@ -1058,7 +1064,7 @@ ffs_mountfs(devvp, mp, td)
 		(void) ffs_sbupdate(ump, MNT_WAIT, 0);
 	}
 	/*
-	 * Initialize filesystem stat information in mount struct.
+	 * Initialize filesystem state information in mount struct.
 	 */
 	MNT_ILOCK(mp);
 	mp->mnt_kern_flag |= MNTK_LOOKUP_SHARED | MNTK_EXTENDED_SHARED |
@@ -1100,6 +1106,7 @@ out:
 		free(ump, M_UFSMNT);
 		mp->mnt_data = NULL;
 	}
+	atomic_store_rel_ptr((uintptr_t *)&dev->si_mountpt, 0);
 	dev_rel(dev);
 	return (error);
 }
@@ -1285,8 +1292,7 @@ ffs_unmount(mp, mntflags)
 	g_vfs_close(ump->um_cp);
 	g_topology_unlock();
 	PICKUP_GIANT();
-	if (ump->um_devvp->v_type == VCHR && ump->um_devvp->v_rdev != NULL)
-		ump->um_devvp->v_rdev->si_mountpt = NULL;
+	atomic_store_rel_ptr((uintptr_t *)&ump->um_dev->si_mountpt, 0);
 	vrele(ump->um_devvp);
 	dev_rel(ump->um_dev);
 	mtx_destroy(UFS_MTX(ump));
