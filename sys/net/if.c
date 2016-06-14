@@ -848,6 +848,7 @@ if_purgeaddrs(struct ifnet *ifp)
 {
 	struct ifaddr *ifa, *next;
 
+	/* XXX cannot hold IF_ADDR_WLOCK over called functions. */
 	TAILQ_FOREACH_SAFE(ifa, &ifp->if_addrhead, ifa_link, next) {
 		if (ifa->ifa_addr->sa_family == AF_LINK)
 			continue;
@@ -872,7 +873,9 @@ if_purgeaddrs(struct ifnet *ifp)
 			continue;
 		}
 #endif /* INET6 */
+		IF_ADDR_WLOCK(ifp);
 		TAILQ_REMOVE(&ifp->if_addrhead, ifa, ifa_link);
+		IF_ADDR_WUNLOCK(ifp);
 		ifa_free(ifa);
 	}
 }
@@ -1004,11 +1007,14 @@ if_detach_internal(struct ifnet *ifp, int vmove, struct if_clone **ifcp)
 		ifp->if_addr = NULL;
 
 		/* We can now free link ifaddr. */
+		IF_ADDR_WLOCK(ifp);
 		if (!TAILQ_EMPTY(&ifp->if_addrhead)) {
 			ifa = TAILQ_FIRST(&ifp->if_addrhead);
 			TAILQ_REMOVE(&ifp->if_addrhead, ifa, ifa_link);
+			IF_ADDR_WUNLOCK(ifp);
 			ifa_free(ifa);
-		}
+		} else
+			IF_ADDR_WUNLOCK(ifp);
 	}
 
 	rt_flushifroutes(ifp);
@@ -1024,9 +1030,11 @@ if_detach_internal(struct ifnet *ifp, int vmove, struct if_clone **ifcp)
 	ifp->if_afdata_initialized = 0;
 	IF_AFDATA_UNLOCK(ifp);
 	for (dp = domains; i > 0 && dp; dp = dp->dom_next) {
-		if (dp->dom_ifdetach && ifp->if_afdata[dp->dom_family])
+		if (dp->dom_ifdetach && ifp->if_afdata[dp->dom_family]) {
 			(*dp->dom_ifdetach)(ifp,
 			    ifp->if_afdata[dp->dom_family]);
+			ifp->if_afdata[dp->dom_family] = NULL;
+		}
 	}
 
 	return (0);
