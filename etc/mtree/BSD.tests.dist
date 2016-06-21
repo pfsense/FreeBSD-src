@@ -394,6 +394,8 @@
                 ..
             ..
         ..
+	bsdcat
+	..
         calendar
         ..
         cmp
