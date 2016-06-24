@@ -111,7 +111,7 @@ trap true SIGINT	# This section is optional
 bsdinstall keymap
 
 trap error SIGINT	# Catch cntrl-C here
-bsdinstall hostname || error "Set hostname failed"
+#bsdinstall hostname || error "Set hostname failed"
 
 export DISTRIBUTIONS="base.txz kernel.txz"
 if [ -f $BSDINSTALL_DISTDIR/MANIFEST ]; then
@@ -383,15 +383,15 @@ bsdinstall distextract || error "Distribution extract failed"
 # Set up boot loader
 bsdinstall bootconfig || error "Failed to configure bootloader"
 
-bsdinstall rootpass || error "Could not set root password"
+#bsdinstall rootpass || error "Could not set root password"
 
 trap true SIGINT	# This section is optional
 if [ "$NETCONFIG_DONE" != yes ]; then
-	bsdinstall netconfig	# Don't check for errors -- the user may cancel
+#	bsdinstall netconfig	# Don't check for errors -- the user may cancel
 fi
-bsdinstall time
-bsdinstall services
-bsdinstall hardening
+#bsdinstall time
+#bsdinstall services
+#bsdinstall hardening
 
 #dialog --backtitle "pfSense Installer" --title "Add User Accounts" --yesno \
 #    "Would you like to add users to the installed system now?" 0 0 && \
@@ -450,7 +450,7 @@ finalconfig() {
 }
 
 # Allow user to change his mind
-finalconfig
+#finalconfig
 
 trap error SIGINT	# SIGINT is bad again
 bsdinstall config  || error "Failed to save config"
