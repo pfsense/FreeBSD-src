@@ -748,7 +748,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	/*
 	 * Tell any interested parties about the new process.
 	 */
-	knote_fork(&p1->p_klist, p2->p_pid);
+	knote_fork(p1->p_klist, p2->p_pid);
 	SDT_PROBE3(proc, , , create, p2, p1, fr->fr_flags);
 
 	if (fr->fr_flags & RFPROCDESC) {
@@ -950,7 +950,7 @@ fork1(struct thread *td, struct fork_req *fr)
 #ifdef MAC
 	mac_proc_init(newproc);
 #endif
-	knlist_init_mtx(&newproc->p_klist, &newproc->p_mtx);
+	newproc->p_klist = knlist_alloc(&newproc->p_mtx);
 	STAILQ_INIT(&newproc->p_ktr);
 
 	/* We have to lock the process tree while we look for a pid. */
@@ -1030,7 +1030,7 @@ fork_exit(void (*callout)(void *, struct trapframe *), void *arg,
 	thread_unlock(td);
 
 	/*
-	 * cpu_set_fork_handler intercepts this function call to
+	 * cpu_fork_kthread_handler intercepts this function call to
 	 * have this call a non-return function to stay in kernel mode.
 	 * initproc has its own fork handler, but it does return.
 	 */

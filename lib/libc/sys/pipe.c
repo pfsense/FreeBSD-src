@@ -1,9 +1,10 @@
 /*-
- * Copyright (c) 2014 The FreeBSD Foundation
+ * Copyright (c) 2016 SRI International
  * All rights reserved.
  *
- * This software was developed by Andrew Turner under
- * sponsorship from the FreeBSD Foundation.
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,28 +26,22 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
-#include <machine/asm.h>
-__FBSDID("$FreeBSD$");
+#include <sys/cdefs.h>
 
-#include "SYS.h"
+#include <unistd.h>
 
-ENTRY(__sys_pipe)
-	WEAK_REFERENCE(__sys_pipe, pipe)
+__weak_reference(__sys_pipe, pipe);
+__weak_reference(__sys_pipe, _pipe);
 
-	/* Backup the pointer passed to us */
-	mov	x2, x0
+extern int __sys_pipe2(int fildes[2], int flags);
 
-	/* Make the syscall */
-	_SYSCALL(pipe)
-	b.cs	cerror
+int
+__sys_pipe(int fildes[2])
+{
 
-	/* Store the result */
-	str	w0, [x2, #0]
-	str	w1, [x2, #4]
-
-	/* Return */
-	mov	x0, #0
-	ret
-END(__sys_pipe)
+	return (__sys_pipe2(fildes, 0));
+}

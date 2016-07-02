@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2002 Peter Grehan.
+ * Copyright (c) 2005-2006,2016 John H. Baldwin <jhb@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,24 +23,72 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-/*      $NetBSD: pipe.S,v 1.6 2000/09/28 08:38:54 kleink Exp $  */
 
-#include <machine/asm.h>
+#include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "SYS.h"
+#include <sys/ioccom.h>
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sysdecode.h>
 
-ENTRY(pipe)
-	mr	%r5,%r3		/* save pointer */
-	li	%r0,SYS_pipe
-	sc			/* r5 is preserved */
-	bso	1f
-	stw	%r3,0(%r5)	/* success, store fds */
-	stw	%r4,4(%r5)
-	li	%r3,0
-	blr			/* and return 0 */
-1:
-	b	PIC_PLT(HIDENAME(cerror))
-END(pipe)
+static void
+usage(char **av)
+{
+	fprintf(stderr, "%s: <ioctl> [ ... ]\n", av[0]);
+	exit(1);
+}
 
-	.section .note.GNU-stack,"",%progbits
+int
+main(int ac, char **av)
+{
+	unsigned long cmd;
+	const char *name;
+	char *cp;
+	int group, i;
+
+	if (ac < 2)
+		usage(av);
+	printf("  command :  dir  group num  len name\n");
+	for (i = 1; i < ac; i++) {
+		errno = 0;
+		cmd = strtoul(av[i], &cp, 0);
+		if (*cp != '\0' || errno != 0) {
+			fprintf(stderr, "Invalid integer: %s\n", av[i]);
+			usage(av);
+		}
+		printf("0x%08lx: ", cmd);
+		switch (cmd & IOC_DIRMASK) {
+		case IOC_VOID:
+			printf("VOID ");
+			break;
+		case IOC_OUT:
+			printf("OUT  ");
+			break;
+		case IOC_IN:
+			printf("IN   ");
+			break;
+		case IOC_INOUT:
+			printf("INOUT");
+			break;
+		default:
+			printf("%01lx ???", (cmd & IOC_DIRMASK) >> 29);
+			break;
+		}
+		printf(" ");
+		group = IOCGROUP(cmd);
+		if (isprint(group))
+			printf(" '%c' ", group);
+		else
+			printf(" 0x%02x", group);
+		printf(" %3lu %4lu", cmd & 0xff, IOCPARM_LEN(cmd));
+		name = sysdecode_ioctlname(cmd);
+		if (name != NULL)
+			printf(" %s", name);
+		printf("\n");
+	}
+	return (0);
+}

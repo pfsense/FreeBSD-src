@@ -208,6 +208,10 @@ static struct ieee80211vap *urtwn_vap_create(struct ieee80211com *,
                     const uint8_t [IEEE80211_ADDR_LEN],
                     const uint8_t [IEEE80211_ADDR_LEN]);
 static void		urtwn_vap_delete(struct ieee80211vap *);
+static void		urtwn_vap_clear_tx(struct urtwn_softc *,
+			    struct ieee80211vap *);
+static void		urtwn_vap_clear_tx_queue(struct urtwn_softc *,
+			    urtwn_datahead *, struct ieee80211vap *);
 static struct mbuf *	urtwn_rx_copy_to_mbuf(struct urtwn_softc *,
 			    struct r92c_rx_stat *, int);
 static struct mbuf *	urtwn_report_intr(struct usb_xfer *,
@@ -679,7 +683,6 @@ urtwn_detach(device_t self)
 {
 	struct urtwn_softc *sc = device_get_softc(self);
 	struct ieee80211com *ic = &sc->sc_ic;
-	unsigned int x;
 
 	/* Prevent further ioctls. */
 	URTWN_LOCK(sc);
@@ -693,26 +696,6 @@ urtwn_detach(device_t self)
 
 	/* stop all USB transfers */
 	usbd_transfer_unsetup(sc->sc_xfer, URTWN_N_TRANSFER);
-
-	/* Prevent further allocations from RX/TX data lists. */
-	URTWN_LOCK(sc);
-	STAILQ_INIT(&sc->sc_tx_active);
-	STAILQ_INIT(&sc->sc_tx_inactive);
-	STAILQ_INIT(&sc->sc_tx_pending);
-
-	STAILQ_INIT(&sc->sc_rx_active);
-	STAILQ_INIT(&sc->sc_rx_inactive);
-	URTWN_UNLOCK(sc);
-
-	/* drain USB transfers */
-	for (x = 0; x != URTWN_N_TRANSFER; x++)
-		usbd_transfer_drain(sc->sc_xfer[x]);
-
-	/* Free data buffers. */
-	URTWN_LOCK(sc);
-	urtwn_free_tx_list(sc);
-	urtwn_free_rx_list(sc);
-	URTWN_UNLOCK(sc);
 
 	if (ic->ic_softc == sc) {
 		ieee80211_draintask(ic, &sc->cmdq_task);
@@ -824,14 +807,57 @@ urtwn_vap_delete(struct ieee80211vap *vap)
 	struct urtwn_softc *sc = ic->ic_softc;
 	struct urtwn_vap *uvp = URTWN_VAP(vap);
 
+	/* Guarantee that nothing will go through this vap. */
+	ieee80211_new_state(vap, IEEE80211_S_INIT, -1);
+	ieee80211_draintask(ic, &vap->iv_nstate_task);
+
+	URTWN_LOCK(sc);
 	if (uvp->bcn_mbuf != NULL)
 		m_freem(uvp->bcn_mbuf);
+	/* Cancel any unfinished Tx. */
+	urtwn_vap_clear_tx(sc, vap);
+	URTWN_UNLOCK(sc);
 	if (vap->iv_opmode == IEEE80211_M_IBSS)
 		ieee80211_draintask(ic, &uvp->tsf_task_adhoc);
 	if (URTWN_CHIP_HAS_RATECTL(sc))
 		ieee80211_ratectl_deinit(vap);
 	ieee80211_vap_detach(vap);
 	free(uvp, M_80211_VAP);
+}
+
+static void
+urtwn_vap_clear_tx(struct urtwn_softc *sc, struct ieee80211vap *vap)
+{
+
+	URTWN_ASSERT_LOCKED(sc);
+
+	urtwn_vap_clear_tx_queue(sc, &sc->sc_tx_active, vap);
+	urtwn_vap_clear_tx_queue(sc, &sc->sc_tx_pending, vap);
+}
+
+static void
+urtwn_vap_clear_tx_queue(struct urtwn_softc *sc, urtwn_datahead *head,
+    struct ieee80211vap *vap)
+{
+	struct urtwn_data *dp, *tmp;
+
+	STAILQ_FOREACH_SAFE(dp, head, next, tmp) {
+		if (dp->ni != NULL) {
+			if (dp->ni->ni_vap == vap) {
+				ieee80211_free_node(dp->ni);
+				dp->ni = NULL;
+
+				if (dp->m != NULL) {
+					m_freem(dp->m);
+					dp->m = NULL;
+				}
+
+				STAILQ_REMOVE(head, dp, urtwn_data, next);
+				STAILQ_INSERT_TAIL(&sc->sc_tx_inactive, dp,
+				    next);
+			}
+		}
+	}
 }
 
 static struct mbuf *
@@ -869,14 +895,7 @@ urtwn_rx_copy_to_mbuf(struct urtwn_softc *sc, struct r92c_rx_stat *stat,
 		goto fail;
 	}
 
-	if (__predict_false(totlen > MCLBYTES)) {
-		/* convert to m_getjcl if this happens */
-		device_printf(sc->sc_dev, "%s: frame too long: %d (%d)\n",
-		    __func__, pktlen, totlen);
-		goto fail;
-	}
-
-	m = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
+	m = m_get2(totlen, M_NOWAIT, MT_DATA, M_PKTHDR);
 	if (__predict_false(m == NULL)) {
 		device_printf(sc->sc_dev, "%s: could not allocate RX mbuf\n",
 		    __func__);
@@ -1312,12 +1331,19 @@ static void
 urtwn_free_rx_list(struct urtwn_softc *sc)
 {
 	urtwn_free_list(sc, sc->sc_rx, URTWN_RX_LIST_COUNT);
+
+	STAILQ_INIT(&sc->sc_rx_active);
+	STAILQ_INIT(&sc->sc_rx_inactive);
 }
 
 static void
 urtwn_free_tx_list(struct urtwn_softc *sc)
 {
 	urtwn_free_list(sc, sc->sc_tx, URTWN_TX_LIST_COUNT);
+
+	STAILQ_INIT(&sc->sc_tx_active);
+	STAILQ_INIT(&sc->sc_tx_inactive);
+	STAILQ_INIT(&sc->sc_tx_pending);
 }
 
 static void
@@ -5532,6 +5558,8 @@ urtwn_stop(struct urtwn_softc *sc)
 
 	urtwn_abort_xfers(sc);
 	urtwn_drain_mbufq(sc);
+	urtwn_free_tx_list(sc);
+	urtwn_free_rx_list(sc);
 	urtwn_power_off(sc);
 	URTWN_UNLOCK(sc);
 }

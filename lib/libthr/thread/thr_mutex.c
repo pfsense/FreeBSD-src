@@ -852,7 +852,7 @@ mutex_self_trylock(struct pthread_mutex *m)
 	case PTHREAD_MUTEX_ERRORCHECK:
 	case PTHREAD_MUTEX_NORMAL:
 	case PTHREAD_MUTEX_ADAPTIVE_NP:
-		ret = EBUSY; 
+		ret = EBUSY;
 		break;
 
 	case PTHREAD_MUTEX_RECURSIVE:

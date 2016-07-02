@@ -282,9 +282,6 @@ struct thread {
 	int		td_no_sleeping;	/* (k) Sleeping disabled count. */
 	int		td_dom_rr_idx;	/* (k) RR Numa domain selection. */
 	void		*td_su;		/* (k) FFS SU private */
-	uintptr_t	td_rb_list;	/* (k) Robust list head. */
-	uintptr_t	td_rbp_list;	/* (k) Robust priv list head. */
-	uintptr_t	td_rb_inact;	/* (k) Current in-action mutex loc. */
 #define	td_endzero td_sigmask
 
 /* Copied during fork1() or create_thread(). */
@@ -298,6 +295,9 @@ struct thread {
 	u_char		td_base_user_pri; /* (t) Base user pri */
 	u_int		td_dbg_sc_code;	/* (c) Syscall code to debugger. */
 	u_int		td_dbg_sc_narg;	/* (c) Syscall arg count to debugger.*/
+	uintptr_t	td_rb_list;	/* (k) Robust list head. */
+	uintptr_t	td_rbp_list;	/* (k) Robust priv list head. */
+	uintptr_t	td_rb_inact;	/* (k) Current in-action mutex loc. */
 #define	td_endcopy td_pcb
 
 /*
@@ -395,9 +395,9 @@ do {									\
 #define	TDF_NEEDRESCHED	0x00010000 /* Thread needs to yield. */
 #define	TDF_NEEDSIGCHK	0x00020000 /* Thread may need signal delivery. */
 #define	TDF_NOLOAD	0x00040000 /* Ignore during load avg calculations. */
-#define	TDF_UNUSED19	0x00080000 /* --available-- */
+#define	TDF_SERESTART	0x00080000 /* ERESTART on stop attempts. */
 #define	TDF_THRWAKEUP	0x00100000 /* Libthr thread must not suspend itself. */
-#define	TDF_UNUSED21	0x00200000 /* --available-- */
+#define	TDF_SEINTR	0x00200000 /* EINTR on stop attempts. */
 #define	TDF_SWAPINREQ	0x00400000 /* Swapin request due to wakeup. */
 #define	TDF_UNUSED23	0x00800000 /* --available-- */
 #define	TDF_SCHED0	0x01000000 /* Reserved for scheduler private use */
@@ -611,7 +611,7 @@ struct proc {
 /* End area that is copied on creation. */
 #define	p_endcopy	p_xsig
 	struct pgrp	*p_pgrp;	/* (c + e) Pointer to process group. */
-	struct knlist	p_klist;	/* (c) Knotes attached to this proc. */
+	struct knlist	*p_klist;	/* (c) Knotes attached to this proc. */
 	int		p_numthreads;	/* (c) Number of threads. */
 	struct mdproc	p_md;		/* Any machine-dependent fields. */
 	struct callout	p_itcallout;	/* (h + c) Interval timer callout. */
@@ -827,7 +827,20 @@ extern pid_t pid_max;
 #define	SESS_LOCKED(s)	mtx_owned(&(s)->s_mtx)
 #define	SESS_LOCK_ASSERT(s, type)	mtx_assert(&(s)->s_mtx, (type))
 
-/* Hold process U-area in memory, normally for ptrace/procfs work. */
+/*
+ * Non-zero p_lock ensures that:
+ * - exit1() is not performed until p_lock reaches zero;
+ * - the process' threads stack are not swapped out if they are currently
+ *   not (P_INMEM).
+ *
+ * PHOLD() asserts that the process (except the current process) is
+ * not exiting, increments p_lock and swaps threads stacks into memory,
+ * if needed.
+ * _PHOLD() is same as PHOLD(), it takes the process locked.
+ * _PHOLD_LITE() also takes the process locked, but comparing with
+ * _PHOLD(), it only guarantees that exit1() is not executed,
+ * faultin() is not called.
+ */
 #define	PHOLD(p) do {							\
 	PROC_LOCK(p);							\
 	_PHOLD(p);							\
@@ -840,6 +853,12 @@ extern pid_t pid_max;
 	(p)->p_lock++;							\
 	if (((p)->p_flag & P_INMEM) == 0)				\
 		faultin((p));						\
+} while (0)
+#define	_PHOLD_LITE(p) do {						\
+	PROC_LOCK_ASSERT((p), MA_OWNED);				\
+	KASSERT(!((p)->p_flag & P_WEXIT) || (p) == curproc,		\
+	    ("PHOLD of exiting process %p", p));			\
+	(p)->p_lock++;							\
 } while (0)
 #define	PROC_ASSERT_HELD(p) do {					\
 	KASSERT((p)->p_lock > 0, ("process %p not held", p));		\
@@ -1005,12 +1024,12 @@ void	userret(struct thread *, struct trapframe *);
 
 void	cpu_exit(struct thread *);
 void	exit1(struct thread *, int, int) __dead2;
+void	cpu_copy_thread(struct thread *td, struct thread *td0);
 int	cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa);
 void	cpu_fork(struct thread *, struct proc *, struct thread *, int);
-void	cpu_set_fork_handler(struct thread *, void (*)(void *), void *);
+void	cpu_fork_kthread_handler(struct thread *, void (*)(void *), void *);
 void	cpu_set_syscall_retval(struct thread *, int);
-void	cpu_set_upcall(struct thread *td, struct thread *td0);
-void	cpu_set_upcall_kse(struct thread *, void (*)(void *), void *,
+void	cpu_set_upcall(struct thread *, void (*)(void *), void *,
 	    stack_t *);
 int	cpu_set_user_tls(struct thread *, void *tls_base);
 void	cpu_thread_alloc(struct thread *);

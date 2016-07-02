@@ -1,6 +1,9 @@
-/*-
- * Copyright (c) 2006 Wojciech A. Koszek <wkoszek@FreeBSD.org>
+/*
+ * Copyright (C) 2016 Cavium Inc.
  * All rights reserved.
+ *
+ * Developed by Semihalf.
+ * Based on work by Nathan Whitehorn.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,60 +26,79 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id$
+ * $FreeBSD$
  */
-/*
- * Skeleton of this file was based on respective code for ARM
- * code written by Olivier Houchard.
- */
-/*
- * XXXMIPS: This file is hacked from arm/... . XXXMIPS here means this file is
- * experimental and was written for MIPS32 port.
- */
-#include "opt_uart.h"
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#include <sys/types.h>
+#include <string.h>
 
-#include <sys/param.h>
-#include <sys/systm.h>
-#include <sys/bus.h>
-#include <sys/cons.h>
+#include "partedit.h"
 
-#include <machine/bus.h>
+/* EFI partition size in KB */
+#define	EFI_BOOTPART_SIZE	(50 * 1024)
+#define	EFI_BOOTPART_PATH	"/boot/boot1.efifat"
 
-#include <dev/uart/uart.h>
-#include <dev/uart/uart_cpu.h>
-
-#include <mips/sentry5/sentry5reg.h>
-
-bus_space_tag_t uart_bus_space_io;
-bus_space_tag_t uart_bus_space_mem;
-
-extern struct uart_ops malta_usart_ops;
-extern struct bus_space malta_bs_tag;
-
-int
-uart_cpu_eqres(struct uart_bas *b1, struct uart_bas *b2)
+const char *
+default_scheme(void)
 {
-	return ((b1->bsh == b2->bsh && b1->bst == b2->bst) ? 1 : 0);
+
+	return ("GPT");
 }
 
 int
-uart_cpu_getdev(int devtype, struct uart_devinfo *di)
+is_scheme_bootable(const char *part_type)
 {
-	di->ops = uart_getops(&uart_ns8250_class);
-	di->bas.chan = 0;
-	di->bas.bst = 0;
-	di->bas.regshft = 0;
-	di->bas.rclk = 0;
-	di->baudrate = 115200;
-	di->databits = 8;
-	di->stopbits = 1;
-	di->parity = UART_PARITY_NONE;
 
-	uart_bus_space_io = MIPS_PHYS_TO_KSEG1(SENTRY5_UART1ADR);
-	uart_bus_space_mem = mips_bus_space_generic;
-	di->bas.bsh = MIPS_PHYS_TO_KSEG1(SENTRY5_UART1ADR);
+	if (strcmp(part_type, "GPT") == 0)
+		return (1);
+
 	return (0);
 }
+
+int
+is_fs_bootable(const char *part_type, const char *fs)
+{
+
+	if (strcmp(fs, "freebsd-ufs") == 0)
+		return (1);
+
+	return (0);
+}
+
+size_t
+bootpart_size(const char *scheme)
+{
+
+	/* We only support GPT with EFI */
+	if (strcmp(scheme, "GPT") != 0)
+		return (0);
+
+	return ((EFI_BOOTPART_SIZE) * 1024);
+}
+
+const char *
+bootpart_type(const char *scheme)
+{
+
+	/* Only EFI is supported as boot partition */
+	return ("efi");
+}
+
+const char *
+bootcode_path(const char *part_type)
+{
+
+	return (NULL);
+}
+
+const char *
+partcode_path(const char *part_type, const char *fs_type)
+{
+
+	if (strcmp(part_type, "GPT") == 0)
+		return (EFI_BOOTPART_PATH);
+
+	/* No boot partition data for non-GPT */
+	return (NULL);
+}
+
