@@ -975,6 +975,10 @@ main(int argc, char *argv[])
 					cc = 0;
 					break;
 				}
+				else if (deltaT(&t1, &t2) > waittime * 1000) {
+					cc = 0;
+					break;
+				}
 			}
 			if (cc == 0)
 				printf(" *");
