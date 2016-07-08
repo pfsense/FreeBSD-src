@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 
 #include "bhyverun.h"
 #include "acpi.h"
+#include "atkbdc.h"
 #include "inout.h"
 #include "dbgport.h"
 #include "fwctl.h"
@@ -125,7 +126,7 @@ usage(int code)
 
         fprintf(stderr,
                 "Usage: %s [-abehuwxACHPSWY] [-c vcpus] [-g <gdb port>] [-l <lpc>]\n"
-		"       %*s [-m memsize[K|k|M|m|G|g|T|t]] [-p vcpu:hostcpu] [-s <pci>] [-U uuid] <vm>\n"
+		"       %*s [-m mem] [-p vcpu:hostcpu] [-s <pci>] [-U uuid] <vm>\n"
 		"       -a: local apic is in xAPIC mode (deprecated)\n"
 		"       -A: create ACPI tables\n"
 		"       -c: # cpus (default 1)\n"
@@ -135,7 +136,7 @@ usage(int code)
 		"       -h: help\n"
 		"       -H: vmexit from the guest on hlt\n"
 		"       -l: LPC device configuration\n"
-		"       -m: memory size\n"
+		"       -m: memory size in MB\n"
 		"       -p: pin 'vcpu' to 'hostcpu'\n"
 		"       -P: vmexit from the guest on pause\n"
 		"       -s: <slot,driver,configinfo> PCI slot config\n"
@@ -387,13 +388,11 @@ vmexit_wrmsr(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 static int
 vmexit_spinup_ap(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 {
-	int newcpu;
-	int retval = VMEXIT_CONTINUE;
 
-	newcpu = spinup_ap(ctx, *pvcpu,
-			   vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
+	(void)spinup_ap(ctx, *pvcpu,
+		    vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
 
-	return (retval);
+	return (VMEXIT_CONTINUE);
 }
 
 #define	DEBUG_EPT_MISCONFIG
@@ -901,6 +900,7 @@ main(int argc, char *argv[])
 
 	init_mem();
 	init_inout();
+	atkbdc_init(ctx);
 	pci_irq_init(ctx);
 	ioapic_init(ctx);
 

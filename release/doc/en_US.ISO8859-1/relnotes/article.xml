@@ -182,12 +182,6 @@
     <sect2 xml:id="userland-programs">
       <title>Userland Application Changes</title>
 
-      <para revision="258838" contrib="sponsor" sponsor="&ff;,
-	&google;" sponsorurl="">The &man.casperd.8; daemon has been
-	added, which provides access to functionality that is not
-	available in the <quote>capability mode</quote>
-	sandbox.</para>
-
       <para revision="260594">When unable to load a kernel module with
 	&man.kldload.8;, a message informing to view output of
 	&man.dmesg.8; is now printed, opposed to the previous output
@@ -580,8 +574,8 @@
       <para revision="288090">&man.jemalloc.3; has been updated to
 	version 4.0.2.</para>
 
-      <para revision="298192">The &man.file.1; utility has been
-	updated to version 5.26.</para>
+      <para revision="302221">The &man.file.1; utility has been
+	updated to version 5.28.</para>
 
       <para revision="288303">The &man.nc.1; utility has been updated
 	to the OpenBSD 5.8 version.</para>
@@ -1413,6 +1407,9 @@
 	updated to support <literal>DSM TRIM</literal> commands for
 	virtual <acronym>AHCI</acronym> disks.</para>
 
+      <para revision="302332">Native graphics support has been added to
+	the &man.bhyve.8; hypervisor.</para>
+
       <para revision="281439" arch="arm">Support for the
 	<application>QEMU</application> <literal>virt</literal> system
 	has been added.</para>
@@ -1516,6 +1513,9 @@
        <para revision="299688" arch="arm">Support for the Allwinner H3 SoC
 	has been added.</para>
 
+      <para revision="299786" arch="arm">Support for X-Powers AXP813 and
+	AXP818 power management integrated circuits have been added.</para>
+
       <para revision="300777" arch="arm">Support for GPIO, Sensors and
 	interrupts on AXP209 power management integrated circuits have been
 	added.</para>
@@ -1566,6 +1566,10 @@
 	numbers when populating the CAM serial number. This affects the output of
 	&man.diskinfo.8; and the names of <filename>/dev/diskid/DISK-*</filename>
 	device nodes, among other things.</para>
+
+      <para revision="300207" contrib="sponsor" sponsor="&spectralogic;">
+	Support for managing Shingled Magnetic Recording (SMR) drives
+	has been added.</para>
 
     </sect2>
 

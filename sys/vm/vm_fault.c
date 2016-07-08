@@ -285,14 +285,14 @@ vm_fault_hold(vm_map_t map, vm_offset_t vaddr, vm_prot_t fault_type,
 {
 	vm_prot_t prot;
 	int alloc_req, era, faultcount, nera, result;
-	boolean_t growstack, is_first_object_locked, wired;
+	boolean_t dead, growstack, is_first_object_locked, wired;
 	int map_generation;
 	vm_object_t next_object;
 	int hardfault;
 	struct faultstate fs;
 	struct vnode *vp;
 	vm_page_t m;
-	int ahead, behind, cluster_offset, dead, error, locked;
+	int ahead, behind, cluster_offset, error, locked;
 
 	hardfault = 0;
 	growstack = TRUE;
@@ -570,9 +570,9 @@ readrest:
 				behind = 0;
 				nera = VM_FAULT_READ_AHEAD_MAX;
 				ahead = nera;
-				if (fs.pindex == fs.entry->next_read)
+				if (vaddr == fs.entry->next_read)
 					vm_fault_dontneed(&fs, vaddr, ahead);
-			} else if (fs.pindex == fs.entry->next_read) {
+			} else if (vaddr == fs.entry->next_read) {
 				/*
 				 * This is a sequential fault.  Arithmetically
 				 * increase the requested number of pages in
@@ -927,15 +927,15 @@ vnode_locked:
 			prot &= retry_prot;
 		}
 	}
+
 	/*
-	 * If the page was filled by a pager, update the map entry's
-	 * last read offset.
-	 *
-	 * XXX The following assignment modifies the map
-	 * without holding a write lock on it.
+	 * If the page was filled by a pager, save the virtual address that
+	 * should be faulted on next under a sequential access pattern to the
+	 * map entry.  A read lock on the map suffices to update this address
+	 * safely.
 	 */
 	if (hardfault)
-		fs.entry->next_read = fs.pindex + ahead + 1;
+		fs.entry->next_read = vaddr + ptoa(ahead) + PAGE_SIZE;
 
 	vm_fault_dirty(fs.entry, fs.m, prot, fault_type, fault_flags, TRUE);
 	vm_page_assert_xbusied(fs.m);
