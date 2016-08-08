@@ -32,8 +32,8 @@
 #include "ubmc.dtsi"
 
 / {
-	model = "AM335x uBMC";
-	compatible = "ti,am335x-ubmc", "ti,am33xx";
+	model = "AM335x uFW";
+	compatible = "ti,am335x-ufw", "ti,am335x-ubmc", "ti,am33xx";
 };
 
 &mmc1 {
@@ -55,11 +55,6 @@
 	pinctrl-0 = <&i2c0_pins>;
 
 	status = "okay";
-
-	eeprom0 {
-		compatible = "atmel,24c256";
-		i2c-address = <0x50>;
-	};
 };
 
 &i2c1 {

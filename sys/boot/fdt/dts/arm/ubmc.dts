@@ -60,11 +60,6 @@
 		compatible = "national,lm75";
 		i2c-address = <0x48>;
 	};
-
-	eeprom0 {
-		compatible = "atmel,24c256";
-		i2c-address = <0x50>;
-	};
 };
 
 &i2c1 {
@@ -105,4 +100,60 @@
 		spi-max-frequency = <20000000>;
 		reg = <0>;
 	};
+};
+
+&tscadc {
+	status = "okay";
+
+	adc {
+		#io-channel-cells = <0x1>;
+		compatible = "ti,am3359-adc";
+		ti,adc-channels = <0x00 0x01 0x02 0x03 0x4 0x5 0x6 0x7>;
+	};
+};
+
+&epwmss0 {
+	status = "okay";
+};
+
+&ecap0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap0_pins>;
+	status = "okay";
+};
+
+&ehrpwm0 {
+	status = "okay";
+};
+
+&epwmss1 {
+	status = "okay";
+};
+
+&ecap1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap1_pins>;
+	status = "okay";
+};
+
+&ehrpwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ehrpwm1_pins>;
+	status = "okay";
+};
+
+&epwmss2 {
+	status = "okay";
+};
+
+&ecap2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ecap2_pins>;
+	status = "okay";
+};
+
+&ehrpwm2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ehrpwm2_pins>;
+	status = "okay";
 };

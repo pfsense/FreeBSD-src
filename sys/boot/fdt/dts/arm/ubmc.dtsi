@@ -257,16 +257,6 @@
 	};
 };
 
-&tscadc {
-	status = "okay";
-
-	adc {
-		#io-channel-cells = <0x1>;
-		compatible = "ti,am3359-adc";
-		ti,adc-channels = <0x00 0x01 0x02 0x03 0x4 0x5 0x6 0x7>;
-	};
-};
-
 &cpsw_emac0 {
 	phy_id = <&davinci_mdio>, <1>;
 	phy-mode = "rgmii";
@@ -286,18 +276,18 @@
 	active_slave = <1>;
 	status = "okay";
 	dual_emac;
-	txen-skew-ps = <3>;
-	rxdv-skew-ps = <7>;
-	rxd0-skew-ps = <7>;
-	rxd1-skew-ps = <7>;
-	rxd2-skew-ps = <7>;
-	rxd3-skew-ps = <7>;
-	txd0-skew-ps = <3>;
-	txd1-skew-ps = <3>;
-	txd2-skew-ps = <3>;
-	txd3-skew-ps = <3>;
-	rxc-skew-ps = <0x1f>;
-	txc-skew-ps = <0xf>;
+	txen-skew-ps = <0>;
+	rxdv-skew-ps = <1400>;
+	rxd0-skew-ps = <1400>;
+	rxd1-skew-ps = <1400>;
+	rxd2-skew-ps = <1400>;
+	rxd3-skew-ps = <1400>;
+	txd0-skew-ps = <0>;
+	txd1-skew-ps = <0>;
+	txd2-skew-ps = <0>;
+	txd3-skew-ps = <0>;
+	rxc-skew-ps = <4400>;
+	txc-skew-ps = <6200>;
 };
 
 &davinci_mdio {
@@ -312,51 +302,5 @@
 };
 
 &sham {
-	status = "okay";
-};
-
-&epwmss0 {
-	status = "okay";
-};
-
-&ecap0 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ecap0_pins>;
-	status = "okay";
-};
-
-&ehrpwm0 {
-	status = "okay";
-};
-
-&epwmss1 {
-	status = "okay";
-};
-
-&ecap1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ecap1_pins>;
-	status = "okay";
-};
-
-&ehrpwm1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ehrpwm1_pins>;
-	status = "okay";
-};
-
-&epwmss2 {
-	status = "okay";
-};
-
-&ecap2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ecap2_pins>;
-	status = "okay";
-};
-
-&ehrpwm2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ehrpwm2_pins>;
 	status = "okay";
 };
