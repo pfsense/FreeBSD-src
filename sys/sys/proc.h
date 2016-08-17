@@ -396,6 +396,9 @@ do {									\
 #define	TDB_STOPATFORK	0x00000080 /* Stop at the return from fork (child
 				      only) */
 #define	TDB_CHILD	0x00000100 /* New child indicator for ptrace() */
+#define	TDB_BORN	0x00000200 /* New LWP indicator for ptrace() */
+#define	TDB_EXIT	0x00000400 /* Exiting LWP indicator for ptrace() */
+#define	TDB_FSTP	0x00001000 /* The thread is PT_ATTACH leader */
 
 /*
  * "Private" flags kept in td_pflags:
@@ -551,6 +554,7 @@ struct proc {
 	int		p_pendingcnt;	/* how many signals are pending */
 	struct itimers	*p_itimers;	/* (c) POSIX interval timers. */
 	struct procdesc	*p_procdesc;	/* (e) Process descriptor, if any. */
+	int		p_pendingexits; /* (c) Count of pending thread exits. */
 /* End area that is zeroed on creation. */
 #define	p_endzero	p_magic
 
@@ -608,6 +612,7 @@ struct proc {
 					       our subtree. */
 	struct pgrp	*p_pgrp;	/* (c + e) Pointer to process group. */
 	struct filemon	*p_filemon;	/* (c) filemon-specific data. */
+	u_int		p_ptevents;	/* (c) ptrace() event mask. */
 };
 
 #define	p_session	p_pgrp->pg_session
@@ -635,7 +640,7 @@ struct proc {
 #define	P_ADVLOCK	0x00001	/* Process may hold a POSIX advisory lock. */
 #define	P_CONTROLT	0x00002	/* Has a controlling terminal. */
 #define	P_KTHREAD	0x00004	/* Kernel thread (*). */
-#define	P_FOLLOWFORK	0x00008	/* Attach parent debugger to children. */
+#define	P_UNUSED3	0x00008	/* --available-- */
 #define	P_PPWAIT	0x00010	/* Parent is waiting for child to exec/exit. */
 #define	P_PROFIL	0x00020	/* Has started profiling. */
 #define	P_STOPPROF	0x00040	/* Has thread requesting to stop profiling. */
@@ -674,6 +679,7 @@ struct proc {
 #define	P2_NOTRACE	0x00000002	/* No ptrace(2) attach or coredumps. */
 #define	P2_NOTRACE_EXEC 0x00000004	/* Keep P2_NOPTRACE on exec(2). */
 #define	P2_AST_SU	0x00000008	/* Handles SU ast for kthreads. */
+#define	P2_PTRACE_FSTP	0x00000010 /* SIGSTOP from PT_ATTACH not yet handled. */
 
 /* Flags protected by proctree_lock, kept in p_treeflags. */
 #define	P_TREE_ORPHANED		0x00000001	/* Reparented, on orphan list */
@@ -926,6 +932,7 @@ void	proc_linkup(struct proc *p, struct thread *td);
 struct proc *proc_realparent(struct proc *child);
 void	proc_reap(struct thread *td, struct proc *p, int *status, int options);
 void	proc_reparent(struct proc *child, struct proc *newparent);
+void	proc_set_traced(struct proc *p);
 struct	pstats *pstats_alloc(void);
 void	pstats_fork(struct pstats *src, struct pstats *dst);
 void	pstats_free(struct pstats *ps);
