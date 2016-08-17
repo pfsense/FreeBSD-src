@@ -3611,7 +3611,9 @@ pf_check_in(void *arg, struct mbuf **m, struct ifnet *ifp, int dir,
 		*m = NULL;
 	}
 
-	return (chk);
+	if (chk != PF_PASS)
+		return (EACCES);
+	return (0);
 }
 
 static int
@@ -3626,7 +3628,9 @@ pf_check_out(void *arg, struct mbuf **m, struct ifnet *ifp, int dir,
 		*m = NULL;
 	}
 
-	return (chk);
+	if (chk != PF_PASS)
+		return (EACCES);
+	return (0);
 }
 #endif
 
@@ -3649,7 +3653,9 @@ pf_check6_in(void *arg, struct mbuf **m, struct ifnet *ifp, int dir,
 		m_freem(*m);
 		*m = NULL;
 	}
-	return chk;
+	if (chk != PF_PASS)
+		return (EACCES);
+	return (0);
 }
 
 static int
@@ -3665,7 +3671,9 @@ pf_check6_out(void *arg, struct mbuf **m, struct ifnet *ifp, int dir,
 		m_freem(*m);
 		*m = NULL;
 	}
-	return chk;
+	if (chk != PF_PASS)
+		return (EACCES);
+	return (0);
 }
 #endif /* INET6 */
 

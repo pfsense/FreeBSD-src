@@ -3397,7 +3397,7 @@ vm_page_advise(vm_page_t m, int advice)
 		 * But we do make the page as freeable as we can without
 		 * actually taking the step of unmapping it.
 		 */
-		m->dirty = 0;
+		vm_page_undirty(m);
 	else if (advice != MADV_DONTNEED)
 		return;
 
@@ -3411,9 +3411,11 @@ vm_page_advise(vm_page_t m, int advice)
 		vm_page_dirty(m);
 
 	/*
-	 * Place clean pages at the head of the inactive queue rather than the
-	 * tail, thus defeating the queue's LRU operation and ensuring that the
-	 * page will be reused quickly.
+	 * Place clean pages near the head of the inactive queue rather than
+	 * the tail, thus defeating the queue's LRU operation and ensuring that
+	 * the page will be reused quickly.  Dirty pages are given a chance to
+	 * cycle once through the inactive queue before becoming eligible for
+	 * laundering.
 	 */
 	_vm_page_deactivate(m, m->dirty == 0);
 }
