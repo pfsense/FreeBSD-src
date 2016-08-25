@@ -736,6 +736,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	if (fr->fr_flags & RFPPWAIT) {
 		td->td_pflags |= TDP_RFPPWAIT;
 		td->td_rfppwait_p = p2;
+		td->td_dbgflags |= TDB_VFORK;
 	}
 	PROC_UNLOCK(p2);
 
@@ -1074,7 +1075,7 @@ fork_return(struct thread *td, struct trapframe *frame)
 			 * parent's children, do it now.
 			 */
 			dbg = p->p_pptr->p_pptr;
-			proc_set_traced(p);
+			proc_set_traced(p, true);
 			CTR2(KTR_PTRACE,
 		    "fork_return: attaching to new child pid %d: oppid %d",
 			    p->p_pid, p->p_oppid);

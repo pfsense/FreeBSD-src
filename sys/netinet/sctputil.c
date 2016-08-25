@@ -1280,6 +1280,7 @@ sctp_iterator_work(struct sctp_iterator *it)
 
 	SCTP_INP_INFO_RLOCK();
 	SCTP_ITERATOR_LOCK();
+	sctp_it_ctl.cur_it = it;
 	if (it->inp) {
 		SCTP_INP_RLOCK(it->inp);
 		SCTP_INP_DECR_REF(it->inp);
@@ -1287,6 +1288,7 @@ sctp_iterator_work(struct sctp_iterator *it)
 	if (it->inp == NULL) {
 		/* iterator is complete */
 done_with_iterator:
+		sctp_it_ctl.cur_it = NULL;
 		SCTP_ITERATOR_UNLOCK();
 		SCTP_INP_INFO_RUNLOCK();
 		if (it->function_atend != NULL) {
@@ -1427,13 +1429,11 @@ sctp_iterator_worker(void)
 
 	sctp_it_ctl.iterator_running = 1;
 	TAILQ_FOREACH_SAFE(it, &sctp_it_ctl.iteratorhead, sctp_nxt_itr, nit) {
-		sctp_it_ctl.cur_it = it;
 		/* now lets work on this one */
 		TAILQ_REMOVE(&sctp_it_ctl.iteratorhead, it, sctp_nxt_itr);
 		SCTP_IPI_ITERATOR_WQ_UNLOCK();
 		CURVNET_SET(it->vn);
 		sctp_iterator_work(it);
-		sctp_it_ctl.cur_it = NULL;
 		CURVNET_RESTORE();
 		SCTP_IPI_ITERATOR_WQ_LOCK();
 		/* sa_ignore FREED_MEMORY */
@@ -6356,7 +6356,7 @@ sctp_connectx_helper_find(struct sctp_inpcb *inp, struct sockaddr *addr,
 	struct sctp_tcb *stcb = NULL;
 	unsigned int incr, at, i;
 
-	at = incr = 0;
+	at = 0;
 	sa = addr;
 	*error = *num_v6 = *num_v4 = 0;
 	/* account and validate addresses */
@@ -6364,6 +6364,7 @@ sctp_connectx_helper_find(struct sctp_inpcb *inp, struct sockaddr *addr,
 		switch (sa->sa_family) {
 #ifdef INET
 		case AF_INET:
+			incr = (unsigned int)sizeof(struct sockaddr_in);
 			if (sa->sa_len != incr) {
 				SCTP_LTRACE_ERR_RET(inp, NULL, NULL, SCTP_FROM_SCTPUTIL, EINVAL);
 				*error = EINVAL;
@@ -6371,7 +6372,6 @@ sctp_connectx_helper_find(struct sctp_inpcb *inp, struct sockaddr *addr,
 				return (NULL);
 			}
 			(*num_v4) += 1;
-			incr = (unsigned int)sizeof(struct sockaddr_in);
 			break;
 #endif
 #ifdef INET6
@@ -6387,6 +6387,7 @@ sctp_connectx_helper_find(struct sctp_inpcb *inp, struct sockaddr *addr,
 					*bad_addr = 1;
 					return (NULL);
 				}
+				incr = (unsigned int)sizeof(struct sockaddr_in6);
 				if (sa->sa_len != incr) {
 					SCTP_LTRACE_ERR_RET(inp, NULL, NULL, SCTP_FROM_SCTPUTIL, EINVAL);
 					*error = EINVAL;
@@ -6394,7 +6395,6 @@ sctp_connectx_helper_find(struct sctp_inpcb *inp, struct sockaddr *addr,
 					return (NULL);
 				}
 				(*num_v6) += 1;
-				incr = (unsigned int)sizeof(struct sockaddr_in6);
 				break;
 			}
 #endif

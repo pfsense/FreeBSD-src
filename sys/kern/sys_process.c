@@ -693,12 +693,13 @@ sys_ptrace(struct thread *td, struct ptrace_args *uap)
 #endif
 
 void
-proc_set_traced(struct proc *p)
+proc_set_traced(struct proc *p, bool stop)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	p->p_flag |= P_TRACED;
-	p->p_flag2 |= P2_PTRACE_FSTP;
+	if (stop)
+		p->p_flag2 |= P2_PTRACE_FSTP;
 	p->p_ptevents = PTRACE_DEFAULT;
 	p->p_oppid = p->p_pptr->p_pid;
 }
@@ -910,7 +911,7 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 	switch (req) {
 	case PT_TRACE_ME:
 		/* set my trace flag and "owner" so it can read/write me */
-		proc_set_traced(p);
+		proc_set_traced(p, false);
 		if (p->p_flag & P_PPWAIT)
 			p->p_flag |= P_PPTRACE;
 		CTR1(KTR_PTRACE, "PT_TRACE_ME: pid %d", p->p_pid);
@@ -927,7 +928,7 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		 * The old parent is remembered so we can put things back
 		 * on a "detach".
 		 */
-		proc_set_traced(p);
+		proc_set_traced(p, true);
 		if (p->p_pptr != td->td_proc) {
 			proc_reparent(p, td->td_proc);
 		}
@@ -1000,7 +1001,7 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		}
 		tmp = *(int *)addr;
 		if ((tmp & ~(PTRACE_EXEC | PTRACE_SCE | PTRACE_SCX |
-		    PTRACE_FORK | PTRACE_LWP)) != 0) {
+		    PTRACE_FORK | PTRACE_LWP | PTRACE_VFORK)) != 0) {
 			error = EINVAL;
 			break;
 		}
@@ -1321,7 +1322,11 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		if (td2->td_dbgflags & TDB_FORK) {
 			pl->pl_flags |= PL_FLAG_FORKED;
 			pl->pl_child_pid = td2->td_dbg_forked;
-		}
+			if (td2->td_dbgflags & TDB_VFORK)
+				pl->pl_flags |= PL_FLAG_VFORKED;
+		} else if ((td2->td_dbgflags & (TDB_SCX | TDB_VFORK)) ==
+		    TDB_VFORK)
+			pl->pl_flags |= PL_FLAG_VFORK_DONE;
 		if (td2->td_dbgflags & TDB_CHILD)
 			pl->pl_flags |= PL_FLAG_CHILD;
 		if (td2->td_dbgflags & TDB_BORN)
