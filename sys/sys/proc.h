@@ -398,6 +398,7 @@ do {									\
 #define	TDB_CHILD	0x00000100 /* New child indicator for ptrace() */
 #define	TDB_BORN	0x00000200 /* New LWP indicator for ptrace() */
 #define	TDB_EXIT	0x00000400 /* Exiting LWP indicator for ptrace() */
+#define	TDB_VFORK	0x00000800 /* vfork indicator for ptrace() */
 #define	TDB_FSTP	0x00001000 /* The thread is PT_ATTACH leader */
 
 /*
@@ -563,7 +564,7 @@ struct proc {
 	u_int		p_magic;	/* (b) Magic number. */
 	int		p_osrel;	/* (x) osreldate for the
 					       binary (from ELF note, if any) */
-	char		p_comm[MAXCOMLEN + 1];	/* (b) Process name. */
+	char		p_comm[MAXCOMLEN + 1];	/* (x) Process name. */
 	void		*p_pad0;
 	struct sysentvec *p_sysent;	/* (b) Syscall dispatch info. */
 	struct pargs	*p_args;	/* (c) Process arguments. */
@@ -932,7 +933,7 @@ void	proc_linkup(struct proc *p, struct thread *td);
 struct proc *proc_realparent(struct proc *child);
 void	proc_reap(struct thread *td, struct proc *p, int *status, int options);
 void	proc_reparent(struct proc *child, struct proc *newparent);
-void	proc_set_traced(struct proc *p);
+void	proc_set_traced(struct proc *p, bool stop);
 struct	pstats *pstats_alloc(void);
 void	pstats_fork(struct pstats *src, struct pstats *dst);
 void	pstats_free(struct pstats *ps);
