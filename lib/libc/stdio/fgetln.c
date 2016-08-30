@@ -37,6 +37,8 @@ static char sccsid[] = "@(#)fgetln.c	8.2 (Berkeley) 1/2/94";
 __FBSDID("$FreeBSD$");
 
 #include "namespace.h"
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +63,10 @@ __slbexpand(FILE *fp, size_t newsize)
 #endif
 	if (fp->_lb._size >= newsize)
 		return (0);
+	if (newsize > INT_MAX) {
+		errno = ENOMEM;
+		return (-1);
+	}
 	if ((p = realloc(fp->_lb._base, newsize)) == NULL)
 		return (-1);
 	fp->_lb._base = p;
@@ -133,8 +139,11 @@ fgetln(FILE *fp, size_t *lenp)
 		(void)memcpy((void *)(fp->_lb._base + off), (void *)fp->_p,
 		    len - off);
 		off = len;
-		if (__srefill(fp))
-			break;	/* EOF or error: return partial line */
+		if (__srefill(fp)) {
+			if (__sfeof(fp))
+				break;
+			goto error;
+		}
 		if ((p = memchr((void *)fp->_p, '\n', (size_t)fp->_r)) == NULL)
 			continue;
 
@@ -152,7 +161,7 @@ fgetln(FILE *fp, size_t *lenp)
 	}
 	*lenp = len;
 #ifdef notdef
-	fp->_lb._base[len] = 0;
+	fp->_lb._base[len] = '\0';
 #endif
 	FUNLOCKFILE(fp);
 	return ((char *)fp->_lb._base);
