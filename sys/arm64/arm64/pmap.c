@@ -782,7 +782,7 @@ pmap_bootstrap(vm_offset_t l0pt, vm_offset_t l1pt, vm_paddr_t kernstart,
 	virtual_avail = roundup2(freemempos, L1_SIZE);
 	virtual_end = VM_MAX_KERNEL_ADDRESS - L2_SIZE;
 	kernel_vm_end = virtual_avail;
-	
+
 	pa = pmap_early_vtophys(l1pt, freemempos);
 
 	/* Finish initialising physmap */
@@ -856,8 +856,7 @@ pmap_init(void)
 }
 
 /*
- * Normal, non-SMP, invalidation functions.
- * We inline these within pmap.c for speed.
+ * Invalidate a single TLB entry.
  */
 PMAP_INLINE void
 pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
@@ -865,9 +864,9 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 
 	sched_pin();
 	__asm __volatile(
-	    "dsb  sy		\n"
+	    "dsb  ishst		\n"
 	    "tlbi vaae1is, %0	\n"
-	    "dsb  sy		\n"
+	    "dsb  ish		\n"
 	    "isb		\n"
 	    : : "r"(va >> PAGE_SHIFT));
 	sched_unpin();
@@ -879,13 +878,13 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	vm_offset_t addr;
 
 	sched_pin();
-	__asm __volatile("dsb	sy");
+	dsb(ishst);
 	for (addr = sva; addr < eva; addr += PAGE_SIZE) {
 		__asm __volatile(
 		    "tlbi vaae1is, %0" : : "r"(addr >> PAGE_SHIFT));
 	}
 	__asm __volatile(
-	    "dsb  sy	\n"
+	    "dsb  ish	\n"
 	    "isb	\n");
 	sched_unpin();
 }
@@ -896,9 +895,9 @@ pmap_invalidate_all(pmap_t pmap)
 
 	sched_pin();
 	__asm __volatile(
-	    "dsb  sy		\n"
+	    "dsb  ishst		\n"
 	    "tlbi vmalle1is	\n"
-	    "dsb  sy		\n"
+	    "dsb  ish		\n"
 	    "isb		\n");
 	sched_unpin();
 }
@@ -909,7 +908,7 @@ pmap_invalidate_all(pmap_t pmap)
  *		Extract the physical page address associated
  *		with the given map/virtual_address pair.
  */
-vm_paddr_t 
+vm_paddr_t
 pmap_extract(pmap_t pmap, vm_offset_t va)
 {
 	pt_entry_t *pte, tpte;
@@ -1038,8 +1037,8 @@ pmap_kextract(vm_offset_t va)
  * Low level mapping routines.....
  ***************************************************/
 
-void
-pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
+static void
+pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode)
 {
 	pd_entry_t *pde;
 	pt_entry_t *pte;
@@ -1047,23 +1046,22 @@ pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
 	int lvl;
 
 	KASSERT((pa & L3_OFFSET) == 0,
-	   ("pmap_kenter_device: Invalid physical address"));
+	   ("pmap_kenter: Invalid physical address"));
 	KASSERT((sva & L3_OFFSET) == 0,
-	   ("pmap_kenter_device: Invalid virtual address"));
+	   ("pmap_kenter: Invalid virtual address"));
 	KASSERT((size & PAGE_MASK) == 0,
-	    ("pmap_kenter_device: Mapping is not page-sized"));
+	    ("pmap_kenter: Mapping is not page-sized"));
 
 	va = sva;
 	while (size != 0) {
 		pde = pmap_pde(kernel_pmap, va, &lvl);
 		KASSERT(pde != NULL,
-		    ("pmap_kenter_device: Invalid page entry, va: 0x%lx", va));
-		KASSERT(lvl == 2,
-		    ("pmap_kenter_device: Invalid level %d", lvl));
+		    ("pmap_kenter: Invalid page entry, va: 0x%lx", va));
+		KASSERT(lvl == 2, ("pmap_kenter: Invalid level %d", lvl));
 
 		pte = pmap_l2_to_l3(pde, va);
 		pmap_load_store(pte, (pa & ~L3_OFFSET) | ATTR_DEFAULT |
-		    ATTR_IDX(DEVICE_MEMORY) | L3_PAGE);
+		    ATTR_IDX(mode) | L3_PAGE);
 		PTE_SYNC(pte);
 
 		va += PAGE_SIZE;
@@ -1071,6 +1069,13 @@ pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
 		size -= PAGE_SIZE;
 	}
 	pmap_invalidate_range(kernel_pmap, sva, va);
+}
+
+void
+pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
+{
+
+	pmap_kenter(sva, size, pa, DEVICE_MEMORY);
 }
 
 /*
@@ -1238,7 +1243,7 @@ pmap_add_delayed_free_list(vm_page_t m, struct spglist *free,
 		m->flags &= ~PG_ZERO;
 	SLIST_INSERT_HEAD(free, m, plinks.s.ss);
 }
-	
+
 /*
  * Decrements a page table page's wire count, which is used to record the
  * number of valid page table entries within the page.  If the wire count
@@ -1316,7 +1321,7 @@ _pmap_unwire_l3(pmap_t pmap, vm_offset_t va, vm_page_t m, struct spglist *free)
 	 */
 	atomic_subtract_rel_int(&vm_cnt.v_wire_count, 1);
 
-	/* 
+	/*
 	 * Put page on a list so that it is released after
 	 * *ALL* TLB shootdown is done
 	 */
@@ -1586,7 +1591,7 @@ kvm_size(SYSCTL_HANDLER_ARGS)
 
 	return sysctl_handle_long(oidp, &ksize, 0, req);
 }
-SYSCTL_PROC(_vm, OID_AUTO, kvm_size, CTLTYPE_LONG|CTLFLAG_RD, 
+SYSCTL_PROC(_vm, OID_AUTO, kvm_size, CTLTYPE_LONG|CTLFLAG_RD,
     0, 0, kvm_size, "LU", "Size of KVM");
 
 static int
@@ -1596,7 +1601,7 @@ kvm_free(SYSCTL_HANDLER_ARGS)
 
 	return sysctl_handle_long(oidp, &kfree, 0, req);
 }
-SYSCTL_PROC(_vm, OID_AUTO, kvm_free, CTLTYPE_LONG|CTLFLAG_RD, 
+SYSCTL_PROC(_vm, OID_AUTO, kvm_free, CTLTYPE_LONG|CTLFLAG_RD,
     0, 0, kvm_free, "LU", "Amount of KVM free");
 #endif /* 0 */
 
@@ -1640,7 +1645,7 @@ pmap_growkernel(vm_offset_t addr)
 			kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 			if (kernel_vm_end - 1 >= kernel_map->max_offset) {
 				kernel_vm_end = kernel_map->max_offset;
-				break;                       
+				break;
 			}
 			continue;
 		}
@@ -1660,7 +1665,7 @@ pmap_growkernel(vm_offset_t addr)
 		kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 		if (kernel_vm_end - 1 >= kernel_map->max_offset) {
 			kernel_vm_end = kernel_map->max_offset;
-			break;                       
+			break;
 		}
 	}
 }
@@ -1921,7 +1926,7 @@ pmap_try_insert_pv_entry(pmap_t pmap, vm_offset_t va, vm_page_t m,
  * pmap_remove_l3: do the things to unmap a page in a process
  */
 static int
-pmap_remove_l3(pmap_t pmap, pt_entry_t *l3, vm_offset_t va, 
+pmap_remove_l3(pmap_t pmap, pt_entry_t *l3, vm_offset_t va,
     pd_entry_t l2e, struct spglist *free, struct rwlock **lockp)
 {
 	pt_entry_t old_l3;
@@ -2052,7 +2057,7 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		rw_wunlock(lock);
 	if (anyvalid)
 		pmap_invalidate_all(pmap);
-	rw_runlock(&pvh_global_lock);	
+	rw_runlock(&pvh_global_lock);
 	PMAP_UNLOCK(pmap);
 	pmap_free_zero_pages(&free);
 }
@@ -2719,7 +2724,7 @@ pmap_zero_page(vm_page_t m)
 }
 
 /*
- *	pmap_zero_page_area zeros the specified hardware page by mapping 
+ *	pmap_zero_page_area zeros the specified hardware page by mapping
  *	the page into KVM and using bzero to clear its contents.
  *
  *	off and size may not cover an area beyond a single hardware page.
@@ -2736,7 +2741,7 @@ pmap_zero_page_area(vm_page_t m, int off, int size)
 }
 
 /*
- *	pmap_zero_page_idle zeros the specified hardware page by mapping 
+ *	pmap_zero_page_idle zeros the specified hardware page by mapping
  *	the page into KVM and using bzero to clear its contents.  This
  *	is intended to be called from the vm_pagezero process only and
  *	outside of Giant.
@@ -2897,7 +2902,7 @@ restart:
  * Destroy all managed, non-wired mappings in the given user-space
  * pmap.  This pmap cannot be active on any processor besides the
  * caller.
- *                                                                                
+ *
  * This function cannot be applied to the kernel pmap.  Moreover, it
  * is not intended for general use.  It is only to be used during
  * process termination.  Consequently, it can be implemented in ways

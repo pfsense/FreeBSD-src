@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2002 Peter Grehan.
+ * Copyright (c) 2016 Spectra Logic Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,10 +11,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHORS AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -22,47 +22,24 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
-/*      $NetBSD: ptrace.S,v 1.3 2000/02/23 20:16:57 kleink Exp $        */
 
-#include <machine/asm.h>
-__FBSDID("$FreeBSD$");
+#include <err.h>
+#include <stdio.h>
+#include <unistd.h>
 
-#include "SYS.h"
+int main(int argc, char** argv)
+{
+	char *salt, *pass, *hash;
 
-ENTRY(ptrace)
-	mflr	%r0
-	std	%r0,16(%r1)
-	stdu	%r1,-80(%r1)
-	stw	%r3,48(%r1)
-	stw	%r4,52(%r1)
-	std	%r5,56(%r1)
-	stw	%r6,64(%r1)
+	if (argc < 3)
+		errx(1, "Usage: crypt <salt> <password>");
+	salt = argv[1];
+	pass = argv[2];
 
-	bl	CNAME(__error)
-	nop
-	li	%r7,0
-	stw	%r7,0(%r3)
-
-	lwz	%r3,48(%r1)
-	lwz	%r4,52(%r1)
-	ld	%r5,56(%r1)
-	lwz	%r6,64(%r1)
-	ld	%r1,0(%r1)
-	ld	%r0,16(%r1)
-	mtlr	%r0
-	li	%r0,SYS_ptrace
-	sc
-	bso	1f
-	blr
-1:
-	stdu	%r1,-48(%r1)		/* lr already saved */
-	bl	HIDENAME(cerror)
-	nop
-	ld	%r1,0(%r1)
-	ld	%r0,16(%r1)
-	mtlr	%r0
-	blr
-END(ptrace)
-
-	.section .note.GNU-stack,"",%progbits
+	hash = crypt(pass, salt);
+	printf("%s", hash);
+	return (hash == NULL ? 1 : 0);
+}
