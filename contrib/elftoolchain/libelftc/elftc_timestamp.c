@@ -1,5 +1,9 @@
 /*-
- * Copyright (c) 2012 Konstantin Belousov <kib@FreeBSD.org>
+ * Copyright (c) 2016 The FreeBSD Foundation
+ * All rights reserved.
+ *
+ * This software was developed by Ed Maste under sponsorship
+ * of the FreeBSD Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,48 +27,29 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#include <errno.h>
+#include <stdlib.h>
+#include <time.h>
+#include <libelftc.h>
 
-#include <sys/types.h>
-#include <sys/elf.h>
-#include <sys/time.h>
-#include <sys/vdso.h>
-#include <machine/cpufunc.h>
-#include "libc_private.h"
-
-static u_int
-__vdso_gettc_low(const struct vdso_timehands *th)
-{
-	u_int rv;
-
-	__asm __volatile("lfence; rdtsc; shrd %%cl, %%edx, %0"
-	    : "=a" (rv) : "c" (th->th_x86_shift) : "edx");
-	return (rv);
-}
-
-static u_int
-__vdso_rdtsc32(void)
-{
-	u_int rv;
-
-	__asm __volatile("lfence;rdtsc" : "=a" (rv) : : "edx");
-	return (rv);
-}
-
-#pragma weak __vdso_gettc
-u_int
-__vdso_gettc(const struct vdso_timehands *th)
-{
-
-	return (th->th_x86_shift > 0 ? __vdso_gettc_low(th) :
-	    __vdso_rdtsc32());
-}
-
-#pragma weak __vdso_gettimekeep
 int
-__vdso_gettimekeep(struct vdso_timekeep **tk)
+elftc_timestamp(time_t *timestamp)
 {
+	long long source_date_epoch;
+	char *env, *eptr;
 
-	return (_elf_aux_info(AT_TIMEKEEP, tk, sizeof(*tk)));
+	if ((env = getenv("SOURCE_DATE_EPOCH")) != NULL) {
+		errno = 0;
+		source_date_epoch = strtoll(env, &eptr, 10);
+		if (*eptr != '\0')
+			errno = EINVAL;
+		if (source_date_epoch < 0)
+			errno = ERANGE;
+		if (errno != 0)
+			return (-1);
+		*timestamp = source_date_epoch;
+		return (0);
+	}
+	*timestamp = time(NULL);
+	return (0);
 }

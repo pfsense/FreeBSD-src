@@ -179,16 +179,6 @@ data_abort(struct trapframe *frame, uint64_t esr, uint64_t far, int lower)
 		return;
 	}
 
-	KASSERT(td->td_md.md_spinlock_count == 0,
-	    ("data abort with spinlock held"));
-	if (td->td_critnest != 0 || WITNESS_CHECK(WARN_SLEEPOK |
-	    WARN_GIANTOK, NULL, "Kernel page fault") != 0) {
-		print_registers(frame);
-		printf(" far: %16lx\n", far);
-		printf(" esr:         %.8lx\n", esr);
-		panic("data abort in critical section or under mutex");
-	}
-
 	p = td->td_proc;
 	if (lower)
 		map = &p->p_vmspace->vm_map;
@@ -198,6 +188,19 @@ data_abort(struct trapframe *frame, uint64_t esr, uint64_t far, int lower)
 			map = kernel_map;
 		else
 			map = &p->p_vmspace->vm_map;
+	}
+
+	if (pmap_fault(map->pmap, esr, far) == KERN_SUCCESS)
+		return;
+
+	KASSERT(td->td_md.md_spinlock_count == 0,
+	    ("data abort with spinlock held"));
+	if (td->td_critnest != 0 || WITNESS_CHECK(WARN_SLEEPOK |
+	    WARN_GIANTOK, NULL, "Kernel page fault") != 0) {
+		print_registers(frame);
+		printf(" far: %16lx\n", far);
+		printf(" esr:         %.8lx\n", esr);
+		panic("data abort in critical section or under mutex");
 	}
 
 	va = trunc_page(far);
@@ -279,6 +282,7 @@ do_el1h_sync(struct trapframe *frame)
 		print_registers(frame);
 		printf(" esr:         %.8lx\n", esr);
 		panic("VFP exception in the kernel");
+	case EXCP_INSN_ABORT:
 	case EXCP_DATA_ABORT:
 		far = READ_SPECIALREG(far_el1);
 		intr_enable();
@@ -384,6 +388,10 @@ do_el0_sync(struct trapframe *frame)
 		call_trapsignal(td, SIGTRAP, TRAP_BRKPT, (void *)frame->tf_elr);
 		userret(td, frame);
 		break;
+	case EXCP_MSR:
+		call_trapsignal(td, SIGILL, ILL_PRVOPC, (void *)frame->tf_elr); 
+		userret(td, frame);
+		break;
 	case EXCP_SOFTSTP_EL0:
 		td->td_frame->tf_spsr &= ~PSR_SS;
 		td->td_pcb->pcb_flags &= ~PCB_SINGLE_STEP;
@@ -394,9 +402,9 @@ do_el0_sync(struct trapframe *frame)
 		userret(td, frame);
 		break;
 	default:
-		print_registers(frame);
-		panic("Unknown userland exception %x esr_el1 %lx\n", exception,
-		    esr);
+		call_trapsignal(td, SIGBUS, BUS_OBJERR, (void *)frame->tf_elr);
+		userret(td, frame);
+		break;
 	}
 }
 
