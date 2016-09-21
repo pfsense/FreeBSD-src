@@ -108,8 +108,8 @@ device		bpf
 #device		netmap			# netmap(4) support
 
 # Device mode support and USFS template
-device		usb_template    	# Control of the gadget
-device		usfs
+#device		usb_template    	# Control of the gadget
+#device		usfs
 
 # Pinmux
 device		fdt_pinctrl
