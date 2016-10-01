@@ -1,6 +1,11 @@
 This is the top level of the FreeBSD source directory.  This file
-was last revised on:
-$FreeBSD$
+was last revised on: $FreeBSD$
+
+*****************************************************************
+Please note that files in this directory may have been patched
+to add functionality not present in the original source. This is
+*not* an unmodified copy of the FreeBSD source.
+*****************************************************************
 
 For copyright information, please see the file COPYRIGHT in this
 directory (additional copyright information also exists for some
