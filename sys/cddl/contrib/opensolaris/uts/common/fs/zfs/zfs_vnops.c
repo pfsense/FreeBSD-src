@@ -1454,7 +1454,8 @@ zfs_lookup_lock(vnode_t *dvp, vnode_t *vp, const char *name, int lkflags)
 
 	ASSERT_VOP_LOCKED(dvp, __func__);
 #ifdef DIAGNOSTIC
-	ASSERT(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
+	if ((zdp->z_pflags & ZFS_XATTR) == 0)
+		VERIFY(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
 #endif
 
 	if (name[0] == 0 || (name[0] == '.' && name[1] == 0)) {
@@ -3197,6 +3198,11 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 
 		if (err == 0 && xattr_obj) {
 			err = zfs_zget(zp->z_zfsvfs, xattr_obj, &attrzp);
+			if (err == 0) {
+				err = vn_lock(ZTOV(attrzp), LK_EXCLUSIVE);
+				if (err != 0)
+					vrele(ZTOV(attrzp));
+			}
 			if (err)
 				goto out2;
 		}
@@ -3206,7 +3212,7 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			if (new_uid != zp->z_uid &&
 			    zfs_fuid_overquota(zfsvfs, B_FALSE, new_uid)) {
 				if (attrzp)
-					vrele(ZTOV(attrzp));
+					vput(ZTOV(attrzp));
 				err = SET_ERROR(EDQUOT);
 				goto out2;
 			}
@@ -3218,7 +3224,7 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			if (new_gid != zp->z_gid &&
 			    zfs_fuid_overquota(zfsvfs, B_TRUE, new_gid)) {
 				if (attrzp)
-					vrele(ZTOV(attrzp));
+					vput(ZTOV(attrzp));
 				err = SET_ERROR(EDQUOT);
 				goto out2;
 			}
@@ -3449,7 +3455,7 @@ out:
 	}
 
 	if (attrzp)
-		vrele(ZTOV(attrzp));
+		vput(ZTOV(attrzp));
 
 	if (aclp)
 		zfs_acl_free(aclp);
@@ -5968,13 +5974,15 @@ zfs_lock(ap)
 	vp = ap->a_vp;
 	flags = ap->a_flags;
 	if ((flags & LK_INTERLOCK) == 0 && (flags & LK_NOWAIT) == 0 &&
-	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL) {
+	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL &&
+	    (zp->z_pflags & ZFS_XATTR) == 0) {
 		zfsvfs = zp->z_zfsvfs;
 		VERIFY(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
 	}
 	err = vop_stdlock(ap);
 	if ((flags & LK_INTERLOCK) != 0 && (flags & LK_NOWAIT) == 0 &&
-	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL) {
+	    (vp->v_iflag & VI_DOOMED) == 0 && (zp = vp->v_data) != NULL &&
+	    (zp->z_pflags & ZFS_XATTR) == 0) {
 		zfsvfs = zp->z_zfsvfs;
 		VERIFY(!RRM_LOCK_HELD(&zfsvfs->z_teardown_lock));
 	}
