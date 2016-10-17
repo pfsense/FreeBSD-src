@@ -1388,6 +1388,18 @@ do {								\
 				    chain, &tablearg);
 				break;
 
+			case O_MACADDR2_LOOKUP:
+				if (args->eh != NULL) {	/* have MAC header */
+					uint32_t v = 0;
+					match = ipfw_lookup_table_extended(chain,
+					    cmd->arg1, 0, args->eh, &v);
+					if (cmdlen == F_INSN_SIZE(ipfw_insn_u32))
+						match = ((ipfw_insn_u32 *)cmd)->d[0] == v;
+					if (match)
+						tablearg = v;
+				}
+				break;
+
 			case O_MACADDR2:
 				if (args->eh != NULL) {	/* have MAC header */
 					u_int32_t *want = (u_int32_t *)
