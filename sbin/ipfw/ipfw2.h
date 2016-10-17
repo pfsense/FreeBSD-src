@@ -338,6 +338,8 @@ struct in6_addr;
 void n2mask(struct in6_addr *mask, int n);
 int contigmask(uint8_t *p, int len);
 
+void get_mac_addr_mask(const char *p, uint8_t *addr, uint8_t *mask);
+
 /*
  * Forward declarations to avoid include way too many headers.
  * C does not allow duplicated typedefs, so we use the base struct

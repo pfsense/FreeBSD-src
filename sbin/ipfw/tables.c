@@ -31,6 +31,7 @@
 #include <string.h>
 #include <sysexits.h>
 
+#include <net/ethernet.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/ip_fw.h>
@@ -78,6 +79,7 @@ static int tables_foreach(table_cb_t *f, void *arg, int sort);
 static struct _s_x tabletypes[] = {
       { "addr",		IPFW_TABLE_ADDR },
       { "iface",	IPFW_TABLE_INTERFACE },
+      { "mac",		IPFW_TABLE_MAC2 },
       { "number",	IPFW_TABLE_NUMBER },
       { "flow",		IPFW_TABLE_FLOW },
       { NULL, 0 }
@@ -1185,6 +1187,26 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 			af = AF_INET;
 		}
 		break;
+	case IPFW_TABLE_MAC2: {
+		char *src, *dst;
+		struct mac_entry *mac;
+
+		dst = arg;
+		if ((p = strchr(arg, ' ')) == NULL)
+			errx(EX_DATAERR, "bad mac address pair: %s", arg);
+		*p = '\0';
+		src = p + 1;
+
+		mac = (struct mac_entry *)&tentry->k.mac;
+		get_mac_addr_mask(dst, mac->addr, mac->mask); /* dst */
+		get_mac_addr_mask(src, &(mac->addr[ETHER_ADDR_LEN]),
+		    &(mac->mask[ETHER_ADDR_LEN])); /* src */
+
+		masklen = ETHER_ADDR_LEN * 8;
+		type = IPFW_TABLE_MAC2;
+		af = AF_LINK;
+		}
+		break;
 	case IPFW_TABLE_INTERFACE:
 		/* Assume interface name. Copy significant data only */
 		mask = MIN(strlen(arg), IF_NAMESIZE - 1);
@@ -1814,6 +1836,26 @@ table_show_value(char *buf, size_t bufsize, ipfw_table_value *v,
 }
 
 static void
+print_mac(uint8_t *addr, uint8_t *mask)
+{
+	int l;
+
+	l = contigmask(mask, 48);
+	if (l == 0)
+		printf(" any");
+	else {
+		printf(" %02x:%02x:%02x:%02x:%02x:%02x",
+		    addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+		if (l == -1)
+			printf("&%02x:%02x:%02x:%02x:%02x:%02x",
+			    mask[0], mask[1], mask[2],
+			    mask[3], mask[4], mask[5]);
+		else if (l < 48)
+			printf("/%d", l);
+	}
+}
+
+static void
 table_show_entry(ipfw_xtable_info *i, ipfw_obj_tentry *tent)
 {
 	char *comma, tbuf[128], pval[128];
@@ -1828,6 +1870,12 @@ table_show_entry(ipfw_xtable_info *i, ipfw_obj_tentry *tent)
 		/* IPv4 or IPv6 prefixes */
 		inet_ntop(tent->subtype, &tent->k, tbuf, sizeof(tbuf));
 		printf("%s/%u %s\n", tbuf, tent->masklen, pval);
+		break;
+	case IPFW_TABLE_MAC2:
+		/* Ethernet MAC address */
+		print_mac(tent->k.mac.addr, tent->k.mac.mask);
+		print_mac(tent->k.mac.addr + 6, tent->k.mac.mask + 6);
+		printf(" %s\n", pval);
 		break;
 	case IPFW_TABLE_INTERFACE:
 		/* Interface names */
