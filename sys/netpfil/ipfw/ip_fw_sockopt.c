@@ -1881,9 +1881,21 @@ check_ipfw_rule_body(ipfw_insn *cmd, int cmd_len, struct rule_check_info *ci)
 				goto bad_size;
 			ci->object_opcodes++;
 			break;
+
 		case O_MACADDR2:
 			if (cmdlen != F_INSN_SIZE(ipfw_insn_mac))
 				goto bad_size;
+			break;
+		case O_MACADDR2_LOOKUP:
+			if (cmd->arg1 >= V_fw_tables_max) {
+				printf("ipfw: invalid table number %d\n",
+				    cmd->arg1);
+				return (EINVAL);
+			}
+			if (cmdlen != F_INSN_SIZE(ipfw_insn) &&
+			    cmdlen != F_INSN_SIZE(ipfw_insn_u32))
+				goto bad_size;
+			ci->object_opcodes++;
 			break;
 
 		case O_NOP:

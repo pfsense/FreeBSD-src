@@ -287,6 +287,8 @@ enum ipfw_opcodes {		/* arguments (4 byte each)	*/
 
 	O_SKIP_ACTION,		/* none				*/
 
+	O_MACADDR2_LOOKUP,	/* arg1=table number, u32=value	*/
+
 	O_LAST_OPCODE		/* not an opcode!		*/
 };
 
@@ -744,7 +746,8 @@ struct _ipfw_dyn_rule {
 #define	IPFW_TABLE_INTERFACE	2	/* Table for holding interface names */
 #define	IPFW_TABLE_NUMBER	3	/* Table for holding ports/uid/gid/etc */
 #define	IPFW_TABLE_FLOW		4	/* Table for holding flow data */
-#define	IPFW_TABLE_MAXTYPE	4	/* Maximum valid number */
+#define	IPFW_TABLE_MAC2		5	/* Table for holding 2 mac addresses */
+#define	IPFW_TABLE_MAXTYPE	5	/* Maximum valid number */
 
 #define	IPFW_TABLE_CIDR	IPFW_TABLE_ADDR	/* compat */
 
@@ -856,6 +859,11 @@ struct tflow_entry {
 	} a;
 };
 
+struct mac_entry {
+	u_char addr[12];	/* dst[6] + src[6] */
+	u_char mask[12];	/* dst[6] + src[6] */
+};
+
 typedef struct _ipfw_table_value {
 	uint32_t	tag;		/* O_TAG/O_TAGGED */
 	uint32_t	pipe;		/* O_PIPE/O_QUEUE */
@@ -889,6 +897,7 @@ typedef struct	_ipfw_obj_tentry {
 		uint32_t		key;		/* uid/gid/port	*/
 		struct in6_addr		addr6;	/* IPv6 address 	*/
 		char	iface[IF_NAMESIZE];	/* interface name	*/
+		struct mac_entry	mac;	/* 2 mac addr:mask	*/
 		struct tflow_entry	flow;	
 	} k;
 	union {

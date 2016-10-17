@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/rmlock.h>
 #include <sys/socket.h>
 #include <sys/queue.h>
+#include <net/ethernet.h>
 #include <net/if.h>	/* ip_fw.h requires IFNAMSIZ */
 #include <net/radix.h>
 #include <net/route.h>
@@ -71,7 +72,8 @@ __FBSDID("$FreeBSD$");
  * Algo init:
  * * struct table_algo has to be filled with:
  *   name: "type:algoname" format, e.g. "addr:radix". Currently
- *     there are the following types: "addr", "iface", "number" and "flow".
+ *     there are the following types: "addr", "iface", "mac", "number" and
+ *     "flow".
  *   type: one of IPFW_TABLE_* types
  *   flags: one or more TA_FLAGS_*
  *   ta_buf_size: size of structure used to store add/del item state.
@@ -4080,6 +4082,398 @@ struct table_algo addr_kfib = {
 	.print_config	= ta_print_kfib_config,
 };
 
+/*
+ * mac:hash cmds
+ *
+ * ti->data:
+ * [unused][log2hsize]
+ * [    24][        8]
+ *
+ */
+
+struct mhashentry;
+
+SLIST_HEAD(mhashbhead, mhashentry);
+
+struct mhash_cfg {
+	struct mhashbhead	*head;
+	size_t	size;
+	size_t	items;
+};
+
+struct macdata {
+	u_char	addr[12];	/* dst[6] + src[6] */
+	u_char	mask[12];	/* dst[6] + src[6] */
+	uint32_t	value;
+};
+
+struct mhashentry {
+	SLIST_ENTRY(mhashentry)	next;
+	struct macdata	*mac;
+};
+
+struct ta_buf_mhash {
+	void	*ent_ptr;
+	struct macdata	mac;
+};
+
+static __inline uint32_t
+hash_mac2(u_char *mac, int hsize)
+{
+	uint32_t i;
+
+	i = ((mac[2] << 16) | (mac[1] << 8) | (mac[0] << 0)) ^
+	    ((mac[5] << 16) | (mac[4] << 8) | (mac[3] << 0)) ^
+	    ((mac[8] << 16) | (mac[7] << 8) | (mac[6] << 0)) ^
+	    ((mac[11] << 16) | (mac[10] << 8) | (mac[9] << 0));
+
+	return (i % (hsize - 1));
+}
+
+static void
+ta_print_mhash_config(void *ta_state, struct table_info *ti, char *buf,
+    size_t bufsize)
+{
+	snprintf(buf, bufsize, "%s", "mac:hash");
+}
+
+static __inline int
+ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2, struct macdata *mac,
+    uint32_t *val)
+{
+	struct mhashentry *ent;
+
+	SLIST_FOREACH(ent, &head[hash2], next) {
+		if (memcmp(&ent->mac->addr, mac->addr, sizeof(mac->addr)) != 0)
+			continue;
+		*val = ent->mac->value;
+		return (1);
+	}
+
+	return (0);
+}
+
+static int
+ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
+    uint32_t *val)
+{
+	struct macdata mac;
+	struct mhashbhead *head;
+	uint32_t hash2, hsize;
+
+	/*
+	 * Look three times for a MAC is still faster than looking at whole
+	 * table (128 entries by default).
+	 */
+	head = (struct mhashbhead *)ti->state;
+	hsize = 1 << (ti->data & 0xFF);
+	hash2 = hash_mac2(key, hsize);
+	if (ta_lookup_find_mhash(head, hash2, (struct macdata *)key, val) == 1)
+		return (1);
+
+	/* src any */
+	memcpy(mac.addr, key, 6);
+	memset(mac.addr + 6, 0, 6);
+	hash2 = hash_mac2(mac.addr, hsize);
+	if (ta_lookup_find_mhash(head, hash2, &mac, val) == 1)
+		return (1);
+
+	/* dst any */
+	memset(mac.addr, 0, 6);
+	memcpy(mac.addr + 6, (uintptr_t *)key + 6, 6);
+	hash2 = hash_mac2(mac.addr, hsize);
+	if (ta_lookup_find_mhash(head, hash2, &mac, val) == 1)
+		return (1);
+
+	return (0);
+}
+
+static int
+ta_init_mhash(struct ip_fw_chain *ch, void **ta_state, struct table_info *ti,
+    char *data, uint8_t tflags)
+{
+	int i;
+	struct mhash_cfg *cfg;
+
+	cfg = malloc(sizeof(struct mhash_cfg), M_IPFW, M_WAITOK | M_ZERO);
+
+	cfg->size = 128;
+	cfg->head = malloc(sizeof(struct mhashbhead) * cfg->size, M_IPFW,
+	    M_WAITOK | M_ZERO);
+	for (i = 0; i < cfg->size; i++)
+		SLIST_INIT(&cfg->head[i]);
+	*ta_state = cfg;
+	ti->state = cfg->head;
+	ti->data = ta_log2(cfg->size);
+	ti->lookup = ta_lookup_mhash;
+
+	return (0);
+}
+
+static void
+ta_destroy_mhash(void *ta_state, struct table_info *ti)
+{
+	int i;
+	struct mhash_cfg *cfg;
+	struct mhashentry *ent, *ent_next;
+
+	cfg = (struct mhash_cfg *)ta_state;
+
+	for (i = 0; i < cfg->size; i++)
+		SLIST_FOREACH_SAFE(ent, &cfg->head[i], next, ent_next) {
+			free(ent->mac, M_IPFW_TBL);
+			free(ent, M_IPFW_TBL);
+		}
+
+	free(cfg->head, M_IPFW);
+
+	free(cfg, M_IPFW);
+}
+
+static void
+ta_foreach_mhash(void *ta_state, struct table_info *ti, ta_foreach_f *f,
+    void *arg)
+{
+	struct mhash_cfg *cfg;
+	struct mhashentry *ent, *ent_next;
+	int i;
+
+	cfg = (struct mhash_cfg *)ta_state;
+
+	for (i = 0; i < cfg->size; i++)
+		SLIST_FOREACH_SAFE(ent, &cfg->head[i], next, ent_next)
+			f(ent, arg);
+}
+
+static int
+ta_dump_mhash_tentry(void *ta_state, struct table_info *ti, void *e,
+    ipfw_obj_tentry *tent)
+{
+	struct macdata *mac;
+	struct mhash_cfg *cfg;
+
+	cfg = (struct mhash_cfg *)ta_state;
+	mac = ((struct mhashentry *)e)->mac;
+
+	memcpy(&tent->k.mac, mac->addr, sizeof(*mac) - sizeof(uint32_t));
+	tent->masklen = ETHER_ADDR_LEN * 8;
+	tent->subtype = AF_LINK;
+	tent->v.kidx = mac->value;
+
+	return (0);
+}
+
+static int
+ta_find_mhash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct macdata mac;
+	struct mhash_cfg *cfg;
+	struct mhashentry ent, *tmp;
+	struct tentry_info tei;
+	uint32_t hash2;
+
+	cfg = (struct mhash_cfg *)ta_state;
+
+	memset(&ent, 0, sizeof(ent));
+	memset(&mac, 0, sizeof(mac));
+	memset(&tei, 0, sizeof(tei));
+
+	tei.paddr = &tent->k.mac;
+	tei.subtype = AF_LINK;
+	ent.mac = &mac;
+
+	memcpy(mac.addr, tei.paddr, sizeof(mac) - sizeof(uint32_t));
+
+	/* Check for existence */
+	hash2 = hash_mac2(mac.addr, cfg->size);
+	SLIST_FOREACH(tmp, &cfg->head[hash2], next) {
+		if (memcmp(&tmp->mac->addr, &mac.addr, sizeof(mac.addr)) != 0)
+			continue;
+		ta_dump_mhash_tentry(ta_state, ti, tmp, tent);
+		return (0);
+	}
+
+	return (ENOENT);
+}
+
+static void
+ta_dump_mhash_tinfo(void *ta_state, struct table_info *ti, ipfw_ta_tinfo *tinfo)
+{
+	struct mhash_cfg *cfg;
+
+	cfg = (struct mhash_cfg *)ta_state;
+
+	tinfo->taclass4 = IPFW_TACLASS_HASH;
+	tinfo->size4 = cfg->size;
+	tinfo->count4 = cfg->items;
+	tinfo->itemsize4 = sizeof(struct mhashentry) + sizeof(struct macdata) -
+	    sizeof(void *);
+}
+
+static int
+ta_prepare_add_mhash(struct ip_fw_chain *ch, struct tentry_info *tei,
+    void *ta_buf)
+{
+	struct ta_buf_mhash *tb;
+	struct mhashentry *ent;
+	struct macdata *mac;
+
+	if (tei->subtype != AF_LINK)
+		return (EINVAL);
+
+	tb = (struct ta_buf_mhash *)ta_buf;
+
+	ent = malloc(sizeof(*ent), M_IPFW_TBL, M_WAITOK | M_ZERO);
+	mac = malloc(sizeof(*mac), M_IPFW_TBL, M_WAITOK | M_ZERO);
+
+	memcpy(mac->addr, tei->paddr, sizeof(*mac) - sizeof(uint32_t));
+
+	ent->mac = mac;
+	tb->ent_ptr = ent;
+
+	return (0);
+}
+
+static int
+ta_add_mhash(void *ta_state, struct table_info *ti, struct tentry_info *tei,
+    void *ta_buf, uint32_t *pnum)
+{
+	int exists;
+	struct macdata *mac;
+	struct mhash_cfg *cfg;
+	struct mhashentry *ent, *tmp;
+	struct ta_buf_mhash *tb;
+	uint32_t hash2, value;
+
+	cfg = (struct mhash_cfg *)ta_state;
+	tb = (struct ta_buf_mhash *)ta_buf;
+	ent = (struct mhashentry *)tb->ent_ptr;
+	mac = ent->mac;
+	exists = 0;
+
+	/* Read current value from @tei */
+	mac->value = tei->value;
+
+	if (tei->subtype != AF_LINK)
+		return (EINVAL);
+
+	/* Check for existence */
+	hash2 = hash_mac2(mac->addr, cfg->size);
+	SLIST_FOREACH(tmp, &cfg->head[hash2], next) {
+		if (memcmp(&tmp->mac->addr, &mac->addr,
+		    sizeof(mac->addr)) == 0) {
+			exists = 1;
+			break;
+		}
+	}
+
+	if (exists == 1) {
+		if ((tei->flags & TEI_FLAGS_UPDATE) == 0)
+			return (EEXIST);
+		/* Record already exists. Update value if we're asked to */
+		value = tmp->mac->value;
+		tmp->mac->value = tei->value;
+		tei->value = value;
+		/* Indicate that update has happened instead of addition */
+		tei->flags |= TEI_FLAGS_UPDATED;
+		*pnum = 0;
+	} else {
+		if ((tei->flags & TEI_FLAGS_DONTADD) != 0)
+			return (EFBIG);
+		SLIST_INSERT_HEAD(&cfg->head[hash2], ent, next);
+		tb->ent_ptr = NULL;
+		*pnum = 1;
+
+		/* Update counters */
+		cfg->items++;
+	}
+
+	return (0);
+}
+
+static int
+ta_prepare_del_mhash(struct ip_fw_chain *ch, struct tentry_info *tei,
+    void *ta_buf)
+{
+	struct ta_buf_mhash *tb;
+
+	tb = (struct ta_buf_mhash *)ta_buf;
+
+	memcpy(tb->mac.addr, tei->paddr, sizeof(tb->mac.addr));
+
+	return (0);
+}
+
+static int
+ta_del_mhash(void *ta_state, struct table_info *ti, struct tentry_info *tei,
+    void *ta_buf, uint32_t *pnum)
+{
+	struct macdata *mac;
+	struct mhash_cfg *cfg;
+	struct mhashentry *tmp, *tmp_next;
+	struct ta_buf_mhash *tb;
+	uint32_t hash2;
+
+	cfg = (struct mhash_cfg *)ta_state;
+	tb = (struct ta_buf_mhash *)ta_buf;
+	mac = &tb->mac;
+
+	if (tei->masklen != ETHER_ADDR_LEN * 8)
+		return (EINVAL);
+
+	hash2 = hash_mac2(mac->addr, cfg->size);
+	SLIST_FOREACH_SAFE(tmp, &cfg->head[hash2], next, tmp_next) {
+		if (memcmp(&tmp->mac->addr, &mac->addr, sizeof(mac->addr)) != 0)
+			continue;
+
+		SLIST_REMOVE(&cfg->head[hash2], tmp, mhashentry, next);
+		cfg->items--;
+		tb->ent_ptr = tmp;
+		tei->value = tmp->mac->value;
+		*pnum = 1;
+		return (0);
+	}
+
+	return (ENOENT);
+}
+
+static void
+ta_flush_mhash_entry(struct ip_fw_chain *ch, struct tentry_info *tei,
+    void *ta_buf)
+{
+	struct mhashentry *ent;
+	struct ta_buf_mhash *tb;
+
+	tb = (struct ta_buf_mhash *)ta_buf;
+
+	if (tb->ent_ptr != NULL) {
+		ent = (struct mhashentry *)tb->ent_ptr;
+		free(ent->mac, M_IPFW_TBL);
+		free(tb->ent_ptr, M_IPFW_TBL);
+		tb->ent_ptr = NULL;
+	}
+}
+
+struct table_algo mac_hash = {
+	.name		= "mac:hash",
+	.type		= IPFW_TABLE_MAC2,
+	.flags		= TA_FLAG_DEFAULT,
+	.ta_buf_size	= sizeof(struct ta_buf_mhash),
+	.print_config	= ta_print_mhash_config,
+	.init		= ta_init_mhash,
+	.destroy	= ta_destroy_mhash,
+	.prepare_add	= ta_prepare_add_mhash,
+	.prepare_del	= ta_prepare_del_mhash,
+	.add		= ta_add_mhash,
+	.del		= ta_del_mhash,
+	.flush_entry	= ta_flush_mhash_entry,
+	.foreach	= ta_foreach_mhash,
+	.dump_tentry	= ta_dump_mhash_tentry,
+	.find_tentry	= ta_find_mhash_tentry,
+	.dump_tinfo	= ta_dump_mhash_tinfo,
+};
+
 void
 ipfw_table_algo_init(struct ip_fw_chain *ch)
 {
@@ -4092,6 +4486,7 @@ ipfw_table_algo_init(struct ip_fw_chain *ch)
 	ipfw_add_table_algo(ch, &addr_radix, sz, &addr_radix.idx);
 	ipfw_add_table_algo(ch, &addr_hash, sz, &addr_hash.idx);
 	ipfw_add_table_algo(ch, &iface_idx, sz, &iface_idx.idx);
+	ipfw_add_table_algo(ch, &mac_hash, sz, &mac_hash.idx);
 	ipfw_add_table_algo(ch, &number_array, sz, &number_array.idx);
 	ipfw_add_table_algo(ch, &flow_hash, sz, &flow_hash.idx);
 	ipfw_add_table_algo(ch, &addr_kfib, sz, &addr_kfib.idx);
@@ -4104,9 +4499,8 @@ ipfw_table_algo_destroy(struct ip_fw_chain *ch)
 	ipfw_del_table_algo(ch, addr_radix.idx);
 	ipfw_del_table_algo(ch, addr_hash.idx);
 	ipfw_del_table_algo(ch, iface_idx.idx);
+	ipfw_del_table_algo(ch, mac_hash.idx);
 	ipfw_del_table_algo(ch, number_array.idx);
 	ipfw_del_table_algo(ch, flow_hash.idx);
 	ipfw_del_table_algo(ch, addr_kfib.idx);
 }
-
-

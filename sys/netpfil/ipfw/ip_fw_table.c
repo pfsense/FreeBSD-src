@@ -2808,6 +2808,15 @@ classify_flow(ipfw_insn *cmd, uint16_t *puidx, uint8_t *ptype)
 	return (0);
 }
 
+static int
+classify_mac(ipfw_insn *cmd, uint16_t *puidx, uint8_t *ptype)
+{
+	*puidx = cmd->arg1;
+	*ptype = IPFW_TABLE_MAC2;
+
+	return (0);
+}
+
 static void
 update_arg1(ipfw_insn *cmd, uint16_t idx)
 {
@@ -2952,6 +2961,16 @@ static struct opcode_obj_rewrite opcodes[] = {
 		.opcode = O_IP_FLOW_LOOKUP,
 		.etlv = IPFW_TLV_TBL_NAME,
 		.classifier = classify_flow,
+		.update = update_arg1,
+		.find_byname = table_findbyname,
+		.find_bykidx = table_findbykidx,
+		.create_object = create_table_compat,
+		.manage_sets = table_manage_sets,
+	},
+	{
+		.opcode = O_MACADDR2_LOOKUP,
+		.etlv = IPFW_TLV_TBL_NAME,
+		.classifier = classify_mac,
 		.update = update_arg1,
 		.find_byname = table_findbyname,
 		.find_bykidx = table_findbykidx,
