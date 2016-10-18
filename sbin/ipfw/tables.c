@@ -1203,7 +1203,6 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 		    &(mac->mask[ETHER_ADDR_LEN])); /* src */
 
 		masklen = ETHER_ADDR_LEN * 8;
-		type = IPFW_TABLE_MAC2;
 		af = AF_LINK;
 		}
 		break;
