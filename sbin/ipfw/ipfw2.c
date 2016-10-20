@@ -3426,7 +3426,7 @@ add_mac(ipfw_insn *cmd, char *av[], int cblen, struct tidx *tstate)
 {
 	ipfw_insn_mac *mac;
 
-	if ( ( av[0] == NULL ) || ( av[1] == NULL ) )
+	if (av[0] == NULL)
 		errx(EX_DATAERR, "MAC dst src");
 
 	if (strncmp(av[0], "table(", 6) == 0) {
@@ -3434,6 +3434,9 @@ add_mac(ipfw_insn *cmd, char *av[], int cblen, struct tidx *tstate)
 		CHECK_CMDLEN;
 		return (cmd);
 	}
+
+	if (av[1] == NULL)
+		errx(EX_DATAERR, "MAC dst src");
 
 	cmd->opcode = O_MACADDR2;
 	cmd->len = (cmd->len & (F_NOT | F_OR)) | F_INSN_SIZE(ipfw_insn_mac);
