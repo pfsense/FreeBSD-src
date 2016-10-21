@@ -1192,7 +1192,7 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 		struct mac_entry *mac;
 
 		dst = arg;
-		if ((p = strchr(arg, ' ')) == NULL)
+		if ((p = strchr(arg, ',')) == NULL)
 			errx(EX_DATAERR, "bad mac address pair: %s", arg);
 		*p = '\0';
 		src = p + 1;
