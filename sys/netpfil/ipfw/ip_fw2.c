@@ -2925,8 +2925,6 @@ do {								\
 				break;
 
 			case O_FORWARD_IP:
-				if (args->eh)	/* not valid on layer2 pkts */
-					break;
 				if (q != f ||
 				    dyn_info.direction == MATCH_FORWARD) {
 				    struct sockaddr_in *sa;
@@ -2986,8 +2984,6 @@ do {								\
 
 #ifdef INET6
 			case O_FORWARD_IP6:
-				if (args->eh)	/* not valid on layer2 pkts */
-					break;
 				if (q != f ||
 				    dyn_info.direction == MATCH_FORWARD) {
 					struct sockaddr_in6 *sin6;

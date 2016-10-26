@@ -115,6 +115,74 @@ SYSEND
 
 #endif /* SYSCTL_NODE */
 
+static int
+ipfw_check_next_hop(struct ip_fw_args *args, int dir, struct mbuf *m)
+{
+	struct m_tag *fwd_tag;
+	size_t len;
+
+#if (!defined(INET6) && !defined(INET))
+	return (EACCES);
+#else
+
+	KASSERT(args->next_hop == NULL || args->next_hop6 == NULL,
+	    ("%s: both next_hop=%p and next_hop6=%p not NULL", __func__,
+	     args->next_hop, args->next_hop6));
+#ifdef INET6
+	if (args->next_hop6 != NULL)
+		len = sizeof(struct sockaddr_in6);
+#endif
+#ifdef INET
+	if (args->next_hop != NULL)
+		len = sizeof(struct sockaddr_in);
+#endif
+
+	/* Incoming packets should not be tagged so we do not
+	 * m_tag_find. Outgoing packets may be tagged, so we
+	 * reuse the tag if present.
+	 */
+	fwd_tag = (dir == DIR_IN) ? NULL :
+		m_tag_find(m, PACKET_TAG_IPFORWARD, NULL);
+	if (fwd_tag != NULL) {
+		m_tag_unlink(m, fwd_tag);
+	} else {
+		fwd_tag = m_tag_get(PACKET_TAG_IPFORWARD, len,
+		    M_NOWAIT);
+		if (fwd_tag == NULL)
+			return (EACCES);
+	}
+#ifdef INET6
+	if (args->next_hop6 != NULL) {
+		struct sockaddr_in6 *sa6;
+
+		sa6 = (struct sockaddr_in6 *)(fwd_tag + 1);
+		bcopy(args->next_hop6, sa6, len);
+		/*
+		 * If nh6 address is link-local we should convert
+		 * it to kernel internal form before doing any
+		 * comparisons.
+		 */
+		if (sa6_embedscope(sa6, V_ip6_use_defzone) != 0)
+			return (EACCES);
+		if (in6_localip(&sa6->sin6_addr))
+			m->m_flags |= M_FASTFWD_OURS;
+		m->m_flags |= M_IP6_NEXTHOP;
+	}
+#endif
+#ifdef INET
+	if (args->next_hop != NULL) {
+		bcopy(args->next_hop, (fwd_tag+1), len);
+		if (in_localip(args->next_hop->sin_addr))
+			m->m_flags |= M_FASTFWD_OURS;
+		m->m_flags |= M_IP_NEXTHOP;
+	}
+#endif
+	m_tag_prepend(m, fwd_tag);
+#endif /* INET || INET6 */
+
+	return (IP_FW_PASS);
+}
+
 /*
  * The pfilter hook to pass packets to ipfw_chk and then to
  * dummynet, divert, netgraph or other modules.
@@ -163,72 +231,7 @@ again:
 		/* next_hop may be set by ipfw_chk */
 		if (args.next_hop == NULL && args.next_hop6 == NULL)
 			break; /* pass */
-#if (!defined(INET6) && !defined(INET))
-		ret = EACCES;
-#else
-	    {
-		struct m_tag *fwd_tag;
-		size_t len;
-
-		KASSERT(args.next_hop == NULL || args.next_hop6 == NULL,
-		    ("%s: both next_hop=%p and next_hop6=%p not NULL", __func__,
-		     args.next_hop, args.next_hop6));
-#ifdef INET6
-		if (args.next_hop6 != NULL)
-			len = sizeof(struct sockaddr_in6);
-#endif
-#ifdef INET
-		if (args.next_hop != NULL)
-			len = sizeof(struct sockaddr_in);
-#endif
-
-		/* Incoming packets should not be tagged so we do not
-		 * m_tag_find. Outgoing packets may be tagged, so we
-		 * reuse the tag if present.
-		 */
-		fwd_tag = (dir == DIR_IN) ? NULL :
-			m_tag_find(*m0, PACKET_TAG_IPFORWARD, NULL);
-		if (fwd_tag != NULL) {
-			m_tag_unlink(*m0, fwd_tag);
-		} else {
-			fwd_tag = m_tag_get(PACKET_TAG_IPFORWARD, len,
-			    M_NOWAIT);
-			if (fwd_tag == NULL) {
-				ret = EACCES;
-				break; /* i.e. drop */
-			}
-		}
-#ifdef INET6
-		if (args.next_hop6 != NULL) {
-			struct sockaddr_in6 *sa6;
-
-			sa6 = (struct sockaddr_in6 *)(fwd_tag + 1);
-			bcopy(args.next_hop6, sa6, len);
-			/*
-			 * If nh6 address is link-local we should convert
-			 * it to kernel internal form before doing any
-			 * comparisons.
-			 */
-			if (sa6_embedscope(sa6, V_ip6_use_defzone) != 0) {
-				ret = EACCES;
-				break;
-			}
-			if (in6_localip(&sa6->sin6_addr))
-				(*m0)->m_flags |= M_FASTFWD_OURS;
-			(*m0)->m_flags |= M_IP6_NEXTHOP;
-		}
-#endif
-#ifdef INET
-		if (args.next_hop != NULL) {
-			bcopy(args.next_hop, (fwd_tag+1), len);
-			if (in_localip(args.next_hop->sin_addr))
-				(*m0)->m_flags |= M_FASTFWD_OURS;
-			(*m0)->m_flags |= M_IP_NEXTHOP;
-		}
-#endif
-		m_tag_prepend(*m0, fwd_tag);
-	    }
-#endif /* INET || INET6 */
+		ret = ipfw_check_next_hop(&args, dir, *m0);
 		break;
 
 	case IP_FW_DENY:
@@ -370,6 +373,10 @@ ipfw_check_frame(void *arg, struct mbuf **m0, struct ifnet *ifp, int dir,
 	/* Check result of ipfw_chk() */
 	switch (i) {
 	case IP_FW_PASS:
+		/* next_hop may be set by ipfw_chk */
+		if (args.next_hop == NULL && args.next_hop6 == NULL)
+			break; /* pass */
+		ret = ipfw_check_next_hop(&args, dir, *m0);
 		break;
 
 	case IP_FW_DENY:

@@ -798,6 +798,7 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 {
 	struct ether_header *eh;
 	int i, isr;
+	uint32_t ours;
 	u_short ether_type;
 
 	KASSERT(ifp != NULL, ("%s: NULL interface pointer", __func__));
@@ -809,7 +810,9 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 
 		if (i != 0 || m == NULL)
 			return;
-	}
+		ours = m->m_flags & (M_FASTFWD_OURS | M_IP_NEXTHOP);
+	} else
+		ours = 0;
 
 	eh = mtod(m, struct ether_header *);
 	ether_type = ntohs(eh->ether_type);
@@ -848,6 +851,8 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 	 */
 	m->m_flags &= ~M_VLANTAG;
 	m_clrprotoflags(m);
+	if (ours)
+		m->m_flags |= ours;
 	m_adj(m, ETHER_HDR_LEN);
 
 	/*
