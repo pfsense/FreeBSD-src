@@ -53,7 +53,7 @@ struct pfloghdr {
 	u_int32_t	ridentifier;
 #endif
 	u_int8_t	dir;
-	u_int8_t	pad[3];
+	u_int8_t	pad[7];
 };
 
 #define	PFLOG_HDRLEN		sizeof(struct pfloghdr)
