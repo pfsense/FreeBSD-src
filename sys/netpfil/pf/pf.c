@@ -6498,7 +6498,7 @@ done:
 		pd.act.flags = s->state_flags;
 	} else if (r->dnpipe || r->pdnpipe) {
 		pd.act.dnpipe = r->dnpipe;
-		pd.act.dnpipe = r->pdnpipe;
+		pd.act.pdnpipe = r->pdnpipe;
 		pd.act.flags = r->free_flags;
 	}
 
@@ -6532,21 +6532,19 @@ done:
 		if (s != NULL && s->nat_rule.ptr)
 			pf_packet_undo_nat(m, &pd, off, s, dir);
 
-		ip_dn_io_ptr(m0,
-			(dir == PF_IN) ? DIR_IN : DIR_OUT,
-			&dnflow);
-		/* This is dummynet fast io processing */
-		if (*m0 != NULL) {
-			m_tag_delete(*m0, m_tag_first(*m0));
-			pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
-			if (s != NULL && s->nat_rule.ptr)
-				pf_packet_redo_nat(m, &pd, off, s, dir);
-		} else {
-			*m0 = NULL;
+		if (ip_dn_io_ptr(m0, (dir == PF_IN) ? DIR_IN : DIR_OUT,
+		    &dnflow) != 0)
+			action = PF_DROP;
+		if (*m0 == NULL || action == PF_DROP) {
 			if (s)
 				PF_STATE_UNLOCK(s);
 			return (action);
 		}
+		/* This is dummynet fast io processing */
+		m_tag_delete(*m0, m_tag_first(*m0));
+		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
+		if (s != NULL && s->nat_rule.ptr)
+			pf_packet_redo_nat(m, &pd, off, s, dir);
 	} else
 		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
 continueprocessing:
