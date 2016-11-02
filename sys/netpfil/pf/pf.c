@@ -315,8 +315,8 @@ extern struct proc *pf_purge_proc;
 
 VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 
-#define	PACKET_LOOPED(pd)	((pd)->pf_mtag &&			\
-				 (pd)->pf_mtag->flags & PF_PACKET_LOOPED)
+#define	PACKET_LOOPED(pd)	(((pd)->pf_mtag &&			\
+	(pd)->pf_mtag->flags & PF_PACKET_LOOPED) ? 1 : 0)
 
 #define	STATE_LOOKUP(i, k, d, s, pd)					\
 	do {								\
@@ -6235,7 +6235,6 @@ pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	struct pf_ruleset	*ruleset = NULL;
 	struct pf_pdesc		 pd;
 	int			 off = 0, dirndx, pqid = 0;
-	int                      loopedfrom = 0;
 	struct ip_fw_args        dnflow;
 
 	M_ASSERTPKTHDR(m);
@@ -6265,22 +6264,18 @@ pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	if ((ip_divert_ptr != NULL || ip_dn_io_ptr != NULL) &&
 	    ((ipfwtag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
 		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(ipfwtag+1);
-		if (rr->info & IPFW_IS_DUMMYNET)
-			loopedfrom = 1;
-		if (rr->info & IPFW_IS_DUMMYNET ||
-		    (rr->info & IPFW_IS_DIVERT && rr->rulenum == 0)) {
-			if (pd.pf_mtag == NULL &&
-			    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
-				action = PF_DROP;
-				goto done;
-			}
-			pd.pf_mtag->flags |= PF_PACKET_LOOPED;
-			m_tag_delete(m, ipfwtag);
+
+		if (pd.pf_mtag == NULL &&
+		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
+			action = PF_DROP;
+			goto done;
 		}
+		pd.pf_mtag->flags |= PF_PACKET_LOOPED;
 		if (pd.pf_mtag && pd.pf_mtag->flags & PF_FASTFWD_OURS_PRESENT) {
 			m->m_flags |= M_FASTFWD_OURS;
 			pd.pf_mtag->flags &= ~PF_FASTFWD_OURS_PRESENT;
 		}
+		m_tag_delete(m, ipfwtag);
 	} else if (pf_normalize_ip(m0, dir, kif, &reason, &pd) != PF_PASS) {
 		/* We do IP header normalization and packet reassembly here */
 		action = PF_DROP;
@@ -6501,8 +6496,11 @@ done:
 		pd.act.pdnpipe = r->pdnpipe;
 		pd.act.flags = r->free_flags;
 	}
-
-	if (pd.act.dnpipe && ip_dn_io_ptr != NULL && loopedfrom != 1) {
+	if ((pd.act.dnpipe || pd.act.pdnpipe) && ip_dn_io_ptr == NULL) {
+		/* XXX: ipfw has the same behaviour! */
+		action = PF_DROP;
+		REASON_SET(&reason, PFRES_MEMORY);
+	} else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction) {
@@ -6535,18 +6533,16 @@ done:
 		if (ip_dn_io_ptr(m0, (dir == PF_IN) ? DIR_IN : DIR_OUT,
 		    &dnflow) != 0)
 			action = PF_DROP;
-		if (*m0 == NULL || action == PF_DROP) {
+		if (*m0 == NULL) {
 			if (s)
 				PF_STATE_UNLOCK(s);
 			return (action);
 		}
 		/* This is dummynet fast io processing */
 		m_tag_delete(*m0, m_tag_first(*m0));
-		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
 		if (s != NULL && s->nat_rule.ptr)
 			pf_packet_redo_nat(m, &pd, off, s, dir);
-	} else
-		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
+	}
 continueprocessing:
 
 	/*
@@ -6602,6 +6598,9 @@ continueprocessing:
 			    ("pf: failed to allocate divert tag\n"));
 		}
 	}
+
+	if (PACKET_LOOPED(&pd))
+		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
 
 	if (log) {
 		struct pf_rule *lr;
@@ -6703,7 +6702,6 @@ pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	struct pf_ruleset	*ruleset = NULL;
 	struct pf_pdesc		 pd;
 	int			 off = 0, terminal = 0, dirndx, rh_cnt = 0, pqid = 0;
-	int                      loopedfrom = 0;
 	struct m_tag		*dn_tag;
 	struct ip_fw_args        dnflow;
 	int			 fwdir = dir;
@@ -6754,18 +6752,17 @@ pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	if (ip_dn_io_ptr != NULL &&
 	    ((dn_tag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
 		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(dn_tag+1);
+
 		if (pd.pf_mtag == NULL &&
 		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
 			action = PF_DROP;
 			goto done;
 		}
-		if (rr->info & IPFW_IS_DUMMYNET)
-			loopedfrom = 1;
+		pd.pf_mtag->flags |= PF_PACKET_LOOPED;
 		if (pd.pf_mtag->flags & PF_FASTFWD_OURS_PRESENT) {
 			m->m_flags |= M_FASTFWD_OURS;
 			pd.pf_mtag->flags &= ~PF_FASTFWD_OURS_PRESENT;
 		}
-		pd.pf_mtag->flags |= PF_PACKET_LOOPED;
 		m_tag_delete(m, dn_tag);
 	}
 	/* We do IP header normalization and packet reassembly here */
@@ -7054,11 +7051,14 @@ done:
 		pd.act.flags = s->state_flags;
 	} else if (r->dnpipe || r->pdnpipe) {
 		pd.act.dnpipe = r->dnpipe;
-		pd.act.dnpipe = r->pdnpipe;
+		pd.act.pdnpipe = r->pdnpipe;
 		pd.act.flags = r->free_flags;
 	}
-	if ((pd.act.dnpipe || pd.act.pdnpipe) &&
-	    ip_dn_io_ptr != NULL && loopedfrom != 1) {
+	if ((pd.act.dnpipe || pd.act.pdnpipe) && ip_dn_io_ptr == NULL) {
+		/* XXX: ipfw has the same behaviour! */
+		action = PF_DROP;
+		REASON_SET(&reason, PFRES_MEMORY);
+	if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction && pd.act.dnpipe) {
@@ -7082,23 +7082,20 @@ done:
 		if (s != NULL && s->nat_rule.ptr)
 			pf_packet_undo_nat(m, &pd, off, s, dir);
 
-		ip_dn_io_ptr(m0,
-			((dir == PF_IN) ? DIR_IN : DIR_OUT) | PROTO_IPV6,
-			&dnflow);
-		/* This is dummynet fast io processing */
-		if (*m0 != NULL) {
-			m_tag_delete(*m0, m_tag_first(*m0));
-			pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
-			if (s != NULL && s->nat_rule.ptr)
-				pf_packet_redo_nat(m, &pd, off, s, dir);
-		} else {
-			*m0 = NULL;
+		if (ip_dn_io_ptr(m0,
+		    ((dir == PF_IN) ? DIR_IN : DIR_OUT) | PROTO_IPV6,
+		    &dnflow) != 0) {
+			action = PF_DROP;
+		if (*m0 == NULL) {
 			if (s)
 				PF_STATE_UNLOCK(s);
 			return (action);
 		}
-	} else
-		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
+		/* This is dummynet fast io processing */
+		m_tag_delete(*m0, m_tag_first(*m0));
+		if (s != NULL && s->nat_rule.ptr)
+			pf_packet_redo_nat(m, &pd, off, s, dir);
+	}
 continueprocessing6:
 
 	if (dir == PF_IN && action == PF_PASS && (pd.proto == IPPROTO_TCP ||
@@ -7111,6 +7108,9 @@ continueprocessing6:
 	/* XXX: Anybody working on it?! */
 	if (r->divert.port)
 		printf("pf: divert(9) is not supported for IPv6\n");
+
+	if (PACKET_LOOPED(&pd))
+		pd.pf_mtag->flags &= ~PF_PACKET_LOOPED;
 
 	if (log) {
 		struct pf_rule *lr;
