@@ -6263,8 +6263,6 @@ pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 
 	if ((ip_divert_ptr != NULL || ip_dn_io_ptr != NULL) &&
 	    ((ipfwtag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
-		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(ipfwtag+1);
-
 		if (pd.pf_mtag == NULL &&
 		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
 			action = PF_DROP;
@@ -6751,8 +6749,6 @@ pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 
 	if (ip_dn_io_ptr != NULL &&
 	    ((dn_tag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
-		struct ipfw_rule_ref *rr = (struct ipfw_rule_ref *)(dn_tag+1);
-
 		if (pd.pf_mtag == NULL &&
 		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
 			action = PF_DROP;
@@ -7058,7 +7054,7 @@ done:
 		/* XXX: ipfw has the same behaviour! */
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
-	if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
+	else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction && pd.act.dnpipe) {
