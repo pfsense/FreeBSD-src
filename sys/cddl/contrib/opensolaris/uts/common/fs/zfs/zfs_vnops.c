@@ -421,7 +421,7 @@ page_busy(vnode_t *vp, int64_t start, int64_t off, int64_t nbytes)
 				vm_page_reference(pp);
 				vm_page_lock(pp);
 				zfs_vmobject_wunlock(obj);
-				vm_page_busy_sleep(pp, "zfsmwb");
+				vm_page_busy_sleep(pp, "zfsmwb", true);
 				zfs_vmobject_wlock(obj);
 				continue;
 			}
@@ -476,7 +476,7 @@ page_hold(vnode_t *vp, int64_t start)
 				vm_page_reference(pp);
 				vm_page_lock(pp);
 				zfs_vmobject_wunlock(obj);
-				vm_page_busy_sleep(pp, "zfsmwb");
+				vm_page_busy_sleep(pp, "zfsmwb", true);
 				zfs_vmobject_wlock(obj);
 				continue;
 			}
@@ -5977,8 +5977,19 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 	}
 
 	if (zp->z_id != parent || zfsvfs->z_parent == zfsvfs) {
+		char name[MAXNAMLEN + 1];
+		znode_t *dzp;
+		size_t len;
+
+		error = zfs_znode_parent_and_name(zp, &dzp, name);
+		if (error == 0) {
+			len = strlen(name);
+			*ap->a_buflen -= len;
+			bcopy(name, ap->a_buf + *ap->a_buflen, len);
+			*ap->a_vpp = ZTOV(dzp);
+		}
 		ZFS_EXIT(zfsvfs);
-		return (vop_stdvptocnp(ap));
+		return (error);
 	}
 	ZFS_EXIT(zfsvfs);
 
