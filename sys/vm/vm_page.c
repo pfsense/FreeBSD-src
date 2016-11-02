@@ -395,7 +395,6 @@ vm_page_domain_init(struct vm_domain *vmd)
 	vmd->vmd_free_count = 0;
 	vmd->vmd_segs = 0;
 	vmd->vmd_oom = FALSE;
-	vmd->vmd_pass = 0;
 	for (i = 0; i < PQ_COUNT; i++) {
 		pq = &vmd->vmd_pagequeues[i];
 		TAILQ_INIT(&pq->pq_pl);
@@ -743,21 +742,20 @@ vm_page_sunbusy(vm_page_t m)
  *	This is used to implement the hard-path of busying mechanism.
  *
  *	The given page must be locked.
+ *
+ *	If nonshared is true, sleep only if the page is xbusy.
  */
 void
-vm_page_busy_sleep(vm_page_t m, const char *wmesg)
+vm_page_busy_sleep(vm_page_t m, const char *wmesg, bool nonshared)
 {
 	u_int x;
 
-	vm_page_lock_assert(m, MA_OWNED);
+	vm_page_assert_locked(m);
 
 	x = m->busy_lock;
-	if (x == VPB_UNBUSIED) {
-		vm_page_unlock(m);
-		return;
-	}
-	if ((x & VPB_BIT_WAITERS) == 0 &&
-	    !atomic_cmpset_int(&m->busy_lock, x, x | VPB_BIT_WAITERS)) {
+	if (x == VPB_UNBUSIED || (nonshared && (x & VPB_BIT_SHARED) != 0) ||
+	    ((x & VPB_BIT_WAITERS) == 0 &&
+	    !atomic_cmpset_int(&m->busy_lock, x, x | VPB_BIT_WAITERS))) {
 		vm_page_unlock(m);
 		return;
 	}
@@ -797,7 +795,7 @@ vm_page_xunbusy_locked(vm_page_t m)
 	wakeup(m);
 }
 
-static void
+void
 vm_page_xunbusy_maybelocked(vm_page_t m)
 {
 	bool lockacq;
@@ -1094,7 +1092,7 @@ vm_page_sleep_if_busy(vm_page_t m, const char *msg)
 		obj = m->object;
 		vm_page_lock(m);
 		VM_OBJECT_WUNLOCK(obj);
-		vm_page_busy_sleep(m, msg);
+		vm_page_busy_sleep(m, msg, false);
 		VM_OBJECT_WLOCK(obj);
 		return (TRUE);
 	}
@@ -3466,7 +3464,8 @@ retrylookup:
 			vm_page_aflag_set(m, PGA_REFERENCED);
 			vm_page_lock(m);
 			VM_OBJECT_WUNLOCK(object);
-			vm_page_busy_sleep(m, "pgrbwt");
+			vm_page_busy_sleep(m, "pgrbwt", (allocflags &
+			    VM_ALLOC_IGN_SBUSY) != 0);
 			VM_OBJECT_WLOCK(object);
 			goto retrylookup;
 		} else {
@@ -3949,14 +3948,12 @@ DB_SHOW_COMMAND(pageq, vm_page_print_pageq_info)
 	db_printf("pq_free %d pq_cache %d\n",
 	    vm_cnt.v_free_count, vm_cnt.v_cache_count);
 	for (dom = 0; dom < vm_ndomains; dom++) {
-		db_printf(
-	"dom %d page_cnt %d free %d pq_act %d pq_inact %d pass %d\n",
+		db_printf("dom %d page_cnt %d free %d pq_act %d pq_inact %d\n",
 		    dom,
 		    vm_dom[dom].vmd_page_count,
 		    vm_dom[dom].vmd_free_count,
 		    vm_dom[dom].vmd_pagequeues[PQ_ACTIVE].pq_cnt,
-		    vm_dom[dom].vmd_pagequeues[PQ_INACTIVE].pq_cnt,
-		    vm_dom[dom].vmd_pass);
+		    vm_dom[dom].vmd_pagequeues[PQ_INACTIVE].pq_cnt);
 	}
 }
 
