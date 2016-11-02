@@ -23,13 +23,6 @@ include 	"uFW"
 
 ident		uFW-netboot
 
-# NFS root from boopt/dhcp
-options 	BOOTP
-options 	BOOTP_NFSROOT
-options 	BOOTP_COMPAT
-options 	BOOTP_NFSV3
-options 	BOOTP_WIRED_TO=cpsw0
-
 # MD_ROOT options
 options 	MD_ROOT
 options 	MD_ROOT_SIZE=8192
