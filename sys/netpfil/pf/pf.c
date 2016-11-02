@@ -7084,7 +7084,7 @@ done:
 
 		if (ip_dn_io_ptr(m0,
 		    ((dir == PF_IN) ? DIR_IN : DIR_OUT) | PROTO_IPV6,
-		    &dnflow) != 0) {
+		    &dnflow) != 0)
 			action = PF_DROP;
 		if (*m0 == NULL) {
 			if (s)
