@@ -33,4 +33,3 @@ options 	BOOTP_WIRED_TO=cpsw0
 # MD_ROOT options
 options 	MFS
 options 	MD_ROOT
-pseudo-device 	md
