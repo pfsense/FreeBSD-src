@@ -7054,7 +7054,7 @@ done:
 		/* XXX: ipfw has the same behaviour! */
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
-	else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
+	} else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction && pd.act.dnpipe) {
