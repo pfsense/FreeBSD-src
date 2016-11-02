@@ -31,5 +31,5 @@ options 	BOOTP_NFSV3
 options 	BOOTP_WIRED_TO=cpsw0
 
 # MD_ROOT options
-options 	MFS
 options 	MD_ROOT
+options 	MD_ROOT_SIZE=8192
