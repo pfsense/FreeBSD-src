@@ -25,7 +25,7 @@ ident		uFW-netboot
 
 # MD_ROOT options
 options 	MD_ROOT
-options 	MD_ROOT_SIZE=8192
+options 	MD_ROOT_SIZE=65536
 options 	ROOTDEVNAME=\"ufs:md0\"
 
 options 	FDT_DTB_STATIC
