@@ -33,7 +33,7 @@
 #rm $BSDINSTALL_TMPETC/rc.conf.*
 
 cat $BSDINSTALL_CHROOT/etc/sysctl.conf $BSDINSTALL_TMPETC/sysctl.conf.hardening >> $BSDINSTALL_TMPETC/sysctl.conf
-rm $BSDINSTALL_TMPETC/sysctl.conf.*
+rm $BSDINSTALL_TMPETC/sysctl.conf*
 
 cp $BSDINSTALL_TMPETC/* $BSDINSTALL_CHROOT/etc
 
@@ -41,7 +41,7 @@ cat $BSDINSTALL_TMPBOOT/loader.conf.* >> $BSDINSTALL_TMPBOOT/loader.conf
 rm $BSDINSTALL_TMPBOOT/loader.conf.*
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_TMPBOOT/loader.conf
 
-cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
+#cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
 
 [ "${debugFile#+}" ] && cp "${debugFile#+}" $BSDINSTALL_CHROOT/var/log/
 
