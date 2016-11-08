@@ -46,6 +46,10 @@ if [ -f /tmp/loader.conf.pfSense ]; then
 	cp /tmp/loader.conf.pfSense $BSDINSTALL_CHROOT/boot/loader.conf
 fi
 
+if [ -f /tmp/boot.config ]; then
+	cp /tmp/boot.conf $BSDINSTALL_CHROOT
+fi
+
 [ "${debugFile#+}" ] && cp "${debugFile#+}" $BSDINSTALL_CHROOT/var/log/
 
 # Set up other things from installed config
