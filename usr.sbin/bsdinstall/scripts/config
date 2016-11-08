@@ -42,6 +42,9 @@ rm $BSDINSTALL_TMPBOOT/loader.conf.*
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_TMPBOOT/loader.conf
 
 #cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
+if [ -f /tmp/loader.conf.pfSense ]; then
+	cp /tmp/loader.conf.pfSense $BSDINSTALL_CHROOT/boot/loader.conf
+fi
 
 [ "${debugFile#+}" ] && cp "${debugFile#+}" $BSDINSTALL_CHROOT/var/log/
 
