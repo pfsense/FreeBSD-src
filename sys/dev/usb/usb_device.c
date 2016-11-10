@@ -1103,10 +1103,8 @@ usb_detach_device_sub(struct usb_device *udev, device_t *ppdev,
 					device_printf(dev, "Resume failed\n");
 				}
 			}
-			if (device_detach(dev)) {
-				goto error;
-			}
 		}
+		/* detach and delete child */
 		if (device_delete_child(udev->parent_dev, dev)) {
 			goto error;
 		}
@@ -1725,8 +1723,8 @@ usb_alloc_device(device_t parent_dev, struct usb_bus *bus,
 		/* Setup USB descriptors */
 		err = (usb_temp_setup_by_index_p) (udev, usb_template);
 		if (err) {
-			DPRINTFN(0, "setting up USB template failed maybe the USB "
-			    "template module has not been loaded\n");
+			DPRINTFN(0, "setting up USB template failed - "
+			    "usb_template(4) not loaded?\n");
 			goto done;
 		}
 	}
