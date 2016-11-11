@@ -19,7 +19,7 @@
 #
 # $FreeBSD$
 
-include 	"uFW"
+include 	"uFW-base"
 
 ident		uFW-netboot
 

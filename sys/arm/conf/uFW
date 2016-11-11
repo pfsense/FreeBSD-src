@@ -1,6 +1,6 @@
 #
-# uFW -- Custom configuration for the micro-firewall kit, check out
-# http://www.netgate.com
+# uFW-netboot -- Custom configuration for the micro-firewall kit with netboot
+# options, check out # http://www.netgate.com
 #
 # For more information on this file, please read the config(5) manual page,
 # and/or the handbook section on Kernel Configuration Files:
@@ -19,20 +19,12 @@
 #
 # $FreeBSD$
 
+include 	"uFW-base"
+
 ident		uFW
 
-include 	"std.armv6"
-include 	"../ti/am335x/std.am335x"
-
-makeoptions	MODULES_EXTRA="dtb/am335x am335x_dmtpps"
-
-options 	INTRNG
-
-options 	SCHED_4BSD		# 4BSD scheduler
-options 	PLATFORM
-
 # NFS server support
-#options 	NFSD
+#options        NFSD
 
 # NFS root from boopt/dhcp
 #options 	BOOTP
@@ -43,76 +35,3 @@ options 	PLATFORM
 
 # Boot device is 2nd slice on MMC/SD card
 options 	ROOTDEVNAME=\"ufs:mmcsd0s2a\"
-
-# MMC/SD/SDIO Card slot support
-device		mmc			# mmc/sd bus
-device		mmcsd			# mmc/sd flash cards
-device		sdhci			# mmc/sd host controller
-
-# I2C support
-device		iicbus
-device		iic
-device		ti_i2c
-
-# eeprom
-device		icee
-
-#define 	am335x_dmtpps		# Pulse Per Second capture driver
-
-# Console and misc
-device		uart
-device		uart_ns8250
-device		pty
-device		snp
-device		md
-device		random			# Entropy device
-
-# GPIO
-device		gpio
-#device		gpioled
-
-# ADC support
-device		ti_adc
-
-# Watchdog support
-# If we don't enable the watchdog driver, the system could potentially
-# reboot automatically because the boot loader might have enabled the
-# watchdog.
-device		ti_wdt
-
-# Mailbox support
-device		ti_mbox
-
-# PMU support (for CCNT).
-device		pmu
-
-# USB support
-device		usb
-options 	USB_HOST_ALIGN=64	# Align usb buffers to cache line size.
-device		musb
-device		umass
-device		scbus			# SCSI bus (required for ATA/SCSI)
-device		da			# Direct Access (disks)
-
-# USB ethernet support, requires miibus
-device		miibus
-
-# Ethernet
-device		loop
-device		ether
-device		micphy
-device		cpsw
-device		bpf
-
-# Netmap provides direct access to TX/RX rings on supported NICs
-#device		netmap			# netmap(4) support
-
-# Device mode support and USFS template
-#device		usb_template    	# Control of the gadget
-#device		usfs
-
-# Pinmux
-device		fdt_pinctrl
-
-# Flattened Device Tree
-options 	FDT			# Configure using FDT/DTB data
