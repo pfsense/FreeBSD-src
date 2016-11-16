@@ -72,36 +72,13 @@ VNET_DECLARE(int, tcp_autorcvbuf_inc);
 VNET_DECLARE(int, tcp_autorcvbuf_max);
 #define V_tcp_autorcvbuf_max VNET(tcp_autorcvbuf_max)
 
+static struct mbuf *get_ddp_mbuf(int len);
+
 #define PPOD_SZ(n)	((n) * sizeof(struct pagepod))
 #define PPOD_SIZE	(PPOD_SZ(1))
 
 /* XXX: must match A_ULP_RX_TDDP_PSZ */
 static int t4_ddp_pgsz[] = {4096, 4096 << 2, 4096 << 4, 4096 << 6};
-
-#if 0
-static void
-t4_dump_tcb(struct adapter *sc, int tid)
-{
-	uint32_t tcb_base, off, i, j;
-
-	/* Dump TCB for the tid */
-	tcb_base = t4_read_reg(sc, A_TP_CMM_TCB_BASE);
-	t4_write_reg(sc, PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET, 2),
-	    tcb_base + tid * TCB_SIZE);
-	t4_read_reg(sc, PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET, 2));
-	off = 0;
-	printf("\n");
-	for (i = 0; i < 4; i++) {
-		uint32_t buf[8];
-		for (j = 0; j < 8; j++, off += 4)
-			buf[j] = htonl(t4_read_reg(sc, MEMWIN2_BASE + off));
-
-		printf("%08x %08x %08x %08x %08x %08x %08x %08x\n",
-		    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6],
-		    buf[7]);
-	}
-}
-#endif
 
 #define MAX_DDP_BUFFER_SIZE		(M_TCB_RX_DDP_BUF0_LEN)
 static int
@@ -403,6 +380,19 @@ handle_ddp_data(struct toepcb *toep, __be32 ddp_report, __be32 rcv_nxt, int len)
 	}
 
 	tp = intotcpcb(inp);
+
+	/*
+	 * For RX_DDP_COMPLETE, len will be zero and rcv_nxt is the
+	 * sequence number of the next byte to receive.  The length of
+	 * the data received for this message must be computed by
+	 * comparing the new and old values of rcv_nxt.
+	 * 
+	 * For RX_DATA_DDP, len might be non-zero, but it is only the
+	 * length of the most recent DMA.  It does not include the
+	 * total length of the data received since the previous update
+	 * for this DDP buffer.  rcv_nxt is the sequence number of the
+	 * first received byte from the most recent DMA.
+	 */
 	len += be32toh(rcv_nxt) - tp->rcv_nxt;
 	tp->rcv_nxt += len;
 	tp->t_rcvtime = ticks;
@@ -452,6 +442,37 @@ wakeup:
 
 	INP_WUNLOCK(inp);
 	return (0);
+}
+
+void
+handle_ddp_close(struct toepcb *toep, struct tcpcb *tp, struct sockbuf *sb,
+    __be32 rcv_nxt)
+{
+	struct mbuf *m;
+	int len;
+
+	SOCKBUF_LOCK_ASSERT(sb);
+	INP_WLOCK_ASSERT(toep->inp);
+	len = be32toh(rcv_nxt) - tp->rcv_nxt;
+
+	/* Signal handle_ddp() to break out of its sleep loop. */
+	toep->ddp_flags &= ~(DDP_BUF0_ACTIVE | DDP_BUF1_ACTIVE);
+	if (len == 0)
+		return;
+
+	tp->rcv_nxt += len;
+	KASSERT(toep->sb_cc >= sb->sb_cc,
+	    ("%s: sb %p has more data (%d) than last time (%d).",
+	    __func__, sb, sb->sb_cc, toep->sb_cc));
+	toep->rx_credits += toep->sb_cc - sb->sb_cc;
+#ifdef USE_DDP_RX_FLOW_CONTROL
+	toep->rx_credits -= len;	/* adjust for F_RX_FC_DDP */
+#endif
+
+	m = get_ddp_mbuf(len);
+
+	sbappendstream_locked(sb, m);
+	toep->sb_cc = sb->sb_cc;
 }
 
 #define DDP_ERR (F_DDP_PPOD_MISMATCH | F_DDP_LLIMIT_ERR | F_DDP_ULIMIT_ERR |\
@@ -991,7 +1012,7 @@ soreceive_rcvoob(struct socket *so, struct uio *uio, int flags)
 
 static char ddp_magic_str[] = "nothing to see here";
 
-struct mbuf *
+static struct mbuf *
 get_ddp_mbuf(int len)
 {
 	struct mbuf *m;
@@ -1078,9 +1099,9 @@ t4_soreceive_ddp(struct socket *so, struct sockaddr **psa, struct uio *uio,
 
 	/* Prevent other readers from entering the socket. */
 	error = sblock(sb, SBLOCKWAIT(flags));
+	SOCKBUF_LOCK(sb);
 	if (error)
 		goto out;
-	SOCKBUF_LOCK(sb);
 
 	/* Easy one, no space to copyout anything. */
 	if (uio->uio_resid == 0) {

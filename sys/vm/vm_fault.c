@@ -153,6 +153,16 @@ unlock_map(struct faultstate *fs)
 }
 
 static void
+unlock_vp(struct faultstate *fs)
+{
+
+	if (fs->vp != NULL) {
+		vput(fs->vp);
+		fs->vp = NULL;
+	}
+}
+
+static void
 unlock_and_deallocate(struct faultstate *fs)
 {
 
@@ -168,18 +178,15 @@ unlock_and_deallocate(struct faultstate *fs)
 		fs->first_m = NULL;
 	}
 	vm_object_deallocate(fs->first_object);
-	unlock_map(fs);	
-	if (fs->vp != NULL) { 
-		vput(fs->vp);
-		fs->vp = NULL;
-	}
+	unlock_map(fs);
+	unlock_vp(fs);
 }
 
 static void
 vm_fault_dirty(vm_map_entry_t entry, vm_page_t m, vm_prot_t prot,
-    vm_prot_t fault_type, int fault_flags, boolean_t set_wd)
+    vm_prot_t fault_type, int fault_flags, bool set_wd)
 {
-	boolean_t need_dirty;
+	bool need_dirty;
 
 	if (((prot & VM_PROT_WRITE) == 0 &&
 	    (fault_flags & VM_FAULT_DIRTY) == 0) ||
@@ -320,8 +327,7 @@ RetryFault:;
 			growstack = FALSE;
 			goto RetryFault;
 		}
-		if (fs.vp != NULL)
-			vput(fs.vp);
+		unlock_vp(&fs);
 		return (result);
 	}
 
@@ -338,10 +344,7 @@ RetryFault:;
 		vm_map_lock(fs.map);
 		if (vm_map_lookup_entry(fs.map, vaddr, &fs.entry) &&
 		    (fs.entry->eflags & MAP_ENTRY_IN_TRANSITION)) {
-			if (fs.vp != NULL) {
-				vput(fs.vp);
-				fs.vp = NULL;
-			}
+			unlock_vp(&fs);
 			fs.entry->eflags |= MAP_ENTRY_NEEDS_WAKEUP;
 			vm_map_unlock_and_wait(fs.map, 0);
 		} else
@@ -394,7 +397,7 @@ RetryFault:;
 			vm_page_unlock(m);
 		}
 		vm_fault_dirty(fs.entry, m, prot, fault_type, fault_flags,
-		    FALSE);
+		    false);
 		VM_OBJECT_RUNLOCK(fs.first_object);
 		if (!wired)
 			vm_fault_prefault(&fs, vaddr, 0, 0);
@@ -624,14 +627,9 @@ readrest:
 			 */
 			unlock_map(&fs);
 
-			if (fs.object->type == OBJT_VNODE) {
-				vp = fs.object->handle;
-				if (vp == fs.vp)
-					goto vnode_locked;
-				else if (fs.vp != NULL) {
-					vput(fs.vp);
-					fs.vp = NULL;
-				}
+			if (fs.object->type == OBJT_VNODE &&
+			    (vp = fs.object->handle) != fs.vp) {
+				unlock_vp(&fs);
 				locked = VOP_ISLOCKED(vp);
 
 				if (locked != LK_EXCLUSIVE)
@@ -653,7 +651,6 @@ readrest:
 				}
 				fs.vp = vp;
 			}
-vnode_locked:
 			KASSERT(fs.vp == NULL || !fs.map->system_map,
 			    ("vm_fault: vnode-backed object mapped by system map"));
 
@@ -985,7 +982,7 @@ vnode_locked:
 	if (hardfault)
 		fs.entry->next_read = fs.pindex + faultcount - reqpage;
 
-	vm_fault_dirty(fs.entry, fs.m, prot, fault_type, fault_flags, TRUE);
+	vm_fault_dirty(fs.entry, fs.m, prot, fault_type, fault_flags, true);
 	vm_page_assert_xbusied(fs.m);
 
 	/*
