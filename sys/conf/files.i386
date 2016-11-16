@@ -225,6 +225,7 @@ dev/fe/if_fe_isa.c		optional fe isa
 dev/glxiic/glxiic.c		optional glxiic
 dev/glxsb/glxsb.c		optional glxsb
 dev/glxsb/glxsb_hash.c		optional glxsb
+dev/gpio/bytgpio.c		optional	bytgpio
 dev/hpt27xx/hpt27xx_os_bsd.c	optional hpt27xx
 dev/hpt27xx/hpt27xx_osm_bsd.c	optional hpt27xx
 dev/hpt27xx/hpt27xx_config.c	optional hpt27xx
@@ -248,9 +249,9 @@ dev/hwpmc/hwpmc_piv.c		optional hwpmc
 dev/hwpmc/hwpmc_ppro.c		optional hwpmc
 dev/hwpmc/hwpmc_tsc.c		optional hwpmc
 dev/hwpmc/hwpmc_x86.c		optional hwpmc
-dev/hyperv/netvsc/hv_net_vsc.c				optional	hyperv
-dev/hyperv/netvsc/hv_netvsc_drv_freebsd.c		optional	hyperv
-dev/hyperv/netvsc/hv_rndis_filter.c			optional	hyperv
+dev/hyperv/netvsc/hn_nvs.c				optional	hyperv
+dev/hyperv/netvsc/hn_rndis.c				optional	hyperv
+dev/hyperv/netvsc/if_hn.c				optional	hyperv
 dev/hyperv/storvsc/hv_storvsc_drv_freebsd.c		optional	hyperv
 dev/hyperv/utilities/hv_heartbeat.c			optional	hyperv
 dev/hyperv/utilities/hv_kvp.c				optional	hyperv
