@@ -35,14 +35,12 @@ fi
 mkdir -p ${1}.tmp
 
 echo '/dev/md0 / ufs ro,noatime 1 1' > ${1}/etc/fstab
-echo 'root_rw_mount="NO"' > ${1}/etc/rc.conf.local
 
 cp -rp ${1}/boot ${1}.tmp
 makefs -o version=2 ${1}.tmp/mfsroot ${1}
 gzip ${1}.tmp/mfsroot
 
 rm ${1}/etc/fstab
-rm ${1}/etc/rc.conf.local
 
 echo 'autoboot_delay="3"' >> ${1}.tmp/boot/loader.conf
 echo 'mfs_load="YES"' >> ${1}.tmp/boot/loader.conf
