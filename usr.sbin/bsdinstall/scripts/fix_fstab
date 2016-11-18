@@ -1,0 +1,92 @@
+#!/bin/sh
+
+dev_label() {
+	if [ -z "${1}" -o -z "${2}" ]; then
+		return
+	fi
+
+	local _fstype="${1}"
+	local _device="${2}"
+
+	case "${_fstype}" in
+		ufs|swap)
+			;;
+		*)
+			echo ${_device}
+			return
+	esac
+
+	# Detect if device is already a label and return
+	local _prefix=${_device%/*}
+	case "${_prefix#/dev/}" in
+		mirror|ufsid|label|geom|gpt|gptid)
+			echo ${_device}
+			return
+			;;
+	esac
+
+	local _devname=${_device#/dev/}
+	if [ -z "${_devname}" ]; then
+		echo ${_device}
+		return
+	fi
+
+	# Get already defined labels if exist
+	local _label=""
+	for lt in mirror label gpt ufsid gptid; do
+		_label=$(glabel list ${_devname} 2>/dev/null \
+		    | grep "Name: *${lt}/" \
+		    | sed 's,^.*Name: *,,')
+
+		if [ -n "${_label}" -a -e "/dev/${_label}" ]; then
+			echo "/dev/${_label}"
+			return
+		fi
+	done
+
+	# No label found, lets create one. It should be swap
+	if [ "${_fstype}" != "swap" ]; then
+		echo ${_device}
+		return
+	fi
+
+	glabel label swap${SWAPNUM} ${_device}
+	# Error, don't use label
+	if [ $? -ne 0 ]; then
+		echo ${_device}
+		return
+	fi
+
+	SWAPNUM=$((SWAPNUM+1))
+	echo "/dev/label/swap${SWAPNUM}"
+}
+
+FSTAB=${BSDINSTALL_TMPETC}/fstab}
+
+if [ -z "${FSTAB}" -o ! -f "${FSTAB}" ]; then
+	dialog --backtitle "pfSense Installer" --title "Error" \
+	    --msgbox "Error creating device labels" 0 0
+	exit 1
+fi
+
+TMP="${FSTAB}.tmp"
+
+[ -f "${TMP}" ] \
+    && rm -f ${TMP}
+
+SWAPNUM=0
+while read device mountpoint fstype options dump pass; do
+	if ! echo "${device}" | egrep -q '^/dev/'; then
+		continue
+	fi
+
+	label=$(dev_label ${fstype} ${device})
+
+	# If label is blank, use device name
+	label=${label:-${device}}
+
+	printf "%s\t%s\t%s\t%s\t%s\t%s\n" ${label} ${mountpoint} ${fstype} \
+	    ${options} ${dump} ${pass} >> ${TMP}
+done < ${FSTAB}
+
+mv ${TMP} ${FSTAB}

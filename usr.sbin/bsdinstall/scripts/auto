@@ -279,6 +279,7 @@ exec 3>&-
 case "$PARTMODE" in
 "Auto (UFS)")	# Guided
 	bsdinstall autopart || error "Partitioning error"
+	bsdinstall fix_fstab || error "Failed to set partition labels"
 	bsdinstall mount || error "Failed to mount filesystem"
 	;;
 "Shell")	# Shell
