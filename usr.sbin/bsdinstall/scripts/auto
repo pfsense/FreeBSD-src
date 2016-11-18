@@ -294,6 +294,7 @@ case "$PARTMODE" in
 	else
 		bsdinstall partedit || error "Partitioning error"
 	fi
+	bsdinstall fix_fstab || error "Failed to set partition labels"
 	bsdinstall mount || error "Failed to mount filesystem"
 	;;
 "Auto (ZFS)")	# ZFS
