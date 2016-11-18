@@ -61,7 +61,7 @@ dev_label() {
 	echo "/dev/label/swap${SWAPNUM}"
 }
 
-FSTAB=${BSDINSTALL_TMPETC}/fstab}
+FSTAB=${BSDINSTALL_TMPETC}/fstab
 
 if [ -z "${FSTAB}" -o ! -f "${FSTAB}" ]; then
 	dialog --backtitle "pfSense Installer" --title "Error" \
