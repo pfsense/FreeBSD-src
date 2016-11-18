@@ -8,6 +8,16 @@
 : ${DIALOG_ITEM_HELP=4}
 : ${DIALOG_ESC=255}
 
+if ! mdconfig -l | grep -q md3; then
+	mdconfig -a -u 3 -s 8m
+	newfs /dev/md3
+	mount /dev/md3 /mnt
+	tar -C /etc -cf - . | tar -C /mnt -xf -
+	sync; sync; sync
+	umount /mnt
+	mount /dev/md3 /etc
+fi
+
 MACHINE=`uname -m`
 
 # resolv.conf from DHCP ends up in here, so make sure the directory exists
