@@ -1,6 +1,7 @@
 include		GENERIC
 
 nooptions	KDB_TRACE
+options		DDB
 
 ident		pfSense
 
