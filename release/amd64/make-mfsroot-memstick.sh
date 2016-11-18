@@ -34,7 +34,7 @@ fi
 
 mkdir -p ${1}.tmp
 
-echo '/dev/md0 / ufs ro,noatime 1 1' > ${1}/etc/fstab
+echo '/dev/md0 / ufs rw,noatime 1 1' > ${1}/etc/fstab
 
 cp -rp ${1}/boot ${1}.tmp
 makefs -b '10%' ${1}.tmp/mfsroot ${1}
