@@ -87,8 +87,11 @@ device		miibus
 # Ethernet
 device		loop
 device		ether
+device		vlan			# 802.1Q VLAN support
 device		micphy
 device		cpsw
+options 	CPSW_ETHERSWITCH
+device		etherswitch
 device		bpf
 
 # Netmap provides direct access to TX/RX rings on supported NICs
