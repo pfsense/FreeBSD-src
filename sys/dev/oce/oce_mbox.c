@@ -864,7 +864,7 @@ oce_rxf_set_promiscuous(POCE_SOFTC sc, uint8_t enable)
 		req->iface_flags = MBX_RX_IFACE_FLAGS_PROMISCUOUS;
 
 	if (enable & 0x02)
-		req->iface_flags = MBX_RX_IFACE_FLAGS_VLAN_PROMISCUOUS;
+		req->iface_flags |= MBX_RX_IFACE_FLAGS_VLAN_PROMISCUOUS;
 
 	req->if_id = sc->if_id;
 
