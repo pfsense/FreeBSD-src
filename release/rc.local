@@ -61,7 +61,7 @@ if [ -f /etc/installerconfig ]; then
 	exit 
 fi
 
-bsddialog --backtitle "pfSense Installer" --title "Welcome" --extra-button --extra-label "Shell" --ok-label "Install" --cancel-label "Live CD" --yesno "Welcome to pfSense! Would you like to begin an installation or use the live CD?" 0 0
+bsddialog --backtitle "pfSense Installer" --title "Welcome" --ok-label "Install" --cancel-label "Rescue Shell" --yesno "Welcome to pfSense! Would you like to begin an installation or use the Rescue Shell?" 0 0
 
 case $? in
 $BSDDIALOG_OK)	# Install
@@ -74,15 +74,12 @@ $BSDDIALOG_OK)	# Install
 	trap true SIGINT	# Ignore cntrl-C here
 	bsdinstall
 	if [ $? -eq 0 ]; then
-		bsddialog --backtitle "pfSense Installer" --title "Complete" --yes-label "Reboot" --no-label "Live CD" --yesno "Installation of pfSense complete! Would you like to reboot into the installed system now?" 0 0 && reboot
+		bsddialog --backtitle "pfSense Installer" --title "Complete" --yes-label "Reboot" --no-label "Shell" --yesno "Installation of pfSense complete! Would you like to reboot into the installed system now?" 0 0 && reboot
 	else
 		. /etc/rc.local
 	fi
 	;;
-$BSDDIALOG_CANCEL)	# Live CD
-	exit 0
-	;;
-$BSDDIALOG_EXTRA)	# Shell
+$BSDDIALOG_CANCEL)	# Rescue Shell
 	clear
 	echo "When finished, type 'exit' to return to the installer."
 	/bin/sh
