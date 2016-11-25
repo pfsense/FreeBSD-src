@@ -314,16 +314,11 @@ identify_arm_cpu(void)
 			cpu_class = cpuids[i].cpu_class;
 			memset(cpu_model, 0, sizeof(cpu_model));
 			snprintf(cpu_model, sizeof(cpu_model) - 1,
-			    "CPU: %s %s (%s core)\n",
-			    cpuids[i].cpu_name,
+			    "%s %s (%s core)", cpuids[i].cpu_name,
 			    cpuids[i].cpu_steppings[cpuid &
 			    CPU_ID_REVISION_MASK],
 			    cpu_classes[cpu_class].class_name);
-			printf("CPU: %s %s (%s core)\n",
-			    cpuids[i].cpu_name,
-			    cpuids[i].cpu_steppings[cpuid &
-			    CPU_ID_REVISION_MASK],
-			    cpu_classes[cpu_class].class_name);
+			printf("CPU: %s\n", cpu_model);
 			break;
 		}
 	if (cpuids[i].cpuid == 0)
