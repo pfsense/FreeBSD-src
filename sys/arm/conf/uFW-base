@@ -51,8 +51,6 @@ device		uart
 device		uart_ns8250
 device		pty
 device		snp
-device		md
-device		random			# Entropy device
 
 # GPIO
 device		gpio
@@ -73,6 +71,44 @@ device		ti_mbox
 # PMU support (for CCNT).
 device		pmu
 
+# Wireless NIC cards                    
+device		wlan			# 802.11 support
+options 	IEEE80211_DEBUG		# enable debug msgs
+options 	IEEE80211_AMPDU_AGE	# age frames in AMPDU reorder q's
+options 	IEEE80211_SUPPORT_MESH	# enable 802.11s draft support
+device		wlan_wep		# 802.11 WEP support
+device		wlan_ccmp		# 802.11 CCMP support
+device		wlan_tkip		# 802.11 TKIP support
+device		wlan_amrr		# AMRR transmit rate control algorithm
+device		an			# Aironet 4500/4800 802.11 wireless NICs.
+device		ath			# Atheros NICs
+device		ath_pci			# Atheros pci/cardbus glue
+device		ath_hal			# pci/cardbus chip support
+options 	AH_SUPPORT_AR5416	# enable AR5416 tx/rx descriptors
+options 	AH_AR5416_INTERRUPT_MITIGATION	# AR5416 interrupt mitigation
+options 	ATH_ENABLE_11N		# Enable 802.11n support for AR5416 and later
+device		ath_rate_sample		# SampleRate tx rate control for ath
+#device		bwi			# Broadcom BCM430x/BCM431x wireless NICs.
+#device		bwn			# Broadcom BCM43xx wireless NICs.
+device		ipw			# Intel 2100 wireless NICs.
+device		iwi			# Intel 2200BG/2225BG/2915ABG wireless NICs.
+device		iwn			# Intel 4965/1000/5000/6000 wireless NICs.
+device		malo			# Marvell Libertas wireless NICs.
+device		mwl			# Marvell 88W8363 802.11n wireless NICs.
+device		ral			# Ralink Technology RT2500 wireless NICs. 
+device		wi			# WaveLAN/Intersil/Symbol 802.11 wireless NICs.
+device		wpi			# Intel 3945ABG wireless NICs.
+
+# Pseudo devices.
+device		loop			# Network loopback
+device		random			# Entropy device
+device		ether			# Ethernet support
+device		vlan			# 802.1Q VLAN support
+device		tun			# Packet tunnel.
+device		md			# Memory "disks"
+device		gif			# IPv6 and IPv4 tunneling
+device		firmware		# firmware assist module
+
 # USB support
 device		usb
 options 	USB_HOST_ALIGN=64	# Align usb buffers to cache line size.
@@ -85,9 +121,6 @@ device		da			# Direct Access (disks)
 device		miibus
 
 # Ethernet
-device		loop
-device		ether
-device		vlan			# 802.1Q VLAN support
 device		micphy
 device		cpsw
 options 	CPSW_ETHERSWITCH
