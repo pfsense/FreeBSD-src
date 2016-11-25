@@ -54,7 +54,10 @@ __FBSDID("$FreeBSD$");
 #include <machine/md_var.h>
 
 char machine[] = "arm";
+static char cpu_model[128];
 
+SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD | CTLFLAG_MPSAFE,
+	cpu_model, 0, "Machine model");
 SYSCTL_STRING(_hw, HW_MACHINE, machine, CTLFLAG_RD,
 	machine, 0, "Machine class");
 
@@ -309,6 +312,13 @@ identify_arm_cpu(void)
 	for (i = 0; cpuids[i].cpuid != 0; i++)
 		if (cpuids[i].cpuid == (cpuid & CPU_ID_CPU_MASK)) {
 			cpu_class = cpuids[i].cpu_class;
+			memset(cpu_model, 0, sizeof(cpu_model));
+			snprintf(cpu_model, sizeof(cpu_model) - 1,
+			    "CPU: %s %s (%s core)\n",
+			    cpuids[i].cpu_name,
+			    cpuids[i].cpu_steppings[cpuid &
+			    CPU_ID_REVISION_MASK],
+			    cpu_classes[cpu_class].class_name);
 			printf("CPU: %s %s (%s core)\n",
 			    cpuids[i].cpu_name,
 			    cpuids[i].cpu_steppings[cpuid &
