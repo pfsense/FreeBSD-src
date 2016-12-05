@@ -38,8 +38,22 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20161121: Hyper-V manuals only apply to amd64 and i386.
+.if ${TARGET_ARCH} != "amd64" && ${TARGET_ARCH} != "i386"
+OLD_FILES+=usr/share/man/man4/hv_kvp.4.gz
+OLD_FILES+=usr/share/man/man4/hv_netvsc.4.gz
+OLD_FILES+=usr/share/man/man4/hv_storvsc.4.gz
+OLD_FILES+=usr/share/man/man4/hv_utils.4.gz
+OLD_FILES+=usr/share/man/man4/hv_vmbus.4.gz
+OLD_FILES+=usr/share/man/man4/hv_vss.4.gz
+.endif
+# 20161118: Remove hv_ata_pci_disengage(4)
+OLD_FILES+=usr/share/man/man4/hv_ata_pci_disengage.4.gz
 # 20161015: remove link to removed m_getclr(9) macro
 OLD_FILES+=usr/share/man/man9/m_getclr.9.gz
+# 20160906: libkqueue tests moved to /usr/tests/sys/kqueue/libkqueue
+OLD_FILES+=usr/tests/sys/kqueue/kqtest
+OLD_FILES+=usr/tests/sys/kqueue/kqueue_test
 # 20160703: POSIXify locales with variants
 OLD_FILES+=usr/share/locale/zh_Hant_TW.UTF-8/LC_COLLATE
 OLD_FILES+=usr/share/locale/zh_Hant_TW.UTF-8/LC_CTYPE
