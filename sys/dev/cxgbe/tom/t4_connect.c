@@ -179,12 +179,12 @@ act_open_failure_cleanup(struct adapter *sc, u_int atid, u_int status)
 	toep->tid = -1;
 
 	if (status != EAGAIN)
-		INP_INFO_WLOCK(&V_tcbinfo);
+		INP_INFO_RLOCK(&V_tcbinfo);
 	INP_WLOCK(inp);
 	toe_connect_failed(tod, inp, status);
 	final_cpl_received(toep);	/* unlocks inp */
 	if (status != EAGAIN)
-		INP_INFO_WUNLOCK(&V_tcbinfo);
+		INP_INFO_RUNLOCK(&V_tcbinfo);
 }
 
 static int
@@ -261,11 +261,11 @@ calc_opt2a(struct socket *so, struct toepcb *toep)
 }
 
 void
-t4_init_connect_cpl_handlers(struct adapter *sc)
+t4_init_connect_cpl_handlers(void)
 {
 
-	t4_register_cpl_handler(sc, CPL_ACT_ESTABLISH, do_act_establish);
-	t4_register_cpl_handler(sc, CPL_ACT_OPEN_RPL, do_act_open_rpl);
+	t4_register_cpl_handler(CPL_ACT_ESTABLISH, do_act_establish);
+	t4_register_cpl_handler(CPL_ACT_OPEN_RPL, do_act_open_rpl);
 }
 
 #define DONT_OFFLOAD_ACTIVE_OPEN(x)	do { \
