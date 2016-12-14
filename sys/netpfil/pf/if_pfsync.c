@@ -161,8 +161,8 @@ static struct pfsync_q pfsync_qs[] = {
 	{ pfsync_out_del,   sizeof(struct pfsync_del_c),   PFSYNC_ACT_DEL_C }
 };
 
-static void	pfsync_q_ins(struct pf_state *, int);
-static void	pfsync_q_del(struct pf_state *);
+static void	pfsync_q_ins(struct pf_state *, int, bool);
+static void	pfsync_q_del(struct pf_state *, bool);
 
 static void	pfsync_update_state(struct pf_state *);
 
@@ -539,7 +539,7 @@ pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 	if (!(flags & PFSYNC_SI_IOCTL)) {
 		st->state_flags &= ~PFSTATE_NOSYNC;
 		if (st->state_flags & PFSTATE_ACK) {
-			pfsync_q_ins(st, PFSYNC_S_IACK);
+			pfsync_q_ins(st, PFSYNC_S_IACK, true);
 			pfsync_push(sc);
 		}
 	}
@@ -1505,7 +1505,7 @@ pfsync_sendout(int schedswi)
 	struct ip *ip;
 	struct pfsync_header *ph;
 	struct pfsync_subheader *subh;
-	struct pf_state *st;
+	struct pf_state *st, *st_next;
 	struct pfsync_upd_req_item *ur;
 	int offset;
 	int q, count = 0;
@@ -1555,7 +1555,7 @@ pfsync_sendout(int schedswi)
 		offset += sizeof(*subh);
 
 		count = 0;
-		TAILQ_FOREACH(st, &sc->sc_qs[q], sync_list) {
+		TAILQ_FOREACH_SAFE(st, &sc->sc_qs[q], sync_list, st_next) {
 			KASSERT(st->sync_state == q,
 				("%s: st->sync_state == q",
 					__func__));
@@ -1665,7 +1665,7 @@ pfsync_insert_state(struct pf_state *st)
 	if (sc->sc_len == PFSYNC_MINPKT)
 		callout_reset(&sc->sc_tmo, 1 * hz, pfsync_timeout, V_pfsyncif);
 
-	pfsync_q_ins(st, PFSYNC_S_INS);
+	pfsync_q_ins(st, PFSYNC_S_INS, true);
 	PFSYNC_UNLOCK(sc);
 
 	st->sync_updates = 0;
@@ -1786,7 +1786,7 @@ static void
 pfsync_update_state(struct pf_state *st)
 {
 	struct pfsync_softc *sc = V_pfsyncif;
-	int sync = 0;
+	bool sync = false, ref = true;
 
 	PF_STATE_LOCK_ASSERT(st);
 	PFSYNC_LOCK(sc);
@@ -1795,7 +1795,7 @@ pfsync_update_state(struct pf_state *st)
 		pfsync_undefer_state(st, 0);
 	if (st->state_flags & PFSTATE_NOSYNC) {
 		if (st->sync_state != PFSYNC_S_NONE)
-			pfsync_q_del(st);
+			pfsync_q_del(st, true);
 		PFSYNC_UNLOCK(sc);
 		return;
 	}
@@ -1812,14 +1812,17 @@ pfsync_update_state(struct pf_state *st)
 		if (st->key[PF_SK_WIRE]->proto == IPPROTO_TCP) {
 			st->sync_updates++;
 			if (st->sync_updates >= sc->sc_maxupdates)
-				sync = 1;
+				sync = true;
 		}
 		break;
 
 	case PFSYNC_S_IACK:
-		pfsync_q_del(st);
+		pfsync_q_del(st, false);
+		ref = false;
+		/* FALLTHROUGH */
+
 	case PFSYNC_S_NONE:
-		pfsync_q_ins(st, PFSYNC_S_UPD_C);
+		pfsync_q_ins(st, PFSYNC_S_UPD_C, ref);
 		st->sync_updates = 0;
 		break;
 
@@ -1877,13 +1880,14 @@ static void
 pfsync_update_state_req(struct pf_state *st)
 {
 	struct pfsync_softc *sc = V_pfsyncif;
+	bool ref = true;
 
 	PF_STATE_LOCK_ASSERT(st);
 	PFSYNC_LOCK(sc);
 
 	if (st->state_flags & PFSTATE_NOSYNC) {
 		if (st->sync_state != PFSYNC_S_NONE)
-			pfsync_q_del(st);
+			pfsync_q_del(st, true);
 		PFSYNC_UNLOCK(sc);
 		return;
 	}
@@ -1891,9 +1895,12 @@ pfsync_update_state_req(struct pf_state *st)
 	switch (st->sync_state) {
 	case PFSYNC_S_UPD_C:
 	case PFSYNC_S_IACK:
-		pfsync_q_del(st);
+		pfsync_q_del(st, false);
+		ref = false;
+		/* FALLTHROUGH */
+
 	case PFSYNC_S_NONE:
-		pfsync_q_ins(st, PFSYNC_S_UPD);
+		pfsync_q_ins(st, PFSYNC_S_UPD, ref);
 		pfsync_push(sc);
 		break;
 
@@ -1914,13 +1921,14 @@ static void
 pfsync_delete_state(struct pf_state *st)
 {
 	struct pfsync_softc *sc = V_pfsyncif;
+	bool ref = true;
 
 	PFSYNC_LOCK(sc);
 	if (st->state_flags & PFSTATE_ACK)
 		pfsync_undefer_state(st, 1);
 	if (st->state_flags & PFSTATE_NOSYNC) {
 		if (st->sync_state != PFSYNC_S_NONE)
-			pfsync_q_del(st);
+			pfsync_q_del(st, true);
 		PFSYNC_UNLOCK(sc);
 		return;
 	}
@@ -1931,22 +1939,24 @@ pfsync_delete_state(struct pf_state *st)
 	switch (st->sync_state) {
 	case PFSYNC_S_INS:
 		/* We never got to tell the world so just forget about it. */
-		pfsync_q_del(st);
+		pfsync_q_del(st, true);
 		break;
 
 	case PFSYNC_S_UPD_C:
 	case PFSYNC_S_UPD:
 	case PFSYNC_S_IACK:
-		pfsync_q_del(st);
-		/* FALLTHROUGH to putting it on the del list */
+		pfsync_q_del(st, false);
+		ref = false;
+		/* FALLTHROUGH */
 
 	case PFSYNC_S_NONE:
-		pfsync_q_ins(st, PFSYNC_S_DEL);
+		pfsync_q_ins(st, PFSYNC_S_DEL, ref);
 		break;
 
 	default:
 		panic("%s: unexpected sync state %d", __func__, st->sync_state);
 	}
+
 	PFSYNC_UNLOCK(sc);
 }
 
@@ -1974,7 +1984,7 @@ pfsync_clear_states(u_int32_t creatorid, const char *ifname)
 }
 
 static void
-pfsync_q_ins(struct pf_state *st, int q)
+pfsync_q_ins(struct pf_state *st, int q, bool ref)
 {
 	struct pfsync_softc *sc = V_pfsyncif;
 	size_t nlen = pfsync_qs[q].len;
@@ -1998,11 +2008,12 @@ pfsync_q_ins(struct pf_state *st, int q)
 	sc->sc_len += nlen;
 	TAILQ_INSERT_TAIL(&sc->sc_qs[q], st, sync_list);
 	st->sync_state = q;
-	pf_ref_state(st);
+	if (ref)
+		pf_ref_state(st);
 }
 
 static void
-pfsync_q_del(struct pf_state *st)
+pfsync_q_del(struct pf_state *st, bool unref)
 {
 	struct pfsync_softc *sc = V_pfsyncif;
 	int q = st->sync_state;
@@ -2014,7 +2025,8 @@ pfsync_q_del(struct pf_state *st)
 	sc->sc_len -= pfsync_qs[q].len;
 	TAILQ_REMOVE(&sc->sc_qs[q], st, sync_list);
 	st->sync_state = PFSYNC_S_NONE;
-	pf_release_state(st);
+	if (unref)
+		pf_release_state(st);
 
 	if (TAILQ_EMPTY(&sc->sc_qs[q]))
 		sc->sc_len -= sizeof(struct pfsync_subheader);
