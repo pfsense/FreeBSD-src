@@ -164,8 +164,6 @@ device		padlock
 
 device		speaker
 
-options		DEVICE_POLLING
-
 options		MROUTING
 
 # Additional cards
