@@ -153,6 +153,4 @@ options		HIFN_RNDTEST	# enable rndtest support
 device		ubsec		# Broadcom 5501, 5601, 58xx
 device		safe		# safe -- SafeNet crypto accelerator
 
-options		DEVICE_POLLING
-
 options		MROUTING
