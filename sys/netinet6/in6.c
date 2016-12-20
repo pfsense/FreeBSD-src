@@ -624,7 +624,7 @@ in6_control(struct socket *so, u_long cmd, caddr_t data,
 			 */
 			if ((error = nd6_prelist_add(&pr0, NULL, &pr)) != 0) {
 				if (carp_attached)
-					(*carp_detach_p)(&ia->ia_ifa);
+					(*carp_detach_p)(&ia->ia_ifa, false);
 				goto out;
 			}
 		}
@@ -1245,7 +1245,7 @@ in6_purgeaddr(struct ifaddr *ifa)
 	int plen, error;
 
 	if (ifa->ifa_carp)
-		(*carp_detach_p)(ifa);
+		(*carp_detach_p)(ifa, true);
 
 	/*
 	 * Remove the loopback route to the interface address.
