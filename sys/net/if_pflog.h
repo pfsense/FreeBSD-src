@@ -49,11 +49,13 @@ struct pfloghdr {
 	pid_t		pid;
 	uid_t		rule_uid;
 	pid_t		rule_pid;
+	u_int8_t	dir;
+	u_int8_t	pad[3];
 #else
 	u_int32_t	ridentifier;
-#endif
 	u_int8_t	dir;
-	u_int8_t	pad[7];
+	u_int8_t	pad[sizeof(long) - 1];
+#endif
 };
 
 #define	PFLOG_HDRLEN		sizeof(struct pfloghdr)
