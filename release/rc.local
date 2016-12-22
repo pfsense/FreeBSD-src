@@ -61,7 +61,7 @@ if [ -f /etc/installerconfig ]; then
 	exit 
 fi
 
-bsddialog --backtitle "pfSense Installer" --title "Welcome" --ok-label "Install" --cancel-label "Rescue Shell" --yesno "Welcome to pfSense! Would you like to begin an installation or use the Rescue Shell?" 0 0
+bsddialog --backtitle "pfSense Installer" --title "Welcome" --yes-label "Install" --no-label "Rescue Shell" --yesno "Welcome to pfSense! Would you like to begin an installation or use the Rescue Shell?" 0 0
 
 case $? in
 $BSDDIALOG_OK)	# Install
