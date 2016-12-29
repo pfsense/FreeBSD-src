@@ -136,8 +136,9 @@ ti_aintc_intr(void *arg)
 	/* Get active interrupt */
 	irq = aintc_read_4(sc, INTC_SIR_IRQ);
 	if ((irq & INTC_SIR_SPURIOUS_MASK) != 0) {
-		device_printf(sc->sc_dev,
-		    "Spurious interrupt detected (0x%08x)\n", irq);
+		if (bootverbose)
+			device_printf(sc->sc_dev,
+			    "Spurious interrupt detected (0x%08x)\n", irq);
 		ti_aintc_irq_eoi(sc);
 		return (FILTER_HANDLED);
 	}
@@ -351,8 +352,9 @@ arm_get_next_irq(int last_irq)
 
 	/* Check for spurious interrupt */
 	if ((active_irq & 0xffffff80)) {
-		device_printf(sc->sc_dev,
-		    "Spurious interrupt detected (0x%08x)\n", active_irq);
+		if (bootverbose)
+			device_printf(sc->sc_dev,
+			    "Spurious interrupt detected (0x%08x)\n", active_irq);
 		aintc_write_4(sc, INTC_SIR_IRQ, 0);
 		return -1;
 	}
