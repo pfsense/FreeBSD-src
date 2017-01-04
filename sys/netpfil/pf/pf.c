@@ -316,8 +316,7 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 #define	PACKET_UNDO_NAT(_m, _pd, _off, _s, _dir)			\
 	do {								\
 		struct pf_state_key *nk;				\
-		if ((_dir) == PF_OUT &&					\
-		    (_s)->nat_rule.ptr->action == PF_NAT)		\
+		if ((_dir) == PF_OUT)					\
 			nk = (_s)->key[PF_SK_STACK];			\
 		else							\
 			nk = (_s)->key[PF_SK_WIRE];			\
@@ -326,8 +325,7 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 #define	PACKET_REDO_NAT(_m, _pd, _off, _s, _dir)			\
 	do {								\
 		struct pf_state_key *nk;				\
-		if ((_dir) == PF_OUT &&					\
-		    (_s)->nat_rule.ptr->action == PF_NAT)		\
+		if ((_dir) == PF_OUT)					\
 			nk = (_s)->key[PF_SK_WIRE];			\
 		else							\
 			nk = (_s)->key[PF_SK_STACK];			\
