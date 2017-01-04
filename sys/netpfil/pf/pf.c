@@ -316,7 +316,8 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 #define	PACKET_UNDO_NAT(_m, _pd, _off, _s, _dir)			\
 	do {								\
 		struct pf_state_key *nk;				\
-		if ((_dir) == PF_OUT)					\
+		if ((_dir) == PF_OUT &&					\
+		    (_s)->nat_rule.ptr->action == PF_NAT)		\
 			nk = (_s)->key[PF_SK_STACK];			\
 		else							\
 			nk = (_s)->key[PF_SK_WIRE];			\
@@ -325,7 +326,8 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 #define	PACKET_REDO_NAT(_m, _pd, _off, _s, _dir)			\
 	do {								\
 		struct pf_state_key *nk;				\
-		if ((_dir) == PF_OUT)					\
+		if ((_dir) == PF_OUT &&					\
+		    (_s)->nat_rule.ptr->action == PF_NAT)		\
 			nk = (_s)->key[PF_SK_WIRE];			\
 		else							\
 			nk = (_s)->key[PF_SK_STACK];			\
@@ -6263,6 +6265,20 @@ pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 		action = pf_test_state_tcp(&s, dir, kif, m, off, h, &pd,
 		    &reason);
 		if (action == PF_PASS) {
+			if (dir == PF_IN && s != NULL &&
+			    s->nat_rule.ptr != NULL &&
+			    s->nat_rule.ptr->action == PF_NAT) {
+				dnflow.f_id.dst_port =
+				    ntohs(s->key[(s->direction == PF_IN)]->
+				    port[(s->direction == PF_OUT)]);
+			}
+			if (dir == PF_OUT && s != NULL &&
+			    s->nat_rule.ptr != NULL &&
+			    s->nat_rule.ptr->action != PF_NAT) {
+				dnflow.f_id.src_port =
+				    ntohs(s->key[(s->direction == PF_OUT)]->
+				    port[(s->direction == PF_IN)]);
+			}
 			if (pfsync_update_state_ptr != NULL)
 				pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
@@ -6294,6 +6310,20 @@ pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 		}
 		action = pf_test_state_udp(&s, dir, kif, m, off, h, &pd);
 		if (action == PF_PASS) {
+			if (dir == PF_IN && s != NULL &&
+			    s->nat_rule.ptr != NULL &&
+			    s->nat_rule.ptr->action == PF_NAT) {
+				dnflow.f_id.dst_port =
+				    ntohs(s->key[(s->direction == PF_IN)]->
+				    port[(s->direction == PF_OUT)]);
+			}
+			if (dir == PF_OUT && s != NULL &&
+			    s->nat_rule.ptr != NULL &&
+			    s->nat_rule.ptr->action != PF_NAT) {
+				dnflow.f_id.src_port =
+				    ntohs(s->key[(s->direction == PF_OUT)]->
+				    port[(s->direction == PF_IN)]);
+			}
 			if (pfsync_update_state_ptr != NULL)
 				pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
@@ -6445,7 +6475,13 @@ done:
 			    addr[(s->direction == PF_OUT)].v4.s_addr);
 		else
 			dnflow.f_id.src_ip = ntohl(h->ip_src.s_addr);
-		dnflow.f_id.dst_ip = ntohl(h->ip_dst.s_addr);
+		if (dir == PF_IN && s != NULL && s->nat_rule.ptr != NULL &&
+		    s->nat_rule.ptr->action != PF_NAT)
+			dnflow.f_id.dst_ip =
+			    ntohl(s->key[(s->direction == PF_OUT)]->
+			    addr[(s->direction == PF_IN)].v4.s_addr);
+		else
+			dnflow.f_id.dst_ip = ntohl(h->ip_dst.s_addr);
 		dnflow.f_id.extra = dnflow.rule.info;
 
 		if (m->m_flags & M_FASTFWD_OURS) {
