@@ -6499,7 +6499,9 @@ done:
 			return (action);
 		}
 		/* This is dummynet fast io processing */
-		m_tag_delete(*m0, m_tag_first(*m0));
+		ipfwtag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL);
+		if (ipfwtag != NULL)
+			m_tag_delete(*m0, ipfwtag);
 		if (s != NULL && s->nat_rule.ptr)
 			PACKET_REDO_NAT(m, &pd, off, s, dir);
 	}
