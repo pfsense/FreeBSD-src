@@ -6566,7 +6566,7 @@ done:
 continueprocessing:
 
 	/*
-	 * connections redirected to loopback should not match sockets
+	 * Connections redirected to loopback should match sockets
 	 * bound specifically to loopback due to security implications,
 	 * see tcp_input() and in_pcblookup_listen().
 	 */
@@ -6575,7 +6575,7 @@ continueprocessing:
 	    (s->nat_rule.ptr->action == PF_RDR ||
 	    s->nat_rule.ptr->action == PF_BINAT) &&
 	    IN_LOOPBACK(ntohl(pd.dst->v4.s_addr)))
-		m->m_flags |= M_SKIP_FIREWALL;
+		m->m_flags |= M_FASTFWD_OURS;
 
 	if (action == PF_PASS && r->divert.port && ip_divert_ptr != NULL &&
 	    !PACKET_LOOPED(&pd)) {
