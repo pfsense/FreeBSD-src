@@ -6454,7 +6454,8 @@ done:
 		/* XXX: ipfw has the same behaviour! */
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
-	} else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
+	} else if (action == PF_PASS &&
+	    (pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction) {
@@ -6490,9 +6491,7 @@ done:
 		if (s != NULL && s->nat_rule.ptr)
 			PACKET_UNDO_NAT(m, &pd, off, s, dir);
 
-		if (ip_dn_io_ptr(m0, (dir == PF_IN) ? DIR_IN : DIR_OUT,
-		    &dnflow) != 0)
-			action = PF_DROP;
+		ip_dn_io_ptr(m0, (dir == PF_IN) ? DIR_IN : DIR_OUT, &dnflow);
 		if (*m0 == NULL) {
 			if (s)
 				PF_STATE_UNLOCK(s);
