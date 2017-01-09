@@ -591,7 +591,7 @@ timer2sbintime(intptr_t data, int flags)
 	case NOTE_SECONDS:
 #ifdef __LP64__
 		if (data > (SBT_MAX / SBT_1S))
-			return SBT_MAX;
+			return (SBT_MAX);
 #endif
 		return ((sbintime_t)data << 32);
 	case NOTE_MSECONDS: /* FALLTHROUGH */
@@ -600,7 +600,7 @@ timer2sbintime(intptr_t data, int flags)
 			int64_t secs = data / 1000;
 #ifdef __LP64__
 			if (secs > (SBT_MAX / SBT_1S))
-				return SBT_MAX;
+				return (SBT_MAX);
 #endif
 			return (secs << 32 | MS_TO_SBT(data % 1000));
 		}
@@ -610,7 +610,7 @@ timer2sbintime(intptr_t data, int flags)
 			int64_t secs = data / 1000000;
 #ifdef __LP64__
 			if (secs > (SBT_MAX / SBT_1S))
-				return SBT_MAX;
+				return (SBT_MAX);
 #endif
 			return (secs << 32 | US_TO_SBT(data % 1000000));
 		}
@@ -620,34 +620,40 @@ timer2sbintime(intptr_t data, int flags)
 			int64_t secs = data / 1000000000;
 #ifdef __LP64__
 			if (secs > (SBT_MAX / SBT_1S))
-				return SBT_MAX;
+				return (SBT_MAX);
 #endif
 			return (secs << 32 | US_TO_SBT(data % 1000000000));
 		}
-		return NS_TO_SBT(data);
+		return (NS_TO_SBT(data));
 	default:
 		break;
 	}
 	return (-1);
 }
 
+struct kq_timer_cb_data {
+	struct callout c;
+	sbintime_t next;	/* next timer event fires at */
+	sbintime_t to;		/* precalculated timer period */
+};
+
 static void
 filt_timerexpire(void *knx)
 {
-	struct callout *calloutp;
 	struct knote *kn;
+	struct kq_timer_cb_data *kc;
 
 	kn = knx;
 	kn->kn_data++;
 	KNOTE_ACTIVATE(kn, 0);	/* XXX - handle locking */
 
-	if ((kn->kn_flags & EV_ONESHOT) != EV_ONESHOT) {
-		calloutp = (struct callout *)kn->kn_hook;
-		*kn->kn_ptr.p_nexttime += timer2sbintime(kn->kn_sdata, 
-		    kn->kn_sfflags);
-		callout_reset_sbt_on(calloutp, *kn->kn_ptr.p_nexttime, 0,
-		    filt_timerexpire, kn, PCPU_GET(cpuid), C_ABSOLUTE);
-	}
+	if ((kn->kn_flags & EV_ONESHOT) != 0)
+		return;
+
+	kc = kn->kn_ptr.p_v;
+	kc->next += kc->to;
+	callout_reset_sbt_on(&kc->c, kc->next, 0, filt_timerexpire, kn,
+	    PCPU_GET(cpuid), C_ABSOLUTE);
 }
 
 /*
@@ -656,16 +662,16 @@ filt_timerexpire(void *knx)
 static int
 filt_timerattach(struct knote *kn)
 {
-	struct callout *calloutp;
+	struct kq_timer_cb_data *kc;
 	sbintime_t to;
 	unsigned int ncallouts;
 
-	if ((intptr_t)kn->kn_sdata < 0)
+	if (kn->kn_sdata < 0)
 		return (EINVAL);
-	if ((intptr_t)kn->kn_sdata == 0 && (kn->kn_flags & EV_ONESHOT) == 0)
+	if (kn->kn_sdata == 0 && (kn->kn_flags & EV_ONESHOT) == 0)
 		kn->kn_sdata = 1;
 	/* Only precision unit are supported in flags so far */
-	if (kn->kn_sfflags & ~NOTE_TIMER_PRECMASK)
+	if ((kn->kn_sfflags & ~NOTE_TIMER_PRECMASK) != 0)
 		return (EINVAL);
 
 	to = timer2sbintime(kn->kn_sdata, kn->kn_sfflags);
@@ -680,13 +686,12 @@ filt_timerattach(struct knote *kn)
 
 	kn->kn_flags |= EV_CLEAR;		/* automatically set */
 	kn->kn_status &= ~KN_DETACHED;		/* knlist_add clears it */
-	kn->kn_ptr.p_nexttime = malloc(sizeof(sbintime_t), M_KQUEUE, M_WAITOK);
-	calloutp = malloc(sizeof(*calloutp), M_KQUEUE, M_WAITOK);
-	callout_init(calloutp, 1);
-	kn->kn_hook = calloutp;
-	*kn->kn_ptr.p_nexttime = to + sbinuptime();
-	callout_reset_sbt_on(calloutp, *kn->kn_ptr.p_nexttime, 0,
-	    filt_timerexpire, kn, PCPU_GET(cpuid), C_ABSOLUTE);
+	kn->kn_ptr.p_v = kc = malloc(sizeof(*kc), M_KQUEUE, M_WAITOK);
+	callout_init(&kc->c, 1);
+	kc->next = to + sbinuptime();
+	kc->to = to;
+	callout_reset_sbt_on(&kc->c, kc->next, 0, filt_timerexpire, kn,
+	    PCPU_GET(cpuid), C_ABSOLUTE);
 
 	return (0);
 }
@@ -694,13 +699,12 @@ filt_timerattach(struct knote *kn)
 static void
 filt_timerdetach(struct knote *kn)
 {
-	struct callout *calloutp;
+	struct kq_timer_cb_data *kc;
 	unsigned int old;
 
-	calloutp = (struct callout *)kn->kn_hook;
-	callout_drain(calloutp);
-	free(calloutp, M_KQUEUE);
-	free(kn->kn_ptr.p_nexttime, M_KQUEUE);
+	kc = kn->kn_ptr.p_v;
+	callout_drain(&kc->c);
+	free(kc, M_KQUEUE);
 	old = atomic_fetchadd_int(&kq_ncallouts, -1);
 	KASSERT(old > 0, ("Number of callouts cannot become negative"));
 	kn->kn_status |= KN_DETACHED;	/* knlist_remove sets it */
@@ -2119,12 +2123,12 @@ knlist_empty(struct knlist *knl)
 {
 
 	KNL_ASSERT_LOCKED(knl);
-	return SLIST_EMPTY(&knl->kl_list);
+	return (SLIST_EMPTY(&knl->kl_list));
 }
 
-static struct mtx	knlist_lock;
+static struct mtx knlist_lock;
 MTX_SYSINIT(knlist_lock, &knlist_lock, "knlist lock for lockless objects",
-	MTX_DEF);
+    MTX_DEF);
 static void knlist_mtx_lock(void *arg);
 static void knlist_mtx_unlock(void *arg);
 
@@ -2245,17 +2249,8 @@ void
 knlist_destroy(struct knlist *knl)
 {
 
-#ifdef INVARIANTS
-	/*
-	 * if we run across this error, we need to find the offending
-	 * driver and have it call knlist_clear or knlist_delete.
-	 */
-	if (!SLIST_EMPTY(&knl->kl_list))
-		printf("WARNING: destroying knlist w/ knotes on it!\n");
-#endif
-
-	knl->kl_lockarg = knl->kl_lock = knl->kl_unlock = NULL;
-	SLIST_INIT(&knl->kl_list);
+	KASSERT(KNLIST_EMPTY(knl),
+	    ("destroying knlist %p with knotes on it", knl));
 }
 
 void
@@ -2387,17 +2382,15 @@ knote_attach(struct knote *kn, struct kqueue *kq)
 
 	if (kn->kn_fop->f_isfd) {
 		if (kn->kn_id >= kq->kq_knlistsize)
-			return ENOMEM;
+			return (ENOMEM);
 		list = &kq->kq_knlist[kn->kn_id];
 	} else {
 		if (kq->kq_knhash == NULL)
-			return ENOMEM;
+			return (ENOMEM);
 		list = &kq->kq_knhash[KN_HASH(kn->kn_id, kq->kq_knhashmask)];
 	}
-
 	SLIST_INSERT_HEAD(list, kn, kn_link);
-
-	return 0;
+	return (0);
 }
 
 /*
@@ -2507,11 +2500,9 @@ kqfd_register(int fd, struct kevent *kev, struct thread *td, int waitok)
 		goto noacquire;
 
 	error = kqueue_register(kq, kev, td, waitok);
-
 	kqueue_release(kq, 0);
 
 noacquire:
 	fdrop(fp, td);
-
-	return error;
+	return (error);
 }

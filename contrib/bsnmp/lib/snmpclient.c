@@ -68,7 +68,7 @@
 struct snmp_client snmp_client;
 
 /* List of all outstanding requests */
-struct sent_pdu {	
+struct sent_pdu {
 	int		reqid;
 	struct snmp_pdu	*pdu;
 	struct timeval	time;
@@ -510,7 +510,7 @@ table_check_response(struct tabwork *work, const struct snmp_pdu *resp)
 				table_free(work, 1);
 				return (-2);
 			}
-					
+
 			continue;
 		}
 		if (!asn_is_suboid(&work->descr->table, &b->var) ||
@@ -754,7 +754,7 @@ snmp_oid_append(struct asn_oid *oid, const char *fmt, ...)
 	ret = 0;
 	while (*fmt != '\0') {
 		switch (*fmt++) {
-		  case 'i': 
+		  case 'i':
 			/* just an integer more */
 			if (oid->len + 1 > ASN_MAXOIDLEN) {
 				warnx("%s: OID too long for integer", __func__);
@@ -804,7 +804,7 @@ snmp_oid_append(struct asn_oid *oid, const char *fmt, ...)
 			break;
 
 		  case 'b':
-			/* append `size` characters */ 
+			/* append `size` characters */
 			str = (const u_char *)va_arg(va, const char *);
 			if (oid->len + size > ASN_MAXOIDLEN) {
 				warnx("%s: OID too long for string", __func__);
@@ -852,7 +852,7 @@ snmp_client_init(struct snmp_client *c)
 
 	strcpy(c->read_community, "public");
 	strcpy(c->write_community, "private");
-	
+
 	c->security_model = SNMP_SECMODEL_USM;
 	strcpy(c->cname, "");
 
@@ -863,7 +863,7 @@ snmp_client_init(struct snmp_client *c)
 	c->txbuflen = c->rxbuflen = 10000;
 
 	c->fd = -1;
-	
+
 	c->max_reqid = INT32_MAX;
 	c->min_reqid = 0;
 	c->next_reqid = 0;
@@ -1214,7 +1214,7 @@ snmp_next_reqid(struct snmp_client * c)
 	int32_t i;
 
 	i = c->next_reqid;
-	if (c->next_reqid >= c->max_reqid)	
+	if (c->next_reqid >= c->max_reqid)
 		c->next_reqid = c->min_reqid;
 	else
 		c->next_reqid++;
@@ -1227,10 +1227,10 @@ snmp_next_reqid(struct snmp_client * c)
 static int32_t
 snmp_send_packet(struct snmp_pdu * pdu)
 {
-        u_char *buf;
-        struct asn_buf b;
-        ssize_t ret;
- 
+	u_char *buf;
+	struct asn_buf b;
+	ssize_t ret;
+
 	if ((buf = malloc(snmp_client.txbuflen)) == NULL) {
 		seterr(&snmp_client, "%s", strerror(errno));
 		return (-1);
@@ -1684,9 +1684,9 @@ snmp_dialog(struct snmp_v1_pdu *req, struct snmp_v1_pdu *resp)
 	struct timeval tv = snmp_client.timeout;
 	struct timeval end;
 	struct snmp_pdu pdu;
-	u_int i;
-	int32_t reqid;
 	int ret;
+	int32_t reqid;
+	u_int i;
 
 	/*
 	 * Make a copy of the request and replace the syntaxes by NULL
@@ -1793,12 +1793,14 @@ snmp_discover_engine(char *passwd)
 		return (0);
 	}
 
+	snmp_pdu_free(&req);
+
 	snmp_pdu_create(&req, SNMP_PDU_GET);
 	req.engine.engine_boots = 0;
 	req.engine.engine_time = 0;
 
 	if (snmp_dialog(&req, &resp) == -1)
-		 return (-1);
+		return (-1);
 
 	if (resp.version != req.version) {
 		seterr(&snmp_client, "wrong version");
@@ -1812,6 +1814,9 @@ snmp_discover_engine(char *passwd)
 
 	snmp_client.engine.engine_boots = resp.engine.engine_boots;
 	snmp_client.engine.engine_time = resp.engine.engine_time;
+
+	snmp_pdu_free(&req);
+	snmp_pdu_free(&resp);
 
 	return (0);
 }
@@ -1937,20 +1942,18 @@ snmp_parse_server(struct snmp_client *sc, const char *str)
 		}
 		/* port */
 		free(sc->cport);
-		if ((sc->cport = malloc(strlen(p + 1) + 1)) == NULL) {
+		if ((sc->cport = strdup(p + 1)) == NULL) {
 			seterr(sc, "%s", strerror(errno));
 			return (-1);
 		}
-		strcpy(sc->cport, p + 1);
 
 	} else if (p > s) {
 		/* host */
 		free(sc->chost);
-		if ((sc->chost = malloc(strlen(s) + 1)) == NULL) {
+		if ((sc->chost = strdup(s)) == NULL) {
 			seterr(sc, "%s", strerror(errno));
 			return (-1);
 		}
-		strcpy(sc->chost, s);
 	}
 	return (0);
 }

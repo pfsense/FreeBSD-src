@@ -41,10 +41,7 @@ static char sccsid[] = "@(#)kdump.c	8.1 (Berkeley) 6/6/93";
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#define _KERNEL
-extern int errno;
-#include <sys/errno.h>
-#undef _KERNEL
+#define _WANT_KERNEL_ERRNO
 #include <sys/param.h>
 #include <sys/capsicum.h>
 #include <sys/errno.h>
@@ -74,6 +71,7 @@ extern int errno;
 #include <netdb.h>
 #include <nl_types.h>
 #include <pwd.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -131,6 +129,27 @@ static struct ktr_header ktr_header;
 
 #define TIME_FORMAT	"%b %e %T %Y"
 #define eqs(s1, s2)	(strcmp((s1), (s2)) == 0)
+
+#define	print_number64(first,i,n,c) do {				\
+	uint64_t __v;							\
+									\
+	if (quad_align && (((ptrdiff_t)((i) - (first))) & 1) == 1) {	\
+		(i)++;							\
+		(n)--;							\
+	}								\
+	if (quad_slots == 2)						\
+		__v = (uint64_t)(uint32_t)(i)[0] |			\
+		    ((uint64_t)(uint32_t)(i)[1]) << 32;			\
+	else								\
+		__v = (uint64_t)*(i);					\
+	if (decimal)							\
+		printf("%c%jd", (c), (intmax_t)__v);			\
+	else								\
+		printf("%c%#jx", (c), (uintmax_t)__v);			\
+	(i) += quad_slots;						\
+	(n) -= quad_slots;						\
+	(c) = ',';							\
+} while (0)
 
 #define print_number(i,n,c) do {					\
 	if (decimal)							\
@@ -705,16 +724,25 @@ void
 ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 {
 	int narg = ktr->ktr_narg;
-	register_t *ip;
+	register_t *ip, *first;
 	intmax_t arg;
+	int quad_align, quad_slots;
 
 	syscallname(ktr->ktr_code, sv_flags);
-	ip = &ktr->ktr_args[0];
+	ip = first = &ktr->ktr_args[0];
 	if (narg) {
 		char c = '(';
 		if (fancy &&
 		    (sv_flags == 0 ||
 		    (sv_flags & SV_ABI_MASK) == SV_ABI_FREEBSD)) {
+			quad_align = 0;
+			if (sv_flags & SV_ILP32) {
+#ifdef __powerpc__
+				quad_align = 1;
+#endif
+				quad_slots = 2;
+			} else
+				quad_slots = 1;
 			switch (ktr->ktr_code) {
 			case SYS_bindat:
 			case SYS_connectat:
@@ -796,7 +824,7 @@ ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 				c = ',';
 				ip++;
 				narg--;
-				print_number(ip, narg, c);
+				print_number64(first, ip, narg, c);
 				print_number(ip, narg, c);
 				putchar(',');
 				wait6optname(*ip);
@@ -996,7 +1024,7 @@ ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 				print_number(ip, narg, c);
 				/* Hidden 'pad' argument, not in lseek(2) */
 				print_number(ip, narg, c);
-				print_number(ip, narg, c);
+				print_number64(first, ip, narg, c);
 				putchar(',');
 				whencename(*ip);
 				ip++;
@@ -1005,8 +1033,7 @@ ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 #endif
 			case SYS_lseek:
 				print_number(ip, narg, c);
-				/* Hidden 'pad' argument, not in lseek(2) */
-				print_number(ip, narg, c);
+				print_number64(first, ip, narg, c);
 				putchar(',');
 				whencename(*ip);
 				ip++;
@@ -1285,7 +1312,7 @@ ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 				c = ',';
 				ip++;
 				narg--;
-				print_number(ip, narg, c);
+				print_number64(first, ip, narg, c);
 				putchar(',');
 				procctlcmdname(*ip);
 				ip++;
@@ -1311,6 +1338,12 @@ ktrsyscall(struct ktr_syscall *ktr, u_int sv_flags)
 				}
 				ip++;
 				narg--;
+				break;
+			case SYS_ftruncate:
+			case SYS_truncate:
+				print_number(ip, narg, c);
+				print_number64(first, ip, narg, c);
+				break;
 			}
 		}
 		while (narg > 0) {
