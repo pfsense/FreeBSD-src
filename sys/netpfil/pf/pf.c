@@ -7015,7 +7015,8 @@ done:
 		/* XXX: ipfw has the same behaviour! */
 		action = PF_DROP;
 		REASON_SET(&reason, PFRES_MEMORY);
-	} else if ((pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
+	} else if (action == PF_PASS &&
+	    (pd.act.dnpipe || pd.act.pdnpipe) && !PACKET_LOOPED(&pd)) {
 		if (dir != r->direction && pd.act.pdnpipe) {
 			dnflow.rule.info = pd.act.pdnpipe;
 		} else if (dir == r->direction && pd.act.dnpipe) {
@@ -7039,17 +7040,17 @@ done:
 		if (s != NULL && s->nat_rule.ptr)
 			PACKET_UNDO_NAT(m, &pd, off, s, dir);
 
-		if (ip_dn_io_ptr(m0,
-		    ((dir == PF_IN) ? DIR_IN : DIR_OUT) | PROTO_IPV6,
-		    &dnflow) != 0)
-			action = PF_DROP;
+		ip_dn_io_ptr(m0,
+		    ((dir == PF_IN) ? DIR_IN : DIR_OUT) | PROTO_IPV6, &dnflow);
 		if (*m0 == NULL) {
 			if (s)
 				PF_STATE_UNLOCK(s);
 			return (action);
 		}
 		/* This is dummynet fast io processing */
-		m_tag_delete(*m0, m_tag_first(*m0));
+		ipfwtag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL);
+		if (ipfwtag != NULL)
+			m_tag_delete(*m0, ipfwtag);
 		if (s != NULL && s->nat_rule.ptr)
 			PACKET_REDO_NAT(m, &pd, off, s, dir);
 	}
@@ -7060,7 +7061,7 @@ continueprocessing6:
 	    (s->nat_rule.ptr->action == PF_RDR ||
 	    s->nat_rule.ptr->action == PF_BINAT) &&
 	    IN6_IS_ADDR_LOOPBACK(&pd.dst->v6))
-		m->m_flags |= M_SKIP_FIREWALL;
+		m->m_flags |= M_FASTFWD_OURS;
 
 	/* XXX: Anybody working on it?! */
 	if (r->divert.port)
