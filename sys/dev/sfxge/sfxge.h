@@ -302,7 +302,7 @@ struct sfxge_softc {
 	unsigned int			max_rss_channels;
 	uma_zone_t			rxq_cache;
 	struct sfxge_rxq		*rxq[SFXGE_RX_SCALE_MAX];
-	unsigned int			rx_indir_table[SFXGE_RX_SCALE_MAX];
+	unsigned int			rx_indir_table[EFX_RSS_TBL_SIZE];
 
 	struct sfxge_txq		*txq[SFXGE_TXQ_NTYPES + SFXGE_RX_SCALE_MAX];
 
@@ -329,7 +329,9 @@ struct sfxge_softc {
 #endif
 };
 
-#define	SFXGE_LINK_UP(sc) ((sc)->port.link_mode != EFX_LINK_DOWN)
+#define	SFXGE_LINK_UP(sc) \
+	((sc)->port.link_mode != EFX_LINK_DOWN && \
+	 (sc)->port.link_mode != EFX_LINK_UNKNOWN)
 #define	SFXGE_RUNNING(sc) ((sc)->ifnet->if_drv_flags & IFF_DRV_RUNNING)
 
 #define	SFXGE_PARAM(_name)	"hw.sfxge." #_name

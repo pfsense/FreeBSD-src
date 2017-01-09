@@ -4,7 +4,7 @@
  *	All rights reserved.
  *
  * Author: Harti Brandt <harti@freebsd.org>
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -13,7 +13,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -32,15 +32,15 @@
  */
 #include <sys/types.h>
 #include <sys/queue.h>
-#include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 
+#include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
-#include <syslog.h>
 #include <string.h>
-#include <errno.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include "snmpmod.h"
@@ -143,16 +143,14 @@ lsock_open_port(u_char *name, size_t namelen, struct lsock_port **pp,
 		return (SNMP_ERR_BADVALUE);
 	}
 
-	if ((port = malloc(sizeof(*port))) == NULL)
+	if ((port = calloc(1, sizeof(*port))) == NULL)
 		return (SNMP_ERR_GENERR);
 
-	memset(port, 0, sizeof(*port));
 	if (!is_stream) {
-		if ((peer = malloc(sizeof(*peer))) == NULL) {
+		if ((peer = calloc(1, sizeof(*peer))) == NULL) {
 			free(port);
 			return (SNMP_ERR_GENERR);
 		}
-		memset(peer, 0, sizeof(*peer));
 	}
 	if ((port->name = malloc(namelen + 1)) == NULL) {
 		free(port);
@@ -258,12 +256,11 @@ lsock_listen_input(int fd, void *udata)
 	struct lsock_port *p = udata;
 	struct lsock_peer *peer;
 
-	if ((peer = malloc(sizeof(*peer))) == NULL) {
+	if ((peer = calloc(1, sizeof(*peer))) == NULL) {
 		syslog(LOG_WARNING, "%s: peer malloc failed", p->name);
 		(void)close(accept(fd, NULL, NULL));
 		return;
 	}
-	memset(peer, 0, sizeof(*peer));
 
 	peer->port = p;
 
@@ -417,7 +414,7 @@ lsock_send(struct tport *tp, const u_char *buf, size_t len,
 			return (-1);
 		}
 	}
-	
+
 	return (sendto(peer->input.fd, buf, len, 0, addr, addrlen));
 }
 

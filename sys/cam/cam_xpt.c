@@ -867,7 +867,7 @@ xpt_init(void *dummy)
 	xsoftc.boot_delay = CAM_BOOT_DELAY;
 #endif
 	/*
-	 * The xpt layer is, itself, the equivelent of a SIM.
+	 * The xpt layer is, itself, the equivalent of a SIM.
 	 * Allow 16 ccbs in the ccb pool for it.  This should
 	 * give decent parallelism when we probe busses and
 	 * perform other XPT functions.
@@ -896,7 +896,7 @@ xpt_init(void *dummy)
 
 	/*
 	 * Looking at the XPT from the SIM layer, the XPT is
-	 * the equivelent of a peripheral driver.  Allocate
+	 * the equivalent of a peripheral driver.  Allocate
 	 * a peripheral driver entry for us.
 	 */
 	if ((status = xpt_create_path(&path, NULL, CAM_XPT_PATH_ID,
@@ -1096,7 +1096,7 @@ xpt_denounce_periph(struct cam_periph *periph)
 int
 xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 {
-	int ret = -1, l;
+	int ret = -1, l, o;
 	struct ccb_dev_advinfo cdai;
 	struct scsi_vpd_id_descriptor *idd;
 
@@ -1136,6 +1136,12 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 			if (idd == NULL)
 				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
 				    cdai.provsiz, scsi_devid_is_lun_eui64);
+			if (idd == NULL)
+				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
+				    cdai.provsiz, scsi_devid_is_lun_uuid);
+			if (idd == NULL)
+				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
+				    cdai.provsiz, scsi_devid_is_lun_md5);
 		} else
 			idd = NULL;
 		if (idd == NULL)
@@ -1160,6 +1166,17 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 			if (l < len) {
 				bcopy(idd->identifier, buf, l);
 				buf[l] = 0;
+			} else
+				ret = EFAULT;
+		} else if ((idd->id_type & SVPD_ID_TYPE_MASK) == SVPD_ID_TYPE_UUID
+		    && idd->identifier[0] == 0x10) {
+			if ((idd->length - 2) * 2 + 4 < len) {
+				for (l = 2, o = 0; l < idd->length; l++) {
+					if (l == 6 || l == 8 || l == 10 || l == 12)
+					    o += sprintf(buf + o, "-");
+					o += sprintf(buf + o, "%02x",
+					    idd->identifier[l]);
+				}
 			} else
 				ret = EFAULT;
 		} else {
