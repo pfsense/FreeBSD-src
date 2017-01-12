@@ -5897,56 +5897,56 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 
 	if (ifp == NULL)
 		goto bad;
-       else if (r->rt == PF_REPLYTO) {
-               /* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
-               struct sockaddr_in6 inaddr6;
-               struct sockaddr *addr;
-               struct ifaddr *ifa;
-               char *cp, *cp2, *cp3;
-               char *cplim;
+	else if (r->rt == PF_REPLYTO) {
+		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
+		struct sockaddr_in6 inaddr6;
+		struct sockaddr *addr;
+		struct ifaddr *ifa;
+		char *cp, *cp2, *cp3;
+		char *cplim;
 
-               inaddr6.sin6_addr = ip6->ip6_dst;
-               inaddr6.sin6_family = AF_INET6;
-               inaddr6.sin6_len = sizeof(inaddr6);
-               inaddr6.sin6_port = 0;
-               inaddr6.sin6_flowinfo = 0;
-               addr = (struct sockaddr *)&inaddr6;
+		inaddr6.sin6_addr = ip6->ip6_dst;
+		inaddr6.sin6_family = AF_INET6;
+		inaddr6.sin6_len = sizeof(inaddr6);
+		inaddr6.sin6_port = 0;
+		inaddr6.sin6_flowinfo = 0;
+		addr = (struct sockaddr *)&inaddr6;
 
-               IF_ADDR_RLOCK(ifp);
-               TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
-                       if (ifa->ifa_addr->sa_family != AF_INET6)
-                               continue;
-                       if (ifa->ifa_netmask == 0) {
-                               if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
-                                   (ifa->ifa_dstaddr &&
-                                   (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0))) {
-                                       IF_ADDR_RUNLOCK(ifp);
-                                       return;
-                               }
-                               continue;
-                       }
-                       if (ifp->if_flags & IFF_POINTOPOINT) {
-                               if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0) {
-                                       IF_ADDR_RUNLOCK(ifp);
-                                       return;
-                               }
-                       } else {
-                               cp = addr->sa_data;
-                               cp2 = ifa->ifa_addr->sa_data;
-                               cp3 = ifa->ifa_netmask->sa_data;
-                               cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
-                               for (; cp3 < cplim; cp3++)
-                                       if ((*cp++ ^ *cp2++) & *cp3)
-                                               break;
-                               if (cp3 == cplim) {
-                                       IF_ADDR_RUNLOCK(ifp);
-                                       return;
-                               }
-                       }
-               }
-               IF_ADDR_RUNLOCK(ifp);
-       } else if (r->rt == PF_ROUTETO && r->direction == dir && in6_localaddr(&ip6->ip6_dst))
-	       return;
+		IF_ADDR_RLOCK(ifp);
+		TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
+			if (ifa->ifa_netmask == 0) {
+				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
+				   (ifa->ifa_dstaddr &&
+				   (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0))) {
+					IF_ADDR_RUNLOCK(ifp);
+					return;
+				}
+				continue;
+			}
+			if (ifp->if_flags & IFF_POINTOPOINT) {
+				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0) {
+					IF_ADDR_RUNLOCK(ifp);
+					return;
+				}
+			} else {
+				cp = addr->sa_data;
+				cp2 = ifa->ifa_addr->sa_data;
+				cp3 = ifa->ifa_netmask->sa_data;
+				cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
+				for (; cp3 < cplim; cp3++)
+					if ((*cp++ ^ *cp2++) & *cp3)
+						break;
+				if (cp3 == cplim) {
+					IF_ADDR_RUNLOCK(ifp);
+					return;
+				}
+			}
+		}
+		IF_ADDR_RUNLOCK(ifp);
+	} else if (r->rt == PF_ROUTETO && r->direction == dir && in6_localaddr(&ip6->ip6_dst))
+		return;
 
 	if (s != NULL && r->rt == PF_REPLYTO) {
 		/*
