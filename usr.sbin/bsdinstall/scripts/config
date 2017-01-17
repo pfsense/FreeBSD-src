@@ -43,8 +43,8 @@ fi
 cp $BSDINSTALL_TMPETC/* $BSDINSTALL_CHROOT/etc
 
 # Copy pfSense loader.conf
-if [ -f $BSDINSTALL_TMPBOOT/loader.conf ]; then
-	cp $BSDINSTALL_TMPBOOT/loader.conf \
+if [ -f $BSDINSTALL_CHROOT/boot/loader.conf ]; then
+	cp $BSDINSTALL_CHROOT/boot/loader.conf \
 		$BSDINSTALL_TMPBOOT/loader.conf.pfSense
 fi
 cat $BSDINSTALL_TMPBOOT/loader.conf.* >> $BSDINSTALL_TMPBOOT/loader.conf
