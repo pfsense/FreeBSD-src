@@ -146,10 +146,10 @@ f_isset ZFSBOOT_DATASETS || ZFSBOOT_DATASETS="
 	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/
 
 	# Compress /tmp, allow exec but not setuid
-	/tmp		mountpoint=/tmp,exec=on,setuid=off,canmount=noauto
+	/tmp		mountpoint=/tmp,exec=on,setuid=off
 
 	# Create /var and friends
-	/var		mountpoint=/var,canmount=noauto
+	/var		mountpoint=/var
 " # END-QUOTE
 
 #
