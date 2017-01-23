@@ -75,6 +75,10 @@ $BSDDIALOG_OK)	# Install
 	bsdinstall
 	if [ $? -eq 0 ]; then
 		bsddialog --backtitle "pfSense Installer" --title "Complete" --yes-label "Reboot" --no-label "Shell" --yesno "Installation of pfSense complete! Would you like to reboot into the installed system now?" 0 0 && reboot
+		clear
+		echo "When finished, type 'exit' to reboot."
+		/bin/sh
+		reboot
 	else
 		. /etc/rc.local
 	fi
