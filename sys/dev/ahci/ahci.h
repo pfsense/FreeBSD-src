@@ -625,6 +625,7 @@ enum ahci_err_type {
 	"\023FORCE_PI"          \
 	"\024RESTORE_CAP"	\
 	"\025NOMSIX"		\
+	"\026MRVL_SR_DEL"	\
 	"\027NOCCS"		\
 	"\030NOAUX"
 
