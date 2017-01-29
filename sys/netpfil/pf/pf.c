@@ -1612,6 +1612,12 @@ pf_purge_thread(void *unused __unused)
 			continue;
 		}
 
+		/* Wait while V_pf_default_rule.timeout is initialized. */
+		if (V_pf_vnet_active == 0) {
+			CURVNET_RESTORE();
+			continue;
+		}
+
 		/* Process 1/interval fraction of the state table every run. */
 		idx = pf_purge_expired_states(idx, pf_hashmask /
 			    (V_pf_default_rule.timeout[PFTM_INTERVAL] * 10));
