@@ -20,6 +20,10 @@
 #ifndef _IF_VMXVAR_H
 #define _IF_VMXVAR_H
 
+#ifdef ALTQ
+#define	VMXNET3_TX_LEGACY
+#endif
+
 struct vmxnet3_softc;
 
 struct vmxnet3_dma_alloc {
