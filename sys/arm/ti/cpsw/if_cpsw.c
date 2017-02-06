@@ -1837,7 +1837,7 @@ cpswp_tx_enqueue(struct cpswp_softc *sc)
 	first_new_slot = NULL;
 	last_old_slot = STAILQ_LAST(&sc->swsc->tx.active, cpsw_slot, next);
 	while ((slot = STAILQ_FIRST(&sc->swsc->tx.avail)) != NULL) {
-		IF_DEQUEUE(&sc->ifp->if_snd, m0);
+		IFQ_DEQUEUE(&sc->ifp->if_snd, m0);
 		if (m0 == NULL)
 			break;
 
