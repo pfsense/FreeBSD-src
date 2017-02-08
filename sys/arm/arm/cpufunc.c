@@ -905,6 +905,24 @@ pj4bv7_setup(void)
 void
 cortexa_setup(void)
 {
+	int cpuaux;
+	
+	cpuaux = (1 << 2); /* L1 prefetch by default */
+#ifdef ARM_L2_PREFETCH
+	/*
+	 * L2 prefetch.
+	 * Keep this if L2 enabled and cache controller supports it.
+	 */
+	cpuaux |= (1 << 1);
+#endif
+
+#ifdef SMP
+	cpuaux |= (1 << 6) | (1 << 0); /* Enable SMP + TLB broadcasting  */
+#else
+	/* Set SMP bit in CPU to add it to the coherency domain */
+	cpuaux |= (1 << 6);
+#endif
+	armv7_auxctrl(cpuaux, cpuaux);
 
 	cpu_scc_setup_ccnt();
 }

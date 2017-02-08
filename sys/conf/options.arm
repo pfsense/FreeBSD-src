@@ -3,6 +3,7 @@ ARMV6			opt_global.h
 ARM_CACHE_LOCK_ENABLE	opt_global.h
 ARM_KERN_DIRECTMAP	opt_vm.h
 ARM_L2_PIPT		opt_global.h
+ARM_L2_PREFETCH		opt_global.h
 ARM_MANY_BOARD		opt_global.h
 NKPT2PG			opt_pmap.h
 ARM_WANT_TP_ADDRESS	opt_global.h
