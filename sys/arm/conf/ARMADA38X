@@ -121,7 +121,8 @@ device		crypto
 device		cryptodev
 
 # L2 Cache
-device		pl310
+device		pl310			# PL310 L2 cache controller
+#options 	ARM_L2_PREFETCH		# Disabled by default on Marvell Linux
 
 # FDT
 options 	FDT
