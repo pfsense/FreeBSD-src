@@ -158,7 +158,7 @@ enum sfxge_evq_state {
 
 #define	SFXGE_EV_BATCH	16384
 
-#define	SFXGE_CALLOUT_TICKS 100
+#define	SFXGE_STATS_UPDATE_PERIOD_MS	1000
 
 struct sfxge_evq {
 	/* Structure members below are sorted by usage order */
@@ -247,6 +247,7 @@ struct sfxge_port {
 #endif
 	struct sfxge_hw_stats	phy_stats;
 	struct sfxge_hw_stats	mac_stats;
+	uint16_t		stats_update_period_ms;
 	efx_link_mode_t		link_mode;
 	uint8_t			mcast_addrs[EFX_MAC_MULTICAST_LIST_MAX *
 					    EFX_MAC_ADDR_LEN];
