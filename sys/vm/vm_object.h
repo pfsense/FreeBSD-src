@@ -182,6 +182,7 @@ struct vm_object {
  */
 #define	OBJ_FICTITIOUS	0x0001		/* (c) contains fictitious pages */
 #define	OBJ_UNMANAGED	0x0002		/* (c) contains unmanaged pages */
+#define	OBJ_POPULATE	0x0004		/* pager implements populate() */
 #define OBJ_DEAD	0x0008		/* dead objects (during rundown) */
 #define	OBJ_NOSPLIT	0x0010		/* dont split this object */
 #define	OBJ_UMTXDEAD	0x0020		/* umtx pshared was terminated */
@@ -194,8 +195,8 @@ struct vm_object {
 #define	OBJ_DISCONNECTWNT 0x4000	/* disconnect from vnode wanted */
 #define	OBJ_TMPFS	0x8000		/* has tmpfs vnode allocated */
 
-#define IDX_TO_OFF(idx) (((vm_ooffset_t)(idx)) << PAGE_SHIFT)
-#define OFF_TO_IDX(off) ((vm_pindex_t)(((vm_ooffset_t)(off)) >> PAGE_SHIFT))
+#define	IDX_TO_OFF(idx) (((vm_ooffset_t)(idx)) << PAGE_SHIFT)
+#define	OFF_TO_IDX(off) ((vm_pindex_t)(((vm_ooffset_t)(off)) >> PAGE_SHIFT))
 
 #ifdef	_KERNEL
 
