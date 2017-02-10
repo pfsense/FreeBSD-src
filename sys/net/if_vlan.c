@@ -213,12 +213,11 @@ static	void trunk_destroy(struct ifvlantrunk *trunk);
 static	void vlan_init(void *foo);
 static	void vlan_input(struct ifnet *ifp, struct mbuf *m);
 static	int vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr);
-static	void vlan_qflush(struct ifnet *ifp);
 static	int vlan_setflag(struct ifnet *ifp, int flag, int status,
     int (*func)(struct ifnet *, int));
 static	int vlan_setflags(struct ifnet *ifp, int status);
 static	int vlan_setmulti(struct ifnet *ifp);
-static	int vlan_transmit(struct ifnet *ifp, struct mbuf *m);
+static	void vlan_start(struct ifnet *ifp);
 static	void vlan_unconfig(struct ifnet *ifp);
 static	void vlan_unconfig_locked(struct ifnet *ifp, int departing);
 static	int vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t tag);
@@ -976,10 +975,12 @@ vlan_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	/* NB: mtu is not set here */
 
 	ifp->if_init = vlan_init;
-	ifp->if_transmit = vlan_transmit;
-	ifp->if_qflush = vlan_qflush;
+	ifp->if_start = vlan_start;
 	ifp->if_ioctl = vlan_ioctl;
 	ifp->if_flags = VLAN_IFFLAGS;
+	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
+	ifp->if_snd.ifq_drv_maxlen = 0;
+	IFQ_SET_READY(&ifp->if_snd);
 	ether_ifattach(ifp, eaddr);
 	/* Now undo some of the damage... */
 	ifp->if_baudrate = 0;
@@ -1020,6 +1021,7 @@ vlan_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
 	struct ifvlan *ifv = ifp->if_softc;
 	int unit = ifp->if_dunit;
 
+	IFQ_PURGE(&ifp->if_snd);
 	ether_ifdetach(ifp);	/* first, remove it from system-wide lists */
 	vlan_unconfig(ifp);	/* now it can be unconfigured and freed */
 	if_free(ifp);
@@ -1038,106 +1040,109 @@ vlan_init(void *foo __unused)
 }
 
 /*
- * The if_transmit method for vlan(4) interface.
+ * The if_start method for vlan(4) interface.
  */
-static int
-vlan_transmit(struct ifnet *ifp, struct mbuf *m)
+static void
+vlan_start(struct ifnet *ifp)
 {
 	struct ifvlan *ifv;
 	struct ifnet *p;
+	struct mbuf *m;
 	struct m_tag *mtag;
 	uint16_t tag;
 	int error, len, mcast;
 
+	if (ALTQ_IS_ENABLED(&ifp->if_snd)) {
+		IFQ_POLL_NOLOCK(&ifp->if_snd, m);
+		if (m == NULL)
+			return;
+	}
+
 	ifv = ifp->if_softc;
 	p = PARENT(ifv);
-	len = m->m_pkthdr.len;
-	mcast = (m->m_flags & (M_MCAST | M_BCAST)) ? 1 : 0;
+	for (;;) {
+		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == NULL)
+			break;
+		len = m->m_pkthdr.len;
+		mcast = (m->m_flags & (M_MCAST | M_BCAST)) ? 1 : 0;
 
-	BPF_MTAP(ifp, m);
+		BPF_MTAP(ifp, m);
 
-	/*
-	 * Do not run parent's if_transmit() if the parent is not up,
-	 * or parent's driver will cause a system crash.
-	 */
-	if (!UP_AND_RUNNING(p)) {
-		m_freem(m);
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-		return (ENETDOWN);
-	}
-
-	/*
-	 * Pad the frame to the minimum size allowed if told to.
-	 * This option is in accord with IEEE Std 802.1Q, 2003 Ed.,
-	 * paragraph C.4.4.3.b.  It can help to work around buggy
-	 * bridges that violate paragraph C.4.4.3.a from the same
-	 * document, i.e., fail to pad short frames after untagging.
-	 * E.g., a tagged frame 66 bytes long (incl. FCS) is OK, but
-	 * untagging it will produce a 62-byte frame, which is a runt
-	 * and requires padding.  There are VLAN-enabled network
-	 * devices that just discard such runts instead or mishandle
-	 * them somehow.
-	 */
-	if (V_soft_pad && p->if_type == IFT_ETHER) {
-		static char pad[8];	/* just zeros */
-		int n;
-
-		for (n = ETHERMIN + ETHER_HDR_LEN - m->m_pkthdr.len;
-		     n > 0; n -= sizeof(pad))
-			if (!m_append(m, min(n, sizeof(pad)), pad))
-				break;
-
-		if (n > 0) {
-			if_printf(ifp, "cannot pad short frame\n");
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		/*
+		 * Do not run parent's if_transmit() if the parent is not up,
+		 * or parent's driver will cause a system crash.
+		 */
+		if (!UP_AND_RUNNING(p)) {
 			m_freem(m);
-			return (0);
-		}
-	}
-
-	/*
-	 * If underlying interface can do VLAN tag insertion itself,
-	 * just pass the packet along. However, we need some way to
-	 * tell the interface where the packet came from so that it
-	 * knows how to find the VLAN tag to use, so we attach a
-	 * packet tag that holds it.
-	 */
-	if (vlan_mtag_pcp && (mtag = m_tag_locate(m, MTAG_8021Q,
-	    MTAG_8021Q_PCP_OUT, NULL)) != NULL)
-		tag = EVL_MAKETAG(ifv->ifv_vid, *(uint8_t *)(mtag + 1), 0);
-	else
-              tag = ifv->ifv_tag;
-	if (p->if_capenable & IFCAP_VLAN_HWTAGGING) {
-		m->m_pkthdr.ether_vtag = tag;
-		m->m_flags |= M_VLANTAG;
-	} else {
-		m = ether_vlanencap(m, tag);
-		if (m == NULL) {
-			if_printf(ifp, "unable to prepend VLAN header\n");
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-			return (0);
+			return;
 		}
+
+		/*
+		 * Pad the frame to the minimum size allowed if told to.
+		 * This option is in accord with IEEE Std 802.1Q, 2003 Ed.,
+		 * paragraph C.4.4.3.b.  It can help to work around buggy
+		 * bridges that violate paragraph C.4.4.3.a from the same
+		 * document, i.e., fail to pad short frames after untagging.
+		 * E.g., a tagged frame 66 bytes long (incl. FCS) is OK, but
+		 * untagging it will produce a 62-byte frame, which is a runt
+		 * and requires padding.  There are VLAN-enabled network
+		 * devices that just discard such runts instead or mishandle
+		 * them somehow.
+		 */
+		if (V_soft_pad && p->if_type == IFT_ETHER) {
+			static char pad[8];	/* just zeros */
+			int n;
+
+			for (n = ETHERMIN + ETHER_HDR_LEN - m->m_pkthdr.len;
+			     n > 0; n -= sizeof(pad))
+				if (!m_append(m, min(n, sizeof(pad)), pad))
+					break;
+
+			if (n > 0) {
+				if_printf(ifp, "cannot pad short frame\n");
+				if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+				m_freem(m);
+				return;
+			}
+		}
+
+		/*
+		 * If underlying interface can do VLAN tag insertion itself,
+		 * just pass the packet along. However, we need some way to
+		 * tell the interface where the packet came from so that it
+		 * knows how to find the VLAN tag to use, so we attach a
+		 * packet tag that holds it.
+		 */
+		if (vlan_mtag_pcp && (mtag = m_tag_locate(m, MTAG_8021Q,
+		    MTAG_8021Q_PCP_OUT, NULL)) != NULL)
+			tag = EVL_MAKETAG(ifv->ifv_vid, *(uint8_t *)(mtag + 1), 0);
+		else
+			tag = ifv->ifv_tag;
+		if (p->if_capenable & IFCAP_VLAN_HWTAGGING) {
+			m->m_pkthdr.ether_vtag = tag;
+			m->m_flags |= M_VLANTAG;
+		} else {
+			m = ether_vlanencap(m, tag);
+			if (m == NULL) {
+				if_printf(ifp, "unable to prepend VLAN header\n");
+				if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+				return;
+			}
+		}
+
+		/*
+		 * Send it, precisely as ether_output() would have.
+		 */
+		error = (p->if_transmit)(p, m);
+		if (error == 0) {
+			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+			if_inc_counter(ifp, IFCOUNTER_OBYTES, len);
+			if_inc_counter(ifp, IFCOUNTER_OMCASTS, mcast);
+		} else
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	}
-
-	/*
-	 * Send it, precisely as ether_output() would have.
-	 */
-	error = (p->if_transmit)(p, m);
-	if (error == 0) {
-		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
-		if_inc_counter(ifp, IFCOUNTER_OBYTES, len);
-		if_inc_counter(ifp, IFCOUNTER_OMCASTS, mcast);
-	} else
-		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-	return (error);
-}
-
-/*
- * The ifp->if_qflush entry point for vlan(4) is a no-op.
- */
-static void
-vlan_qflush(struct ifnet *ifp __unused)
-{
 }
 
 static void
@@ -1248,7 +1253,7 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid)
 	 * We can handle non-ethernet hardware types as long as
 	 * they handle the tagging and headers themselves.
 	 */
-	if (p->if_type != IFT_ETHER &&
+	if (p->if_type != IFT_ETHER && p->if_type != IFT_BRIDGE &&
 	    (p->if_capenable & IFCAP_VLAN_HWTAGGING) == 0)
 		return (EPROTONOSUPPORT);
 	if ((p->if_flags & VLAN_IFFLAGS) != VLAN_IFFLAGS)
