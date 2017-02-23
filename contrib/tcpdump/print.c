@@ -127,6 +127,9 @@ static const struct printer printers[] = {
 #ifdef DLT_LINUX_SLL
 	{ sll_if_print,		DLT_LINUX_SLL },
 #endif
+#if defined(DLT_PFSYNC) && defined(HAVE_NET_PFVAR_H)
+	{ pfsync_if_print,	DLT_PFSYNC},
+#endif
 #ifdef DLT_FR
 	{ fr_if_print,		DLT_FR },
 #endif
