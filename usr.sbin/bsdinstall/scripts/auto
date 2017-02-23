@@ -464,9 +464,11 @@ finalconfig() {
 trap error SIGINT	# SIGINT is bad again
 bsdinstall config  || error "Failed to save config"
 
+if [ -n "$DISTDIR_IS_UNIONFS" ]; then
+	umount -f $BSDINSTALL_DISTDIR
+fi
+
 if [ ! -z "$BSDINSTALL_FETCHDEST" ]; then
-	[ "$BSDINSTALL_FETCHDEST" != "$BSDINSTALL_DISTDIR" ] && \
-	    umount "$BSDINSTALL_DISTDIR"
 	rm -rf "$BSDINSTALL_FETCHDEST"
 fi
 
