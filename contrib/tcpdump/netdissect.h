@@ -577,7 +577,6 @@ extern void smtp_print(netdissect_options *, const u_char *, u_int);
 extern void geneve_print(netdissect_options *, const u_char *, u_int);
 
 extern void pfsync_ip_print(netdissect_options *, const u_char *, u_int);
-extern u_int pfsync_if_print(netdissect_options *, const struct pcap_pkthdr *, const u_char *);
 
 /* stuff that has not yet been rototiled */
 
