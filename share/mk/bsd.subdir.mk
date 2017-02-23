@@ -24,9 +24,9 @@
 # 		This is a variant of install, which will
 # 		put the stuff into the right "distribution".
 #
-#	afterinstall, all, all-man, beforeinstall, checkdpadd, clean,
+#	afterinstall, all, all-man, beforeinstall, check, checkdpadd, clean,
 #	cleandepend, cleandir, cleanilinks depend, install, lint,
-#	maninstall, manlint, obj, objlink, realinstall, regress, tags
+#	maninstall, manlint, obj, objlink, realinstall, tags
 #
 
 .if !target(__<bsd.subdir.mk>__)
@@ -45,7 +45,7 @@ distribute: .MAKE
 
 _SUBDIR: .USE .MAKE
 .if defined(SUBDIR) && !empty(SUBDIR) && !defined(NO_SUBDIR)
-	@${_+_}set -e; for entry in ${SUBDIR:N.WAIT}; do \
+	@${_+_}for entry in ${SUBDIR:N.WAIT}; do \
 		if test -d ${.CURDIR}/$${entry}.${MACHINE_ARCH}; then \
 			${ECHODIR} "===> ${DIRPRFX}$${entry}.${MACHINE_ARCH} (${.TARGET:S,realinstall,install,:S,^_sub.,,})"; \
 			edir=$${entry}.${MACHINE_ARCH}; \
@@ -70,9 +70,9 @@ ${SUBDIR:N.WAIT}: .PHONY .MAKE
 
 # Work around parsing of .if nested in .for by putting .WAIT string into a var.
 __wait= .WAIT
-.for __target in all all-man checkdpadd clean cleandepend cleandir \
+.for __target in all all-man check checkdpadd clean cleandepend cleandir \
     cleanilinks depend distribute lint maninstall manlint obj objlink \
-    realinstall regress tags ${SUBDIR_TARGETS}
+    realinstall tags ${SUBDIR_TARGETS}
 .ifdef SUBDIR_PARALLEL
 __subdir_targets=
 .for __dir in ${SUBDIR}
@@ -86,8 +86,7 @@ __deps+= ${__target}_subdir_${__dep}
 .endfor
 ${__target}_subdir_${__dir}: .PHONY .MAKE ${__deps}
 .if !defined(NO_SUBDIR)
-	@${_+_}set -e; \
-		if test -d ${.CURDIR}/${__dir}.${MACHINE_ARCH}; then \
+	@${_+_}if test -d ${.CURDIR}/${__dir}.${MACHINE_ARCH}; then \
 			${ECHODIR} "===> ${DIRPRFX}${__dir}.${MACHINE_ARCH} (${__target:realinstall=install})"; \
 			edir=${__dir}.${MACHINE_ARCH}; \
 			cd ${.CURDIR}/$${edir}; \
@@ -118,7 +117,7 @@ _sub.${__stage}${__target}: _SUBDIR
 .endfor
 .if !target(${__target})
 ${__target}: .MAKE
-	${_+_}set -e; cd ${.CURDIR}; ${MAKE} build${__target}; ${MAKE} install${__target}
+	${_+_}cd ${.CURDIR}; ${MAKE} build${__target}; ${MAKE} install${__target}
 .endif
 .endfor
 

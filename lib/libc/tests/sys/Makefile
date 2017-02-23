@@ -2,13 +2,12 @@
 
 .include <bsd.own.mk>
 
-TESTSDIR=		${TESTSBASE}/lib/libc/sys
-
 ATF_TESTS_C+=			queue_test
 
 # TODO: clone, lwp_create, lwp_ctl, posix_fadvise, recvmmsg,
 # swapcontext
 NETBSD_ATF_TESTS_C+=		access_test
+NETBSD_ATF_TESTS_C+=		bind_test
 NETBSD_ATF_TESTS_C+=		chroot_test
 NETBSD_ATF_TESTS_C+=		clock_gettime_test
 NETBSD_ATF_TESTS_C+=		connect_test
@@ -21,6 +20,7 @@ NETBSD_ATF_TESTS_C+=		getlogin_test
 NETBSD_ATF_TESTS_C+=		getpid_test
 NETBSD_ATF_TESTS_C+=		getrusage_test
 NETBSD_ATF_TESTS_C+=		getsid_test
+NETBSD_ATF_TESTS_C+=		getsockname_test
 NETBSD_ATF_TESTS_C+=		gettimeofday_test
 NETBSD_ATF_TESTS_C+=		issetugid_test
 NETBSD_ATF_TESTS_C+=		kevent_test
@@ -43,6 +43,7 @@ NETBSD_ATF_TESTS_C+=		nanosleep_test
 NETBSD_ATF_TESTS_C+=		pipe_test
 NETBSD_ATF_TESTS_C+=		pipe2_test
 NETBSD_ATF_TESTS_C+=		poll_test
+NETBSD_ATF_TESTS_C+=		posix_fallocate_test
 NETBSD_ATF_TESTS_C+=		revoke_test
 NETBSD_ATF_TESTS_C+=		select_test
 NETBSD_ATF_TESTS_C+=		setrlimit_test
@@ -57,6 +58,9 @@ NETBSD_ATF_TESTS_C+=		truncate_test
 NETBSD_ATF_TESTS_C+=		ucontext_test
 NETBSD_ATF_TESTS_C+=		umask_test
 NETBSD_ATF_TESTS_C+=		unlink_test
+NETBSD_ATF_TESTS_C+=		wait_test
+NETBSD_ATF_TESTS_C+=		wait_noproc_test
+NETBSD_ATF_TESTS_C+=		wait_noproc_wnohang_test
 NETBSD_ATF_TESTS_C+=		write_test
 
 DPADD.getpid_test+=	${LIBPTHREAD}
@@ -64,7 +68,12 @@ LDADD.getpid_test+=	-lpthread
 DPADD.timer_create_test+=	${LIBRT}
 LDADD.timer_create_test+=	-lrt
 
+CSTD?=				c99
+
 .include "../Makefile.netbsd-tests"
+
+SRCS.mlock_test+=		mlock_helper.c
+SRCS.setrlimit_test+=		mlock_helper.c
 
 .if ${COMPILER_TYPE} == "gcc"
 WARNS?=			3

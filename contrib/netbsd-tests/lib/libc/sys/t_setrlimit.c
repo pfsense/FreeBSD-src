@@ -1,4 +1,4 @@
-/* $NetBSD: t_setrlimit.c,v 1.4 2012/06/12 23:56:19 christos Exp $ */
+/* $NetBSD: t_setrlimit.c,v 1.5 2016/07/13 09:53:16 njoly Exp $ */
 
 /*-
  * Copyright (c) 2011 The NetBSD Foundation, Inc.
@@ -29,7 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: t_setrlimit.c,v 1.4 2012/06/12 23:56:19 christos Exp $");
+__RCSID("$NetBSD: t_setrlimit.c,v 1.5 2016/07/13 09:53:16 njoly Exp $");
 
 #include <sys/resource.h>
 #include <sys/mman.h>
@@ -49,6 +49,11 @@ __RCSID("$NetBSD: t_setrlimit.c,v 1.4 2012/06/12 23:56:19 christos Exp $");
 #include <string.h>
 #include <ucontext.h>
 #include <unistd.h>
+
+#ifdef __FreeBSD__
+void set_vm_max_wired(int);
+void restore_vm_max_wired(void);
+#endif
 
 static void		 sighandler(int);
 static const char	 path[] = "setrlimit";
@@ -238,10 +243,18 @@ sighandler(int signo)
 	_exit(EXIT_SUCCESS);
 }
 
+#ifdef __FreeBSD__
+ATF_TC_WITH_CLEANUP(setrlimit_memlock);
+#else
 ATF_TC(setrlimit_memlock);
+#endif
 ATF_TC_HEAD(setrlimit_memlock, tc)
 {
 	atf_tc_set_md_var(tc, "descr", "Test setrlimit(2), RLIMIT_MEMLOCK");
+#ifdef __FreeBSD__
+	atf_tc_set_md_var(tc, "require.config", "allow_sysctl_side_effects");
+	atf_tc_set_md_var(tc, "require.user", "root");
+#endif
 }
 
 ATF_TC_BODY(setrlimit_memlock, tc)
@@ -251,6 +264,11 @@ ATF_TC_BODY(setrlimit_memlock, tc)
 	long page;
 	pid_t pid;
 	int sta;
+
+#ifdef __FreeBSD__
+	/* Set max_wired really really high to avoid EAGAIN */
+	set_vm_max_wired(INT_MAX);
+#endif
 
 	page = sysconf(_SC_PAGESIZE);
 	ATF_REQUIRE(page >= 0);
@@ -294,6 +312,14 @@ ATF_TC_BODY(setrlimit_memlock, tc)
 	if (WIFEXITED(sta) == 0 || WEXITSTATUS(sta) != EXIT_SUCCESS)
 		atf_tc_fail("RLIMIT_MEMLOCK not enforced");
 }
+
+#ifdef __FreeBSD__
+ATF_TC_CLEANUP(setrlimit_memlock, tc)
+{
+
+	restore_vm_max_wired();
+}
+#endif
 
 ATF_TC(setrlimit_nofile_1);
 ATF_TC_HEAD(setrlimit_nofile_1, tc)
@@ -515,6 +541,25 @@ ATF_TC_BODY(setrlimit_perm, tc)
 	}
 }
 
+ATF_TC(setrlimit_stack);
+ATF_TC_HEAD(setrlimit_stack, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test setrlimit(2), RLIMIT_STACK");
+	atf_tc_set_md_var(tc, "require.user", "unprivileged");
+}
+
+ATF_TC_BODY(setrlimit_stack, tc)
+{
+	struct rlimit res;
+
+	/* Ensure soft limit is not bigger than hard limit */
+	res.rlim_cur = res.rlim_max = 4192256;
+	ATF_REQUIRE(setrlimit(RLIMIT_STACK, &res) == 0);
+	ATF_REQUIRE(getrlimit(RLIMIT_STACK, &res) == 0);
+	ATF_CHECK(res.rlim_cur <= res.rlim_max);
+
+}
+
 ATF_TP_ADD_TCS(tp)
 {
 
@@ -530,6 +575,7 @@ ATF_TP_ADD_TCS(tp)
 #ifdef __NetBSD__
 	ATF_TP_ADD_TC(tp, setrlimit_nthr);
 #endif
+	ATF_TP_ADD_TC(tp, setrlimit_stack);
 
 	return atf_no_error();
 }

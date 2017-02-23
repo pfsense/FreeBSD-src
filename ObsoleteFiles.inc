@@ -38,6 +38,13 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20170214: Four files from ggate tests consolidated into one
+OLD_FILES+=usr/tests/sys/geom/class/gate/1_test
+OLD_FILES+=usr/tests/sys/geom/class/gate/2_test
+OLD_FILES+=usr/tests/sys/geom/class/gate/3_test
+OLD_FILES+=usr/tests/sys/geom/class/gate/conf.sh
+# 20170211: libarchive ACL pax test renamed to test_acl_pax_posix1e.tar.uu
+OLD_FILES+=usr/tests/lib/libarchive/test_acl_pax.tar.uu
 # 20161229: Three files from gnop tests consolidated into one
 OLD_FILES+=usr/tests/sys/geom/class/nop/1_test
 OLD_FILES+=usr/tests/sys/geom/class/nop/2_test
@@ -53,6 +60,9 @@ OLD_FILES+=usr/share/man/man4/hv_vss.4.gz
 .endif
 # 20161118: Remove hv_ata_pci_disengage(4)
 OLD_FILES+=usr/share/man/man4/hv_ata_pci_disengage.4.gz
+# 20160906: libkqueue tests moved to /usr/tests/sys/kqueue/libkqueue
+OLD_FILES+=usr/tests/sys/kqueue/kqtest
+OLD_FILES+=usr/tests/sys/kqueue/kqueue_test
 # 20160723: stale MLINK removed
 OLD_FILES+=usr/share/man/man9/rman_await_resource.9.gz
 # 20160216: Remove obsolete unbound-control-setup

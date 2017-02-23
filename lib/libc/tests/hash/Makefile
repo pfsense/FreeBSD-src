@@ -2,11 +2,11 @@
 
 .include <bsd.own.mk>
 
-TESTSDIR=	${TESTSBASE}/lib/libc/hash
-
 NETBSD_ATF_TESTS_C=
 
 .if ${MK_OPENSSL} != "no"
+# XXX: doesn't compile
+#NETBSD_ATF_TESTS_C+=	hmac_test
 NETBSD_ATF_TESTS_C+=	sha2_test
 .endif
 
@@ -29,8 +29,8 @@ LDADD+=		-lmd
 DPADD.sha2_test+=	${LIBCRYPTO}
 LDADD.sha2_test+=	-lcrypto
 
-CFLAGS.sha2_test+=	-I${.CURDIR}/../../../../crypto/openssh/openbsd-compat
-CFLAGS.sha2_test+=	-I${.CURDIR}/../../../../crypto/openssh
+CFLAGS.sha2_test+=	-I${SRCTOP}/crypto/openssh/openbsd-compat
+CFLAGS.sha2_test+=	-I${SRCTOP}/crypto/openssh
 
 .include "../Makefile.netbsd-tests"
 

@@ -2,8 +2,6 @@
 
 .include <bsd.own.mk>
 
-TESTSDIR=	${TESTSBASE}/lib/libc
-
 SUBDIR=		tls_dso
 
 TESTS_SUBDIRS=	c063
@@ -17,6 +15,7 @@ TESTS_SUBDIRS+=	nss
 TESTS_SUBDIRS+=	regex
 TESTS_SUBDIRS+=	resolv
 TESTS_SUBDIRS+=	rpc
+TESTS_SUBDIRS+=	setjmp
 TESTS_SUBDIRS+=	stdio
 TESTS_SUBDIRS+=	stdlib
 TESTS_SUBDIRS+=	string

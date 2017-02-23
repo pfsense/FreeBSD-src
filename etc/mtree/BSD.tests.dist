@@ -53,6 +53,168 @@
         usr.bin
         ..
         usr.sbin
+            dtrace
+                common
+                    aggs
+                    ..
+                    arithmetic
+                    ..
+                    arrays
+                    ..
+                    assocs
+                    ..
+                    begin
+                    ..
+                    bitfields
+                    ..
+                    buffering
+                    ..
+                    builtinvar
+                    ..
+                    cg
+                    ..
+                    clauses
+                    ..
+                    cpc
+                    ..
+                    decls
+                    ..
+                    drops
+                    ..
+                    dtraceUtil
+                    ..
+                    end
+                    ..
+                    enum
+                    ..
+                    error
+                    ..
+                    exit
+                    ..
+                    fbtprovider
+                    ..
+                    funcs
+                    ..
+                    grammar
+                    ..
+                    include
+                    ..
+                    inline
+                    ..
+                    io
+                    ..
+                    ip
+                    ..
+                    java_api
+                    ..
+                    json
+                    ..
+                    lexer
+                    ..
+                    llquantize
+                    ..
+                    mdb
+                    ..
+                    mib
+                    ..
+                    misc
+                    ..
+                    multiaggs
+                    ..
+                    offsetof
+                    ..
+                    operators
+                    ..
+                    pid
+                    ..
+                    plockstat
+                    ..
+                    pointers
+                    ..
+                    pragma
+                    ..
+                    predicates
+                    ..
+                    preprocessor
+                    ..
+                    print
+                    ..
+                    printa
+                    ..
+                    printf
+                    ..
+                    privs
+                    ..
+                    probes
+                    ..
+                    proc
+                    ..
+                    profile-n
+                    ..
+                    providers
+                    ..
+                    raise
+                    ..
+                    rates
+                    ..
+                    safety
+                    ..
+                    scalars
+                    ..
+                    sched
+                    ..
+                    scripting
+                    ..
+                    sdt
+                    ..
+                    sizeof
+                    ..
+                    speculation
+                    ..
+                    stability
+                    ..
+                    stack
+                    ..
+                    stackdepth
+                    ..
+                    stop
+                    ..
+                    strlen
+                    ..
+                    strtoll
+                    ..
+                    struct
+                    ..
+                    syscall
+                    ..
+                    sysevent
+                    ..
+                    tick-n
+                    ..
+                    trace
+                    ..
+                    tracemem
+                    ..
+                    translators
+                    ..
+                    typedef
+                    ..
+                    types
+                    ..
+                    uctf
+                    ..
+                    union
+                    ..
+                    usdt
+                    ..
+                    ustack
+                    ..
+                    vars
+                    ..
+                    version
+                    ..
+                ..
+            ..
         ..
     ..
     etc
@@ -123,6 +285,8 @@
             ..
             ssp
             ..
+            setjmp
+            ..
             stdio
             ..
             stdlib
@@ -147,6 +311,8 @@
         libmp
         ..
         libnv
+        ..
+        libpam
         ..
         librt
         ..
@@ -206,6 +372,10 @@
         ..
         file
         ..
+        fs
+            tmpfs
+            ..
+        ..
         geom
             class
                 concat
@@ -241,6 +411,8 @@
             ..
         ..
         kqueue
+            libkqueue
+            ..
         ..
         mac
             bsdextended
@@ -396,8 +568,8 @@
                 ..
             ..
         ..
-	bsdcat
-	..
+        bsdcat
+        ..
         calendar
         ..
         cmp
