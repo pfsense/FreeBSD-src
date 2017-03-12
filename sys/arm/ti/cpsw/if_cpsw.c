@@ -2978,16 +2978,36 @@ cpsw_writereg(device_t dev, int addr, int value)
 static int
 cpsw_readphy(device_t dev, int phy, int reg)
 {
+	int i;
+	struct cpsw_softc *sc;
 
-	/* Not supported. */
-	return (0);
+	sc = device_get_softc(dev);
+	if (!sc->dualemac)
+		return (0);
+	for (i = 0; i < CPSW_PORTS; i++)
+		if (sc->port[i].phy == phy)
+			break;
+	if (i >= CPSW_PORTS)
+		return (0);
+
+	return (cpswp_miibus_readreg(sc->port[i].dev, phy, reg));
 }
 
 static int
 cpsw_writephy(device_t dev, int phy, int reg, int data)
 {
+	int i;
+	struct cpsw_softc *sc;
 
-	/* Not supported. */
-	return (0);
+	sc = device_get_softc(dev);
+	if (!sc->dualemac)
+		return (0);
+	for (i = 0; i < CPSW_PORTS; i++)
+		if (sc->port[i].phy == phy)
+			break;
+	if (i >= CPSW_PORTS)
+		return (0);
+
+	return (cpswp_miibus_writereg(sc->port[i].dev, phy, reg, data));
 }
 #endif
