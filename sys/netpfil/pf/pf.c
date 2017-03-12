@@ -1599,11 +1599,12 @@ pf_purge_thread(void *unused __unused)
 		VNET_FOREACH(vnet_iter) {
 			CURVNET_SET(vnet_iter);
 
-		if (pf_end_threads) {
-			pf_end_threads++;
-			wakeup(pf_purge_thread);
-			kproc_exit(0);
-		}
+			if (pf_end_threads) {
+				pf_end_threads++;
+				wakeup(pf_purge_thread);
+				VNET_LIST_RUNLOCK();
+				kproc_exit(0);
+			}
 
 		/* Wait while V_pf_default_rule.timeout is initialized. */
 		if (V_pf_vnet_active == 0) {
