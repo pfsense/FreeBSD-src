@@ -275,6 +275,7 @@ dev/if_ndis/if_ndis.c		optional ndis
 dev/if_ndis/if_ndis_pccard.c	optional ndis pccard
 dev/if_ndis/if_ndis_pci.c	optional ndis cardbus | ndis pci
 dev/if_ndis/if_ndis_usb.c	optional ndis usb
+dev/intel/spi.c			optional intelspi
 dev/io/iodev.c			optional io
 dev/ipmi/ipmi.c			optional ipmi
 dev/ipmi/ipmi_acpi.c		optional ipmi acpi
@@ -485,7 +486,6 @@ i386/i386/elf_machdep.c		standard
 i386/i386/exception.s		standard
 i386/i386/gdb_machdep.c		optional gdb
 i386/i386/geode.c		optional cpu_geode
-i386/i386/i686_mem.c		optional mem
 i386/i386/in_cksum.c		optional inet | inet6
 i386/i386/initcpu.c		standard
 i386/i386/io.c			optional io
@@ -528,7 +528,7 @@ i386/ibcs2/ibcs2_xenix.c	optional ibcs2
 i386/ibcs2/ibcs2_xenix_sysent.c	optional ibcs2
 i386/ibcs2/imgact_coff.c	optional ibcs2
 i386/isa/elink.c		optional ep | ie
-i386/isa/npx.c			optional npx
+i386/isa/npx.c			standard
 i386/isa/pmtimer.c		optional pmtimer
 i386/isa/prof_machdep.c		optional profiling-routine
 i386/isa/spic.c			optional spic
@@ -624,6 +624,7 @@ x86/x86/io_apic.c		optional apic
 x86/x86/legacy.c		standard
 x86/x86/local_apic.c		optional apic
 x86/x86/mca.c			standard
+x86/x86/x86_mem.c		optional mem
 x86/x86/mptable.c		optional apic
 x86/x86/mptable_pci.c		optional apic pci
 x86/x86/mp_x86.c		optional smp

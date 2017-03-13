@@ -167,15 +167,11 @@ id_t		zio_taskq_psrset_bind = PS_NONE;
 #endif
 #ifdef SYSDC
 boolean_t	zio_taskq_sysdc = B_TRUE;	/* use SDC scheduling class */
-#endif
 uint_t		zio_taskq_basedc = 80;		/* base duty cycle */
+#endif
 
 boolean_t	spa_create_process = B_TRUE;	/* no process ==> no sysdc */
 extern int	zfs_sync_pass_deferred_free;
-
-#ifndef illumos
-extern void spa_deadman(void *arg);
-#endif
 
 /*
  * This (illegal) pool name is used when temporarily importing a spa_t in order
@@ -927,9 +923,17 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 			 * The write issue taskq can be extremely CPU
 			 * intensive.  Run it at slightly lower priority
 			 * than the other taskqs.
+			 * FreeBSD notes:
+			 * - numerically higher priorities are lower priorities;
+			 * - if priorities divided by four (RQ_PPQ) are equal
+			 *   then a difference between them is insignificant.
 			 */
 			if (t == ZIO_TYPE_WRITE && q == ZIO_TASKQ_ISSUE)
-				pri++;
+#ifdef illumos
+				pri--;
+#else
+				pri += 4;
+#endif
 
 			tq = taskq_create_proc(name, value, pri, 50,
 			    INT_MAX, spa->spa_proc, flags);
@@ -6880,8 +6884,8 @@ spa_sync(spa_t *spa, uint64_t txg)
 	    spa->spa_sync_starttime + spa->spa_deadman_synctime));
 #else	/* !illumos */
 #ifdef _KERNEL
-	callout_reset(&spa->spa_deadman_cycid,
-	    hz * spa->spa_deadman_synctime / NANOSEC, spa_deadman, spa);
+	callout_schedule(&spa->spa_deadman_cycid,
+	    hz * spa->spa_deadman_synctime / NANOSEC);
 #endif
 #endif	/* illumos */
 

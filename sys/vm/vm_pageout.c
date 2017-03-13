@@ -871,7 +871,7 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 		 * Decrease registered cache sizes.
 		 */
 		SDT_PROBE0(vm, , , vm__lowmem_scan);
-		EVENTHANDLER_INVOKE(vm_lowmem, 0);
+		EVENTHANDLER_INVOKE(vm_lowmem, VM_LOW_PAGES);
 		/*
 		 * We do this explicitly after the caches have been
 		 * drained above.
@@ -1806,12 +1806,14 @@ again:
 			if (size >= limit) {
 				vm_pageout_map_deactivate_pages(
 				    &vm->vm_map, limit);
+				size = vmspace_resident_count(vm);
 			}
 #ifdef RACCT
 			if (racct_enable) {
 				rsize = IDX_TO_OFF(size);
 				PROC_LOCK(p);
-				racct_set(p, RACCT_RSS, rsize);
+				if (p->p_state == PRS_NORMAL)
+					racct_set(p, RACCT_RSS, rsize);
 				ravailable = racct_get_available(p, RACCT_RSS);
 				PROC_UNLOCK(p);
 				if (rsize > ravailable) {
@@ -1837,7 +1839,8 @@ again:
 					size = vmspace_resident_count(vm);
 					rsize = IDX_TO_OFF(size);
 					PROC_LOCK(p);
-					racct_set(p, RACCT_RSS, rsize);
+					if (p->p_state == PRS_NORMAL)
+						racct_set(p, RACCT_RSS, rsize);
 					PROC_UNLOCK(p);
 					if (rsize > ravailable)
 						tryagain = 1;
