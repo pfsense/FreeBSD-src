@@ -220,6 +220,13 @@ ksz9031_load_values(struct mii_softc *sc, phandle_t node)
 	ksz90x1_load_values(sc, node, 2, MII_KSZ9031_CLOCK_PAD_SKEW,
 	    "rxc-skew-ps", 0x1f, 0, "txc-skew-ps", 0x1f, 5,
 	    NULL, 0, 0, NULL, 0, 0);
+
+	/*
+	 * Fix for errata 5.
+	 * Set the device's Auto-Negotiation FLP (Fast Link Pulse) to 16ms.
+	 */
+	ksz9031_write(sc, 0, 0x4, 0x6);
+	ksz9031_write(sc, 0, 0x3, 0x1a80);
 }
 
 static void
