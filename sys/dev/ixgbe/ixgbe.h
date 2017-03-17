@@ -36,9 +36,6 @@
 #ifndef _IXGBE_H_
 #define _IXGBE_H_
 
-#ifdef ALTQ
-#define IXGBE_LEGACY_TX
-#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
