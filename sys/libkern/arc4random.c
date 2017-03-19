@@ -82,7 +82,7 @@ arc4_randomstir (void)
 	 * paper "Weaknesses in the Key Scheduling Algorithm of RC4"
 	 * by Fluher, Mantin, and Shamir.  (N = 256 in our case.)
 	 */
-	for (n = 0; n < 256*4; n++)
+	for (n = 0; n < 768*4; n++)
 		arc4_randbyte();
 	mtx_unlock(&arc4_mtx);
 }
