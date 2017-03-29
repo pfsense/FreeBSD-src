@@ -154,6 +154,9 @@ struct client_config {
 	u_int8_t		 required_options[256];
 	u_int8_t		 requested_options[256];
 	int			 requested_option_count;
+	int			 vlan_id;
+	int			 vlan_pcp;
+	char			*send_interface;	
 	time_t			 timeout;
 	time_t			 initial_interval;
 	time_t			 retry_interval;
@@ -310,6 +313,7 @@ ssize_t receive_packet(struct interface_info *, unsigned char *, size_t,
 /* dispatch.c */
 extern void (*bootp_packet_handler)(struct interface_info *,
     struct dhcp_packet *, int, unsigned int, struct iaddr, struct hardware *);
+void discover_interface(struct interface_info *);
 void discover_interfaces(struct interface_info *);
 void reinitialize_interfaces(void);
 void dispatch(void);
@@ -319,6 +323,8 @@ void cancel_timeout(void (*)(void *), void *);
 void add_protocol(char *, int, void (*)(struct protocol *), void *);
 void remove_protocol(struct protocol *);
 int interface_link_status(char *);
+void interface_set_mtu_unpriv(int, u_int16_t);
+void interface_set_mtu_priv(char *, u_int16_t); 
 
 /* hash.c */
 struct hash_table *new_hash(void);

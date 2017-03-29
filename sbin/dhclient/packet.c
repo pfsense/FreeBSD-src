@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <netinet/if_ether.h>
+#include <net/if_vlan_var.h>
 
 #define ETHER_HEADER_SIZE (ETHER_ADDR_LEN * 2 + sizeof(u_int16_t))
 
@@ -93,18 +94,46 @@ assemble_hw_header(struct interface_info *interface, unsigned char *buf,
     int *bufix)
 {
 	struct ether_header eh;
+	struct ether_vlan_header vh;
+	
+	int vlid = interface->client->config->vlan_id;
+	int vlpcp = interface->client->config->vlan_pcp;
+	
+	/* If vlan id is not default, use a 802.1q VLAN frame */
+	if (vlid != 0) {
+		memset(vh.evl_dhost, 0xff, sizeof(vh.evl_dhost));
+		if (interface->hw_address.hlen == sizeof(eh.ether_shost))
+			memcpy(vh.evl_shost, interface->hw_address.haddr,
+				sizeof(vh.evl_shost));
+		else
+			memset(vh.evl_shost, 0x00, sizeof(vh.evl_shost));
 
-	memset(eh.ether_dhost, 0xff, sizeof(eh.ether_dhost));
-	if (interface->hw_address.hlen == sizeof(eh.ether_shost))
-		memcpy(eh.ether_shost, interface->hw_address.haddr,
-		    sizeof(eh.ether_shost));
-	else
-		memset(eh.ether_shost, 0x00, sizeof(eh.ether_shost));
+		/* Set encapsulation header type to 802.1q */
+		vh.evl_encap_proto = htons(ETHERTYPE_VLAN);
+ 
+		/* Add VLAN tag */
+		vh.evl_tag = htons(EVL_MAKETAG(vlid, vlpcp, 0)); /* VLID, PRI, CFI */
 
-	eh.ether_type = htons(ETHERTYPE_IP);
+		/* Set IP ethernet type tag */
+		vh.evl_proto = htons(ETHERTYPE_IP);
 
-	memcpy(&buf[*bufix], &eh, ETHER_HEADER_SIZE);
-	*bufix += ETHER_HEADER_SIZE;
+		memcpy(&buf[*bufix], &vh, sizeof(vh));
+		*bufix = sizeof(vh);
+	}
+	else {
+		/* Standard IPv4 header */
+		memset(eh.ether_dhost, 0xff, sizeof(eh.ether_dhost));
+		if (interface->hw_address.hlen == sizeof(eh.ether_shost))
+			memcpy(eh.ether_shost, interface->hw_address.haddr,
+				sizeof(eh.ether_shost));
+		else
+			memset(eh.ether_shost, 0x00, sizeof(eh.ether_shost));
+	
+		eh.ether_type = htons(ETHERTYPE_IP);
+		
+		memcpy(&buf[*bufix], &eh, ETHER_HEADER_SIZE);
+		*bufix = ETHER_HEADER_SIZE;
+	}
 }
 
 void
@@ -127,17 +156,6 @@ assemble_udp_ip_header(unsigned char *buf, int *bufix, u_int32_t from,
 	ip.ip_dst.s_addr = to;
 
 	ip.ip_sum = wrapsum(checksum((unsigned char *)&ip, sizeof(ip), 0));
-
-	/*
-	 * While the BPF -- used for broadcasts -- expects a "true" IP header
-	 * with all the bytes in network byte order, the raw socket interface
-	 * which is used for unicasts expects the ip_len field to be in host
-	 * byte order.  In both cases, the checksum has to be correct, so this
-	 * is as good a place as any to turn the bytes around again.
-	 */
-	if (to != INADDR_BROADCAST)
-		ip.ip_len = ntohs(ip.ip_len);
-
 	memcpy(&buf[*bufix], &ip, sizeof(ip));
 	*bufix += sizeof(ip);
 

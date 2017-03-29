@@ -467,10 +467,14 @@ intern(char *atom, int dfv)
 			return (REBOOT);
 		if (!strcasecmp(atom + 1, "eject"))
 			return (REJECT);
+		if (!strcasecmp(atom + 1, "fc3118-auth"))
+			return (REJECT);
 		break;
 	case 's':
 		if (!strcasecmp(atom + 1, "earch"))
 			return (SEARCH);
+		if (!strcasecmp(atom + 1, "end-interface"))
+			return (SEND_INTERFACE);		
 		if (!strcasecmp(atom + 1, "tarts"))
 			return (STARTS);
 		if (!strcasecmp(atom + 1, "iaddr"))
@@ -519,6 +523,10 @@ intern(char *atom, int dfv)
 	case 'v':
 		if (!strcasecmp(atom + 1, "endor-class"))
 			return (VENDOR_CLASS);
+		if (!strcasecmp(atom + 1, "lan-id"))
+			return (VLAN_ID);			
+		if (!strcasecmp(atom + 1, "lan-pcp"))
+			return (VLAN_PCP);
 		break;
 	case 'y':
 		if (!strcasecmp(atom + 1, "iaddr"))

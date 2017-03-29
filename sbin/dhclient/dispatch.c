@@ -43,6 +43,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "dhcpd.h"
+#include "privsep.h"
 
 #include <sys/ioctl.h>
 
@@ -59,7 +60,6 @@ void (*bootp_packet_handler)(struct interface_info *,
     struct iaddr, struct hardware *);
 
 static int interface_status(struct interface_info *ifinfo);
-
 /*
  * Use getifaddrs() to get a list of all the attached interfaces.  For
  * each interface that's of type INET and not the loopback interface,
@@ -67,7 +67,7 @@ static int interface_status(struct interface_info *ifinfo);
  * what subnet it's on, and add it to the list of interfaces.
  */
 void
-discover_interfaces(struct interface_info *iface)
+discover_interface(struct interface_info *iface)
 {
 	struct ifaddrs *ifap, *ifa;
 	struct sockaddr_in foo;
@@ -122,13 +122,44 @@ discover_interfaces(struct interface_info *iface)
 	if (!iface->ifp)
 		error("%s: not found", iface->name);
 
-	/* Register the interface... */
-	if_register_receive(iface);
-	if_register_send(iface);
-	add_protocol(iface->name, iface->rfdesc, got_one, iface);
 	freeifaddrs(ifap);
 }
+void
+discover_interfaces(struct interface_info *iface)
+{
+	char *sname = iface->client->config->send_interface;
+	char *rname;
 
+	strcpy(rname, iface->name);
+
+	/* Discover the receiving interface... */	
+	note("Registering receive interface: %s", iface->name);			
+	discover_interface(iface);
+
+	if_register_receive(iface);
+
+	add_protocol(iface->name, iface->rfdesc, got_one, iface);
+
+	/* Register the sending interface... */
+	if (sname != NULL) {
+		note("Registering sending interface: %s", sname);
+		if (iface->client->config->vlan_id !=0)
+			note("	VLAN ID: %d, VLAN PCP: %d",
+				iface->client->config->vlan_id, iface->client->config->vlan_pcp);
+
+		/* Change interface name for bpf registration */
+		strlcpy(iface->ifp->ifr_name, sname, IFNAMSIZ);
+
+		if_register_send(iface);
+
+		/* Change name back to original */
+		strlcpy(iface->ifp->ifr_name, rname, IFNAMSIZ);		
+	}
+	else {
+		note("Registering same interface for sending");	
+		if_register_send(iface);
+	}
+}
 void
 reinitialize_interfaces(void)
 {
@@ -500,4 +531,47 @@ interface_link_status(char *ifname)
 		}
 	}
 	return (1);
+}
+
+void
+interface_set_mtu_unpriv(int privfd, u_int16_t mtu)
+{
+	struct imsg_hdr hdr;
+	struct buf *buf;
+	int errs = 0;
+
+	hdr.code = IMSG_SET_INTERFACE_MTU;
+	hdr.len = sizeof(hdr) +
+		sizeof(u_int16_t);
+
+	if ((buf = buf_open(hdr.len)) == NULL)
+		error("buf_open: %m");
+
+	errs += buf_add(buf, &hdr, sizeof(hdr));
+	errs += buf_add(buf, &mtu, sizeof(mtu));
+	if (errs)
+		error("buf_add: %m");
+	
+	if (buf_close(privfd, buf) == -1)
+		error("buf_close: %m");
+}
+
+void
+interface_set_mtu_priv(char *ifname, u_int16_t mtu)
+{
+	struct ifreq ifr;
+	int sock;
+
+	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+		error("Can't create socket");
+
+	memset(&ifr, 0, sizeof(ifr));
+
+	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	ifr.ifr_mtu = mtu;
+
+	if (ioctl(sock, SIOCSIFMTU, &ifr) == -1)
+		warning("SIOCSIFMTU failed (%d): %s", mtu,
+			strerror(errno));
+	close(sock);
 }
