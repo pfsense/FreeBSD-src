@@ -1,8 +1,7 @@
-include		uFW
 
 nooptions	KDB_TRACE
 
-ident		pfSense-uFW
+ident		pfSense
 
 nooptions	MAC		# TrustedBSD MAC Framework
 nooptions	COMPAT_FREEBSD4	# Compatible with FreeBSD4
