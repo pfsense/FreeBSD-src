@@ -5,7 +5,7 @@
 KMOD=   if_cpsw
 SRCS=   if_cpsw.c device_if.h bus_if.h ofw_bus_if.h miibus_if.h
 
-.if !empty(OPT_ETHERSWITCH)
+.if !empty(OPT_CPSW)
 SRCS+=	etherswitch_if.h
 .endif
 
