@@ -51,6 +51,10 @@ if [ -f /tmp/loader.conf.pfSense ]; then
 	cp /tmp/loader.conf.pfSense $BSDINSTALL_CHROOT/boot/loader.conf
 fi
 
+if [ -f /tmp/loader.conf.local.pfSense ]; then
+	cp /tmp/loader.conf.local.pfSense $BSDINSTALL_CHROOT/boot/loader.conf.local
+fi
+
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_CHROOT/boot/loader.conf
 
 if [ -f /tmp/boot.config ]; then
