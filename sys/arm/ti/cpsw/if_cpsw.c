@@ -92,6 +92,9 @@ __FBSDID("$FreeBSD$");
 
 #include "miibus_if.h"
 
+static int cpsw_ntxd = 128;
+TUNABLE_INT("hw.cpsw.txd", &cpsw_ntxd);
+
 /* Device probe/attach/detach. */
 static int cpsw_probe(device_t);
 static int cpsw_attach(device_t);
@@ -869,9 +872,11 @@ cpsw_attach(device_t dev)
 	STAILQ_INIT(&sc->rx.active);
 	STAILQ_INIT(&sc->tx.avail);
 	STAILQ_INIT(&sc->tx.active);
-	// For now:  128 slots to TX, rest to RX.
-	// XXX TODO: start with 32/64 and grow dynamically based on demand.
-	if (cpsw_add_slots(sc, &sc->tx, 128) ||
+	if (cpsw_ntxd < 32)
+		cpsw_ntxd = 32;
+	if (cpsw_ntxd > 128)
+		cpsw_ntxd = 128;
+	if (cpsw_add_slots(sc, &sc->tx, cpsw_ntxd) ||
 	    cpsw_add_slots(sc, &sc->rx, -1)) {
 		device_printf(dev, "failed to allocate dmamaps\n");
 		cpsw_detach(dev);
