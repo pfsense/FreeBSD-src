@@ -627,7 +627,7 @@ mvneta_attach(device_t self)
 #else /* !MVNETA_MULTIQUEUE */
 	ifp->if_start = mvneta_start;
 	ifp->if_snd.ifq_drv_maxlen = 0;
-	IFQ_SET_MAXLEN(&ifp->if_snd, ifp->if_snd.ifq_drv_maxlen);
+	IFQ_SET_MAXLEN(&ifp->if_snd, MVNETA_TX_RING_CNT - 1);
 	IFQ_SET_READY(&ifp->if_snd);
 #endif
 	ifp->if_init = mvneta_init;
