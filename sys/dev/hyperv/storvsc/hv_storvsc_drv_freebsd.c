@@ -266,10 +266,10 @@ static const struct hyperv_guid gBlkVscDeviceType={
 };
 
 static struct storvsc_driver_props g_drv_props_table[] = {
-	{"blkvsc", "Hyper-V IDE Storage Interface",
+	{"blkvsc", "Hyper-V IDE",
 	 BLKVSC_MAX_IDE_DISKS_PER_TARGET, BLKVSC_MAX_IO_REQUESTS,
 	 20*PAGE_SIZE},
-	{"storvsc", "Hyper-V SCSI Storage Interface",
+	{"storvsc", "Hyper-V SCSI",
 	 STORVSC_MAX_LUNS_PER_TARGET, STORVSC_MAX_IO_REQUESTS,
 	 20*PAGE_SIZE}
 };
@@ -1451,9 +1451,9 @@ storvsc_action(struct cam_sim *sim, union ccb *ccb)
 		cpi->transport_version = 0;
 		cpi->protocol = PROTO_SCSI;
 		cpi->protocol_version = SCSI_REV_SPC2;
-		strncpy(cpi->sim_vid, "FreeBSD", SIM_IDLEN);
-		strncpy(cpi->hba_vid, sc->hs_drv_props->drv_name, HBA_IDLEN);
-		strncpy(cpi->dev_name, cam_sim_name(sim), DEV_IDLEN);
+		strlcpy(cpi->sim_vid, "FreeBSD", SIM_IDLEN);
+		strlcpy(cpi->hba_vid, sc->hs_drv_props->drv_name, HBA_IDLEN);
+		strlcpy(cpi->dev_name, cam_sim_name(sim), DEV_IDLEN);
 		cpi->unit_number = cam_sim_unit(sim);
 
 		ccb->ccb_h.status = CAM_REQ_CMP;
@@ -1771,7 +1771,7 @@ storvsc_check_bounce_buffer_sgl(bus_dma_segment_t *sgl,
 			}
 			pre_aligned = TRUE;
 		} else {
-			tmp_bits |= 1 << i;
+			tmp_bits |= 1ULL << i;
 			if (!pre_aligned) {
 				if (phys_addr != vtophys(sgl[i-1].ds_addr +
 				    sgl[i-1].ds_len)) {
@@ -2148,19 +2148,20 @@ storvsc_io_done(struct hv_storvsc_request *reqp)
 
 	ccb->ccb_h.status &= ~CAM_SIM_QUEUED;
 	ccb->ccb_h.status &= ~CAM_STATUS_MASK;
+	int srb_status = SRB_STATUS(vm_srb->srb_status);
 	if (vm_srb->scsi_status == SCSI_STATUS_OK) {
 		const struct scsi_generic *cmd;
 
 		cmd = (const struct scsi_generic *)
 		    ((ccb->ccb_h.flags & CAM_CDB_POINTER) ?
 		     csio->cdb_io.cdb_ptr : csio->cdb_io.cdb_bytes);
-		if (vm_srb->srb_status != SRB_STATUS_SUCCESS) {
+		if (srb_status != SRB_STATUS_SUCCESS) {
 			/*
 			 * If there are errors, for example, invalid LUN,
 			 * host will inform VM through SRB status.
 			 */
 			if (bootverbose) {
-				if (vm_srb->srb_status == SRB_STATUS_INVALID_LUN) {
+				if (srb_status == SRB_STATUS_INVALID_LUN) {
 					xpt_print(ccb->ccb_h.path,
 					    "invalid LUN %d for op: %s\n",
 					    vm_srb->lun,
@@ -2168,7 +2169,7 @@ storvsc_io_done(struct hv_storvsc_request *reqp)
 				} else {
 					xpt_print(ccb->ccb_h.path,
 					    "Unknown SRB flag: %d for op: %s\n",
-					    vm_srb->srb_status,
+					    srb_status,
 					    scsi_op_desc(cmd->opcode, NULL));
 				}
 			}
@@ -2191,7 +2192,7 @@ storvsc_io_done(struct hv_storvsc_request *reqp)
 		}
 
 		if (cmd->opcode == INQUIRY &&
-		    vm_srb->srb_status == SRB_STATUS_SUCCESS) {
+		    srb_status == SRB_STATUS_SUCCESS) {
 			int resp_xfer_len, resp_buf_len, data_len;
 			uint8_t *resp_buf = (uint8_t *)csio->data_ptr;
 			struct scsi_inquiry_data *inq_data =

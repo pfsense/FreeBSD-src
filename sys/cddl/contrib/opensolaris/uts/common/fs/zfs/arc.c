@@ -2612,6 +2612,12 @@ arc_hdr_free_on_write(arc_buf_hdr_t *hdr)
 		    size, hdr);
 	}
 	(void) refcount_remove_many(&state->arcs_size, size, hdr);
+	if (type == ARC_BUFC_METADATA) {
+		arc_space_return(size, ARC_SPACE_META);
+	} else {
+		ASSERT(type == ARC_BUFC_DATA);
+		arc_space_return(size, ARC_SPACE_DATA);
+	}
 
 	l2arc_free_data_on_write(hdr->b_l1hdr.b_pdata, size, type);
 }
@@ -3972,7 +3978,7 @@ arc_available_memory(void)
 	 * Start aggressive reclamation if too little sequential KVA left.
 	 */
 	if (lowest > 0) {
-		n = (vmem_size(heap_arena, VMEM_MAXFREE) < zfs_max_recordsize) ?
+		n = (vmem_size(heap_arena, VMEM_MAXFREE) < SPA_MAXBLOCKSIZE) ?
 		    -((int64_t)vmem_size(heap_arena, VMEM_ALLOC) >> 4) :
 		    INT64_MAX;
 		if (n < lowest) {

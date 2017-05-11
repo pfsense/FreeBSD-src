@@ -8,6 +8,7 @@ TESTSDIR=	${TESTSBASE}/sys/kern
 ATF_TESTS_C+=	kern_copyin
 ATF_TESTS_C+=	kern_descrip_test
 ATF_TESTS_C+=	ptrace_test
+TEST_METADATA.ptrace_test+=		timeout="15"
 ATF_TESTS_C+=	reaper
 PLAIN_TESTS_C+=	subr_unit_test
 ATF_TESTS_C+=	unix_seqpacket_test
@@ -24,13 +25,19 @@ NETBSD_ATF_TESTS_C+=	mqueue_test
 CFLAGS.mqueue_test+=	-I${SRCTOP}/tests
 LIBADD.mqueue_test+=	rt
 
+.if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "i386"
+ATF_TESTS_C+=	libkern_crc32
+CFLAGS.libkern_crc32+=	-msse4 -DUSERSPACE_TESTING
+LDADD.libkern_crc32+=	${SRCTOP}/sys/libkern/x86/crc32_sse42.c
+.endif
+
 # subr_unit.c contains functions whose prototypes lie in headers that cannot be
 # included in userland.  But as far as subr_unit_test goes, they're effectively
 # static.  So it's ok to disable -Wmissing-prototypes for this program.
 CFLAGS.subr_unit.c+=	-Wno-missing-prototypes
 SRCS.subr_unit_test+=	subr_unit.c
 
-WARNS?=	5
+WARNS?=	3
 
 TESTS_SUBDIRS+=	acct
 TESTS_SUBDIRS+=	execve

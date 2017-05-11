@@ -56,7 +56,6 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_inet.h"
 #include "opt_inet6.h"
-#include "opt_ipsec.h"
 #include "opt_tcpdebug.h"
 
 #include <sys/param.h>
@@ -112,11 +111,6 @@ __FBSDID("$FreeBSD$");
 #ifdef TCP_OFFLOAD
 #include <netinet/tcp_offload.h>
 #endif
-
-#ifdef IPSEC
-#include <netipsec/ipsec.h>
-#include <netipsec/ipsec6.h>
-#endif /*IPSEC*/
 
 #include <machine/in_cksum.h>
 
@@ -303,7 +297,7 @@ tcp_do_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				  (void *)tcp_saveipgen,
 				  &tcp_savetcp, 0);
 #endif
-		TCP_PROBE3(debug__input, tp, th, mtod(m, const char *));
+		TCP_PROBE3(debug__input, tp, th, m);
 		m_freem(m);
 		if (tp->snd_una == tp->snd_max)
 			tcp_timer_activate(tp, TT_REXMT, 0);
@@ -395,63 +389,9 @@ tcp_do_fastnewdata(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		tcp_trace(TA_INPUT, ostate, tp,
 			  (void *)tcp_saveipgen, &tcp_savetcp, 0);
 #endif
-	TCP_PROBE3(debug__input, tp, th, mtod(m, const char *));
-	/*
-	 * Automatic sizing of receive socket buffer.  Often the send
-	 * buffer size is not optimally adjusted to the actual network
-	 * conditions at hand (delay bandwidth product).  Setting the
-	 * buffer size too small limits throughput on links with high
-	 * bandwidth and high delay (eg. trans-continental/oceanic links).
-	 *
-	 * On the receive side the socket buffer memory is only rarely
-	 * used to any significant extent.  This allows us to be much
-	 * more aggressive in scaling the receive socket buffer.  For
-	 * the case that the buffer space is actually used to a large
-	 * extent and we run out of kernel memory we can simply drop
-	 * the new segments; TCP on the sender will just retransmit it
-	 * later.  Setting the buffer size too big may only consume too
-	 * much kernel memory if the application doesn't read() from
-	 * the socket or packet loss or reordering makes use of the
-	 * reassembly queue.
-	 *
-	 * The criteria to step up the receive buffer one notch are:
-	 *  1. Application has not set receive buffer size with
-	 *     SO_RCVBUF. Setting SO_RCVBUF clears SB_AUTOSIZE.
-	 *  2. the number of bytes received during the time it takes
-	 *     one timestamp to be reflected back to us (the RTT);
-	 *  3. received bytes per RTT is within seven eighth of the
-	 *     current socket buffer size;
-	 *  4. receive buffer size has not hit maximal automatic size;
-	 *
-	 * This algorithm does one step per RTT at most and only if
-	 * we receive a bulk stream w/o packet losses or reorderings.
-	 * Shrinking the buffer during idle times is not necessary as
-	 * it doesn't consume any memory when idle.
-	 *
-	 * TODO: Only step up if the application is actually serving
-	 * the buffer to better manage the socket buffer resources.
-	 */
-	if (V_tcp_do_autorcvbuf &&
-	    (to->to_flags & TOF_TS) &&
-	    to->to_tsecr &&
-	    (so->so_rcv.sb_flags & SB_AUTOSIZE)) {
-		if (TSTMP_GT(to->to_tsecr, tp->rfbuf_ts) &&
-		    to->to_tsecr - tp->rfbuf_ts < hz) {
-			if (tp->rfbuf_cnt >
-			    (so->so_rcv.sb_hiwat / 8 * 7) &&
-			    so->so_rcv.sb_hiwat <
-			    V_tcp_autorcvbuf_max) {
-				newsize =
-					min(so->so_rcv.sb_hiwat +
-					    V_tcp_autorcvbuf_inc,
-					    V_tcp_autorcvbuf_max);
-			}
-			/* Start over with next RTT. */
-			tp->rfbuf_ts = 0;
-			tp->rfbuf_cnt = 0;
-		} else
-			tp->rfbuf_cnt += tlen;	/* add up */
-	}
+	TCP_PROBE3(debug__input, tp, th, m);
+
+	newsize = tcp_autorcvbuf(m, th, so, tp, tlen);
 
 	/* Add data to socket buffer. */
 	SOCKBUF_LOCK(&so->so_rcv);
@@ -526,10 +466,6 @@ tcp_do_slowpath(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		win = 0;
 	tp->rcv_wnd = imax(win, (int)(tp->rcv_adv - tp->rcv_nxt));
 
-	/* Reset receive buffer auto scaling when not in bulk receive mode. */
-	tp->rfbuf_ts = 0;
-	tp->rfbuf_cnt = 0;
-
 	switch (tp->t_state) {
 
 	/*
@@ -567,8 +503,7 @@ tcp_do_slowpath(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			goto dropwithreset;
 		}
 		if ((thflags & (TH_ACK|TH_RST)) == (TH_ACK|TH_RST)) {
-			TCP_PROBE5(connect__refused, NULL, tp,
-			    mtod(m, const char *), tp, th);
+			TCP_PROBE5(connect__refused, NULL, tp, m, tp, th);
 			tp = tcp_drop(tp, ECONNREFUSED);
 		}
 		if (thflags & TH_RST)
@@ -621,7 +556,7 @@ tcp_do_slowpath(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			} else {
 				tcp_state_change(tp, TCPS_ESTABLISHED);
 				TCP_PROBE5(connect__established, NULL, tp,
-				    mtod(m, const char *), tp, th);
+				    m, tp, th);
 				cc_conn_init(tp);
 				tcp_timer_activate(tp, TT_KEEP,
 				    TP_KEEPIDLE(tp));
@@ -992,7 +927,7 @@ tcp_do_slowpath(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		} else {
 			tcp_state_change(tp, TCPS_ESTABLISHED);
 			TCP_PROBE5(accept__established, NULL, tp,
-			    mtod(m, const char *), tp, th);
+			    m, tp, th);
 			cc_conn_init(tp);
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 		}
@@ -1647,7 +1582,7 @@ dodata:							/* XXX */
 		tcp_trace(TA_INPUT, ostate, tp, (void *)tcp_saveipgen,
 			  &tcp_savetcp, 0);
 #endif
-	TCP_PROBE3(debug__input, tp, th, mtod(m, const char *));
+	TCP_PROBE3(debug__input, tp, th, m);
 
 	/*
 	 * Return any desired output.
@@ -1694,7 +1629,7 @@ dropafterack:
 		tcp_trace(TA_DROP, ostate, tp, (void *)tcp_saveipgen,
 			  &tcp_savetcp, 0);
 #endif
-	TCP_PROBE3(debug__drop, tp, th, mtod(m, const char *));
+	TCP_PROBE3(debug__drop, tp, th, m);
 	if (ti_locked == TI_RLOCKED) {
 		INP_INFO_RUNLOCK(&V_tcbinfo);
 	}
@@ -1737,7 +1672,7 @@ drop:
 		tcp_trace(TA_DROP, ostate, tp, (void *)tcp_saveipgen,
 			  &tcp_savetcp, 0);
 #endif
-	TCP_PROBE3(debug__drop, tp, th, mtod(m, const char *));
+	TCP_PROBE3(debug__drop, tp, th, m);
 	if (tp != NULL)
 		INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
@@ -2149,7 +2084,7 @@ tcp_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				  (void *)tcp_saveipgen,
 				  &tcp_savetcp, 0);
 #endif
-		TCP_PROBE3(debug__input, tp, th, mtod(m, const char *));
+		TCP_PROBE3(debug__input, tp, th, m);
 		m_freem(m);
 		if (tp->snd_una == tp->snd_max)
 			tcp_timer_activate(tp, TT_REXMT, 0);

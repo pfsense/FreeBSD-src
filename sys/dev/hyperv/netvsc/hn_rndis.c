@@ -841,9 +841,22 @@ hn_rndis_init(struct hn_softc *sc)
 	sc->hn_rndis_agg_pkts = comp->rm_pktmaxcnt;
 	sc->hn_rndis_agg_align = 1U << comp->rm_align;
 
+	if (sc->hn_rndis_agg_align < sizeof(uint32_t)) {
+		/*
+		 * The RNDIS packet messsage encap assumes that the RNDIS
+		 * packet message is at least 4 bytes aligned.  Fix up the
+		 * alignment here, if the remote side sets the alignment
+		 * too low.
+		 */
+		if_printf(sc->hn_ifp, "fixup RNDIS aggpkt align: %u -> %zu\n",
+		    sc->hn_rndis_agg_align, sizeof(uint32_t));
+		sc->hn_rndis_agg_align = sizeof(uint32_t);
+	}
+
 	if (bootverbose) {
-		if_printf(sc->hn_ifp, "RNDIS ver %u.%u, pktsz %u, pktcnt %u, "
-		    "align %u\n", comp->rm_ver_major, comp->rm_ver_minor,
+		if_printf(sc->hn_ifp, "RNDIS ver %u.%u, "
+		    "aggpkt size %u, aggpkt cnt %u, aggpkt align %u\n",
+		    comp->rm_ver_major, comp->rm_ver_minor,
 		    sc->hn_rndis_agg_size, sc->hn_rndis_agg_pkts,
 		    sc->hn_rndis_agg_align);
 	}
@@ -966,9 +979,11 @@ hn_rndis_query_hwcaps(struct hn_softc *sc, struct ndis_offload *caps)
 }
 
 int
-hn_rndis_attach(struct hn_softc *sc, int mtu)
+hn_rndis_attach(struct hn_softc *sc, int mtu, int *init_done)
 {
 	int error;
+
+	*init_done = 0;
 
 	/*
 	 * Initialize RNDIS.
@@ -976,6 +991,7 @@ hn_rndis_attach(struct hn_softc *sc, int mtu)
 	error = hn_rndis_init(sc);
 	if (error)
 		return (error);
+	*init_done = 1;
 
 	/*
 	 * Configure NDIS offload settings.

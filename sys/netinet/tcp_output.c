@@ -88,9 +88,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_offload.h>
 #endif
 
-#ifdef IPSEC
-#include <netipsec/ipsec.h>
-#endif /*IPSEC*/
+#include <netipsec/ipsec_support.h>
 
 #include <machine/in_cksum.h>
 
@@ -193,7 +191,7 @@ tcp_output(struct tcpcb *tp)
 	struct tcphdr *th;
 	u_char opt[TCP_MAXOLEN];
 	unsigned ipoptlen, optlen, hdrlen;
-#ifdef IPSEC
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	unsigned ipsec_optlen = 0;
 #endif
 	int idle, sendalot;
@@ -545,14 +543,23 @@ after_sack_rexmit:
 	 * the right thing below to provide length of just ip options and thus
 	 * checking for ipoptlen is enough to decide if ip options are present.
 	 */
-#ifdef IPSEC
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	/*
 	 * Pre-calculate here as we save another lookup into the darknesses
 	 * of IPsec that way and can actually decide if TSO is ok.
 	 */
-	ipsec_optlen = ipsec_hdrsiz_tcp(tp);
+#ifdef INET6
+	if (isipv6 && IPSEC_ENABLED(ipv6))
+		ipsec_optlen = IPSEC_HDRSIZE(ipv6, tp->t_inpcb);
+#ifdef INET
+	else
 #endif
-
+#endif /* INET6 */
+#ifdef INET
+	if (IPSEC_ENABLED(ipv4))
+		ipsec_optlen = IPSEC_HDRSIZE(ipv4, tp->t_inpcb);
+#endif /* INET */
+#endif /* IPSEC */
 #ifdef INET6
 	if (isipv6)
 		ipoptlen = ip6_optlen(tp->t_inpcb);
@@ -563,7 +570,7 @@ after_sack_rexmit:
 				offsetof(struct ipoption, ipopt_list);
 	else
 		ipoptlen = 0;
-#ifdef IPSEC
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	ipoptlen += ipsec_optlen;
 #endif
 
@@ -814,11 +821,13 @@ send:
 			to.to_tsval = tcp_ts_getticks() + tp->ts_offset;
 			to.to_tsecr = tp->ts_recent;
 			to.to_flags |= TOF_TS;
-			/* Set receive buffer autosizing timestamp. */
-			if (tp->rfbuf_ts == 0 &&
-			    (so->so_rcv.sb_flags & SB_AUTOSIZE))
-				tp->rfbuf_ts = tcp_ts_getticks();
 		}
+
+		/* Set receive buffer autosizing timestamp. */
+		if (tp->rfbuf_ts == 0 &&
+		    (so->so_rcv.sb_flags & SB_AUTOSIZE))
+			tp->rfbuf_ts = tcp_ts_getticks();
+
 		/* Selective ACK's. */
 		if (tp->t_flags & TF_SACK_PERMIT) {
 			if (flags & TH_SYN)
@@ -831,8 +840,12 @@ send:
 				to.to_sacks = (u_char *)tp->sackblks;
 			}
 		}
-#ifdef TCP_SIGNATURE
+#if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		/* TCP-MD5 (RFC2385). */
+		/*
+		 * Check that TCP_MD5SIG is enabled in tcpcb to
+		 * account the size needed to set this TCP option.
+		 */
 		if (tp->t_flags & TF_SIGNATURE)
 			to.to_flags |= TOF_SIGNATURE;
 #endif /* TCP_SIGNATURE */
@@ -1245,20 +1258,31 @@ send:
 		 */
 		tp->snd_up = tp->snd_una;		/* drag it along */
 
-#ifdef TCP_SIGNATURE
-	if (to.to_flags & TOF_SIGNATURE) {
-		int sigoff = to.to_signature - opt;
-		tcp_signature_compute(m, 0, len, optlen,
-		    (u_char *)(th + 1) + sigoff, IPSEC_DIR_OUTBOUND);
-	}
-#endif
-
 	/*
 	 * Put TCP length in extended header, and then
 	 * checksum extended header and data.
 	 */
 	m->m_pkthdr.len = hdrlen + len; /* in6_cksum() need this */
 	m->m_pkthdr.csum_data = offsetof(struct tcphdr, th_sum);
+
+#if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
+	if (to.to_flags & TOF_SIGNATURE) {
+		/*
+		 * Calculate MD5 signature and put it into the place
+		 * determined before.
+		 * NOTE: since TCP options buffer doesn't point into
+		 * mbuf's data, calculate offset and use it.
+		 */
+		if (!TCPMD5_ENABLED() || TCPMD5_OUTPUT(m, th,
+		    (u_char *)(th + 1) + (to.to_signature - opt)) != 0) {
+			/*
+			 * Do not send segment if the calculation of MD5
+			 * digest has failed.
+			 */
+			goto out;
+		}
+	}
+#endif
 #ifdef INET6
 	if (isipv6) {
 		/*
@@ -1296,7 +1320,7 @@ send:
 		m->m_pkthdr.tso_segsz = tp->t_maxseg - optlen;
 	}
 
-#ifdef IPSEC
+#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	KASSERT(len + hdrlen + ipoptlen - ipsec_optlen == m_length(m, NULL),
 	    ("%s: mbuf chain shorter than expected: %ld + %u + %u - %u != %u",
 	    __func__, len, hdrlen, ipoptlen, ipsec_optlen, m_length(m, NULL)));
@@ -1329,7 +1353,7 @@ send:
 		ipov->ih_len = save;
 	}
 #endif /* TCPDEBUG */
-	TCP_PROBE3(debug__output, tp, th, mtod(m, const char *));
+	TCP_PROBE3(debug__output, tp, th, m);
 
 	/*
 	 * Fill in IP length and desired time to live and
@@ -1343,9 +1367,6 @@ send:
 	 */
 #ifdef INET6
 	if (isipv6) {
-		struct route_in6 ro;
-
-		bzero(&ro, sizeof(ro));
 		/*
 		 * we separately set hoplimit for every segment, since the
 		 * user might want to change the value via setsockopt.
@@ -1377,13 +1398,13 @@ send:
 #endif
 
 		/* TODO: IPv6 IP6TOS_ECT bit on */
-		error = ip6_output(m, tp->t_inpcb->in6p_outputopts, &ro,
+		error = ip6_output(m, tp->t_inpcb->in6p_outputopts,
+		    &tp->t_inpcb->inp_route6,
 		    ((so->so_options & SO_DONTROUTE) ?  IP_ROUTETOIF : 0),
 		    NULL, NULL, tp->t_inpcb);
 
-		if (error == EMSGSIZE && ro.ro_rt != NULL)
-			mtu = ro.ro_rt->rt_mtu;
-		RO_RTFREE(&ro);
+		if (error == EMSGSIZE && tp->t_inpcb->inp_route6.ro_rt != NULL)
+			mtu = tp->t_inpcb->inp_route6.ro_rt->rt_mtu;
 	}
 #endif /* INET6 */
 #if defined(INET) && defined(INET6)
@@ -1553,6 +1574,9 @@ timer:
 		}
 		SOCKBUF_UNLOCK_ASSERT(&so->so_snd);	/* Check gotos. */
 		switch (error) {
+		case EACCES:
+			tp->t_softerror = error;
+			return (0);
 		case EPERM:
 			tp->t_softerror = error;
 			return (error);
@@ -1720,7 +1744,6 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 			bcopy((u_char *)&to->to_tsecr, optp, sizeof(to->to_tsecr));
 			optp += sizeof(to->to_tsecr);
 			break;
-#ifdef TCP_SIGNATURE
 		case TOF_SIGNATURE:
 			{
 			int siglen = TCPOLEN_SIGNATURE - 2;
@@ -1729,8 +1752,10 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 				optlen += TCPOLEN_NOP;
 				*optp++ = TCPOPT_NOP;
 			}
-			if (TCP_MAXOLEN - optlen < TCPOLEN_SIGNATURE)
+			if (TCP_MAXOLEN - optlen < TCPOLEN_SIGNATURE) {
+				to->to_flags &= ~TOF_SIGNATURE;
 				continue;
+			}
 			optlen += TCPOLEN_SIGNATURE;
 			*optp++ = TCPOPT_SIGNATURE;
 			*optp++ = TCPOLEN_SIGNATURE;
@@ -1739,7 +1764,6 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 				 *optp++ = 0;
 			break;
 			}
-#endif
 		case TOF_SACK:
 			{
 			int sackblks = 0;

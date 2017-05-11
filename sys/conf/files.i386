@@ -143,7 +143,7 @@ compat/svr4/svr4_syscallnames.c	optional compat_svr4
 compat/svr4/svr4_sysent.c	optional compat_svr4
 compat/svr4/svr4_sysvec.c	optional compat_svr4
 compat/svr4/svr4_termios.c	optional compat_svr4
-bf_enc.o			optional crypto | ipsec	\
+bf_enc.o			optional crypto | ipsec	| ipsec_support \
 	dependency	"$S/crypto/blowfish/arch/i386/bf_enc.S $S/crypto/blowfish/arch/i386/bf_enc_586.S $S/crypto/blowfish/arch/i386/bf_enc_686.S" \
 	compile-with	"${CC} -c -I$S/crypto/blowfish/arch/i386 ${ASM_CFLAGS} ${WERROR} ${.IMPSRC}" \
 	no-implicit-rule
@@ -159,7 +159,7 @@ aesni_wrap.o			optional aesni				\
 	compile-with	"${CC} -c ${CFLAGS:C/^-O2$/-O3/:N-nostdinc} ${WERROR} ${NO_WCAST_QUAL} ${PROF} -mmmx -msse -msse4 -maes ${.IMPSRC}" \
 	no-implicit-rule						\
 	clean		"aesni_wrap.o"
-crypto/des/arch/i386/des_enc.S	optional crypto | ipsec | netsmb
+crypto/des/arch/i386/des_enc.S	optional crypto | ipsec | ipsec_support | netsmb
 crypto/via/padlock.c		optional padlock
 crypto/via/padlock_cipher.c	optional padlock
 crypto/via/padlock_hash.c	optional padlock
@@ -290,6 +290,7 @@ dev/ipmi/ipmi_linux.c		optional ipmi compat_linux
 dev/le/if_le_isa.c		optional le isa
 dev/mse/mse.c			optional mse
 dev/mse/mse_isa.c		optional mse isa
+dev/nctgpio/nctgpio.c		optional nctgpio
 dev/nfe/if_nfe.c		optional nfe pci
 dev/ntb/if_ntb/if_ntb.c		optional if_ntb
 dev/ntb/ntb_transport.c		optional if_ntb
@@ -563,6 +564,7 @@ libkern/qdivrem.c		standard
 libkern/ucmpdi2.c		standard
 libkern/udivdi3.c		standard
 libkern/umoddi3.c		standard
+libkern/x86/crc32_sse42.c	standard
 i386/xbox/xbox.c		optional xbox
 i386/xbox/xboxfb.c		optional xboxfb
 dev/fb/boot_font.c		optional xboxfb

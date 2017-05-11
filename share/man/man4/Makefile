@@ -102,6 +102,7 @@ MAN=	aac.4 \
 	cd.4 \
 	cdce.4 \
 	cfi.4 \
+	cfumass.4 \
 	ch.4 \
 	chromebook_platform.4 \
 	ciss.4 \
@@ -202,6 +203,7 @@ MAN=	aac.4 \
 	icmp.4 \
 	icmp6.4 \
 	ida.4 \
+	if_ipsec.4 \
 	ifmib.4 \
 	ig4.4 \
 	igb.4 \
@@ -285,6 +287,7 @@ MAN=	aac.4 \
 	mk48txx.4 \
 	mld.4 \
 	mlx.4 \
+	mlx4en.4 \
 	mlx5en.4 \
 	mly.4 \
 	mmc.4 \
@@ -426,6 +429,7 @@ MAN=	aac.4 \
 	${_qlxge.4} \
 	${_qlxgb.4} \
 	${_qlxgbe.4} \
+	${_qlnxe.4} \
 	ral.4 \
 	random.4 \
 	rc.4 \
@@ -850,11 +854,13 @@ _ntb_transport.4=ntb_transport.4
 _qlxge.4=	qlxge.4
 _qlxgb.4=	qlxgb.4
 _qlxgbe.4=	qlxgbe.4
+_qlnxe.4=	qlnxe.4
 _sfxge.4=	sfxge.4
 
 MLINKS+=qlxge.4 if_qlxge.4
 MLINKS+=qlxgb.4 if_qlxgb.4
 MLINKS+=qlxgbe.4 if_qlxgbe.4
+MLINKS+=qlnxe.4 if_qlnxe.4
 MLINKS+=sfxge.4 if_sfxge.4
 
 .if ${MK_BHYVE} != "no"
@@ -891,6 +897,10 @@ _dtrace_udp.4=	dtrace_udp.4
 MAN+=		iscsi.4
 MAN+=		iscsi_initiator.4
 MAN+=		iser.4
+.endif
+
+.if ${MK_OFED} != "no"
+MAN+=		mlx4ib.4
 .endif
 
 .if ${MK_TESTS} != "no"

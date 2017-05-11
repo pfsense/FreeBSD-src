@@ -520,10 +520,11 @@ vop_stdlock(ap)
 	} */ *ap;
 {
 	struct vnode *vp = ap->a_vp;
+	struct mtx *ilk;
 
-	return (_lockmgr_args(vp->v_vnlock, ap->a_flags, VI_MTX(vp),
-	    LK_WMESG_DEFAULT, LK_PRIO_DEFAULT, LK_TIMO_DEFAULT, ap->a_file,
-	    ap->a_line));
+	ilk = VI_MTX(vp);
+	return (lockmgr_lock_fast_path(vp->v_vnlock, ap->a_flags,
+	    (ilk != NULL) ? &ilk->lock_object : NULL, ap->a_file, ap->a_line));
 }
 
 /* See above. */
@@ -535,8 +536,11 @@ vop_stdunlock(ap)
 	} */ *ap;
 {
 	struct vnode *vp = ap->a_vp;
+	struct mtx *ilk;
 
-	return (lockmgr(vp->v_vnlock, ap->a_flags | LK_RELEASE, VI_MTX(vp)));
+	ilk = VI_MTX(vp);
+	return (lockmgr_unlock_fast_path(vp->v_vnlock, ap->a_flags,
+	    (ilk != NULL) ? &ilk->lock_object : NULL));
 }
 
 /* See above. */
@@ -1096,10 +1100,10 @@ vop_stdadvise(struct vop_advise_args *ap)
 		if (vp->v_object != NULL) {
 			start = trunc_page(ap->a_start);
 			end = round_page(ap->a_end);
-			VM_OBJECT_WLOCK(vp->v_object);
+			VM_OBJECT_RLOCK(vp->v_object);
 			vm_object_page_noreuse(vp->v_object, OFF_TO_IDX(start),
 			    OFF_TO_IDX(end));
-			VM_OBJECT_WUNLOCK(vp->v_object);
+			VM_OBJECT_RUNLOCK(vp->v_object);
 		}
 
 		bo = &vp->v_bufobj;

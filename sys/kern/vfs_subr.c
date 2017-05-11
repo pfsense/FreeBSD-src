@@ -1419,12 +1419,14 @@ alloc:
 	vp->v_op = vops;
 	v_init_counters(vp);
 	vp->v_bufobj.bo_ops = &buf_ops_bio;
+#ifdef DIAGNOSTIC
+	if (mp == NULL && vops != &dead_vnodeops)
+		printf("NULL mp in getnewvnode(9), tag %s\n", tag);
+#endif
 #ifdef MAC
 	mac_vnode_init(vp);
 	if (mp != NULL && (mp->mnt_flag & MNT_MULTILABEL) == 0)
 		mac_vnode_associate_singlelabel(mp, vp);
-	else if (mp == NULL && vops != &dead_vnodeops)
-		printf("NULL mp in getnewvnode()\n");
 #endif
 	if (mp != NULL) {
 		vp->v_bufobj.bo_bsize = mp->mnt_stat.f_iosize;
@@ -1601,13 +1603,15 @@ bufobj_invalbuf(struct bufobj *bo, int flags, int slpflag, int slptimeo)
 	 */
 	do {
 		bufobj_wwait(bo, 0, 0);
-		BO_UNLOCK(bo);
-		if (bo->bo_object != NULL) {
-			VM_OBJECT_WLOCK(bo->bo_object);
-			vm_object_pip_wait(bo->bo_object, "bovlbx");
-			VM_OBJECT_WUNLOCK(bo->bo_object);
+		if ((flags & V_VMIO) == 0) {
+			BO_UNLOCK(bo);
+			if (bo->bo_object != NULL) {
+				VM_OBJECT_WLOCK(bo->bo_object);
+				vm_object_pip_wait(bo->bo_object, "bovlbx");
+				VM_OBJECT_WUNLOCK(bo->bo_object);
+			}
+			BO_LOCK(bo);
 		}
-		BO_LOCK(bo);
 	} while (bo->bo_numoutput > 0);
 	BO_UNLOCK(bo);
 
@@ -1615,7 +1619,7 @@ bufobj_invalbuf(struct bufobj *bo, int flags, int slpflag, int slptimeo)
 	 * Destroy the copy in the VM cache, too.
 	 */
 	if (bo->bo_object != NULL &&
-	    (flags & (V_ALT | V_NORMAL | V_CLEANONLY)) == 0) {
+	    (flags & (V_ALT | V_NORMAL | V_CLEANONLY | V_VMIO)) == 0) {
 		VM_OBJECT_WLOCK(bo->bo_object);
 		vm_object_page_remove(bo->bo_object, 0, 0, (flags & V_SAVE) ?
 		    OBJPR_CLEANONLY : 0);
@@ -1624,7 +1628,7 @@ bufobj_invalbuf(struct bufobj *bo, int flags, int slpflag, int slptimeo)
 
 #ifdef INVARIANTS
 	BO_LOCK(bo);
-	if ((flags & (V_ALT | V_NORMAL | V_CLEANONLY)) == 0 &&
+	if ((flags & (V_ALT | V_NORMAL | V_CLEANONLY | V_VMIO)) == 0 &&
 	    (bo->bo_dirty.bv_cnt > 0 || bo->bo_clean.bv_cnt > 0))
 		panic("vinvalbuf: flush failed");
 	BO_UNLOCK(bo);
@@ -2389,11 +2393,11 @@ vfs_refcount_acquire_if_not_zero(volatile u_int *count)
 {
 	u_int old;
 
+	old = *count;
 	for (;;) {
-		old = *count;
 		if (old == 0)
 			return (0);
-		if (atomic_cmpset_int(count, old, old + 1))
+		if (atomic_fcmpset_int(count, &old, old + 1))
 			return (1);
 	}
 }
@@ -2403,11 +2407,11 @@ vfs_refcount_release_if_not_last(volatile u_int *count)
 {
 	u_int old;
 
+	old = *count;
 	for (;;) {
-		old = *count;
 		if (old == 1)
 			return (0);
-		if (atomic_cmpset_int(count, old, old - 1))
+		if (atomic_fcmpset_int(count, &old, old - 1))
 			return (1);
 	}
 }
@@ -3684,12 +3688,11 @@ vfsconf2x32(struct sysctl_req *req, struct vfsconf *vfsp)
 {
 	struct xvfsconf32 xvfsp;
 
+	bzero(&xvfsp, sizeof(xvfsp));
 	strcpy(xvfsp.vfc_name, vfsp->vfc_name);
 	xvfsp.vfc_typenum = vfsp->vfc_typenum;
 	xvfsp.vfc_refcount = vfsp->vfc_refcount;
 	xvfsp.vfc_flags = vfsp->vfc_flags;
-	xvfsp.vfc_vfsops = 0;
-	xvfsp.vfc_next = 0;
 	return (SYSCTL_OUT(req, &xvfsp, sizeof(xvfsp)));
 }
 #endif

@@ -61,7 +61,10 @@ arm/arm/intr.c			optional	!intrng
 kern/subr_intr.c		optional	intrng
 arm/arm/locore.S		standard	no-obj
 arm/arm/machdep.c		standard
+arm/arm/machdep_boot.c		standard
+arm/arm/machdep_kdb.c		standard
 arm/arm/machdep_intr.c		standard
+arm/arm/machdep_ptrace.c	standard
 arm/arm/mem.c			optional	mem
 arm/arm/minidump_machdep.c	optional	mem
 arm/arm/mp_machdep.c		optional	smp
@@ -105,8 +108,8 @@ cddl/compat/opensolaris/kern/opensolaris_atomic.c	optional zfs | dtrace compile-
 cddl/dev/dtrace/arm/dtrace_asm.S			optional dtrace compile-with "${DTRACE_S}"
 cddl/dev/dtrace/arm/dtrace_subr.c			optional dtrace compile-with "${DTRACE_C}"
 cddl/dev/fbt/arm/fbt_isa.c				optional dtrace_fbt | dtraceall compile-with "${FBT_C}"
-crypto/blowfish/bf_enc.c	optional	crypto | ipsec 
-crypto/des/des_enc.c		optional	crypto | ipsec | netsmb
+crypto/blowfish/bf_enc.c	optional	crypto | ipsec | ipsec_support
+crypto/des/des_enc.c		optional	crypto | ipsec | ipsec_support | netsmb
 dev/dwc/if_dwc.c		optional	dwc
 dev/dwc/if_dwc_if.m		optional	dwc
 dev/fb/fb.c			optional	sc

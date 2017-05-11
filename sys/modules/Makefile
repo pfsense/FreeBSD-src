@@ -34,6 +34,7 @@ SUBDIR=	\
 	alc \
 	ale \
 	alq \
+	${_amd_ecc_inject} \
 	${_amdsbwd} \
 	${_amdtemp} \
 	amr \
@@ -173,10 +174,14 @@ SUBDIR=	\
 	${_ipfilter} \
 	${_ipfw} \
 	ipfw_nat \
+	${_ipfw_nat64} \
+	${_ipfw_nptv6} \
+	${_ipfw_pmod} \
 	${_ipmi} \
 	ip6_mroute_mod \
 	ip_mroute_mod \
 	${_ips} \
+	${_ipsec} \
 	${_ipw} \
 	${_ipwfw} \
 	${_isci} \
@@ -311,6 +316,7 @@ SUBDIR=	\
 	${_qlxge} \
 	${_qlxgb} \
 	${_qlxgbe} \
+	${_qlnx} \
 	ral \
 	${_ralfw} \
 	${_random_fortuna} \
@@ -361,6 +367,7 @@ SUBDIR=	\
 	sysvipc \
 	${_ti} \
 	${_tcp_fastpath} \
+	${_tcpmd5} \
 	tests/framework \
 	tests/callout_test \
 	tl \
@@ -455,6 +462,11 @@ _toecore=	toecore
 _if_enc=	if_enc
 _if_gif=	if_gif
 _if_gre=	if_gre
+_ipfw_pmod=	ipfw_pmod
+.if ${MK_IPSEC_SUPPORT} != "no"
+_ipsec=		ipsec
+_tcpmd5=	tcp/tcpmd5
+.endif
 .endif
 
 .if (${MK_INET_SUPPORT} != "no" && ${MK_INET6_SUPPORT} != "no") || \
@@ -466,6 +478,13 @@ _if_stf=	if_stf
 _if_me=		if_me
 _ipdivert=	ipdivert
 _ipfw=		ipfw
+.if ${MK_INET6_SUPPORT} != "no" || defined(ALL_MODULES)
+_ipfw_nat64=	ipfw_nat64
+.endif
+.endif
+
+.if ${MK_INET6_SUPPORT} != "no" || defined(ALL_MODULES)
+_ipfw_nptv6=	ipfw_nptv6
 .endif
 
 .if ${MK_IPFILTER} != "no" || defined(ALL_MODULES)
@@ -602,6 +621,7 @@ _acpi=		acpi
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
 _aesni=		aesni
 .endif
+_amd_ecc_inject=amd_ecc_inject
 _amdsbwd=	amdsbwd
 _amdtemp=	amdtemp
 _arcmsr=	arcmsr
@@ -690,6 +710,7 @@ _pms=		pms
 _qlxge=		qlxge
 _qlxgb=		qlxgb
 _qlxgbe=	qlxgbe
+_qlnx=		qlnx
 _sfxge=		sfxge
 
 .if ${MK_BHYVE} != "no" || defined(ALL_MODULES)
