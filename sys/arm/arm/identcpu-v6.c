@@ -271,7 +271,7 @@ identify_arm_cpu(void)
 		    cpu_names[i].part_number == cpuinfo.part_number) {
 			memset(cpu_model, 0, sizeof(cpu_model));
 			snprintf(cpu_model, sizeof(cpu_model) - 1,
-			    "CPU: %s %s r%dp%d (ECO: 0x%08X)\n",
+			    "CPU: %s %s r%dp%d (ECO: 0x%08X)",
 			    cpu_names[i].impl_name, cpu_names[i].core_name,
 			    cpuinfo.revision, cpuinfo.patch,
 			    cpuinfo.midr != cpuinfo.revidr ?
