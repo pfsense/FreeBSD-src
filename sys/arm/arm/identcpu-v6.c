@@ -269,15 +269,13 @@ identify_arm_cpu(void)
 	for(i = 0; i < nitems(cpu_names); i++) {
 		if (cpu_names[i].implementer == cpuinfo.implementer &&
 		    cpu_names[i].part_number == cpuinfo.part_number) {
-			if (i == 0) {
-				memset(cpu_model, 0, sizeof(cpu_model));
-				snprintf(cpu_model, sizeof(cpu_model) - 1,
-				    "CPU: %s %s r%dp%d (ECO: 0x%08X)\n",
-				    cpu_names[i].impl_name, cpu_names[i].core_name,
-				    cpuinfo.revision, cpuinfo.patch,
-				    cpuinfo.midr != cpuinfo.revidr ?
-				    cpuinfo.revidr : 0);
-			}
+			memset(cpu_model, 0, sizeof(cpu_model));
+			snprintf(cpu_model, sizeof(cpu_model) - 1,
+			    "CPU: %s %s r%dp%d (ECO: 0x%08X)\n",
+			    cpu_names[i].impl_name, cpu_names[i].core_name,
+			    cpuinfo.revision, cpuinfo.patch,
+			    cpuinfo.midr != cpuinfo.revidr ?
+			    cpuinfo.revidr : 0);
 			printf("CPU: %s %s r%dp%d (ECO: 0x%08X)\n",
 			    cpu_names[i].impl_name, cpu_names[i].core_name,
 			    cpuinfo.revision, cpuinfo.patch,
