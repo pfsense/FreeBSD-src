@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/kdb.h>
 #include <sys/reboot.h>
+#include <sys/sysctl.h>
 
 #include <dev/fdt/fdt_common.h>
 #include <dev/ofw/openfirm.h>
@@ -73,6 +74,11 @@ MALLOC_DEFINE(M_IDMA, "idma", "idma dma test memory");
 #else
 #define MV_DUMP_WIN	0
 #endif
+
+static char mv_soc_model[128]; 
+ 
+SYSCTL_STRING(_hw, HW_MODEL, mv_soc_model, CTLFLAG_RD | CTLFLAG_MPSAFE,
+	mv_soc_model, 0, "Marvell SoC model");
 
 static int win_eth_can_remap(int i);
 
