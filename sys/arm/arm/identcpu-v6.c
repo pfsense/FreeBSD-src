@@ -52,8 +52,11 @@ __FBSDID("$FreeBSD$");
 #include <machine/md_var.h>
 
 char machine[] = "arm";
+static char cpu_info[128]; 
 static char cpu_model[128]; 
  
+SYSCTL_STRING(_hw, HW_MODEL, cpuinfo, CTLFLAG_RD | CTLFLAG_MPSAFE,
+	cpu_info, 0, "Machine CPU information");
 SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD | CTLFLAG_MPSAFE,
 	cpu_model, 0, "Machine model");
 SYSCTL_STRING(_hw, HW_MACHINE, machine, CTLFLAG_RD,
@@ -266,12 +269,12 @@ identify_arm_cpu(void)
 	/*
 	 * CPU
 	 */
+	memset(cpu_model, 0, sizeof(cpu_model));
 	for(i = 0; i < nitems(cpu_names); i++) {
 		if (cpu_names[i].implementer == cpuinfo.implementer &&
 		    cpu_names[i].part_number == cpuinfo.part_number) {
-			memset(cpu_model, 0, sizeof(cpu_model));
 			snprintf(cpu_model, sizeof(cpu_model) - 1,
-			    "CPU: %s %s r%dp%d (ECO: 0x%08X)",
+			    "%s %s r%dp%d (ECO: 0x%08X)",
 			    cpu_names[i].impl_name, cpu_names[i].core_name,
 			    cpuinfo.revision, cpuinfo.patch,
 			    cpuinfo.midr != cpuinfo.revidr ?
@@ -285,8 +288,11 @@ identify_arm_cpu(void)
 		}
 
 	}
-	if (i >= nitems(cpu_names))
+	if (i >= nitems(cpu_names)) {
 		printf("unknown CPU (ID = 0x%x)\n", cpuinfo.midr);
+		snprintf(cpu_model, sizeof(cpu_model) - 1,
+		    "unknown CPU (ID = 0x%x)", cpuinfo.midr);
+	}
 
 	printf("CPU Features: \n");
 	hw_buf_idx = 0;
@@ -328,8 +334,11 @@ identify_arm_cpu(void)
 	if (val == 1)
 		add_cap("Coherent Walk");
 
-	if (hw_buf_idx != 0)
+	memset(cpu_info, 0, sizeof(cpu_info));
+	if (hw_buf_idx != 0) {
 		printf("%s\n", hw_buf);
+		snprintf(cpu_info, sizeof(cpu_info) - 1, "%s", hw_buf);
+	}
 
 	printf("Optional instructions: \n");
 	hw_buf_idx = 0;
