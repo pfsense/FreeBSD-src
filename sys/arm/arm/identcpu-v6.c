@@ -274,7 +274,7 @@ identify_arm_cpu(void)
 		if (cpu_names[i].implementer == cpuinfo.implementer &&
 		    cpu_names[i].part_number == cpuinfo.part_number) {
 			snprintf(cpu_model, sizeof(cpu_model) - 1,
-			    "%s %s r%dp%d (ECO: 0x%08X)",
+			    "CPU: %s %s r%dp%d (ECO: 0x%08X)",
 			    cpu_names[i].impl_name, cpu_names[i].core_name,
 			    cpuinfo.revision, cpuinfo.patch,
 			    cpuinfo.midr != cpuinfo.revidr ?
