@@ -519,7 +519,7 @@ soc_identify(void)
 
 	memset(tmp, 0, sizeof(tmp));
 	memset(mv_soc_model, 0, sizeof(mv_soc_model));
-	snprintf(mv_soc_model, sizoef(mv_soc_model) - 1, "SOC: %s", dev);
+	snprintf(mv_soc_model, sizeof(mv_soc_model) - 1, "SOC: %s", dev);
 	printf("%s", dev);
 	if (*rev != '\0') {
 		printf(" rev %s", rev);
