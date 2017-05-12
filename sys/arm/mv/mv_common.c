@@ -391,6 +391,7 @@ static void
 soc_identify(void)
 {
 	uint32_t d, r, size, mode;
+	char tmp[128];
 	const char *dev;
 	const char *rev;
 
@@ -480,10 +481,19 @@ soc_identify(void)
 		break;
 	}
 
+	memset(tmp, 0, sizeof(tmp));
+	memset(mv_soc_model, 0, sizeof(mv_soc_model));
+	snprintf(mv_soc_model, sizoef(mv_soc_model) - 1, "%s", dev);
 	printf("%s", dev);
-	if (*rev != '\0')
+	if (*rev != '\0') {
 		printf(" rev %s", rev);
+		snprintf(tmp, sizeof(tmp) - 1, " rev %s", rev);
+		strlcat(mv_soc_model, tmp, sizeof(mv_soc_model));
+	}
 	printf(", TClock %dMHz\n", get_tclk() / 1000 / 1000);
+	snprintf(tmp, sizeof(tmp) - 1, ", TClock %dMHz\n",
+	    get_tclk() / 1000 / 1000);
+	strlcat(mv_soc_model, tmp, sizeof(mv_soc_model));
 
 	mode = read_cpu_ctrl(CPU_CONFIG);
 	printf("  Instruction cache prefetch %s, data cache prefetch %s\n",
