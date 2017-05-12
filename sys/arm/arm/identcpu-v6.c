@@ -55,7 +55,7 @@ char machine[] = "arm";
 static char cpu_info[128]; 
 static char cpu_model[128]; 
  
-SYSCTL_STRING(_hw, HW_MODEL, cpuinfo, CTLFLAG_RD | CTLFLAG_MPSAFE,
+SYSCTL_STRING(_hw, OID_AUTO, cpuinfo, CTLFLAG_RD | CTLFLAG_MPSAFE,
 	cpu_info, 0, "Machine CPU information");
 SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD | CTLFLAG_MPSAFE,
 	cpu_model, 0, "Machine model");

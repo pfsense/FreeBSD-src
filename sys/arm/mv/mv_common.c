@@ -77,7 +77,7 @@ MALLOC_DEFINE(M_IDMA, "idma", "idma dma test memory");
 
 static char mv_soc_model[128]; 
  
-SYSCTL_STRING(_hw, HW_MODEL, mv_soc_model, CTLFLAG_RD | CTLFLAG_MPSAFE,
+SYSCTL_STRING(_hw, OID_AUTO, mv_soc_model, CTLFLAG_RD | CTLFLAG_MPSAFE,
 	mv_soc_model, 0, "Marvell SoC model");
 
 static int win_eth_can_remap(int i);
