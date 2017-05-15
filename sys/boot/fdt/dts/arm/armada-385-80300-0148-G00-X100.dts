@@ -1,0 +1,433 @@
+
+:qInternetq/*
+ * Device Tree file for Marvell Armada 385 Access Point Development board
+ * (DB-88F6820-AP)
+ *
+ *  Copyright (C) 2014 Marvell
+ *
+ * Nadav Haklai <nadavh@marvell.com>
+ *
+ * This file is dual-licensed: you can use it either under the terms
+ * of the GPL or the X11 license, at your option. Note that this dual
+ * licensing only applies to this file, and not this project as a
+ * whole.
+ *
+ *  a) This file is licensed under the terms of the GNU General Public
+ *     License version 2.  This program is licensed "as is" without
+ *     any warranty of any kind, whether express or implied.
+ *
+ * Or, alternatively,
+ *
+ *  b) Permission is hereby granted, free of charge, to any person
+ *     obtaining a copy of this software and associated documentation
+ *     files (the "Software"), to deal in the Software without
+ *     restriction, including without limitation the rights to use,
+ *     copy, modify, merge, publish, distribute, sublicense, and/or
+ *     sell copies of the Software, and to permit persons to whom the
+ *     Software is furnished to do so, subject to the following
+ *     conditions:
+ *
+ *     The above copyright notice and this permission notice shall be
+ *     included in all copies or substantial portions of the Software.
+ *
+ *     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *     EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ *     OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *     NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ *     HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ *     WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ *     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ *     OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+/dts-v1/;
+#include "armada-385.dtsi"
+
+/* For Rogue-1 SERDES layout is
+ *
+ * | PHY Lane | Host Controller | Rate (Gbps) |
+ * | SRD0     | SATA 0		| 3.0         |
+ * | SRD1     | PCIe0 RC	| 5.0	      |
+ * | SRD2     | SATA 1		| 3.0	      |
+ * | SRD3     | SGMII 2		| 3.125	      |
+ * | SRD4     | PCIe1 RC	| 5.0	      |
+ * | SRD5     | USB3 1		| 5.0	      |
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "Marvell Armada 385 Access Point Development Board";
+	compatible = "marvell,a385-db-ap", "marvell,armada385", "marvell,armada380";
+
+	aliases {
+		serial0 = &uart1;
+		serial1 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial1:115200n8";
+	};
+
+	/* This needs to be defined per variant depending on memory population */
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x40000000>; /* 1GB */
+	};
+
+	soc {
+	/* range definitions from armada-38x.dtsi
+	 * <0 MBUS_ID(0x01, 0x2f) 0 0xffffffff> devbus-bootcs
+	 * <0 MBUS_ID(0x01, 0x3e) 0 0xffffffff> devbus-cs0
+	 * <0 MBUS_ID(0x01, 0x3d) 0 0xffffffff> devbus-cs1
+	 * <0 MBUS_ID(0x01, 0x3b) 0 0xffffffff> devbus-cs2
+	 * <0 MBUS_ID(0x01, 0x37) 0 0xffffffff> devbus-cs3
+	 * <0 MBUS_ID(0xf0, 0x01) 0 0x100000>	internal-regs @ 0xf100_0000
+	 * <0 MBUS_ID(0x09, 0x19) 0 0x800>	crypto-sram0
+	 * <0 MBUS_ID(0x09, 0x15) 0 0x800>	crypto-sram1
+	 * <0 MBUS_ID(0x0c, 0x04) 0 0x100000>	bm_bppi
+	 * 
+	 */
+		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
+			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000
+			  MBUS_ID(0x09, 0x19) 0 0xf1100000 0x10000
+			  MBUS_ID(0x09, 0x15) 0 0xf1110000 0x10000
+			  MBUS_ID(0x0c, 0x04) 0 0xf1200000 0x100000>;
+
+		internal-regs {
+			/* Rogue one uses the following pin mapping:
+			 * MPP[22]   SPI0_MOSI
+			 * MPP[23]   SPI0_SCK
+			 * MPP[24]   SPI0_MISO
+			 * MPP[25]   SPI0_CSn[0]
+			 * MPP[26]   SPI0_CSn[1]
+			 */
+			spi0: spi@10600 {
+			        pinctrl-names = "default";
+				/* TODO - Double check pin mappings */
+				pinctrl-0 = <&spi0_pins>;
+				status = "okay";
+
+				spi-flash@0 {
+					#address-cells = <1>;
+					#size-cells = <1>;
+					compatible = "st,m25p128", "jedec,spi-nor";
+					reg = <0>; /* Chip select 0 */
+					spi-max-frequency = <54000000>;
+				};
+			};
+
+			/* Rogue one uses the following pin mapping:
+			 * MPP[2]   I2C0_SCK
+			 * MPP[3]   I2C0_SDA
+			 */
+			i2c0: i2c@11000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&i2c0_pins>;
+				status = "okay";
+
+				/*
+				 * This bus is wired to two EEPROM
+				 * sockets, one of which holding the
+				 * board ID used by the	bootloader.
+				 * Erasing this EEPROM's content will
+				 * brick the board.
+				 * Use this bus with caution.
+				 */
+			};
+
+			/* TODO - Add definitions for the I2C LED/GPIO parts */
+
+			/* TODO - Check address (reg?) value for switch/PHYs */
+			/* Rogue one uses the following pin mapping:
+			 * MPP[4]   SMI_MDC
+			 * MPP[5]   SMI_MDIO
+			 */
+			mdio@72004 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&mdio_pins>;
+
+				/* Marvell 1510 @ address 0x00 */
+				phy0: ethernet-phy@0 {
+					reg = <0>;
+				};
+
+				/* Marvell 1510 @ address 0x01 */
+				phy1: ethernet-phy@1 {
+					reg = <1>;
+				};
+
+				/* Marvell 88E6141 @ address 0x10-x01f, 
+				 * see the DSA entry below for switch setup
+				 */
+			};
+
+			/* UART0 is exposed through miniUSB socket */
+			/* Rogue one uses the following pin mapping:
+			 * MPP[0]   UA0_RXD
+			 * MPP[1]   UA0_TXD
+			 */
+			uart0: serial@12000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&uart0_pins>;
+				status = "okay";
+			};
+
+			/* UART1 is run to Mikrobus & debug headers */
+			/* Rogue one uses the following pin mapping:
+			 * MPP[19]   UA1_RXD
+			 * MPP[20]   UA1_TXD
+			 */
+			uart1: serial@12100 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&uart1_pins>;
+				status = "okay";
+			};
+
+			/* TODO - Any other GPIO that have functions we need
+			 * to export here?  (USB OC, resets, etc)
+			 */
+			pinctrl@18000 {
+				xhci1_vbus_pins: xhci1-vbus-pins {
+					marvell,pins = "mpp33";
+					marvell,function = "gpio";
+				};
+			};
+
+			/* Ethernet 1/2.5Gbps MAC Port 1 */
+			/* Can operate as: SGMII/HS-SGMII/RGMII
+			 * This MAC shares an MBUS unit with MAC 2
+			 *
+			 * Rogue one uses the following pin mapping:
+			 * MPP[21]	GE1_RXD[0]
+			 * MPP[27]	GE1_TXCLKOUT
+			 * MPP[28]	GE1_TXD[0]
+			 * MPP[29]	GE1_TXD[1]
+			 * MPP[30]	GE1_TXD[2]
+			 * MPP[31]	GE1_TXD[3]
+			 * MPP[32]	GE1_TXCTL
+			 * MPP[37]	GE1_RXCLK
+			 * MPP[38]	GE1_RXD[1]
+			 * MPP[39]	GE1_RXD[2]
+			 * MPP[40]	GE1_RXD[3]
+			 * MPP[41]	GE1_RXCTL
+			 */
+			ethernet@30000 {
+				pinctrl-names = "default";
+
+				/*
+				 * The Reference Clock 0 is used to
+				 * provide a clock to the PHY
+				 */
+				pinctrl-0 = <&ge1_rgmii_pins>;
+				status = "okay";
+				phy = <&phy1>;
+				phy-mode = "rgmii-id";
+				buffer-manager = <&bm>;
+				bm,pool-long = <1>;
+				bm,pool-short = <3>;
+			};
+
+			/* Ethernet 1/2.5Gbps MAC Port 2 */
+			/* Can operate as: SGMII/HS-SGMII/RGMII
+			 * This MAC shares an MBUS unit with MAC 2
+			 *
+			 * Rogue one uses the following pin mapping:
+			 * SRD3 as HS-SGMII
+			 */
+			ethernet@34000 {
+				status = "okay";
+				phy-mode = "sgmii";
+				buffer-manager = <&bm>;
+				bm,pool-long = <2>;
+				bm,pool-short = <3>;
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+
+			/* Ethernet 1/2.5Gbps MAC Port 0
+			 * Can operate as: SGMII/HS-SGMII/RGMII/MII
+			 * This MAC shares an MBUS unit with the SMI controller
+			 */
+			ethernet@70000 {
+				pinctrl-names = "default";
+
+				/*
+				 * The Reference Clock 0 is used to
+				 * provide a clock to the PHY
+				 */
+				pinctrl-0 = <&ge0_rgmii_pins>;
+				status = "okay";
+				phy = <&phy0>;
+				phy-mode = "rgmii-id";
+				buffer-manager = <&bm>;
+				bm,pool-long = <0>;
+				bm,pool-short = <3>;
+			};
+
+			/* Rogue-1 prototypes connect a SD card to the bottom 3 DAT
+			 * lines, and CD# is run to MPP51 (as GPIO)
+			 * Rogue one uses the following pin mapping:
+			 * MPP[48]	GE1_RXD[0]
+			 * MPP[49]	GE1_TXCLKOUT
+			 * MPP[50]	GE1_TXD[0]
+			 * MPP[52]	GE1_TXD[1]
+			 * MPP[53]	GE1_TXD[2]
+			 * MPP[54]	GE1_TXD[3]
+			 * MPP[55]	GE1_TXCTL
+			 * MPP[57]	GE1_RXCLK
+			 * MPP[58]	GE1_RXD[1]
+			 * MPP[59]	GE1_RXD[2]
+			 */
+			sdhci@d8000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&sdhci_pins>;
+				no-1-8-v;
+				/*
+				 * A388-GP board v1.5 and higher replace
+				 * hitherto card detection method based on GPIO
+				 * with the one using DAT3 pin. As they are
+				 * incompatible, software-based polling is
+				 * enabled with 'broken-cd' property. For boards
+				 * older than v1.5 it can be replaced with:
+				 * 'cd-gpios = <&expander0 5 GPIO_ACTIVE_LOW>;',
+				 * whereas for the newer ones following can be
+				 * used instead:
+				 * 'dat3-cd;'
+				 * 'cd-inverted;'
+				 */
+				dat3-cd;
+				cd-inverted;
+				wp-inverted;
+				bus-width = <8>;
+				status = "okay";
+			};
+
+			/* SATA links to M.2 connectors J10 & J11, sataX_pins are
+			 * for activity LED MPP muxing to LD17 & LD18
+			 */
+			sata@a8000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&sata0_pins>, <&sata1_pins>;
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				sata0: sata-port@0 {
+					reg = <0>;
+				};
+
+				sata1: sata-port@1 {
+					reg = <1>;
+				};
+			};
+
+			/* TODO - check buffer manage offset */
+			bm@c8000 {
+				status = "okay";
+			};
+
+			/* TODO - Any PHY or VBUS setup for EHCI host? */
+			usb@58000 {
+				status = "okay";
+			};
+
+			/* USB 3.0 Device 0 is @ 0x50000
+			 * USB 3.0 Host 0 is @ 0xf0000
+			 * USB 3.0 Host 1 is @ 0xf8000 */
+			usb3@f8000 {
+				status = "okay";
+				usb-phy = <&usb3_phy>;
+			};
+
+			crypto@90000 {
+				status = "okay";
+			};
+
+		};
+
+		/* TODO - Check buffer manager... */
+		bm-bppi {
+			status = "okay";
+		};
+
+		pcie-controller {
+			status = "okay";
+
+			/*
+			 * The three PCIe units are accessible through
+			 * standard mini-PCIe slots on the board.
+			 */
+			pcie@1,0 {
+				/* Port 0, Lane 0 */
+				status = "okay";
+			};
+
+			pcie@2,0 {
+				/* Port 1, Lane 0 */
+				status = "okay";
+			};
+		};
+	};
+
+	/* This is a 88E6141 switch operating in the "Multi Chip Mode(MCM)"
+	 * addressing mode where it claims addresses 0x10-0x1f
+	 */
+	dsa@0 {
+		compatible = "marvell,dsa";
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		dsa,ethernet = <&eth2>;
+		dsa,mii-bus = <&mdio>;
+
+		switch@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0x10 0>;	/* MDIO address 16, switch 0 in tree */
+
+			port@1 {
+				reg = <1>;
+				label = "lan1";
+			};
+
+			port@2 {
+				reg = <2>;
+				label = "lan2";
+			};
+
+			port@3 {
+				reg = <3>;
+				label = "lan3";
+			};
+
+			port@4 {
+				reg = <4>;
+				label = "lan4";
+			};
+
+			port@5 {
+				reg = <5>;
+				label = "cpu";
+			};
+		};
+	 };
+
+	usb3_phy: usb3_phy {
+		compatible = "usb-nop-xceiv";
+		vcc-supply = <&reg_xhci1_vbus>;
+	};
+
+	reg_xhci1_vbus: xhci1-vbus {
+		compatible = "regulator-fixed";
+		pinctrl-names = "default";
+		pinctrl-0 = <&xhci1_vbus_pins>;
+		regulator-name = "xhci1-vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		enable-active-high;
+		gpio = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+	};
+};
