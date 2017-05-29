@@ -1,4 +1,3 @@
-
 /*
  * Device Tree file for Marvell Armada 385 Access Point Development board
  * (DB-88F6820-AP)
@@ -57,16 +56,11 @@
 #include <dt-bindings/gpio/gpio.h>
 
 / {
-	model = "Marvell Armada 385 Access Point Development Board";
+	model = "Netgate Rogue-1";
 	compatible = "marvell,a385-db-ap", "marvell,armada385", "marvell,armada380";
 
-	aliases {
-		serial0 = &uart1;
-		serial1 = &uart0;
-	};
-
 	chosen {
-		stdout-path = "serial1:115200n8";
+		stdout-path = "serial0:115200n8";
 	};
 
 	/* This needs to be defined per variant depending on memory population */
@@ -87,12 +81,13 @@
 	 * <0 MBUS_ID(0x09, 0x15) 0 0x800>	crypto-sram1
 	 * <0 MBUS_ID(0x0c, 0x04) 0 0x100000>	bm_bppi
 	 * 
+	 *	ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
+	 *		  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000
+	 *		  MBUS_ID(0x09, 0x19) 0 0xf1100000 0x10000
+	 *		  MBUS_ID(0x09, 0x15) 0 0xf1110000 0x10000
+	 *		  MBUS_ID(0x0c, 0x04) 0 0xf1200000 0x100000>;
 	 */
-		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
-			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000
-			  MBUS_ID(0x09, 0x19) 0 0xf1100000 0x10000
-			  MBUS_ID(0x09, 0x15) 0 0xf1110000 0x10000
-			  MBUS_ID(0x0c, 0x04) 0 0xf1200000 0x100000>;
+		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000>;
 
 		internal-regs {
 			/* Rogue one uses the following pin mapping:
