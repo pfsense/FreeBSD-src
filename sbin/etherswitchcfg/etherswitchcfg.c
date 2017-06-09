@@ -517,12 +517,19 @@ print_info(struct cfg *cfg)
 		    cfg->info.es_name, cfg->info.es_nports,
 		    cfg->info.es_nvlangroups);
 		printf("%s: ", c);
+		printb("Switch capabilities",  cfg->info.es_switch_caps,
+		    ETHERSWITCH_CAPS_BITS);
+		printf("\n");
+		printf("%s: ", c);
 		printb("VLAN capabilities",  cfg->info.es_vlan_caps,
 		    ETHERSWITCH_VLAN_CAPS_BITS);
 		printf("\n");
 	}
 	print_config(cfg);
 	for (i=0; i<cfg->info.es_nports; i++) {
+		if ((cfg->info.es_switch_caps & ETHERSWITCH_CAPS_PORTS_MASK) &&
+		    (cfg->info.es_ports_mask[i / 32] & (1 << (i % 32))) == 0)
+			continue;
 		print_port(cfg, i);
 	}
 	for (i=0; i<cfg->info.es_nvlangroups; i++) {
