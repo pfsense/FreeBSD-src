@@ -36,11 +36,20 @@ typedef struct etherswitch_phyreg etherswitch_phyreg_t;
 #define	ETHERSWITCH_VLAN_CAPS_BITS	\
 "\020\1ISL\2PORT\3DOT1Q\4DOT1Q4K\5QinQ"
 
+#define	ETHERSWITCH_CAPS_PORTS_MASK	(1 << 0)	/* Ports mask */
+#define	ETHERSWITCH_CAPS_BITS		\
+"\020\1PORTSMASK"
+
+#define	MAX_PORTS			1024
+#define	MAX_PORTS_UINT32		(MAX_PORTS / sizeof(uint32_t))
+
 struct etherswitch_info {
 	int		es_nports;
 	int		es_nvlangroups;
 	char		es_name[ETHERSWITCH_NAMEMAX];
 	uint32_t	es_vlan_caps;
+	uint32_t	es_switch_caps;
+	uint32_t	es_ports_mask[MAX_PORTS_UINT32];
 };
 typedef struct etherswitch_info etherswitch_info_t;
 
