@@ -759,6 +759,7 @@ mvneta_attach(device_t self)
 
 	} else {
 		/* Fixed-link, use predefined values */
+		mvneta_update_autoneg(sc, FALSE);
 		ifmedia_init(&sc->mvneta_ifmedia, 0, mvneta_mediachange,
 		    mvneta_mediastatus);
 
@@ -2424,7 +2425,7 @@ STATIC int
 mvneta_update_media(struct mvneta_softc *sc, int media)
 {
 	int reg, err;
-	boolean_t running;
+	boolean_t autoneg, running;
 
 	err = 0;
 
@@ -2436,15 +2437,15 @@ mvneta_update_media(struct mvneta_softc *sc, int media)
 	if (running)
 		mvneta_stop_locked(sc);
 
-	sc->autoneg = (IFM_SUBTYPE(media) == IFM_AUTO);
+	autoneg = (IFM_SUBTYPE(media) == IFM_AUTO);
 
 	if (sc->use_inband_status)
-		mvneta_update_autoneg(sc, IFM_SUBTYPE(media) == IFM_AUTO);
+		mvneta_update_autoneg(sc, autoneg);
 
 	mvneta_update_eee(sc);
 	mvneta_update_fc(sc);
 
-	if (IFM_SUBTYPE(media) != IFM_AUTO) {
+	if (!autoneg) {
 		reg = MVNETA_READ(sc, MVNETA_PANC);
 		reg &= ~(MVNETA_PANC_SETGMIISPEED |
 		    MVNETA_PANC_SETMIISPEED |

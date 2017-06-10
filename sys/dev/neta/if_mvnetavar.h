@@ -271,7 +271,6 @@ struct mvneta_softc {
 	int			phy_addr;
 	int			phy_speed;	/* PHY speed */
 	boolean_t		phy_fdx;	/* Full duplex mode */
-	boolean_t		autoneg;	/* Autonegotiation status */
 	boolean_t		use_inband_status;	/* In-band link status */
 
 	/*
