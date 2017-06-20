@@ -276,3 +276,44 @@ gpio_pin_pulsate(gpio_handle_t handle, gpio_pin_t pin)
 {
 	return (gpio_pin_set_flag(handle, pin, GPIO_PIN_PULSATE));
 }
+
+int
+gpio_pin_pwm(gpio_handle_t handle, gpio_pin_t pin)
+{
+	return (gpio_pin_set_flag(handle, pin, GPIO_PIN_PWM));
+}
+
+int
+gpio_pwm_get(gpio_handle_t handle, gpio_pwm_t pwm, gpio_pin_t pin,
+    uint32_t reg, uint32_t *value)
+{
+	struct gpio_pwm_req pwmreq;
+
+	bzero(&pwmreq, sizeof(pwmreq));
+	pwmreq.gp_pwm = pwm;
+	pwmreq.gp_pwm_pin = pin;
+	pwmreq.gp_pwm_reg = reg;
+	if (ioctl(handle, GPIOPWMGET, &pwmreq) < 0)
+		return (-1);
+	*value = pwmreq.gp_pwm_value;
+
+	return (0);
+
+}
+
+int
+gpio_pwm_set(gpio_handle_t handle, gpio_pwm_t pwm, gpio_pin_t pin,
+    uint32_t reg, uint32_t value)
+{
+	struct gpio_pwm_req pwmreq;
+
+	bzero(&pwmreq, sizeof(pwmreq));
+	pwmreq.gp_pwm = pwm;
+	pwmreq.gp_pwm_pin = pin;
+	pwmreq.gp_pwm_reg = reg;
+	pwmreq.gp_pwm_value = value;
+	if (ioctl(handle, GPIOPWMSET, &pwmreq) < 0)
+		return (-1);
+
+	return (0);
+}

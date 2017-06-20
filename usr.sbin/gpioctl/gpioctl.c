@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 
 #define PIN_TYPE_NUMBER		1
 #define PIN_TYPE_NAME		2
+#define PIN_TYPE_PWM		3
 
 struct flag_desc {
 	const char *name;
@@ -60,10 +61,15 @@ static struct flag_desc gpio_flags[] = {
 	{ "II", GPIO_PIN_INVIN },
 	{ "IO", GPIO_PIN_INVOUT },
 	{ "PULSE", GPIO_PIN_PULSATE },
+	{ "PWM", GPIO_PIN_PWM },
 	{ NULL, 0 },
 };
 
-int str2cap(const char *str);
+static struct flag_desc pwm_flags[] = {
+	{ "DUTY", GPIO_PWM_DUTY },
+	{ "FREQ", GPIO_PWM_FREQ },
+	{ "PERIOD", GPIO_PWM_PERIOD },
+};
 
 static void
 usage(void)
@@ -73,7 +79,9 @@ usage(void)
 	fprintf(stderr, "\tgpioctl [-f ctldev] [-pN] -t pin\n");
 	fprintf(stderr, "\tgpioctl [-f ctldev] [-pN] -c pin flag ...\n");
 	fprintf(stderr, "\tgpioctl [-f ctldev] [-pN] -n pin pin-name\n");
+	fprintf(stderr, "\tgpioctl [-f ctldev] [-pN] pin pwmflag [value]\n");
 	fprintf(stderr, "\tgpioctl [-f ctldev] [-pN] pin [0|1]\n");
+	fprintf(stderr, "\tgpioctl [-f ctldev] -P pwm pwmflag [value]\n");
 	exit(1);
 }
 
@@ -90,10 +98,9 @@ cap2str(uint32_t cap)
 	return "UNKNOWN";
 }
 
-int
-str2cap(const char *str)
+static int
+str2cap(const char *str, struct flag_desc *pdesc)
 {
-	struct flag_desc * pdesc = gpio_flags;
 	while (pdesc->name) {
 		if (strcasecmp(str, pdesc->name) == 0)
 			return pdesc->flag;
@@ -111,7 +118,7 @@ str2int(const char *s, int *ok)
 {
 	char *endptr;
 	int res = strtod(s, &endptr);
-	if (endptr != s + strlen(s) )
+	if (endptr != s + strlen(s))
 		*ok = 0;
 	else
 		*ok = 1;
@@ -211,13 +218,13 @@ main(int argc, char **argv)
 	gpio_config_t pin;
 	gpio_handle_t handle;
 	char *ctlfile = NULL;
-	int pinn, pinv, pin_type, ch;
+	int pinn, pinv, pin_type, pwmn, ch;
 	int flags, flag, ok;
-	int config, list, name, toggle, verbose;
+	int config, list, name, pwm, toggle, verbose;
 
-	config = toggle = verbose = list = name = pin_type = 0;
+	config = toggle = verbose = list = name = pin_type = pwm = 0;
 
-	while ((ch = getopt(argc, argv, "cf:lntvNp")) != -1) {
+	while ((ch = getopt(argc, argv, "cf:lntvNpP")) != -1) {
 		switch (ch) {
 		case 'c':
 			config = 1;
@@ -234,8 +241,11 @@ main(int argc, char **argv)
 		case 'N':
 			pin_type = PIN_TYPE_NAME;
 			break;
-		case'p':
+		case 'p':
 			pin_type = PIN_TYPE_NUMBER;
+			break;
+		case 'P':
+			pin_type = PIN_TYPE_PWM;
 			break;
 		case 't':
 			toggle = 1;
@@ -283,10 +293,13 @@ main(int argc, char **argv)
 				fail("Can't find pin named \"%s\"\n", argv[0]);
 		}
 		break;
+	case PIN_TYPE_PWM:
 	case PIN_TYPE_NUMBER:
 		pinn = str2int(argv[0], &ok);
 		if (!ok)
-			fail("Invalid pin number: %s\n", argv[0]);
+			fail("Invalid %s number: %s\n",
+			    (pin_type == PIN_TYPE_NUMBER) ? "pin" : "pwm",
+			    argv[0]);
 		break;
 	case PIN_TYPE_NAME:
 		if ((pinn = get_pinnum_by_name(handle, argv[0])) == -1)
@@ -322,7 +335,7 @@ main(int argc, char **argv)
 	if (config) {
 		flags = 0;
 		for (i = 1; i < argc; i++) {
-			flag = 	str2cap(argv[i]);
+			flag = str2cap(argv[i], gpio_flags);
 			if (flag < 0)
 				fail("Invalid flag: %s\n", argv[i]);
 			flags |= flag;
@@ -332,6 +345,35 @@ main(int argc, char **argv)
 		if (gpio_pin_set_flags(handle, &pin) < 0) {
 			perror("gpio_pin_set_flags");
 			exit(1);
+		}
+		exit(0);
+	}
+
+	/* PWM Settings */
+	flags = -1;
+	if (argc > 0)
+		flags = str2cap(argv[1], pwm_flags);
+	if (flags != -1) {
+		if (pin_type == PIN_TYPE_PWM) {
+			pwmn = pinn;
+			pinn = -1;
+		} else
+			pwmn = -1;
+		if (argc > 2) {
+			/* Is it valid number ? */
+			pinv = str2int(argv[2], &ok);
+			if (ok == 0)
+				fail("Invalid pin value: %s\n", argv[1]);
+			if (gpio_pwm_set(handle, pwmn, pinn, flags, pinv) < 0) {
+				perror("gpio_pwm_set");
+				exit(1);
+			}
+		} else {
+			if (gpio_pwm_get(handle, pwmn, pinn, flags, &pinv) < 0) {
+				perror("gpio_pwm_get");
+				exit(1);
+			}
+			printf("%d\n", pinv);
 		}
 		exit(0);
 	}
