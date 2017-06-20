@@ -628,7 +628,7 @@ e6000sw_getport(device_t dev, etherswitch_port_t *p)
 		ifmr->ifm_status = IFM_ACTIVE | IFM_AVALID;
 		ifmr->ifm_count = 0;
 		if (e6000sw_is_fixed25port(sc, p->es_port))
-			ifmr->ifm_active = IFM_2500_T;
+			ifmr->ifm_active = IFM_2500_KX;	/* IFM_2500_T */
 		else
 			ifmr->ifm_active = IFM_1000_T;
 		ifmr->ifm_active |= IFM_ETHER | IFM_FDX;

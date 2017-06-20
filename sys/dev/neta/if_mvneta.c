@@ -2118,11 +2118,11 @@ mvneta_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		    IFM_SUBTYPE(ifr->ifr_media) == IFM_2500_T ||
 		    IFM_SUBTYPE(ifr->ifr_media) == IFM_2500_KX) &&
 		    (ifr->ifr_media & IFM_FDX) == 0) {
-			if (IFM_SUBTYPE(media) == IFM_1000_T)
+			if (IFM_SUBTYPE(ifr->ifr_media) == IFM_1000_T)
 				mediatype = "1000Base-T";
-			else if (IFM_SUBTYPE(media) == IFM_2500_T)
+			else if (IFM_SUBTYPE(ifr->ifr_media) == IFM_2500_T)
 				mediatype = "2500Base-T";
-			else if (IFM_SUBTYPE(media) == IFM_2500_KX)
+			else if (IFM_SUBTYPE(ifr->ifr_media) == IFM_2500_KX)
 				mediatype = "2500Base-KX";
 			device_printf(sc->dev,
 			    "%s half-duplex unsupported\n", mediatype);
