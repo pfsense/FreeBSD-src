@@ -35,6 +35,7 @@ __BEGIN_DECLS
 
 #define	GPIO_INVALID_HANDLE -1
 typedef int gpio_handle_t;
+typedef int32_t gpio_pwm_t;
 typedef uint32_t gpio_pin_t;
 
 /*
@@ -104,6 +105,13 @@ int		gpio_pin_pulldown(gpio_handle_t, gpio_pin_t);
 int		gpio_pin_invin(gpio_handle_t, gpio_pin_t);
 int		gpio_pin_invout(gpio_handle_t, gpio_pin_t);
 int		gpio_pin_pulsate(gpio_handle_t, gpio_pin_t);
+int		gpio_pin_pwm(gpio_handle_t, gpio_pin_t);
+
+/* PWM Settings. */
+int		gpio_pwm_get(gpio_handle_t, gpio_pwm_t pwm, gpio_pin_t,
+    uint32_t, uint32_t *);
+int		gpio_pwm_set(gpio_handle_t, gpio_pwm_t pwm, gpio_pin_t,
+    uint32_t, uint32_t);
 
 __END_DECLS
 

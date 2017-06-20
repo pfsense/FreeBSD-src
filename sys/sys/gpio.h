@@ -56,6 +56,11 @@
 #define GPIO_PIN_LOW		0x00	/* low level (logical 0) */
 #define GPIO_PIN_HIGH		0x01	/* high level (logical 1) */
 
+/* GPIO PWM settings */
+#define	GPIO_PWM_DUTY		0x01	/* PWM duty cycle */
+#define	GPIO_PWM_FREQ		0x02	/* PWM frequency */
+#define	GPIO_PWM_PERIOD		0x04	/* PWM period */
+
 /* Max name length of a pin */
 #define GPIOMAXNAME		64
 
@@ -70,6 +75,8 @@
 #define GPIO_PIN_INVIN		0x00000080	/* invert input */
 #define GPIO_PIN_INVOUT		0x00000100	/* invert output */
 #define GPIO_PIN_PULSATE	0x00000200	/* pulsate in hardware */
+#define GPIO_PIN_PWM		0x00000400	/* pwm output */
+#define GPIO_PIN_MUX		0x00000800	/* pin mux */
 /* GPIO interrupt capabilities */
 #define GPIO_INTR_NONE		0x00000000	/* no interrupt support */
 #define GPIO_INTR_LEVEL_LOW	0x00010000	/* level trigger, low */
@@ -86,12 +93,22 @@ struct gpio_pin {
 	char gp_name[GPIOMAXNAME];		/* human-readable name */
 	uint32_t gp_caps;			/* capabilities */
 	uint32_t gp_flags;			/* current flags */
+	uint32_t gp_pwm_caps;			/* pwm capabilities */
 };
 
 /* GPIO pin request (read/write/toggle) */
 struct gpio_req {
 	uint32_t gp_pin;			/* pin number */
 	uint32_t gp_value;			/* value */
+};
+
+/* GPIO pwm request (read/write) */
+struct gpio_pwm_req {
+	int32_t gp_pwm;				/* pwm number */
+	uint32_t gp_pwm_pin;			/* pin number */
+	uint32_t gp_pwm_reg;			/* register */
+	uint32_t gp_pwm_value;			/* value */
+	uint32_t gp_pwm_caps;			/* pwm capabilities */
 };
 
 /*
@@ -104,5 +121,9 @@ struct gpio_req {
 #define	GPIOSET			_IOW('G', 4, struct gpio_req)
 #define	GPIOTOGGLE		_IOWR('G', 5, struct gpio_req)
 #define	GPIOSETNAME		_IOW('G', 6, struct gpio_pin)
+#define	GPIOMAXPWM		_IOR('G', 7, int)
+#define	GPIOPWMGETCONFIG	_IOWR('G', 8, struct gpio_pwm_req)
+#define	GPIOPWMGET		_IOWR('G', 9, struct gpio_pwm_req)
+#define	GPIOPWMSET		_IOW('G', 10, struct gpio_pwm_req)
 
 #endif /* __GPIO_H__ */

@@ -121,9 +121,10 @@ gpioc_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int fflag,
     struct thread *td)
 {
 	device_t bus;
-	int max_pin, res;
+	int max_pin, max_pwm, res;
 	struct gpioc_softc *sc = cdev->si_drv1;
 	struct gpio_pin pin;
+	struct gpio_pwm_req pwmreq;
 	struct gpio_req req;
 	uint32_t caps;
 
@@ -142,9 +143,16 @@ gpioc_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int fflag,
 			res = GPIO_PIN_GETFLAGS(sc->sc_pdev, pin.gp_pin,
 			    &pin.gp_flags);
 			/* Fail early */
-			if (res)
+			if (res != 0)
 				break;
-			GPIO_PIN_GETCAPS(sc->sc_pdev, pin.gp_pin, &pin.gp_caps);
+			res = GPIO_PIN_GETCAPS(sc->sc_pdev, pin.gp_pin,
+			    &pin.gp_caps);
+			if (res != 0)
+				break;
+			res = GPIO_PWM_GETCAPS(sc->sc_pdev, -1, pin.gp_pin,
+			    &pin.gp_pwm_caps);
+			if (res != 0)
+				break;
 			GPIOBUS_PIN_GETNAME(bus, pin.gp_pin, pin.gp_name);
 			bcopy(&pin, arg, sizeof(pin));
 			break;
@@ -184,6 +192,39 @@ gpioc_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int fflag,
 			dprintf("set name on pin %d\n", pin.gp_pin);
 			res = GPIOBUS_PIN_SETNAME(bus, pin.gp_pin,
 			    pin.gp_name);
+			break;
+		case GPIOMAXPWM:
+			max_pwm = -1;
+			res = GPIO_PWM_MAX(sc->sc_pdev, &max_pwm);
+			bcopy(&max_pwm, arg, sizeof(max_pwm));
+			break;
+		case GPIOPWMGETCONFIG:
+			bcopy(arg, &pwmreq, sizeof(pwmreq));
+			res = GPIO_PWM_GETCAPS(sc->sc_pdev, pwmreq.gp_pwm,
+			    pwmreq.gp_pwm_pin, &pwmreq.gp_pwm_caps);
+			dprintf("pwm getcaps pwm %d pin %d -> caps %#x\n",
+			    pwmreq.gp_pwm, pwmreq.gp_pwm_pin,
+			    pwmreq.gp_pwm_caps);
+			bcopy(&pwmreq, arg, sizeof(pwmreq));
+			break;
+		case GPIOPWMGET:
+			bcopy(arg, &pwmreq, sizeof(pwmreq));
+			res = GPIO_PWM_GET(sc->sc_pdev, pwmreq.gp_pwm,
+			    pwmreq.gp_pwm_pin, pwmreq.gp_pwm_reg,
+			    &pwmreq.gp_pwm_value);
+			dprintf("pwm get pwm %d pin %d -> reg %#x %d\n",
+			    pwmreq.gp_pwm, pwmreq.gp_pwm_pin, pwmreq.gp_pwm_reg,
+			    pwmreq.gp_pwm_value);
+			bcopy(&pwmreq, arg, sizeof(pwmreq));
+			break;
+		case GPIOPWMSET:
+			bcopy(arg, &pwmreq, sizeof(pwmreq));
+			res = GPIO_PWM_SET(sc->sc_pdev, pwmreq.gp_pwm,
+			    pwmreq.gp_pwm_pin, pwmreq.gp_pwm_reg,
+			    pwmreq.gp_pwm_value);
+			dprintf("pwm set pwm %d pin %d -> reg %#x %d\n",
+			    pwmreq.gp_pwm, pwmreq.gp_pwm_pin, pwmreq.gp_pwm_reg,
+			    pwmreq.gp_pwm_value);
 			break;
 		default:
 			return (ENOTTY);

@@ -56,6 +56,43 @@ CODE {
 
 		return (0);
 	}
+
+	static int
+	gpio_default_pwm_getcaps(device_t dev __unused, int32_t pwm __unused,
+	    uint32_t pini __unused, uint32_t *caps)
+	{
+
+		*caps = 0;
+
+		return (0);
+	}
+
+	static int
+	gpio_default_pwm_max(device_t dev __unused, uint32_t *pwmmax)
+	{
+
+		*pwmmax = 0;
+
+		return (0);
+	}
+
+	static int
+	gpio_default_pwm_get(device_t dev __unused, uint32_t pwm __unused,
+	    uint32_t pin __unused, uint32_t reg __unused,
+	    uint32_t *value __unused)
+	{
+
+		return (EINVAL);
+	}
+
+	static int
+	gpio_default_pwm_set(device_t dev __unused, uint32_t pwm __unused,
+	    uint32_t pin __unused, uint32_t reg __unused,
+	    uint32_t value __unused)
+	{
+
+		return (EINVAL);
+	}
 };
 
 HEADER {
@@ -138,6 +175,46 @@ METHOD int pin_setflags {
 	uint32_t pin_num;
 	uint32_t flags;
 };
+
+#
+# Get maximum pwm number
+#
+METHOD int pwm_max {
+	device_t dev;
+	int *maxpwm;
+} DEFAULT gpio_default_pwm_max;
+
+#
+# Get pwm capabilities
+#
+METHOD int pwm_getcaps {
+	device_t dev;
+	int32_t pwm_num;
+	uint32_t pin_num;
+	uint32_t *caps;
+} DEFAULT gpio_default_pwm_getcaps;
+
+#
+# Get pwm settings of pin specifed by pin_num 
+#
+METHOD int pwm_get {
+	device_t dev;
+	int32_t pwm_num;
+	uint32_t pin_num;
+	uint32_t pwm_reg;
+	uint32_t *pwm_value;
+} DEFAULT gpio_default_pwm_get;
+
+#
+# Set pwm settings of pin specifed by pin_num 
+#
+METHOD int pwm_set {
+	device_t dev;
+	int32_t pwm_num;
+	uint32_t pin_num;
+	uint32_t pwm_reg;
+	uint32_t pwm_value;
+} DEFAULT gpio_default_pwm_set;
 
 #
 # Allow the GPIO controller to map the gpio-specifier on its own.
