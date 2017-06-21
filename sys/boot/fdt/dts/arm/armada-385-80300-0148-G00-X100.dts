@@ -134,11 +134,26 @@
 				 * brick the board.
 				 * Use this bus with caution.
 				 */
+
+				pca95520 {
+					compatible = "nxp,pca9552";
+					gpio-controller;
+					#gpio-cells = <2>;
+					reg = <0x60>;
+					status = "okay";
+				};
+
+				is31fl3199 {
+					compatible = "issi,is31fl3199";
+					gpio-controller;
+					#gpio-cells = <2>;
+					reg = <0x67>;
+					status = "okay";
+				};
 			};
 
 			/* TODO - Add definitions for the I2C LED/GPIO parts */
 
-			/* TODO - Check address (reg?) value for switch/PHYs */
 			/* Rogue one uses the following pin mapping:
 			 * MPP[4]   SMI_MDC
 			 * MPP[5]   SMI_MDIO
