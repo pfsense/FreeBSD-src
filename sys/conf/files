@@ -1698,6 +1698,7 @@ dev/iicbus/iiconf.c		optional iicbus
 dev/iicbus/iicsmb.c		optional iicsmb				\
 	dependency	"iicbus_if.h"
 dev/iicbus/iicoc.c		optional iicoc
+dev/iicbus/is31fl319x.c		optional is31fl319x gpio
 dev/iicbus/lm75.c		optional lm75
 dev/iicbus/ofw_iicbus.c		optional fdt iicbus
 dev/iicbus/pca9552.c		optional pca9552 gpio
