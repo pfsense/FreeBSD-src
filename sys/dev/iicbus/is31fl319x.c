@@ -107,6 +107,8 @@ is31fl319x_probe(device_t dev)
 		desc = "ISSI IS31FL3199 9 channel light effect LED driver";
 		sc->sc_max_pins = 9;
 		break;
+	default:
+		return (ENXIO);
 	}
 	node = ofw_bus_get_node(dev);
 	if (!OF_hasprop(node, "gpio-controller"))
