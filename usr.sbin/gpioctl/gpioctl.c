@@ -69,6 +69,7 @@ static struct flag_desc pwm_flags[] = {
 	{ "DUTY", GPIO_PWM_DUTY },
 	{ "FREQ", GPIO_PWM_FREQ },
 	{ "PERIOD", GPIO_PWM_PERIOD },
+	{ NULL, 0 },
 };
 
 static void
