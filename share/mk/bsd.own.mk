@@ -135,31 +135,6 @@ CTFCONVERT_CMD=
 CTFCONVERT_CMD=	@:
 .endif 
 
-.if ${MK_INSTALL_AS_USER} != "no"
-.if !defined(_uid)
-_uid!=	id -u
-.export _uid
-.endif
-.if ${_uid} != 0
-.if !defined(USER)
-# Avoid exporting USER
-.if !defined(_USER)
-_USER!=	id -un
-.export _USER
-.endif
-USER=	${_USER}
-.endif
-.if !defined(_gid)
-_gid!=	id -g
-.export _gid
-.endif
-.for x in BIN CONF DOC DTB INFO KMOD LIB MAN NLS SHARE
-$xOWN=	${USER}
-$xGRP=	${_gid}
-.endfor
-.endif
-.endif
-
 .endif # !_WITHOUT_SRCCONF
 
 # Binaries
@@ -177,7 +152,13 @@ DTBOWN?=	root
 DTBGRP?=	wheel
 DTBMODE?=	444
 
-LIBDIR?=	/usr/lib
+# Use make.conf / environment LIBDIR as default if set...
+.if !empty(_PREMK_LIBDIR)
+LIBDIR_BASE?=	${_PREMK_LIBDIR}
+.endif
+# otherwise use our expected default value.
+LIBDIR_BASE?=	/usr/lib
+LIBDIR?=	${LIBDIR_BASE}
 LIBCOMPATDIR?=	/usr/lib/compat
 LIBDATADIR?=	/usr/libdata
 LIBEXECDIR?=	/usr/libexec

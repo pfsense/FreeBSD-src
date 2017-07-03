@@ -1190,6 +1190,8 @@ vm_map_insert(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
 	    ("vm_map_insert: kmem or kernel object and COW"));
 	KASSERT(object == NULL || (cow & MAP_NOFAULT) == 0,
 	    ("vm_map_insert: paradoxical MAP_NOFAULT request"));
+	KASSERT((prot & ~max) == 0,
+	    ("prot %#x is not subset of max_prot %#x", prot, max));
 
 	/*
 	 * Check that the start and end points are not bogus.
@@ -1858,9 +1860,7 @@ vm_map_submap(
  *	limited number of page mappings are created at the low-end of the
  *	specified address range.  (For this purpose, a superpage mapping
  *	counts as one page mapping.)  Otherwise, all resident pages within
- *	the specified address range are mapped.  Because these mappings are
- *	being created speculatively, cached pages are not reactivated and
- *	mapped.
+ *	the specified address range are mapped.
  */
 static void
 vm_map_pmap_enter(vm_map_t map, vm_offset_t addr, vm_prot_t prot,
@@ -2296,6 +2296,7 @@ vm_map_inherit(vm_map_t map, vm_offset_t start, vm_offset_t end,
 	case VM_INHERIT_NONE:
 	case VM_INHERIT_COPY:
 	case VM_INHERIT_SHARE:
+	case VM_INHERIT_ZERO:
 		break;
 	default:
 		return (KERN_INVALID_ARGUMENT);
@@ -2711,9 +2712,6 @@ done:
 	}
 	for (entry = first_entry; entry != &map->header && entry->start < end;
 	    entry = entry->next) {
-		if ((entry->eflags & MAP_ENTRY_WIRE_SKIPPED) != 0)
-			goto next_entry_done;
-
 		/*
 		 * If VM_MAP_WIRE_HOLESOK was specified, an empty
 		 * space in the unwired region could have been mapped
@@ -2721,7 +2719,7 @@ done:
 		 * pages or draining MAP_ENTRY_IN_TRANSITION.
 		 * Moreover, another thread could be simultaneously
 		 * wiring this new mapping entry.  Detect these cases
-		 * and skip any entries marked as in transition by us.
+		 * and skip any entries marked as in transition not by us.
 		 */
 		if ((entry->eflags & MAP_ENTRY_IN_TRANSITION) == 0 ||
 		    entry->wiring_thread != curthread) {
@@ -2729,6 +2727,9 @@ done:
 			    ("vm_map_wire: !HOLESOK and new/changed entry"));
 			continue;
 		}
+
+		if ((entry->eflags & MAP_ENTRY_WIRE_SKIPPED) != 0)
+			goto next_entry_done;
 
 		if (rv == KERN_SUCCESS) {
 			if (user_wire)
@@ -3238,6 +3239,10 @@ vm_map_copy_entry(
 				fake_entry->next = curthread->td_map_def_user;
 				curthread->td_map_def_user = fake_entry;
 			}
+
+			pmap_copy(dst_map->pmap, src_map->pmap,
+			    dst_entry->start, dst_entry->end - dst_entry->start,
+			    src_entry->start);
 		} else {
 			dst_entry->object.vm_object = NULL;
 			dst_entry->offset = 0;
@@ -3247,9 +3252,6 @@ vm_map_copy_entry(
 				*fork_charge += size;
 			}
 		}
-
-		pmap_copy(dst_map->pmap, src_map->pmap, dst_entry->start,
-		    dst_entry->end - dst_entry->start, src_entry->start);
 	} else {
 		/*
 		 * We don't want to make writeable wired pages copy-on-write.
@@ -3453,6 +3455,34 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 			vmspace_map_entry_forked(vm1, vm2, new_entry);
 			vm_map_copy_entry(old_map, new_map, old_entry,
 			    new_entry, fork_charge);
+			break;
+
+		case VM_INHERIT_ZERO:
+			/*
+			 * Create a new anonymous mapping entry modelled from
+			 * the old one.
+			 */
+			new_entry = vm_map_entry_create(new_map);
+			memset(new_entry, 0, sizeof(*new_entry));
+
+			new_entry->start = old_entry->start;
+			new_entry->end = old_entry->end;
+			new_entry->avail_ssize = old_entry->avail_ssize;
+			new_entry->eflags = old_entry->eflags &
+			    ~(MAP_ENTRY_USER_WIRED | MAP_ENTRY_IN_TRANSITION |
+			    MAP_ENTRY_VN_WRITECNT);
+			new_entry->protection = old_entry->protection;
+			new_entry->max_protection = old_entry->max_protection;
+			new_entry->inheritance = VM_INHERIT_ZERO;
+
+			vm_map_entry_link(new_map, new_map->header.prev,
+			    new_entry);
+			vmspace_map_entry_forked(vm1, vm2, new_entry);
+
+			new_entry->cred = curthread->td_ucred;
+			crhold(new_entry->cred);
+			*fork_charge += (new_entry->end - new_entry->start);
+
 			break;
 		}
 		old_entry = old_entry->next;
@@ -3864,9 +3894,7 @@ Retry:
 		vm_map_wire(map,
 		    (stack_entry == next_entry) ? addr : addr - grow_amount,
 		    (stack_entry == next_entry) ? stack_entry->start : addr,
-		    (p->p_flag & P_SYSTEM)
-		    ? VM_MAP_WIRE_SYSTEM|VM_MAP_WIRE_NOHOLES
-		    : VM_MAP_WIRE_USER|VM_MAP_WIRE_NOHOLES);
+		    VM_MAP_WIRE_USER | VM_MAP_WIRE_NOHOLES);
 	}
 
 out:

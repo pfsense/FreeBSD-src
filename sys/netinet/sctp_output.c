@@ -1940,7 +1940,7 @@ static struct mbuf *
 sctp_add_addr_to_mbuf(struct mbuf *m, struct sctp_ifa *ifa, uint16_t *len)
 {
 #if defined(INET) || defined(INET6)
-	struct sctp_paramhdr *parmh;
+	struct sctp_paramhdr *paramh;
 	struct mbuf *mret;
 	uint16_t plen;
 #endif
@@ -1962,7 +1962,7 @@ sctp_add_addr_to_mbuf(struct mbuf *m, struct sctp_ifa *ifa, uint16_t *len)
 #if defined(INET) || defined(INET6)
 	if (M_TRAILINGSPACE(m) >= plen) {
 		/* easy side we just drop it on the end */
-		parmh = (struct sctp_paramhdr *)(SCTP_BUF_AT(m, SCTP_BUF_LEN(m)));
+		paramh = (struct sctp_paramhdr *)(SCTP_BUF_AT(m, SCTP_BUF_LEN(m)));
 		mret = m;
 	} else {
 		/* Need more space */
@@ -1976,7 +1976,7 @@ sctp_add_addr_to_mbuf(struct mbuf *m, struct sctp_ifa *ifa, uint16_t *len)
 			return (m);
 		}
 		mret = SCTP_BUF_NEXT(mret);
-		parmh = mtod(mret, struct sctp_paramhdr *);
+		paramh = mtod(mret, struct sctp_paramhdr *);
 	}
 	/* now add the parameter */
 	switch (ifa->address.sa.sa_family) {
@@ -1987,9 +1987,9 @@ sctp_add_addr_to_mbuf(struct mbuf *m, struct sctp_ifa *ifa, uint16_t *len)
 			struct sockaddr_in *sin;
 
 			sin = &ifa->address.sin;
-			ipv4p = (struct sctp_ipv4addr_param *)parmh;
-			parmh->param_type = htons(SCTP_IPV4_ADDRESS);
-			parmh->param_length = htons(plen);
+			ipv4p = (struct sctp_ipv4addr_param *)paramh;
+			paramh->param_type = htons(SCTP_IPV4_ADDRESS);
+			paramh->param_length = htons(plen);
 			ipv4p->addr = sin->sin_addr.s_addr;
 			SCTP_BUF_LEN(mret) += plen;
 			break;
@@ -2002,9 +2002,9 @@ sctp_add_addr_to_mbuf(struct mbuf *m, struct sctp_ifa *ifa, uint16_t *len)
 			struct sockaddr_in6 *sin6;
 
 			sin6 = &ifa->address.sin6;
-			ipv6p = (struct sctp_ipv6addr_param *)parmh;
-			parmh->param_type = htons(SCTP_IPV6_ADDRESS);
-			parmh->param_length = htons(plen);
+			ipv6p = (struct sctp_ipv6addr_param *)paramh;
+			paramh->param_type = htons(SCTP_IPV6_ADDRESS);
+			paramh->param_length = htons(plen);
 			memcpy(ipv6p->addr, &sin6->sin6_addr,
 			    sizeof(ipv6p->addr));
 			/* clear embedded scope in the address */
@@ -5141,7 +5141,10 @@ sctp_arethere_unrecognized_parameters(struct mbuf *in_initpkt,
 					s.param_length = htons(sizeof(s) + plen);
 					m_copyback(op_err, err_at, sizeof(s), (caddr_t)&s);
 					err_at += sizeof(s);
-					phdr = sctp_get_next_param(mat, at, (struct sctp_paramhdr *)tempbuf, min(sizeof(tempbuf), plen));
+					if (plen > sizeof(tempbuf)) {
+						plen = sizeof(tempbuf);
+					}
+					phdr = sctp_get_next_param(mat, at, (struct sctp_paramhdr *)tempbuf, plen);
 					if (phdr == NULL) {
 						sctp_m_freem(op_err);
 						/*
@@ -5209,7 +5212,7 @@ sctp_arethere_unrecognized_parameters(struct mbuf *in_initpkt,
 					if (plen > sizeof(tempbuf)) {
 						plen = sizeof(tempbuf);
 					}
-					phdr = sctp_get_next_param(mat, at, (struct sctp_paramhdr *)tempbuf, min(sizeof(tempbuf), plen));
+					phdr = sctp_get_next_param(mat, at, (struct sctp_paramhdr *)tempbuf, plen);
 					if (phdr == NULL) {
 						sctp_m_freem(op_err);
 						/*
@@ -5390,10 +5393,12 @@ sctp_are_there_new_addresses(struct sctp_association *asoc,
 			{
 				struct sctp_ipv4addr_param *p4, p4_buf;
 
+				if (plen != sizeof(struct sctp_ipv4addr_param)) {
+					return (1);
+				}
 				phdr = sctp_get_next_param(in_initpkt, offset,
 				    (struct sctp_paramhdr *)&p4_buf, sizeof(p4_buf));
-				if (plen != sizeof(struct sctp_ipv4addr_param) ||
-				    phdr == NULL) {
+				if (phdr == NULL) {
 					return (1);
 				}
 				if (asoc->scope.ipv4_addr_legal) {
@@ -5409,10 +5414,12 @@ sctp_are_there_new_addresses(struct sctp_association *asoc,
 			{
 				struct sctp_ipv6addr_param *p6, p6_buf;
 
+				if (plen != sizeof(struct sctp_ipv6addr_param)) {
+					return (1);
+				}
 				phdr = sctp_get_next_param(in_initpkt, offset,
 				    (struct sctp_paramhdr *)&p6_buf, sizeof(p6_buf));
-				if (plen != sizeof(struct sctp_ipv6addr_param) ||
-				    phdr == NULL) {
+				if (phdr == NULL) {
 					return (1);
 				}
 				if (asoc->scope.ipv6_addr_legal) {
@@ -7080,11 +7087,9 @@ sctp_clean_up_ctl(struct sctp_tcb *stcb, struct sctp_association *asoc, int so_l
 	}
 }
 
-
-static int
-sctp_can_we_split_this(struct sctp_tcb *stcb,
-    uint32_t length,
-    uint32_t goal_mtu, uint32_t frag_point, int eeor_on)
+static uint32_t
+sctp_can_we_split_this(struct sctp_tcb *stcb, uint32_t length,
+    uint32_t space_left, uint32_t frag_point, int eeor_on)
 {
 	/*
 	 * Make a decision on if I should split a msg into multiple parts.
@@ -7096,7 +7101,7 @@ sctp_can_we_split_this(struct sctp_tcb *stcb,
 		 * entire thing, since it might be all the guy is putting in
 		 * the hopper.
 		 */
-		if (goal_mtu >= length) {
+		if (space_left >= length) {
 			/*-
 			 * If we have data outstanding,
 			 * we get another chance when the sack
@@ -7113,7 +7118,7 @@ sctp_can_we_split_this(struct sctp_tcb *stcb,
 
 		} else {
 			/* You can fill the rest */
-			return (goal_mtu);
+			return (space_left);
 		}
 	}
 	/*-
@@ -7124,28 +7129,27 @@ sctp_can_we_split_this(struct sctp_tcb *stcb,
 	if (SCTP_SB_LIMIT_SND(stcb->sctp_socket) < frag_point) {
 		return (length);
 	}
-	if ((length <= goal_mtu) ||
-	    ((length - goal_mtu) < SCTP_BASE_SYSCTL(sctp_min_residual))) {
+	if ((length <= space_left) ||
+	    ((length - space_left) < SCTP_BASE_SYSCTL(sctp_min_residual))) {
 		/* Sub-optimial residual don't split in non-eeor mode. */
 		return (0);
 	}
 	/*
-	 * If we reach here length is larger than the goal_mtu. Do we wish
+	 * If we reach here length is larger than the space_left. Do we wish
 	 * to split it for the sake of packet putting together?
 	 */
-	if (goal_mtu >= min(SCTP_BASE_SYSCTL(sctp_min_split_point), frag_point)) {
+	if (space_left >= min(SCTP_BASE_SYSCTL(sctp_min_split_point), frag_point)) {
 		/* Its ok to split it */
-		return (min(goal_mtu, frag_point));
+		return (min(space_left, frag_point));
 	}
 	/* Nope, can't split */
 	return (0);
-
 }
 
 static uint32_t
 sctp_move_to_outqueue(struct sctp_tcb *stcb,
     struct sctp_stream_out *strq,
-    uint32_t goal_mtu,
+    uint32_t space_left,
     uint32_t frag_point,
     int *giveup,
     int eeor_mode,
@@ -7306,7 +7310,7 @@ re_look:
 			sp->some_taken = 1;
 		}
 	} else {
-		to_move = sctp_can_we_split_this(stcb, length, goal_mtu, frag_point, eeor_mode);
+		to_move = sctp_can_we_split_this(stcb, length, space_left, frag_point, eeor_mode);
 		if (to_move) {
 			/*-
 			 * We use a snapshot of length in case it
@@ -7701,56 +7705,66 @@ sctp_fill_outqueue(struct sctp_tcb *stcb,
 {
 	struct sctp_association *asoc;
 	struct sctp_stream_out *strq;
-	int goal_mtu, moved_how_much, total_moved = 0, bail = 0;
-	int giveup;
+	uint32_t space_left, moved, total_moved;
+	int bail, giveup;
 
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	asoc = &stcb->asoc;
+	total_moved = 0;
 	switch (net->ro._l_addr.sa.sa_family) {
 #ifdef INET
 	case AF_INET:
-		goal_mtu = net->mtu - SCTP_MIN_V4_OVERHEAD;
+		space_left = net->mtu - SCTP_MIN_V4_OVERHEAD;
 		break;
 #endif
 #ifdef INET6
 	case AF_INET6:
-		goal_mtu = net->mtu - SCTP_MIN_OVERHEAD;
+		space_left = net->mtu - SCTP_MIN_OVERHEAD;
 		break;
 #endif
 	default:
 		/* TSNH */
-		goal_mtu = net->mtu;
+		space_left = net->mtu;
 		break;
 	}
 	/* Need an allowance for the data chunk header too */
 	if (stcb->asoc.idata_supported == 0) {
-		goal_mtu -= sizeof(struct sctp_data_chunk);
+		space_left -= sizeof(struct sctp_data_chunk);
 	} else {
-		goal_mtu -= sizeof(struct sctp_idata_chunk);
+		space_left -= sizeof(struct sctp_idata_chunk);
 	}
 
 	/* must make even word boundary */
-	goal_mtu &= 0xfffffffc;
+	space_left &= 0xfffffffc;
 	strq = stcb->asoc.ss_functions.sctp_ss_select_stream(stcb, net, asoc);
-	while ((goal_mtu > 0) && strq) {
-		giveup = 0;
-		bail = 0;
-		moved_how_much = sctp_move_to_outqueue(stcb, strq, goal_mtu, frag_point,
+	giveup = 0;
+	bail = 0;
+	while ((space_left > 0) && (strq != NULL)) {
+		moved = sctp_move_to_outqueue(stcb, strq, space_left, frag_point,
 		    &giveup, eeor_mode, &bail, so_locked);
-		stcb->asoc.ss_functions.sctp_ss_scheduled(stcb, net, asoc, strq, moved_how_much);
-
-		if ((giveup) || bail) {
+		stcb->asoc.ss_functions.sctp_ss_scheduled(stcb, net, asoc, strq, moved);
+		if ((giveup != 0) || (bail != 0)) {
 			break;
 		}
 		strq = stcb->asoc.ss_functions.sctp_ss_select_stream(stcb, net, asoc);
-		if (strq == NULL) {
-			break;
+		total_moved += moved;
+		space_left -= moved;
+		if (stcb->asoc.idata_supported == 0) {
+			if (space_left >= sizeof(struct sctp_data_chunk)) {
+				space_left -= sizeof(struct sctp_data_chunk);
+			} else {
+				space_left = 0;
+			}
+		} else {
+			if (space_left >= sizeof(struct sctp_idata_chunk)) {
+				space_left -= sizeof(struct sctp_idata_chunk);
+			} else {
+				space_left = 0;
+			}
 		}
-		total_moved += moved_how_much;
-		goal_mtu -= (moved_how_much + sizeof(struct sctp_data_chunk));
-		goal_mtu &= 0xfffffffc;
+		space_left &= 0xfffffffc;
 	}
-	if (bail)
+	if (bail != 0)
 		*quit_now = 1;
 
 	stcb->asoc.ss_functions.sctp_ss_packet_done(stcb, net, asoc);
@@ -8993,7 +9007,7 @@ sctp_send_cookie_echo(struct mbuf *m,
 	 */
 	int at;
 	struct mbuf *cookie;
-	struct sctp_paramhdr parm, *phdr;
+	struct sctp_paramhdr param, *phdr;
 	struct sctp_chunkhdr *hdr;
 	struct sctp_tmit_chunk *chk;
 	uint16_t ptype, plen;
@@ -9003,7 +9017,7 @@ sctp_send_cookie_echo(struct mbuf *m,
 	cookie = NULL;
 	at = offset + sizeof(struct sctp_init_chunk);
 	for (;;) {
-		phdr = sctp_get_next_param(m, at, &parm, sizeof(parm));
+		phdr = sctp_get_next_param(m, at, &param, sizeof(param));
 		if (phdr == NULL) {
 			return (-3);
 		}
@@ -11140,7 +11154,7 @@ sctp_send_resp_msg(struct sockaddr *src, struct sockaddr *dst,
 		ip->ip_v = IPVERSION;
 		ip->ip_hl = (sizeof(struct ip) >> 2);
 		ip->ip_tos = 0;
-		ip->ip_off = 0;
+		ip->ip_off = htons(IP_DF);
 		ip_fillid(ip);
 		ip->ip_ttl = MODULE_GLOBAL(ip_defttl);
 		if (port) {
