@@ -124,11 +124,22 @@ is31fl319x_probe(device_t dev)
 	return (BUS_PROBE_DEFAULT);
 }
 
+static __inline int
+is31fl319x_reg_update(struct is31fl319x_softc *sc, uint8_t reg)
+{
+	uint8_t data[2];
+
+	data[0] = IS31FL319X_DATA_UPDATE;
+	data[1] = 0;
+
+	return (is31fl319x_write(sc->sc_dev, sc->sc_addr, data, sizeof(data)));
+}
+
 static int
 is31fl319x_attach(device_t dev)
 {
 	struct is31fl319x_softc *sc;
-	uint8_t data[2];
+	uint8_t data[4];
 
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
@@ -137,12 +148,38 @@ is31fl319x_attach(device_t dev)
 	/* Reset the LED driver. */
 	data[0] = IS31FL319X_RESET;
 	data[1] = 0;
-	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
+	if (is31fl319x_write(dev, sc->sc_addr, data, 2) != 0)
 		return (ENXIO);
 	/* Disable the shutdown mode. */
 	data[0] = IS31FL319X_SHUTDOWN;
 	data[1] = 1;
+	if (is31fl319x_write(dev, sc->sc_addr, data, 2) != 0)
+		return (ENXIO);
+
+	/* Set a basic breath sequence. */
+	data[0] = IS31FL319X_CONF1;
+	data[1] = (1 << 4);
+	if (is31fl319x_write(dev, sc->sc_addr, data, 2) != 0)
+		return (ENXIO);
+	data[0] = IS31FL319X_PWM(0);
+	data[1] = 200;
+	data[2] = 50;
+	data[3] = 90;
 	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
+		return (ENXIO);
+	if (is31fl319x_reg_update(sc, IS31FL319X_DATA_UPDATE) != 0)
+		return (ENXIO);
+	data[0] = IS31FL319X_T0(0);
+	data[1] = 0x7;
+	data[2] = 0x8;
+	data[3] = 0x9;
+	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
+		return (ENXIO);
+	data[0] = IS31FL319X_T123(0);
+	data[1] = 0x12;
+	if (is31fl319x_write(dev, sc->sc_addr, data, 2) != 0)
+		return (ENXIO);
+	if (is31fl319x_reg_update(sc, IS31FL319X_TIME_UPDATE) != 0)
 		return (ENXIO);
 
 	/* Attach gpiobus. */
@@ -233,17 +270,6 @@ is31fl319x_gpio_pin_setflags(device_t dev, uint32_t pin, uint32_t flags)
 	return (0);
 }
 
-static __inline int
-is31fl319x_pwm_update(struct is31fl319x_softc *sc)
-{
-	uint8_t data[2];
-
-	data[0] = IS31FL319X_DATA_UPDATE;
-	data[1] = 0;
-
-	return (is31fl319x_write(sc->sc_dev, sc->sc_addr, data, sizeof(data)));
-}
-
 static int
 is31fl319x_gpio_pin_set(device_t dev, uint32_t pin, uint32_t value)
 {
@@ -263,7 +289,7 @@ is31fl319x_gpio_pin_set(device_t dev, uint32_t pin, uint32_t value)
 	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
 		return (ENXIO);
 
-	return (is31fl319x_pwm_update(sc));
+	return (is31fl319x_reg_update(sc, IS31FL319X_DATA_UPDATE));
 }
 
 static int
@@ -333,7 +359,7 @@ is31fl319x_gpio_pwm_set(device_t dev, int32_t pwm, uint32_t pin, uint32_t reg,
 	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
 		return (ENXIO);
 
-	return (is31fl319x_pwm_update(sc));
+	return (is31fl319x_reg_update(sc, IS31FL319X_DATA_UPDATE));
 }
 
 static phandle_t
