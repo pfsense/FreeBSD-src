@@ -179,6 +179,12 @@ is31fl319x_attach(device_t dev)
 	data[1] = 0x12;
 	if (is31fl319x_write(dev, sc->sc_addr, data, 2) != 0)
 		return (ENXIO);
+	data[0] = IS31FL319X_T4(0);
+	data[1] = 0x0;
+	data[2] = 0x1;
+	data[3] = 0x2;
+	if (is31fl319x_write(dev, sc->sc_addr, data, sizeof(data)) != 0)
+		return (ENXIO);
 	if (is31fl319x_reg_update(sc, IS31FL319X_TIME_UPDATE) != 0)
 		return (ENXIO);
 
