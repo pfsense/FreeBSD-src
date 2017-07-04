@@ -129,7 +129,7 @@ is31fl319x_reg_update(struct is31fl319x_softc *sc, uint8_t reg)
 {
 	uint8_t data[2];
 
-	data[0] = IS31FL319X_DATA_UPDATE;
+	data[0] = reg;
 	data[1] = 0;
 
 	return (is31fl319x_write(sc->sc_dev, sc->sc_addr, data, sizeof(data)));
