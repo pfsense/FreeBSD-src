@@ -44,9 +44,7 @@
 #define	IS31FL319X_PWM_MAX			0xff
 #define	IS31FL319X_DATA_UPDATE		0x10
 #define	IS31FL319X_T0(out)		(0x11 + (out))
-#define	IS31FL319X_T1			0x1a
-#define	IS31FL319X_T2			0x1b
-#define	IS31FL319X_T3			0x1c
+#define	IS31FL319X_T123(led)		(0x1a + (led))
 #define	IS31FL319X_T4(out)		(0x1d + (out))
 #define	IS31FL319X_TIME_UPDATE		0x26
 #define	IS31FL319X_RESET		0xff
