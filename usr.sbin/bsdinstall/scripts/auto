@@ -419,6 +419,7 @@ finalconfig
 
 trap error SIGINT	# SIGINT is bad again
 bsdinstall config  || error "Failed to save config"
+bsdinstall copy_configxml_from_usb
 
 if [ ! -z "$BSDINSTALL_FETCHDEST" ]; then
 	rm -rf "$BSDINSTALL_FETCHDEST"
