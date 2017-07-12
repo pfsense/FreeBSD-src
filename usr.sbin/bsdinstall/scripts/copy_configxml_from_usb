@@ -1,0 +1,60 @@
+#!/bin/sh
+#-
+# Copyright (c) 2017 Rubicon Communications, LLC
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+# $FreeBSD$
+
+look_for_config_xml_config_msdos() {
+	mkdir -p /tmp/mnt/cf
+	echo -n "Looking for config.xml on "
+	for try_device in `/sbin/gpart show -p | /usr/bin/egrep '(fat32|\!11|\!12|\!14)' | /usr/bin/awk '{print $3;}'`; do
+		if [ ! -e /dev/${try_device} ]; then
+			continue
+		fi
+		echo -n "${try_device}: "
+		if /sbin/mount -t msdosfs /dev/${try_device} /tmp/mnt/cf 2>/dev/null ; then
+			echo -n "[found msdos] "
+			# look for config.xml
+			if [ -r /tmp/mnt/cf/conf/config.xml  ]; then
+				echo -n "[config.xml on ${try_device}] "
+				return 0
+			else
+				echo -n "[no config.xml on ${try_device}, unmounting] "
+				/sbin/umount /tmp/mnt/cf
+			fi
+		fi
+	done
+	return 1
+}
+
+# Try to locate an existing config.xml file
+if look_for_config_xml_config_msdos ; then
+	/bin/cp -r /tmp/mnt/cf/conf/config.xml $BSDINSTALL_CHROOT/cf/conf/
+	/sbin/umount /tmp/mnt/cf/ 2>&1
+	echo -n "[Copied config.xml file] "
+else
+	echo -n "[Could not locate an existing config.xml file!] "
+fi
+echo "Done."
