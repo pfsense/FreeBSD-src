@@ -74,9 +74,8 @@ pfsync_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
 	    p + sizeof(struct pfsync_header),
 	    caplen - sizeof(struct pfsync_header));
 out:
-	if (xflag) {
-		default_print((const u_char *)p, caplen);
-	}
+	if (!ndo->ndo_suppress_default_print)
+		ND_DEFAULTPRINT(p, caplen);
 	safeputchar(ndo, '\n');
 	return (caplen);
 }
