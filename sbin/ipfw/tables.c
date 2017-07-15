@@ -54,6 +54,7 @@ static void table_lock(ipfw_obj_header *oh, int lock);
 static int table_swap(ipfw_obj_header *oh, char *second);
 static int table_get_info(ipfw_obj_header *oh, ipfw_xtable_info *i);
 static int table_show_info(ipfw_xtable_info *i, void *arg);
+static void table_zerocnt(ipfw_obj_header *oh, int ac, char *av[]);
 
 static int table_destroy_one(ipfw_xtable_info *i, void *arg);
 static int table_flush_one(ipfw_xtable_info *i, void *arg);
@@ -115,6 +116,7 @@ static struct _s_x tablecmds[] = {
       { "atomic",	TOK_ATOMIC },
       { "lock",		TOK_LOCK },
       { "unlock",	TOK_UNLOCK },
+      { "zerocnt",	TOK_ZEROCNT },
       { NULL, 0 }
 };
 
@@ -298,6 +300,10 @@ ipfw_table_handler(int ac, char *av[])
 	case TOK_LOOKUP:
 		ac--; av++;
 		table_lookup(&oh, ac, av);
+		break;
+	case TOK_ZEROCNT:
+		ac--; av++;
+		table_zerocnt(&oh, ac, av);
 		break;
 	}
 }
@@ -1134,6 +1140,60 @@ table_lookup(ipfw_obj_header *oh, int ac, char *av[])
 	table_show_entry(&xi, &xtent);
 }
 
+static int
+table_do_zerocnt(ipfw_obj_header *oh, char *key, ipfw_xtable_info *xi)
+{
+	char xbuf[sizeof(ipfw_obj_header) + sizeof(ipfw_obj_tentry)];
+	ipfw_obj_tentry *tent;
+	uint8_t type;
+	uint32_t vmask;
+
+	memcpy(xbuf, oh, sizeof(*oh));
+	oh = (ipfw_obj_header *)xbuf;
+	tent = (ipfw_obj_tentry *)(oh + 1);
+
+	memset(tent, 0, sizeof(*tent));
+	tent->head.length = sizeof(*tent);
+	tent->idx = 1;
+
+	tentry_fill_key(oh, tent, key, 0, &type, &vmask, xi);
+	oh->ntlv.type = type;
+
+	if (do_set3(IP_FW_TABLE_XZEROCNT, &oh->opheader, sizeof(xbuf)) != 0)
+		return (errno);
+
+	return (0);
+}
+
+static void
+table_zerocnt(ipfw_obj_header *oh, int ac, char *av[])
+{
+	ipfw_xtable_info xi;
+	char key[64];
+	int error;
+
+	if (ac == 0)
+		errx(EX_USAGE, "address required");
+
+	strlcpy(key, *av, sizeof(key));
+
+	memset(&xi, 0, sizeof(xi));
+	error = table_do_zerocnt(oh, key, &xi);
+	switch (error) {
+	case 0:
+		break;
+	case ESRCH:
+		errx(EX_UNAVAILABLE, "Table %s not found", oh->ntlv.name);
+	case ENOENT:
+		errx(EX_UNAVAILABLE, "Entry %s not found", *av);
+	case ENOTSUP:
+		errx(EX_UNAVAILABLE, "Table %s algo does not support "
+		    "\"zero_cnt\" method", oh->ntlv.name);
+	default:
+		err(EX_OSERR, "getsockopt(IP_FW_TABLE_XZEROCNT)");
+	}
+}
+
 static void
 tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
     uint8_t tflags)
@@ -1872,21 +1932,21 @@ table_show_entry(ipfw_xtable_info *i, ipfw_obj_tentry *tent)
 	case IPFW_TABLE_ADDR:
 		/* IPv4 or IPv6 prefixes */
 		inet_ntop(tent->subtype, &tent->k, tbuf, sizeof(tbuf));
-		printf("%s/%u %s\n", tbuf, tent->masklen, pval);
+		printf("%s/%u %s", tbuf, tent->masklen, pval);
 		break;
 	case IPFW_TABLE_MAC2:
 		/* Ethernet MAC address */
 		print_mac(tent->k.mac.addr, tent->k.mac.mask);
 		print_mac(tent->k.mac.addr + 6, tent->k.mac.mask + 6);
-		printf(" %s\n", pval);
+		printf(" %s", pval);
 		break;
 	case IPFW_TABLE_INTERFACE:
 		/* Interface names */
-		printf("%s %s\n", tent->k.iface, pval);
+		printf("%s %s", tent->k.iface, pval);
 		break;
 	case IPFW_TABLE_NUMBER:
 		/* numbers */
-		printf("%u %s\n", tent->k.key, pval);
+		printf("%u %s", tent->k.key, pval);
 		break;
 	case IPFW_TABLE_FLOW:
 		/* flows */
@@ -1929,8 +1989,10 @@ table_show_entry(ipfw_xtable_info *i, ipfw_obj_tentry *tent)
 			comma = ",";
 		}
 
-		printf(" %s\n", pval);
+		printf(" %s", pval);
 	}
+	printf(" %ju %ju %ju\n", (uintmax_t)tent->pcnt,
+	    (uintmax_t)tent->bcnt, (uintmax_t)tent->timestamp);
 }
 
 static int

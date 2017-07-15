@@ -185,7 +185,7 @@ nat64stl_handle_icmp6(struct ip_fw_chain *chain, struct nat64stl_cfg *cfg,
 	 */
 	ip6i = mtodo(m, hlen);
 	if (ipfw_lookup_table(chain, cfg->map64,
-	    sizeof(struct in6_addr), &ip6i->ip6_dst, &tablearg) == 0) {
+	    sizeof(struct in6_addr), &ip6i->ip6_dst, &tablearg, NULL) == 0) {
 		m_freem(m);
 		return (NAT64RETURN);
 	}
@@ -222,11 +222,12 @@ ipfw_nat64stl(struct ip_fw_chain *chain, struct ip_fw_args *args,
 	case 4:
 		dst4 = htonl(args->f_id.dst_ip);
 		ret = ipfw_lookup_table(chain, cfg->map46, sizeof(in_addr_t),
-		    &dst4, &tablearg);
+		    &dst4, &tablearg, NULL);
 		break;
 	case 6:
 		ret = ipfw_lookup_table(chain, cfg->map64,
-		    sizeof(struct in6_addr), &args->f_id.src_ip6, &tablearg);
+		    sizeof(struct in6_addr), &args->f_id.src_ip6,
+		    &tablearg, NULL);
 		break;
 	default:
 		return (0);

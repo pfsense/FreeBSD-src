@@ -110,6 +110,8 @@ typedef struct _ip_fw3_opheader {
 #define	IP_FW_DUMP_SOPTCODES	116	/* Dump available sopts/versions */
 #define	IP_FW_DUMP_SRVOBJECTS	117	/* Dump existing named objects */
 
+#define	IP_FW_TABLE_XZEROCNT	118	/* zero table entry counters */
+
 #define	IP_FW_NAT64STL_CREATE	130	/* Create stateless NAT64 instance */
 #define	IP_FW_NAT64STL_DESTROY	131	/* Destroy stateless NAT64 instance */
 #define	IP_FW_NAT64STL_CONFIG	132	/* Modify stateless NAT64 instance */
@@ -884,6 +886,9 @@ typedef struct	_ipfw_obj_tentry {
 	uint8_t		spare0;
 	uint16_t	idx;		/* Table name index		*/
 	uint16_t	spare1;
+	uint64_t	bcnt;		/* Byte counter */
+	uint64_t	pcnt;		/* Packet counter */
+	time_t		timestamp;	/* Timestamp of last match */
 	union {
 		/* Longest field needs to be aligned by 8-byte boundary	*/
 		struct in_addr		addr;	/* IPv4 address		*/
