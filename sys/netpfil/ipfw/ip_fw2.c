@@ -378,7 +378,7 @@ tcpopts_match(struct tcphdr *tcp, ipfw_insn *cmd)
 
 static int
 iface_match(struct ifnet *ifp, ipfw_insn_if *cmd, struct ip_fw_chain *chain,
-    uint32_t *tablearg)
+    uint32_t *tablearg, void **te)
 {
 
 	if (ifp == NULL)	/* no iface with this packet, match fails */
@@ -388,7 +388,7 @@ iface_match(struct ifnet *ifp, ipfw_insn_if *cmd, struct ip_fw_chain *chain,
 	if (cmd->name[0] != '\0') { /* match by name */
 		if (cmd->name[0] == '\1') /* use tablearg to match */
 			return ipfw_lookup_table(chain, cmd->p.kidx, 0,
-			    &ifp->if_index, tablearg);
+			    &ifp->if_index, tablearg, te);
 		/* Check name */
 		if (cmd->p.glob) {
 			if (fnmatch(cmd->name, ifp->if_xname, 0) == 0)
@@ -1392,6 +1392,12 @@ ipfw_chk(struct ip_fw_args *args)
 	struct ip_fw_chain *chain = &V_layer3_chain;
 
 	/*
+	 * Table match pointers.
+	 */
+	void *te = NULL;		/* table entry */
+	uint16_t tidx, tkeylen;
+
+	/*
 	 * We store in ulp a pointer to the upper layer protocol header.
 	 * In the ipv4 case this is easy to determine from the header,
 	 * but for ipv6 we might have some additional headers in the middle.
@@ -1753,6 +1759,10 @@ do {								\
 		if (V_set_disable & (1 << f->set) )
 			continue;
 
+		te = NULL;
+		tidx = 0;
+		tkeylen = 0;
+
 		skip_or = 0;
 		for (l = f->cmd_len, cmd = f->cmd ; l > 0 ;
 		    l -= cmdlen, cmd += cmdlen) {
@@ -1822,29 +1832,42 @@ do {								\
 
 			case O_RECV:
 				match = iface_match(m->m_pkthdr.rcvif,
-				    (ipfw_insn_if *)cmd, chain, &tablearg);
+				    (ipfw_insn_if *)cmd, chain, &tablearg, &te);
+				if (match && te != NULL) {
+					tkeylen = 0;
+					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
+				}
 				break;
 
 			case O_XMIT:
 				match = iface_match(oif, (ipfw_insn_if *)cmd,
-				    chain, &tablearg);
+				    chain, &tablearg, &te);
+				if (match && te != NULL) {
+					tkeylen = 0;
+					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
 				break;
 
 			case O_VIA:
 				match = iface_match(oif ? oif :
 				    m->m_pkthdr.rcvif, (ipfw_insn_if *)cmd,
-				    chain, &tablearg);
+				    chain, &tablearg, &te);
+				if (match && te != NULL) {
+					tkeylen = 0;
+					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
 				break;
 
 			case O_MACADDR2_LOOKUP:
 				if (args->eh != NULL) {	/* have MAC header */
 					uint32_t v = 0;
-					match = ipfw_lookup_table_extended(chain,
-					    cmd->arg1, 0, args->eh, &v);
+					match = ipfw_lookup_table(chain,
+					    cmd->arg1, 0, args->eh, &v, &te);
 					if (cmdlen == F_INSN_SIZE(ipfw_insn_u32))
 						match = ((ipfw_insn_u32 *)cmd)->d[0] == v;
-					if (match)
+					if (match) {
 						tablearg = v;
+						tkeylen = 0;
+						tidx = cmd->arg1;
+					}
 				}
 				break;
 
@@ -1992,10 +2015,13 @@ do {								\
 					else
 						break;
 					match = ipfw_lookup_table(chain,
-					    cmd->arg1, keylen, pkey, &vidx);
+					    cmd->arg1, keylen, pkey, &vidx,
+					    &te);
 					if (!match)
 						break;
 					tablearg = vidx;
+					tidx = cmd->arg1;
+					tkeylen = keylen;
 					break;
 				}
 				/* cmdlen =< F_INSN_SIZE(ipfw_insn_u32) */
@@ -2022,7 +2048,7 @@ do {								\
 				} else
 					break;
 				match = ipfw_lookup_table(chain, cmd->arg1,
-				    keylen, pkey, &vidx);
+				    keylen, pkey, &vidx, &te);
 				if (!match)
 					break;
 				if (cmdlen == F_INSN_SIZE(ipfw_insn_u32)) {
@@ -2032,6 +2058,8 @@ do {								\
 						break;
 				}
 				tablearg = vidx;
+				tidx = cmd->arg1;
+				tkeylen = keylen;
 				break;
 			}
 
@@ -2039,12 +2067,15 @@ do {								\
 				{
 					uint32_t v = 0;
 					match = ipfw_lookup_table(chain,
-					    cmd->arg1, 0, &args->f_id, &v);
+					    cmd->arg1, 0, &args->f_id, &v, &te);
 					if (cmdlen == F_INSN_SIZE(ipfw_insn_u32))
 						match = ((ipfw_insn_u32 *)cmd)->d[0] ==
 						    TARG_VAL(chain, v, tag);
-					if (match)
+					if (match) {
 						tablearg = v;
+						tidx = cmd->arg1;
+						tkeylen = 0;
+					}
 				}
 				break;
 			case O_IP_SRC_MASK:
@@ -2716,11 +2747,19 @@ do {								\
 
 			case O_COUNT:
 				IPFW_INC_RULE_COUNTER(f, pktlen);
+				if (te != NULL) {
+					ipfw_cnt_update_tentry(chain, tidx,
+					    tkeylen, te, pktlen);
+				}
 				l = 0;		/* exit inner loop */
 				break;
 
 			case O_SKIPTO:
 			    IPFW_INC_RULE_COUNTER(f, pktlen);
+			    if (te != NULL) {
+				ipfw_cnt_update_tentry(chain, tidx,
+				    tkeylen, te, pktlen);
+			    }
 			    f_pos = JUMP(chain, f, cmd->arg1, tablearg, 0);
 			    /*
 			     * Skip disabled rules, and re-enter
@@ -2797,6 +2836,10 @@ do {								\
 				}
 
 				IPFW_INC_RULE_COUNTER(f, pktlen);
+				if (te != NULL) {
+					ipfw_cnt_update_tentry(chain, tidx,
+					    tkeylen, te, pktlen);
+				}
 				stack = (uint16_t *)(mtag + 1);
 
 				/*
@@ -2972,6 +3015,10 @@ do {								\
 				uint32_t fib;
 
 				IPFW_INC_RULE_COUNTER(f, pktlen);
+				if (te != NULL) {
+					ipfw_cnt_update_tentry(chain, tidx,
+					    tkeylen, te, pktlen);
+				}
 				fib = TARG(cmd->arg1, fib) & 0x7FFF;
 				if (fib >= rt_numfibs)
 					fib = 0;
@@ -3005,6 +3052,10 @@ do {								\
 					break;
 
 				IPFW_INC_RULE_COUNTER(f, pktlen);
+				if (te != NULL) {
+					ipfw_cnt_update_tentry(chain, tidx,
+					    tkeylen, te, pktlen);
+				}
 				break;
 			}
 
@@ -3051,6 +3102,10 @@ do {								\
 				if (is_ipv6) /* IPv6 is not supported yet */
 					break;
 				IPFW_INC_RULE_COUNTER(f, pktlen);
+				if (te != NULL) {
+					ipfw_cnt_update_tentry(chain, tidx,
+					    tkeylen, te, pktlen);
+				}
 				ip_off = ntohs(ip->ip_off);
 
 				/* if not fragmented, go to next rule */
@@ -3091,6 +3146,10 @@ do {								\
 				 */
 				if (retval == 0 && done == 0) {
 					IPFW_INC_RULE_COUNTER(f, pktlen);
+					if (te != NULL) {
+						ipfw_cnt_update_tentry(chain,
+						    tidx, tkeylen, te, pktlen);
+					}
 					/*
 					 * Reset the result of the last
 					 * dynamic state lookup.
@@ -3134,6 +3193,10 @@ do {								\
 		struct ip_fw *rule = chain->map[f_pos];
 		/* Update statistics */
 		IPFW_INC_RULE_COUNTER(rule, pktlen);
+		if (te != NULL) {
+			ipfw_cnt_update_tentry(chain, tidx, tkeylen, te,
+			    pktlen);
+		}
 	} else {
 		retval = IP_FW_DENY;
 		printf("ipfw: ouch!, skip past end of rules, denying packet\n");

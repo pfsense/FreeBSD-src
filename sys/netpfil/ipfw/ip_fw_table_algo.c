@@ -330,6 +330,9 @@ struct radix_addr_entry {
 	struct radix_node	rn[2];
 	struct sockaddr_in	addr;
 	uint32_t		value;
+	uint64_t		bcnt;
+	uint64_t		pcnt;
+	time_t			timestamp;
 	uint8_t			masklen;
 };
 
@@ -344,6 +347,9 @@ struct radix_addr_xentry {
 	struct radix_node	rn[2];
 	struct sa_in6		addr6;
 	uint32_t		value;
+	uint64_t		bcnt;
+	uint64_t		pcnt;
+	time_t			timestamp;
 	uint8_t			masklen;
 };
 
@@ -372,7 +378,7 @@ struct ta_buf_radix
 };
 
 static int ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int ta_init_radix(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static int flush_radix_entry(struct radix_node *rn, void *arg);
@@ -399,10 +405,14 @@ static void ta_flush_radix_entry(struct ip_fw_chain *ch, struct tentry_info *tei
     void *ta_buf);
 static int ta_need_modify_radix(void *ta_state, struct table_info *ti,
     uint32_t count, uint64_t *pflags);
+static void ta_cnt_radix_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+static int ta_zero_cnt_radix_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 static int
 ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct radix_node_head *rnh;
 
@@ -415,6 +425,8 @@ ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
 		ent = (struct radix_addr_entry *)(rnh->rnh_matchaddr(&sa, &rnh->rh));
 		if (ent != NULL) {
 			*val = ent->value;
+			if (te != NULL)
+				*te = (void *)ent;
 			return (1);
 		}
 	} else {
@@ -426,6 +438,8 @@ ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
 		xent = (struct radix_addr_xentry *)(rnh->rnh_matchaddr(&sa6, &rnh->rh));
 		if (xent != NULL) {
 			*val = xent->value;
+			if (te != NULL)
+				*te = (void *)xent;
 			return (1);
 		}
 	}
@@ -525,6 +539,9 @@ ta_dump_radix_tentry(void *ta_state, struct table_info *ti, void *e,
 		tent->masklen = n->masklen;
 		tent->subtype = AF_INET;
 		tent->v.kidx = n->value;
+		tent->bcnt = n->bcnt;
+		tent->pcnt = n->pcnt;
+		tent->timestamp = n->timestamp;
 #ifdef INET6
 	} else {
 		xn = (struct radix_addr_xentry *)e;
@@ -533,6 +550,9 @@ ta_dump_radix_tentry(void *ta_state, struct table_info *ti, void *e,
 		tent->masklen = xn->masklen;
 		tent->subtype = AF_INET6;
 		tent->v.kidx = xn->value;
+		tent->bcnt = n->bcnt;
+		tent->pcnt = n->pcnt;
+		tent->timestamp = n->timestamp;
 #endif
 	}
 
@@ -870,6 +890,63 @@ ta_need_modify_radix(void *ta_state, struct table_info *ti, uint32_t count,
 	return (0);
 }
 
+static void
+ta_cnt_radix_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+
+	if (keylen == sizeof(in_addr_t)) {
+		struct radix_addr_entry *ent;
+		ent = (struct radix_addr_entry *)e;
+		ent->pcnt++;
+		ent->bcnt += pktlen;
+		ent->timestamp = time_uptime;
+	} else {
+		struct radix_addr_xentry *xent;
+		xent = (struct radix_addr_xentry *)e;
+		xent->pcnt++;
+		xent->bcnt += pktlen;
+		xent->timestamp = time_uptime;
+	}
+}
+
+static int
+ta_zero_cnt_radix_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct radix_node_head *rnh;
+
+	if (tent->subtype == AF_INET) {
+		struct radix_addr_entry *ent;
+		struct sockaddr_in sa;
+		KEY_LEN(sa) = KEY_LEN_INET;
+		sa.sin_addr.s_addr = tent->k.addr.s_addr;
+		rnh = (struct radix_node_head *)ti->state;
+		ent = (struct radix_addr_entry *)rnh->rnh_matchaddr(&sa,
+		    &rnh->rh);
+		if (ent == NULL)
+			return (ENOENT);
+		ent->pcnt = 0;
+		ent->bcnt = 0;
+		ent->timestamp = 0;
+	} else {
+		struct radix_addr_xentry *xent;
+		struct sa_in6 sa6;
+		KEY_LEN(sa6) = KEY_LEN_INET6;
+		memcpy(&sa6.sin6_addr, &tent->k.addr6, sizeof(struct in6_addr));
+		rnh = (struct radix_node_head *)ti->xstate;
+		xent = (struct radix_addr_xentry *)rnh->rnh_matchaddr(&sa6,
+		    &rnh->rh);
+		if (xent == NULL)
+			return (ENOENT);
+		xent->pcnt = 0;
+		xent->bcnt = 0;
+		xent->timestamp = 0;
+	}
+
+	return (0);
+}
+
 struct table_algo addr_radix = {
 	.name		= "addr:radix",
 	.type		= IPFW_TABLE_ADDR,
@@ -887,6 +964,8 @@ struct table_algo addr_radix = {
 	.find_tentry	= ta_find_radix_tentry,
 	.dump_tinfo	= ta_dump_radix_tinfo,
 	.need_modify	= ta_need_modify_radix,
+	.cnt_tentry	= ta_cnt_radix_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_radix_tentry,
 };
 
 
@@ -929,6 +1008,9 @@ struct chashentry {
 	SLIST_ENTRY(chashentry)	next;
 	uint32_t	value;
 	uint32_t	type;
+	uint64_t	bcnt;
+	uint64_t	pcnt;
+	time_t		timestamp;
 	union {
 		uint32_t	a4;	/* Host format */
 		struct in6_addr	a6;	/* Network format */
@@ -953,11 +1035,11 @@ static __inline uint32_t hash_ip6_al(struct in6_addr *addr6, void *key, int mask
     int hsize);
 #endif
 static int ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int ta_lookup_chash_aligned(struct table_info *ti, void *key,
-    uint32_t keylen, uint32_t *val);
+    uint32_t keylen, uint32_t *val, void **te);
 static int ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int chash_parse_opts(struct chash_cfg *cfg, char *data);
 static void ta_print_chash_config(void *ta_state, struct table_info *ti,
     char *buf, size_t bufsize);
@@ -994,7 +1076,10 @@ static int ta_fill_mod_chash(void *ta_state, struct table_info *ti, void *ta_buf
 static void ta_modify_chash(void *ta_state, struct table_info *ti, void *ta_buf,
     uint64_t pflags);
 static void ta_flush_mod_chash(void *ta_buf);
-
+static void ta_cnt_chash_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+static int ta_zero_cnt_chash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 #ifdef INET
 static __inline uint32_t
@@ -1055,7 +1140,7 @@ hash_ip6_al(struct in6_addr *addr6, void *key, int mask, int hsize)
 
 static int
 ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -1074,6 +1159,8 @@ ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (ent->a.a4 == a) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1089,6 +1176,8 @@ ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (memcmp(&ent->a.a6, &addr6, 16) == 0) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1100,7 +1189,7 @@ ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
 
 static int
 ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -1119,6 +1208,8 @@ ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (ent->a.a4 == a) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1138,6 +1229,8 @@ ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
 			ptmp = (uint64_t *)&ent->a.a6;
 			if (paddr[0] == ptmp[0] && paddr[1] == ptmp[1]) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1149,7 +1242,7 @@ ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
 
 static int
 ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -1168,6 +1261,8 @@ ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (ent->a.a4 == a) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1185,6 +1280,8 @@ ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
 			paddr = (uint64_t *)&ent->a.a6;
 			if (a6 == *paddr) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = (void *)ent;
 				return (1);
 			}
 		}
@@ -1382,12 +1479,18 @@ ta_dump_chash_tentry(void *ta_state, struct table_info *ti, void *e,
 		tent->masklen = cfg->mask4;
 		tent->subtype = AF_INET;
 		tent->v.kidx = ent->value;
+		tent->bcnt = ent->bcnt;
+		tent->pcnt = ent->pcnt;
+		tent->timestamp = ent->timestamp;
 #ifdef INET6
 	} else {
 		memcpy(&tent->k.addr6, &ent->a.a6, sizeof(struct in6_addr));
 		tent->masklen = cfg->mask6;
 		tent->subtype = AF_INET6;
 		tent->v.kidx = ent->value;
+		tent->bcnt = ent->bcnt;
+		tent->pcnt = ent->pcnt;
+		tent->timestamp = ent->timestamp;
 #endif
 	}
 
@@ -1863,6 +1966,82 @@ ta_flush_mod_chash(void *ta_buf)
 		free(mi->main_ptr6, M_IPFW);
 }
 
+static void
+ta_cnt_chash_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+	struct chashentry *ent;
+
+	ent = (struct chashentry *)e;
+	ent->pcnt++;
+	ent->bcnt += pktlen;
+	ent->timestamp = time_uptime;
+}
+
+static int
+ta_zero_cnt_chash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct chash_cfg *cfg;
+	struct chashbhead *head;
+	struct chashentry ent, *tmp;
+	struct tentry_info tei;
+	int error;
+	uint32_t hash;
+	bool done;
+
+	cfg = (struct chash_cfg *)ta_state;
+
+	done = false;
+	memset(&ent, 0, sizeof(ent));
+	memset(&tei, 0, sizeof(tei));
+
+	if (tent->subtype == AF_INET) {
+		tei.paddr = &tent->k.addr;
+		tei.masklen = cfg->mask4;
+		tei.subtype = AF_INET;
+
+		if ((error = tei_to_chash_ent(&tei, &ent)) != 0)
+			return (error);
+
+		head = cfg->head4;
+		hash = hash_ent(&ent, AF_INET, cfg->mask4, cfg->size4);
+		/* Check for existence */
+		SLIST_FOREACH(tmp, &head[hash], next) {
+			if (tmp->a.a4 != ent.a.a4)
+				continue;
+			done = true;
+			break;
+		}
+	} else {
+		tei.paddr = &tent->k.addr6;
+		tei.masklen = cfg->mask6;
+		tei.subtype = AF_INET6;
+
+		if ((error = tei_to_chash_ent(&tei, &ent)) != 0)
+			return (error);
+
+		head = cfg->head6;
+		hash = hash_ent(&ent, AF_INET6, cfg->mask6, cfg->size6);
+		/* Check for existence */
+		SLIST_FOREACH(tmp, &head[hash], next) {
+			if (memcmp(&tmp->a.a6, &ent.a.a6, 16) != 0)
+				continue;
+			done = true;
+			break;
+		}
+	}
+
+	if (!done)
+		return (ENOENT);
+
+	tmp->pcnt = 0;
+	tmp->bcnt = 0;
+	tmp->timestamp = 0;
+
+	return (0);
+}
+
 struct table_algo addr_hash = {
 	.name		= "addr:hash",
 	.type		= IPFW_TABLE_ADDR,
@@ -1884,6 +2063,8 @@ struct table_algo addr_hash = {
 	.fill_mod	= ta_fill_mod_chash,
 	.modify		= ta_modify_chash,
 	.flush_mod	= ta_flush_mod_chash,
+	.cnt_tentry	= ta_cnt_chash_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_chash_tentry,
 };
 
 
@@ -1909,6 +2090,9 @@ struct ifidx {
 	uint16_t	kidx;
 	uint16_t	spare;
 	uint32_t	value;
+	uint64_t	bcnt;
+	uint64_t	pcnt;
+	time_t		timestamp;
 };
 #define	DEFAULT_IFIDX_SIZE	64
 
@@ -1941,7 +2125,7 @@ struct ta_buf_ifidx
 int compare_ifidx(const void *k, const void *v);
 static struct ifidx * ifidx_find(struct table_info *ti, void *key);
 static int ta_lookup_ifidx(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int ta_init_ifidx(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static void ta_change_ti_ifidx(void *ta_state, struct table_info *ti);
@@ -1977,6 +2161,10 @@ static int foreach_ifidx(struct namedobj_instance *ii, struct named_object *no,
     void *arg);
 static void ta_foreach_ifidx(void *ta_state, struct table_info *ti,
     ta_foreach_f *f, void *arg);
+static void ta_cnt_ifidx_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+static int ta_zero_cnt_ifidx_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 int
 compare_ifidx(const void *k, const void *v)
@@ -2083,7 +2271,7 @@ ifidx_find(struct table_info *ti, void *key)
 
 static int
 ta_lookup_ifidx(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct ifidx *ifi;
 
@@ -2091,6 +2279,8 @@ ta_lookup_ifidx(struct table_info *ti, void *key, uint32_t keylen,
 
 	if (ifi != NULL) {
 		*val = ifi->value;
+		if (te != NULL)
+			*te = ifi;
 		return (1);
 	}
 
@@ -2397,6 +2587,9 @@ if_notifier(struct ip_fw_chain *ch, void *cbdata, uint16_t ifindex)
 		ifi.kidx = ifindex;
 		ifi.spare = 0;
 		ifi.value = ife->value;
+		ifi.bcnt = 0;
+		ifi.pcnt = 0;
+		ifi.timestamp = 0;
 		res = badd(&ifindex, &ifi, icfg->main_ptr, icfg->used,
 		    sizeof(struct ifidx), compare_ifidx);
 		KASSERT(res == 1, ("index %d already exists", ifindex));
@@ -2525,12 +2718,20 @@ ta_dump_ifidx_tentry(void *ta_state, struct table_info *ti, void *e,
     ipfw_obj_tentry *tent)
 {
 	struct ifentry *ife;
+	struct ifidx *ifi;
 
 	ife = (struct ifentry *)e;
 
 	tent->masklen = 8 * IF_NAMESIZE;
 	memcpy(&tent->k, ife->no.name, IF_NAMESIZE);
 	tent->v.kidx = ife->value;
+
+	ifi = ifidx_find(ti, &ife->ic.iface->ifindex);
+	if (ifi != NULL) {
+		tent->bcnt = ifi->bcnt;
+		tent->pcnt = ifi->pcnt;
+		tent->timestamp = ifi->timestamp;
+	}
 
 	return (0);
 }
@@ -2593,6 +2794,47 @@ ta_foreach_ifidx(void *ta_state, struct table_info *ti, ta_foreach_f *f,
 	ipfw_objhash_foreach(icfg->ii, foreach_ifidx, &wa);
 }
 
+static void
+ta_cnt_ifidx_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+	struct ifidx *ifi;
+
+	ifi = (struct ifidx *)e;
+	ifi->pcnt++;
+	ifi->bcnt += pktlen;
+	ifi->timestamp = time_uptime;
+}
+
+static int
+ta_zero_cnt_ifidx_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct iftable_cfg *icfg;
+	struct ifentry *ife;
+	struct ifidx *ifi;
+	char *ifname;
+
+	icfg = (struct iftable_cfg *)ta_state;
+	ifname = tent->k.iface;
+
+	if (strnlen(ifname, IF_NAMESIZE) == IF_NAMESIZE)
+		return (EINVAL);
+
+	ife = (struct ifentry *)ipfw_objhash_lookup_name(icfg->ii, 0, ifname);
+	if (ife == NULL)
+		return (ENOENT);
+
+	ifi = ifidx_find(ti, &ife->ic.iface->ifindex);
+	if (ifi == NULL)
+		return (ENOENT);
+	ifi->pcnt = 0;
+	ifi->bcnt = 0;
+	ifi->timestamp = 0;
+
+	return (0);
+}
+
 struct table_algo iface_idx = {
 	.name		= "iface:array",
 	.type		= IPFW_TABLE_INTERFACE,
@@ -2615,6 +2857,8 @@ struct table_algo iface_idx = {
 	.modify		= ta_modify_ifidx,
 	.flush_mod	= ta_flush_mod_ifidx,
 	.change_ti	= ta_change_ti_ifidx,
+	.cnt_tentry	= ta_cnt_ifidx_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_ifidx_tentry,
 };
 
 /*
@@ -2632,6 +2876,9 @@ struct table_algo iface_idx = {
 struct numarray {
 	uint32_t	number;
 	uint32_t	value;
+	uint64_t	bcnt;
+	uint64_t	pcnt;
+	time_t		timestamp;
 };
 
 struct numarray_cfg {
@@ -2648,7 +2895,7 @@ struct ta_buf_numarray
 int compare_numarray(const void *k, const void *v);
 static struct numarray *numarray_find(struct table_info *ti, void *key);
 static int ta_lookup_numarray(struct table_info *ti, void *key,
-    uint32_t keylen, uint32_t *val);
+    uint32_t keylen, uint32_t *val, void **te);
 static int ta_init_numarray(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static void ta_destroy_numarray(void *ta_state, struct table_info *ti);
@@ -2676,6 +2923,10 @@ static int ta_find_numarray_tentry(void *ta_state, struct table_info *ti,
     ipfw_obj_tentry *tent);
 static void ta_foreach_numarray(void *ta_state, struct table_info *ti,
     ta_foreach_f *f, void *arg);
+static void ta_cnt_numarray_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+static int ta_zero_cnt_numarray_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 int
 compare_numarray(const void *k, const void *v)
@@ -2707,7 +2958,7 @@ numarray_find(struct table_info *ti, void *key)
 
 static int
 ta_lookup_numarray(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct numarray *ri;
 
@@ -2715,6 +2966,8 @@ ta_lookup_numarray(struct table_info *ti, void *key, uint32_t keylen,
 
 	if (ri != NULL) {
 		*val = ri->value;
+		if (te != NULL)
+			*te = ri;
 		return (1);
 	}
 
@@ -2988,6 +3241,9 @@ ta_dump_numarray_tentry(void *ta_state, struct table_info *ti, void *e,
 
 	tent->k.key = na->number;
 	tent->v.kidx = na->value;
+	tent->bcnt = na->bcnt;
+	tent->pcnt = na->pcnt;
+	tent->timestamp = na->timestamp;
 
 	return (0);
 }
@@ -3026,6 +3282,37 @@ ta_foreach_numarray(void *ta_state, struct table_info *ti, ta_foreach_f *f,
 		f(&array[i], arg);
 }
 
+static void
+ta_cnt_numarray_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+	struct numarray *na;
+
+	na = (struct numarray *)e;
+	na->pcnt++;
+	na->bcnt += pktlen;
+	na->timestamp = time_uptime;
+}
+
+static int
+ta_zero_cnt_numarray_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct numarray_cfg *cfg;
+	struct numarray *na;
+
+	cfg = (struct numarray_cfg *)ta_state;
+
+	na = numarray_find(ti, &tent->k.key);
+	if (na == NULL)
+		return (ENOENT);
+	na->pcnt = 0;
+	na->bcnt = 0;
+	na->timestamp = 0;
+
+	return (0);
+}
+
 struct table_algo number_array = {
 	.name		= "number:array",
 	.type		= IPFW_TABLE_NUMBER,
@@ -3046,6 +3333,8 @@ struct table_algo number_array = {
 	.fill_mod	= ta_fill_mod_numarray,
 	.modify		= ta_modify_numarray,
 	.flush_mod	= ta_flush_mod_numarray,
+	.cnt_tentry	= ta_cnt_numarray_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_numarray_tentry,
 };
 
 /*
@@ -3080,6 +3369,9 @@ struct fhashentry {
 	uint16_t	dport;
 	uint16_t	sport;
 	uint32_t	value;
+	uint64_t	bcnt;
+	uint64_t	pcnt;
+	time_t		timestamp;
 	uint32_t	spare1;
 };
 
@@ -3114,7 +3406,7 @@ static __inline uint32_t hash_flow4(struct fhashentry4 *f, int hsize);
 static __inline uint32_t hash_flow6(struct fhashentry6 *f, int hsize);
 static uint32_t hash_flow_ent(struct fhashentry *ent, uint32_t size);
 static int ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int ta_init_fhash(struct ip_fw_chain *ch, void **ta_state,
 struct table_info *ti, char *data, uint8_t tflags);
 static void ta_destroy_fhash(void *ta_state, struct table_info *ti);
@@ -3145,6 +3437,10 @@ static int ta_fill_mod_fhash(void *ta_state, struct table_info *ti,
 static void ta_modify_fhash(void *ta_state, struct table_info *ti, void *ta_buf,
     uint64_t pflags);
 static void ta_flush_mod_fhash(void *ta_buf);
+static void ta_cnt_fhash_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+static int ta_zero_cnt_fhash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 static __inline int
 cmp_flow_ent(struct fhashentry *a, struct fhashentry *b, size_t sz)
@@ -3200,7 +3496,7 @@ hash_flow_ent(struct fhashentry *ent, uint32_t size)
 
 static int
 ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct fhashbhead *head;
 	struct fhashentry *ent;
@@ -3228,6 +3524,8 @@ ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (cmp_flow_ent(ent, &f.e, 2 * 4) != 0) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = ent;
 				return (1);
 			}
 		}
@@ -3253,6 +3551,8 @@ ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
 		SLIST_FOREACH(ent, &head[hash], next) {
 			if (cmp_flow_ent(ent, &f.e, 2 * 16) != 0) {
 				*val = ent->value;
+				if (te != NULL)
+					*te = ent;
 				return (1);
 			}
 		}
@@ -3375,6 +3675,9 @@ ta_dump_fhash_tentry(void *ta_state, struct table_info *ti, void *e,
 	tfe->sport = htons(ent->sport);
 	tent->v.kidx = ent->value;
 	tent->subtype = ent->af;
+	tent->bcnt = ent->bcnt;
+	tent->pcnt = ent->pcnt;
+	tent->timestamp = ent->timestamp;
 
 	if (ent->af == AF_INET) {
 		fe4 = (struct fhashentry4 *)ent;
@@ -3752,6 +4055,65 @@ ta_flush_mod_fhash(void *ta_buf)
 		free(mi->main_ptr, M_IPFW);
 }
 
+static void
+ta_cnt_fhash_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+	struct fhashentry *ent;
+
+	ent = (struct fhashentry *)e;
+	ent->pcnt++;
+	ent->bcnt += pktlen;
+	ent->timestamp = time_uptime;
+}
+
+static int
+ta_zero_cnt_fhash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct fhash_cfg *cfg;
+	struct fhashbhead *head;
+	struct fhashentry *ent, *tmp;
+	struct fhashentry6 fe6;
+	struct tentry_info tei;
+	int error;
+	uint32_t hash;
+	size_t sz;
+
+	cfg = (struct fhash_cfg *)ta_state;
+
+	ent = &fe6.e;
+
+	memset(&fe6, 0, sizeof(fe6));
+	memset(&tei, 0, sizeof(tei));
+
+	tei.paddr = &tent->k.flow;
+	tei.subtype = tent->subtype;
+
+	if ((error = tei_to_fhash_ent(&tei, ent)) != 0)
+		return (error);
+
+	head = cfg->head;
+	hash = hash_flow_ent(ent, cfg->size);
+
+	if (tei.subtype == AF_INET)
+		sz = 2 * sizeof(struct in_addr);
+	else
+		sz = 2 * sizeof(struct in6_addr);
+
+	/* Check for existence */
+	SLIST_FOREACH(tmp, &head[hash], next) {
+		if (cmp_flow_ent(tmp, ent, sz) != 0) {
+			ent->pcnt = 0;
+			ent->bcnt = 0;
+			ent->timestamp = 0;
+			return (0);
+		}
+	}
+
+	return (ENOENT);
+}
+
 struct table_algo flow_hash = {
 	.name		= "flow:hash",
 	.type		= IPFW_TABLE_FLOW,
@@ -3773,6 +4135,8 @@ struct table_algo flow_hash = {
 	.fill_mod	= ta_fill_mod_fhash,
 	.modify		= ta_modify_fhash,
 	.flush_mod	= ta_flush_mod_fhash,
+	.cnt_tentry	= ta_cnt_fhash_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_fhash_tentry,
 };
 
 /*
@@ -3787,7 +4151,7 @@ struct table_algo flow_hash = {
  */
 
 static int ta_lookup_kfib(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val);
+    uint32_t *val, void **te);
 static int kfib_parse_opts(int *pfib, char *data);
 static void ta_print_kfib_config(void *ta_state, struct table_info *ti,
     char *buf, size_t bufsize);
@@ -3809,7 +4173,7 @@ static void ta_foreach_kfib(void *ta_state, struct table_info *ti,
 
 static int
 ta_lookup_kfib(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 #ifdef INET
 	struct nhop4_basic nh4;
@@ -3838,6 +4202,8 @@ ta_lookup_kfib(struct table_info *ti, void *key, uint32_t keylen,
 		return (0);
 
 	*val = 0;
+	if (te != NULL)
+		*te = NULL;
 
 	return (1);
 }
@@ -4102,9 +4468,12 @@ struct mhash_cfg {
 };
 
 struct macdata {
-	u_char	addr[12];	/* dst[6] + src[6] */
-	u_char	mask[12];	/* dst[6] + src[6] */
+	u_char		addr[12];	/* dst[6] + src[6] */
+	u_char		mask[12];	/* dst[6] + src[6] */
 	uint32_t	value;
+	uint64_t	bcnt;
+	uint64_t	pcnt;
+	time_t		timestamp;
 };
 
 struct mhashentry {
@@ -4138,15 +4507,20 @@ ta_print_mhash_config(void *ta_state, struct table_info *ti, char *buf,
 }
 
 static __inline int
-ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2, struct macdata *mac,
-    uint32_t *val)
+ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2,
+    struct macdata *mac, uint32_t *val, void **te)
 {
+	struct macdata any;
 	struct mhashentry *ent;
 
+	memset(any.addr, 0, sizeof(any.addr));
 	SLIST_FOREACH(ent, &head[hash2], next) {
-		if (memcmp(&ent->mac->addr, mac->addr, sizeof(mac->addr)) != 0)
+		if (memcmp(&ent->mac->addr, any.addr, sizeof(any.addr)) != 0 &&
+		    memcmp(&ent->mac->addr, mac->addr, sizeof(mac->addr)) != 0)
 			continue;
 		*val = ent->mac->value;
+		if (te != NULL)
+			*te = (void *)ent;
 		return (1);
 	}
 
@@ -4155,7 +4529,7 @@ ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2, struct macdata *ma
 
 static int
 ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val)
+    uint32_t *val, void **te)
 {
 	struct macdata mac;
 	struct mhashbhead *head;
@@ -4168,21 +4542,22 @@ ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
 	head = (struct mhashbhead *)ti->state;
 	hsize = 1 << (ti->data & 0xFF);
 	hash2 = hash_mac2(key, hsize);
-	if (ta_lookup_find_mhash(head, hash2, (struct macdata *)key, val) == 1)
+	if (ta_lookup_find_mhash(head, hash2,
+	    (struct macdata *)key, val, te) == 1)
 		return (1);
 
 	/* src any */
 	memcpy(mac.addr, key, 6);
 	memset(mac.addr + 6, 0, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, te) == 1)
 		return (1);
 
 	/* dst any */
 	memset(mac.addr, 0, 6);
 	memcpy(mac.addr + 6, (uintptr_t *)key + 6, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, te) == 1)
 		return (1);
 
 	return (0);
@@ -4255,10 +4630,13 @@ ta_dump_mhash_tentry(void *ta_state, struct table_info *ti, void *e,
 	cfg = (struct mhash_cfg *)ta_state;
 	mac = ((struct mhashentry *)e)->mac;
 
-	memcpy(&tent->k.mac, mac->addr, sizeof(*mac) - sizeof(uint32_t));
+	memcpy(&tent->k.mac, mac->addr, sizeof(mac->addr) + sizeof(mac->mask));
 	tent->masklen = ETHER_ADDR_LEN * 8;
 	tent->subtype = AF_LINK;
 	tent->v.kidx = mac->value;
+	tent->bcnt = mac->bcnt;
+	tent->pcnt = mac->pcnt;
+	tent->timestamp = mac->timestamp;
 
 	return (0);
 }
@@ -4269,28 +4647,26 @@ ta_find_mhash_tentry(void *ta_state, struct table_info *ti,
 {
 	struct macdata mac;
 	struct mhash_cfg *cfg;
-	struct mhashentry ent, *tmp;
+	struct mhashentry *ent;
 	struct tentry_info tei;
 	uint32_t hash2;
 
 	cfg = (struct mhash_cfg *)ta_state;
 
-	memset(&ent, 0, sizeof(ent));
 	memset(&mac, 0, sizeof(mac));
 	memset(&tei, 0, sizeof(tei));
 
 	tei.paddr = &tent->k.mac;
 	tei.subtype = AF_LINK;
-	ent.mac = &mac;
 
-	memcpy(mac.addr, tei.paddr, sizeof(mac) - sizeof(uint32_t));
+	memcpy(mac.addr, tei.paddr, sizeof(mac.addr) + sizeof(mac.mask));
 
 	/* Check for existence */
 	hash2 = hash_mac2(mac.addr, cfg->size);
-	SLIST_FOREACH(tmp, &cfg->head[hash2], next) {
-		if (memcmp(&tmp->mac->addr, &mac.addr, sizeof(mac.addr)) != 0)
+	SLIST_FOREACH(ent, &cfg->head[hash2], next) {
+		if (memcmp(&ent->mac->addr, &mac.addr, sizeof(mac.addr)) != 0)
 			continue;
-		ta_dump_mhash_tentry(ta_state, ti, tmp, tent);
+		ta_dump_mhash_tentry(ta_state, ti, ent, tent);
 		return (0);
 	}
 
@@ -4323,11 +4699,9 @@ ta_prepare_add_mhash(struct ip_fw_chain *ch, struct tentry_info *tei,
 		return (EINVAL);
 
 	tb = (struct ta_buf_mhash *)ta_buf;
-
 	ent = malloc(sizeof(*ent), M_IPFW_TBL, M_WAITOK | M_ZERO);
 	mac = malloc(sizeof(*mac), M_IPFW_TBL, M_WAITOK | M_ZERO);
-
-	memcpy(mac->addr, tei->paddr, sizeof(*mac) - sizeof(uint32_t));
+	memcpy(mac->addr, tei->paddr, sizeof(mac->addr) + sizeof(mac->mask));
 
 	ent->mac = mac;
 	tb->ent_ptr = ent;
@@ -4455,6 +4829,52 @@ ta_flush_mhash_entry(struct ip_fw_chain *ch, struct tentry_info *tei,
 	}
 }
 
+static void
+ta_cnt_mhash_tentry(void *ta_state, struct table_info *ti, uint32_t keylen,
+    void *e, int pktlen)
+{
+	struct mhashentry *ent;
+
+	ent = (struct mhashentry *)e;
+	ent->mac->pcnt++;
+	ent->mac->bcnt += pktlen;
+	ent->mac->timestamp = time_uptime;
+}
+
+static int
+ta_zero_cnt_mhash_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent)
+{
+	struct macdata mac;
+	struct mhash_cfg *cfg;
+	struct mhashentry *ent;
+	struct tentry_info tei;
+	uint32_t hash2;
+
+	cfg = (struct mhash_cfg *)ta_state;
+
+	memset(&mac, 0, sizeof(mac));
+	memset(&tei, 0, sizeof(tei));
+
+	tei.paddr = &tent->k.mac;
+	tei.subtype = AF_LINK;
+
+	memcpy(mac.addr, tei.paddr, sizeof(mac.addr) + sizeof(mac.mask));
+
+	/* Check for existence */
+	hash2 = hash_mac2(mac.addr, cfg->size);
+	SLIST_FOREACH(ent, &cfg->head[hash2], next) {
+		if (memcmp(&ent->mac->addr, &mac.addr, sizeof(mac.addr)) != 0)
+			continue;
+		ent->mac->pcnt = 0;
+		ent->mac->bcnt = 0;
+		ent->mac->timestamp = 0;
+		return (0);
+	}
+
+	return (ENOENT);
+}
+
 struct table_algo mac_hash = {
 	.name		= "mac:hash",
 	.type		= IPFW_TABLE_MAC2,
@@ -4472,6 +4892,8 @@ struct table_algo mac_hash = {
 	.dump_tentry	= ta_dump_mhash_tentry,
 	.find_tentry	= ta_find_mhash_tentry,
 	.dump_tinfo	= ta_dump_mhash_tinfo,
+	.cnt_tentry	= ta_cnt_mhash_tentry,
+	.zero_cnt_tentry	= ta_zero_cnt_mhash_tentry,
 };
 
 void
