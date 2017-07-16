@@ -1740,7 +1740,7 @@ ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
  * Update the table entry counter.
  */
 void
-ipfw_cnt_tentry_update(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
+ipfw_cnt_update_tentry(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
     void *e, int pktlen)
 {
 	struct namedobj_instance *ni;
