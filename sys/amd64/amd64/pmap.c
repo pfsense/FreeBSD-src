@@ -613,8 +613,9 @@ static vm_page_t pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va,
     vm_page_t m, vm_prot_t prot, vm_page_t mpte, struct rwlock **lockp);
 static void pmap_fill_ptp(pt_entry_t *firstpte, pt_entry_t newpte);
 static int pmap_insert_pt_page(pmap_t pmap, vm_page_t mpte);
+static void pmap_invalidate_pde_page(pmap_t pmap, vm_offset_t va,
+		    pd_entry_t pde);
 static void pmap_kenter_attr(vm_offset_t va, vm_paddr_t pa, int mode);
-static vm_page_t pmap_lookup_pt_page(pmap_t pmap, vm_offset_t va);
 static void pmap_pde_attr(pd_entry_t *pde, int cache_bits, int mask);
 static void pmap_promote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va,
     struct rwlock **lockp);
@@ -625,7 +626,7 @@ static int pmap_remove_pde(pmap_t pmap, pd_entry_t *pdq, vm_offset_t sva,
     struct spglist *free, struct rwlock **lockp);
 static int pmap_remove_pte(pmap_t pmap, pt_entry_t *ptq, vm_offset_t sva,
     pd_entry_t ptepde, struct spglist *free, struct rwlock **lockp);
-static void pmap_remove_pt_page(pmap_t pmap, vm_page_t mpte);
+static vm_page_t pmap_remove_pt_page(pmap_t pmap, vm_offset_t va);
 static void pmap_remove_page(pmap_t pmap, vm_offset_t va, pd_entry_t *pde,
     struct spglist *free);
 static boolean_t pmap_try_insert_pv_entry(pmap_t pmap, vm_offset_t va,
@@ -1839,6 +1840,27 @@ pmap_update_pde(pmap_t pmap, vm_offset_t va, pd_entry_t *pde, pd_entry_t newpde)
 }
 #endif /* !SMP */
 
+static void
+pmap_invalidate_pde_page(pmap_t pmap, vm_offset_t va, pd_entry_t pde)
+{
+
+	/*
+	 * When the PDE has PG_PROMOTED set, the 2MB page mapping was created
+	 * by a promotion that did not invalidate the 512 4KB page mappings
+	 * that might exist in the TLB.  Consequently, at this point, the TLB
+	 * may hold both 4KB and 2MB page mappings for the address range [va,
+	 * va + NBPDR).  Therefore, the entire range must be invalidated here.
+	 * In contrast, when PG_PROMOTED is clear, the TLB will not hold any
+	 * 4KB page mappings for the address range [va, va + NBPDR), and so a
+	 * single INVLPG suffices to invalidate the 2MB page mapping from the
+	 * TLB.
+	 */
+	if ((pde & PG_PROMOTED) != 0)
+		pmap_invalidate_range(pmap, va, va + NBPDR - 1);
+	else
+		pmap_invalidate_page(pmap, va);
+}
+
 #define PMAP_CLFLUSH_THRESHOLD   (2 * 1024 * 1024)
 
 void
@@ -2218,29 +2240,17 @@ pmap_insert_pt_page(pmap_t pmap, vm_page_t mpte)
 }
 
 /*
- * Looks for a page table page mapping the specified virtual address in the
- * specified pmap's collection of idle page table pages.  Returns NULL if there
- * is no page table page corresponding to the specified virtual address.
+ * Removes the page table page mapping the specified virtual address from the
+ * specified pmap's collection of idle page table pages, and returns it.
+ * Otherwise, returns NULL if there is no page table page corresponding to the
+ * specified virtual address.
  */
 static __inline vm_page_t
-pmap_lookup_pt_page(pmap_t pmap, vm_offset_t va)
+pmap_remove_pt_page(pmap_t pmap, vm_offset_t va)
 {
 
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
-	return (vm_radix_lookup(&pmap->pm_root, pmap_pde_pindex(va)));
-}
-
-/*
- * Removes the specified page table page from the specified pmap's collection
- * of idle page table pages.  The specified page table page must be a member of
- * the pmap's collection.
- */
-static __inline void
-pmap_remove_pt_page(pmap_t pmap, vm_page_t mpte)
-{
-
-	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
-	vm_radix_remove(&pmap->pm_root, mpte->pindex);
+	return (vm_radix_remove(&pmap->pm_root, pmap_pde_pindex(va)));
 }
 
 /*
@@ -3460,10 +3470,8 @@ pmap_demote_pde_locked(pmap_t pmap, pd_entry_t *pde, vm_offset_t va,
 	oldpde = *pde;
 	KASSERT((oldpde & (PG_PS | PG_V)) == (PG_PS | PG_V),
 	    ("pmap_demote_pde: oldpde is missing PG_PS and/or PG_V"));
-	if ((oldpde & PG_A) != 0 && (mpte = pmap_lookup_pt_page(pmap, va)) !=
-	    NULL)
-		pmap_remove_pt_page(pmap, mpte);
-	else {
+	if ((oldpde & PG_A) == 0 || (mpte = pmap_remove_pt_page(pmap, va)) ==
+	    NULL) {
 		KASSERT((oldpde & PG_W) == 0,
 		    ("pmap_demote_pde: page table page for a wired mapping"
 		    " is missing"));
@@ -3487,7 +3495,8 @@ pmap_demote_pde_locked(pmap_t pmap, pd_entry_t *pde, vm_offset_t va,
 			SLIST_INIT(&free);
 			sva = trunc_2mpage(va);
 			pmap_remove_pde(pmap, pde, sva, &free, lockp);
-			pmap_invalidate_range(pmap, sva, sva + NBPDR - 1);
+			if ((oldpde & PG_G) == 0)
+				pmap_invalidate_pde_page(pmap, sva, oldpde);
 			pmap_free_zero_pages(&free);
 			CTR2(KTR_PMAP, "pmap_demote_pde: failure for va %#lx"
 			    " in pmap %p", va, pmap);
@@ -3577,11 +3586,10 @@ pmap_remove_kernel_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va)
 
 	KASSERT(pmap == kernel_pmap, ("pmap %p is not kernel_pmap", pmap));
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
-	mpte = pmap_lookup_pt_page(pmap, va);
+	mpte = pmap_remove_pt_page(pmap, va);
 	if (mpte == NULL)
 		panic("pmap_remove_kernel_pde: Missing pt page.");
 
-	pmap_remove_pt_page(pmap, mpte);
 	mptepa = VM_PAGE_TO_PHYS(mpte);
 	newpde = mptepa | X86_PG_M | X86_PG_A | X86_PG_RW | X86_PG_V;
 
@@ -3628,25 +3636,8 @@ pmap_remove_pde(pmap_t pmap, pd_entry_t *pdq, vm_offset_t sva,
 	oldpde = pte_load_clear(pdq);
 	if (oldpde & PG_W)
 		pmap->pm_stats.wired_count -= NBPDR / PAGE_SIZE;
-
-	/*
-	 * When workaround_erratum383 is false, a promotion to a 2M
-	 * page mapping does not invalidate the 512 4K page mappings
-	 * from the TLB.  Consequently, at this point, the TLB may
-	 * hold both 4K and 2M page mappings.  Therefore, the entire
-	 * range of addresses must be invalidated here.  In contrast,
-	 * when workaround_erratum383 is true, a promotion does
-	 * invalidate the 512 4K page mappings, and so a single INVLPG
-	 * suffices to invalidate the 2M page mapping.
-	 */
-	if ((oldpde & PG_G) != 0) {
-		if (workaround_erratum383)
-			pmap_invalidate_page(kernel_pmap, sva);
-		else
-			pmap_invalidate_range(kernel_pmap, sva,
-			    sva + NBPDR - 1);
-	}
-
+	if ((oldpde & PG_G) != 0)
+		pmap_invalidate_pde_page(kernel_pmap, sva, oldpde);
 	pmap_resident_count_dec(pmap, NBPDR / PAGE_SIZE);
 	if (oldpde & PG_MANAGED) {
 		CHANGE_PV_LIST_LOCK_TO_PHYS(lockp, oldpde & PG_PS_FRAME);
@@ -3668,9 +3659,8 @@ pmap_remove_pde(pmap_t pmap, pd_entry_t *pdq, vm_offset_t sva,
 	if (pmap == kernel_pmap) {
 		pmap_remove_kernel_pde(pmap, pdq, sva);
 	} else {
-		mpte = pmap_lookup_pt_page(pmap, sva);
+		mpte = pmap_remove_pt_page(pmap, sva);
 		if (mpte != NULL) {
-			pmap_remove_pt_page(pmap, mpte);
 			pmap_resident_count_dec(pmap, 1);
 			KASSERT(mpte->wire_count == NPTEPG,
 			    ("pmap_remove_pde: pte page wire count error"));
@@ -4027,16 +4017,16 @@ retry:
 	if ((prot & VM_PROT_EXECUTE) == 0)
 		newpde |= pg_nx;
 	if (newpde != oldpde) {
-		if (!atomic_cmpset_long(pde, oldpde, newpde))
+		/*
+		 * As an optimization to future operations on this PDE, clear
+		 * PG_PROMOTED.  The impending invalidation will remove any
+		 * lingering 4KB page mappings from the TLB.
+		 */
+		if (!atomic_cmpset_long(pde, oldpde, newpde & ~PG_PROMOTED))
 			goto retry;
-		if (oldpde & PG_G) {
-			/* See pmap_remove_pde() for explanation. */
-			if (workaround_erratum383)
-				pmap_invalidate_page(kernel_pmap, sva);
-			else
-				pmap_invalidate_range(kernel_pmap, sva,
-				    sva + NBPDR - 1);
-		} else
+		if ((oldpde & PG_G) != 0)
+			pmap_invalidate_pde_page(kernel_pmap, sva, oldpde);
+		else
 			anychanged = TRUE;
 	}
 	return (anychanged);
@@ -4289,7 +4279,7 @@ setpte:
 	if (workaround_erratum383)
 		pmap_update_pde(pmap, va, pde, PG_PS | newpde);
 	else
-		pde_store(pde, PG_PS | newpde);
+		pde_store(pde, PG_PROMOTED | PG_PS | newpde);
 
 	atomic_add_long(&pmap_pde_promotions, 1);
 	CTR2(KTR_PMAP, "pmap_promote_pde: success for va %#lx"
@@ -4602,7 +4592,8 @@ pmap_enter_pde(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	pmap_resident_count_inc(pmap, NBPDR / PAGE_SIZE);
 
 	/*
-	 * Map the superpage.
+	 * Map the superpage.  (This is not a promoted mapping; there will not
+	 * be any lingering 4KB page mappings in the TLB.)
 	 */
 	pde_store(pde, newpde);
 
@@ -5533,9 +5524,8 @@ pmap_remove_pages(pmap_t pmap)
 							    TAILQ_EMPTY(&mt->md.pv_list))
 								vm_page_aflag_clear(mt, PGA_WRITEABLE);
 					}
-					mpte = pmap_lookup_pt_page(pmap, pv->pv_va);
+					mpte = pmap_remove_pt_page(pmap, pv->pv_va);
 					if (mpte != NULL) {
-						pmap_remove_pt_page(pmap, mpte);
 						pmap_resident_count_dec(pmap, 1);
 						KASSERT(mpte->wire_count == NPTEPG,
 						    ("pmap_remove_pages: pte page wire count error"));
@@ -6727,7 +6717,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 				changed = TRUE;
 			}
 			if (tmpva >= VM_MIN_KERNEL_ADDRESS &&
-			    (*pte & PG_PS_FRAME) < dmaplimit) {
+			    (*pte & PG_FRAME) < dmaplimit) {
 				if (pa_start == pa_end) {
 					/* Start physical address run. */
 					pa_start = *pte & PG_FRAME;

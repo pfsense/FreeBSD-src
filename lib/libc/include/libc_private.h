@@ -42,7 +42,10 @@
  * or more threads. It is used to avoid calling locking functions
  * when they are not required.
  */
+#ifndef __LIBC_ISTHREADED_DECLARED
+#define __LIBC_ISTHREADED_DECLARED
 extern int	__isthreaded;
+#endif
 
 /*
  * Elf_Auxinfo *__elf_aux_vector, the pointer to the ELF aux vector
@@ -403,6 +406,11 @@ void __libc_map_stacks_exec(void);
 
 void	_pthread_cancel_enter(int);
 void	_pthread_cancel_leave(int);
+
+struct _pthread_cleanup_info;
+void	___pthread_cleanup_push_imp(void (*)(void *), void *,
+	    struct _pthread_cleanup_info *);
+void	___pthread_cleanup_pop_imp(int);
 
 void __throw_constraint_handler_s(const char * restrict msg, int error);
 

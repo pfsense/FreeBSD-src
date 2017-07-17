@@ -374,9 +374,19 @@ close_filed(struct filed *f)
 	if (f == NULL || f->f_file == -1)
 		return;
 
+	switch (f->f_type) {
+	case F_FILE:
+	case F_TTY:
+	case F_CONSOLE:
+	case F_FORW:
+		f->f_type = F_UNUSED;
+		break;
+	case F_PIPE:
+		f->f_un.f_pipe.f_pid = 0;
+		break;
+	}
 	(void)close(f->f_file);
 	f->f_file = -1;
-	f->f_type = F_UNUSED;
 }
 
 int
@@ -1372,18 +1382,16 @@ fprintlog(struct filed *f, int flags, const char *msg)
 		if (f->f_un.f_pipe.f_pid == 0) {
 			if ((f->f_file = p_open(f->f_un.f_pipe.f_pname,
 						&f->f_un.f_pipe.f_pid)) < 0) {
-				f->f_type = F_UNUSED;
 				logerror(f->f_un.f_pipe.f_pname);
 				break;
 			}
 		}
 		if (writev(f->f_file, iov, IOV_SIZE) < 0) {
 			int e = errno;
+
 			close_filed(f);
-			if (f->f_un.f_pipe.f_pid > 0)
-				deadq_enter(f->f_un.f_pipe.f_pid,
-					    f->f_un.f_pipe.f_pname);
-			f->f_un.f_pipe.f_pid = 0;
+			deadq_enter(f->f_un.f_pipe.f_pid,
+				    f->f_un.f_pipe.f_pname);
 			errno = e;
 			logerror(f->f_un.f_pipe.f_pname);
 		}
@@ -1511,7 +1519,6 @@ reapchild(int signo __unused)
 			if (f->f_type == F_PIPE &&
 			    f->f_un.f_pipe.f_pid == pid) {
 				close_filed(f);
-				f->f_un.f_pipe.f_pid = 0;
 				log_deadchild(pid, status,
 					      f->f_un.f_pipe.f_pname);
 				break;
@@ -1613,10 +1620,8 @@ die(int signo)
 		/* flush any pending output */
 		if (f->f_prevcount)
 			fprintlog(f, 0, (char *)NULL);
-		if (f->f_type == F_PIPE && f->f_un.f_pipe.f_pid > 0) {
+		if (f->f_type == F_PIPE && f->f_un.f_pipe.f_pid > 0)
 			close_filed(f);
-			f->f_un.f_pipe.f_pid = 0;
-		}
 	}
 	Initialized = was_initialized;
 	if (signo) {
@@ -1849,12 +1854,9 @@ init(int signo)
 			close_filed(f);
 			break;
 		case F_PIPE:
-			if (f->f_un.f_pipe.f_pid > 0) {
-				close_filed(f);
-				deadq_enter(f->f_un.f_pipe.f_pid,
-					    f->f_un.f_pipe.f_pname);
-			}
-			f->f_un.f_pipe.f_pid = 0;
+			close_filed(f);
+			deadq_enter(f->f_un.f_pipe.f_pid,
+				    f->f_un.f_pipe.f_pname);
 			break;
 		case F_RING:
 			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
@@ -2804,6 +2806,8 @@ deadq_enter(pid_t pid, const char *name)
 	dq_t p;
 	int status;
 
+	if (pid == 0)
+		return;
 	/*
 	 * Be paranoid, if we can't signal the process, don't enter it
 	 * into the dead queue (perhaps it's already dead).  If possible,

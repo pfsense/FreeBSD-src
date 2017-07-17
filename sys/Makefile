@@ -32,7 +32,8 @@ ${.CURDIR}/cscope.files: .PHONY
 		find ${CSCOPEDIRS} -name "*.[chSsly]" -a -type f > ${.TARGET}
 
 cscope-clean:
-	rm -f cscope.files cscope.out cscope.in.out cscope.po.out
+	cd ${.CURDIR}; \
+	    rm -f cscope.files cscope.out cscope.in.out cscope.po.out
 
 #
 # Installs SCM hooks to update the cscope database every time the source tree
@@ -58,19 +59,7 @@ TAGS ${.CURDIR}/TAGS: ${.CURDIR}/cscope.files
 	rm -f ${.CURDIR}/TAGS
 	cd ${.CURDIR}; xargs etags -a < ${.CURDIR}/cscope.files
 
-# You need the textproc/glimpse ports for this.
-glimpse:
-.if !exists(${.CURDIR}/.glimpse_exclude)
-	echo .svn > ${.CURDIR}/.glimpse_exclude
-	echo /compile/ >> ${.CURDIR}/.glimpse_exclude
-.endif
-	cd ${.CURDIR}; glimpseindex -H . -B -f -o .
-
-glimpse-clean:
-	cd ${.CURDIR}; rm -f .glimpse_*
-
-.if !(make(cscope) || make(cscope-clean) || make(cscope-hook) || make(TAGS) || \
-    make(glimpse) || make(glimpse-clean))
+.if !(make(cscope) || make(cscope-clean) || make(cscope-hook) || make(TAGS))
 .include <src.opts.mk>
 
 # The boot loader

@@ -596,7 +596,7 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 	/* This had damn well better be true! */
 	if (map_len != 0) {
 		rv = __elfN(map_insert)(imgp, map, NULL, 0, map_addr,
-		    map_addr + map_len, VM_PROT_ALL, 0);
+		    map_addr + map_len, prot, 0);
 		if (rv != KERN_SUCCESS)
 			return (EINVAL);
 	}
@@ -617,10 +617,12 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 	}
 
 	/*
-	 * set it to the specified protection.
+	 * Remove write access to the page if it was only granted by map_insert
+	 * to allow copyout.
 	 */
-	vm_map_protect(map, trunc_page(map_addr), round_page(map_addr +
-	    map_len), prot, FALSE);
+	if ((prot & VM_PROT_WRITE) == 0)
+		vm_map_protect(map, trunc_page(map_addr), round_page(map_addr +
+		    map_len), prot, FALSE);
 
 	return (0);
 }
@@ -1079,6 +1081,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->interpreted = 0;
 	imgp->reloc_base = addr;
 	imgp->proc->p_osrel = osrel;
+	imgp->proc->p_elf_machine = hdr->e_machine;
+	imgp->proc->p_elf_flags = hdr->e_flags;
 
  ret:
 	free(interp_buf, M_TEMP);
@@ -1682,15 +1686,11 @@ __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
 	ehdr->e_ident[EI_ABIVERSION] = 0;
 	ehdr->e_ident[EI_PAD] = 0;
 	ehdr->e_type = ET_CORE;
-#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
-	ehdr->e_machine = ELF_ARCH32;
-#else
-	ehdr->e_machine = ELF_ARCH;
-#endif
+	ehdr->e_machine = td->td_proc->p_elf_machine;
 	ehdr->e_version = EV_CURRENT;
 	ehdr->e_entry = 0;
 	ehdr->e_phoff = sizeof(Elf_Ehdr);
-	ehdr->e_flags = 0;
+	ehdr->e_flags = td->td_proc->p_elf_flags;
 	ehdr->e_ehsize = sizeof(Elf_Ehdr);
 	ehdr->e_phentsize = sizeof(Elf_Phdr);
 	ehdr->e_phnum = numsegs + 1;

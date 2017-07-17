@@ -316,7 +316,7 @@ struct thread {
 	} td_state;			/* (t) thread state */
 	union {
 		register_t	tdu_retval[2];
-		off_t		tdu_off;	
+		off_t		tdu_off;
 	} td_uretoff;			/* (k) Syscall aux returns. */
 #define td_retval	td_uretoff.tdu_retval
 	u_int		td_cowgen;	/* (k) Generation of COW pointers. */
@@ -567,8 +567,8 @@ struct proc {
 	struct mtx	p_itimmtx;	/* Lock for the virt/prof timers */
 	struct mtx	p_profmtx;	/* Lock for the profiling */
 	struct ksiginfo *p_ksi;	/* Locked by parent proc lock */
-	sigqueue_t	p_sigqueue;	/* (c) Sigs not delivered to a td. */
-#define p_siglist	p_sigqueue.sq_signals
+	uint64_t	padding1[4];
+	void		*padding2[4];
 
 /* The following fields are all zeroed upon creation in fork. */
 #define	p_startzero	p_oppid
@@ -624,10 +624,11 @@ struct proc {
 	pid_t		p_reapsubtree;	/* (e) Pid of the direct child of the
 					       reaper which spawned
 					       our subtree. */
+/* End area that is copied on creation. */
+#define	p_endcopy	p_xexit
+
 	u_int		p_xexit;	/* (c) Exit code. */
 	u_int		p_xsig;		/* (c) Stop/kill sig. */
-/* End area that is copied on creation. */
-#define	p_endcopy	p_xsig
 	struct pgrp	*p_pgrp;	/* (c + e) Pointer to process group. */
 	struct knlist	*p_klist;	/* (c) Knotes attached to this proc. */
 	int		p_numthreads;	/* (c) Number of threads. */
@@ -657,6 +658,10 @@ struct proc {
 	LIST_ENTRY(proc) p_orphan;	/* (e) List of orphan processes. */
 	LIST_HEAD(, proc) p_orphans;	/* (e) Pointer to list of orphans. */
 	u_int		p_ptevents;	/* (c) ptrace() event mask. */
+	uint16_t	p_elf_machine;	/* (x) ELF machine type */
+	uint64_t	p_elf_flags;	/* (x) ELF flags */
+	sigqueue_t	p_sigqueue;	/* (c) Sigs not delivered to a td. */
+#define p_siglist	p_sigqueue.sq_signals
 };
 
 #define	p_session	p_pgrp->pg_session

@@ -44,7 +44,7 @@
  *		ops.
  *
  *		SWAPBLK_NONE is returned on failure.  This module is typically
- *		capable of managing up to (2^31) blocks per blist, though
+ *		capable of managing up to (2^63) blocks per blist, though
  *		the memory utilization would be insane if you actually did
  *		that.  Managing something like 512MB worth of 4K blocks 
  *		eats around 32 KBytes of memory. 
@@ -56,7 +56,7 @@
 #ifndef _SYS_BLIST_H_
 #define _SYS_BLIST_H_
 
-typedef	u_int32_t	u_daddr_t;	/* unsigned disk address */
+typedef	uint64_t	u_daddr_t;	/* unsigned disk address */
 
 /*
  * note: currently use SWAPBLK_NONE as an absolute value rather then 
@@ -84,7 +84,6 @@ typedef struct blist {
 	daddr_t		bl_skip;	/* starting skip		*/
 	daddr_t		bl_free;	/* number of free blocks	*/
 	blmeta_t	*bl_root;	/* root of radix tree		*/
-	daddr_t		bl_rootblks;	/* daddr_t blks allocated for tree */
 } *blist_t;
 
 #define BLIST_META_RADIX	16
@@ -96,7 +95,7 @@ extern blist_t blist_create(daddr_t blocks, int flags);
 extern void blist_destroy(blist_t blist);
 extern daddr_t blist_alloc(blist_t blist, daddr_t count);
 extern void blist_free(blist_t blist, daddr_t blkno, daddr_t count);
-extern int blist_fill(blist_t bl, daddr_t blkno, daddr_t count);
+extern daddr_t blist_fill(blist_t bl, daddr_t blkno, daddr_t count);
 extern void blist_print(blist_t blist);
 extern void blist_resize(blist_t *pblist, daddr_t count, int freenew, int flags);
 

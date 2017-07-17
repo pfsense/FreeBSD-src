@@ -455,12 +455,9 @@ retry:
 					VM_WAIT;
 					VM_OBJECT_WLOCK(object);
 					goto retry;
-				} else if (m->valid != VM_PAGE_BITS_ALL)
-					rv = vm_pager_get_pages(object, &m, 1,
-					    NULL, NULL);
-				else
-					/* A cached page was reactivated. */
-					rv = VM_PAGER_OK;
+				}
+				rv = vm_pager_get_pages(object, &m, 1, NULL,
+				    NULL);
 				vm_page_lock(m);
 				if (rv == VM_PAGER_OK) {
 					vm_page_deactivate(m);
@@ -909,7 +906,7 @@ shm_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t objsize,
 	    shmfd->shm_object, foff, FALSE, td);
 	if (error != 0)
 		vm_object_deallocate(shmfd->shm_object);
-	return (0);
+	return (error);
 }
 
 static int
