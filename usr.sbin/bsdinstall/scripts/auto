@@ -421,6 +421,26 @@ trap error SIGINT	# SIGINT is bad again
 bsdinstall config  || error "Failed to save config"
 bsdinstall copy_configxml_from_usb
 
+# If the user recovered a config.xml from an existing disk or provided one on
+# a USB disk, then copy this config.xml to the chroot
+if [ -r /tmp/recovered_config/config.xml ] ; then
+	/bin/cp -r /tmp/recovered_config/config.xml ${BSDINSTALL_CHROOT}/cf/conf/
+	# Set a flag to let the installed system know this may need extra processing
+	/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/installer_copied_config
+	# Only set the package sync flag if the restored config.xml contains active packages
+	if [ `/usr/bin/grep -c '<package>' ${BSDINSTALL_CHROOT}/cf/conf/config.xml` -gt 0 ]; then
+		/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/needs_package_sync_after_reboot
+	fi
+	# If there is an existing configuration, then there is no need to run the wizard.
+	if [ -r ${BSDINSTALL_CHROOT}/cf/conf/trigger_initial_wizard ]; then
+		rm -f ${BSDINSTALL_CHROOT}/cf/conf/trigger_initial_wizard
+	fi
+fi
+
+if [ -n "$DISTDIR_IS_UNIONFS" ]; then
+	umount -f $BSDINSTALL_DISTDIR
+fi
+
 if [ ! -z "$BSDINSTALL_FETCHDEST" ]; then
 	rm -rf "$BSDINSTALL_FETCHDEST"
 fi

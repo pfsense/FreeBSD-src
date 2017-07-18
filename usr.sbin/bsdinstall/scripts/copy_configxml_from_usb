@@ -25,24 +25,28 @@
 # SUCH DAMAGE.
 #
 # $FreeBSD$
+recovery_mount=/tmp/mnt_recovery
+recovery_dir=/tmp/recovered_config
+mkdir -p ${recovery_mount}
+mkdir -p ${recovery_dir}
 
 look_for_config_xml_config_msdos() {
-	mkdir -p /tmp/mnt/cf
+	mkdir -p ${recovery_mount}
 	echo -n "Looking for config.xml on "
 	for try_device in `/sbin/gpart show -p | /usr/bin/egrep '(fat32|\!11|\!12|\!14)' | /usr/bin/awk '{print $3;}'`; do
 		if [ ! -e /dev/${try_device} ]; then
 			continue
 		fi
 		echo -n "${try_device}: "
-		if /sbin/mount -t msdosfs /dev/${try_device} /tmp/mnt/cf 2>/dev/null ; then
+		if /sbin/mount -t msdosfs /dev/${try_device} ${recovery_mount} 2>/dev/null ; then
 			echo -n "[found msdos] "
 			# look for config.xml
-			if [ -r /tmp/mnt/cf/conf/config.xml  ]; then
+			if [ -r ${recovery_mount}/conf/config.xml  ]; then
 				echo -n "[config.xml on ${try_device}] "
 				return 0
 			else
 				echo -n "[no config.xml on ${try_device}, unmounting] "
-				/sbin/umount /tmp/mnt/cf
+				/sbin/umount ${recovery_mount}
 			fi
 		fi
 	done
@@ -51,9 +55,9 @@ look_for_config_xml_config_msdos() {
 
 # Try to locate an existing config.xml file
 if look_for_config_xml_config_msdos ; then
-	/bin/cp -r /tmp/mnt/cf/conf/config.xml $BSDINSTALL_CHROOT/cf/conf/
-	/sbin/umount /tmp/mnt/cf/ 2>&1
-	echo -n "[Copied config.xml file] "
+	/bin/cp -r ${recovery_mount}/conf/config.xml ${recovery_dir}
+	/sbin/umount ${recovery_mount} 2>&1
+	echo -n "[Copied config.xml file to recovery area] "
 else
 	echo -n "[Could not locate an existing config.xml file!] "
 fi

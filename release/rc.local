@@ -104,10 +104,21 @@ fi
 
 IOPTS="\
 \"Install\" \"Install pfSense\" \
-\"Rescue Shell\" \"Launch a shell for rescue operations\""
+\"Rescue Shell\" \"Launch a shell prompt to perform rescue operations\""
 
-case $? in
-$BSDDIALOG_OK)	# Install
+if [ -x /root/recover_configxml.sh ] ; then
+	IOPTS="${IOPTS} \"Recover config.xml\" \"Recover config.xml from a previous installation\""
+fi
+
+exec 3>&1
+IMODE=`echo ${IOPTS} | xargs dialog --backtitle "pfSense Installer" \
+	--title "Welcome" \
+	--menu "Welcome to pfSense!" \
+	0 0 0 2>&1 1>&3` || exit 1
+exec 3>&-
+
+case "$IMODE" in
+"Install")	# Install
 	# If not netbooting, have the installer configure the network
 	dlv=`/sbin/sysctl -n vfs.nfs.diskless_valid 2> /dev/null`
 	if [ ${dlv:=0} -eq 0 -a ! -f /etc/diskless ]; then
@@ -126,10 +137,14 @@ $BSDDIALOG_OK)	# Install
 		. /etc/rc.local
 	fi
 	;;
-$BSDDIALOG_CANCEL)	# Rescue Shell
+"Rescue Shell")	# Rescue Shell
 	clear
 	echo "When finished, type 'exit' to return to the installer."
 	/bin/sh
+	. /etc/rc.local
+	;;
+"Recover config.xml") # Recover config.xml from a target drive
+	/root/recover_configxml.sh
 	. /etc/rc.local
 	;;
 esac
