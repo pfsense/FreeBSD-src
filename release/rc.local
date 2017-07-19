@@ -102,10 +102,10 @@ fi
 
 IOPTS="\
 \"Install\" \"Install pfSense\" \
-\"Rescue Shell\" \"Launch a shell prompt to perform rescue operations\""
+\"Rescue Shell\" \"Launch a shell for rescue operations\""
 
 if [ -x /root/recover_configxml.sh ] ; then
-	IOPTS="${IOPTS} \"Recover config.xml\" \"Recover config.xml from a previous installation\""
+	IOPTS="${IOPTS} \"Recover config.xml\" \"Recover config.xml from a previous install\""
 fi
 
 exec 3>&1
