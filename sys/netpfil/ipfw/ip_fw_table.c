@@ -1091,6 +1091,7 @@ manage_table_ent_v1(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	ptei = tei_buf;
 	ptent = tent;
 	for (i = 0; i < ctlv->count; i++, ptent++, ptei++) {
+		ptei->mac = ptent->mac;
 		ptei->paddr = &ptent->k;
 		ptei->subtype = ptent->subtype;
 		ptei->masklen = ptent->masklen;
@@ -1727,13 +1728,13 @@ ipfw_unref_table(struct ip_fw_chain *ch, uint16_t kidx)
  */
 int
 ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
-    void *paddr, uint32_t *val, void **te)
+    void *paddr, uint32_t *val, uint8_t *ea, void **te)
 {
 	struct table_info *ti;
 
 	ti = KIDX_TO_TI(ch, tbl);
 
-	return (ti->lookup(ti, paddr, plen, val, te));
+	return (ti->lookup(ti, paddr, plen, val, ea, te));
 }
 
 /*

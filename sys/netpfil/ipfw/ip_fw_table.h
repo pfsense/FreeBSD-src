@@ -62,6 +62,7 @@ struct tentry_info {
 	uint8_t		subtype;
 	uint16_t	flags;		/* record flags			*/
 	uint32_t	value;		/* value index			*/
+	uint64_t	mac;
 };
 #define	TEI_FLAGS_UPDATE	0x0001	/* Add or update rec if exists	*/
 #define	TEI_FLAGS_UPDATED	0x0002	/* Entry has been updated	*/

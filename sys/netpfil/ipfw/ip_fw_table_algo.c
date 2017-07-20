@@ -331,6 +331,7 @@ struct radix_addr_entry {
 	struct sockaddr_in	addr;
 	uint32_t		value;
 	uint64_t		bcnt;
+	uint64_t		mac;
 	uint64_t		pcnt;
 	time_t			timestamp;
 	uint8_t			masklen;
@@ -348,6 +349,7 @@ struct radix_addr_xentry {
 	struct sa_in6		addr6;
 	uint32_t		value;
 	uint64_t		bcnt;
+	uint64_t		mac;
 	uint64_t		pcnt;
 	time_t			timestamp;
 	uint8_t			masklen;
@@ -378,7 +380,7 @@ struct ta_buf_radix
 };
 
 static int ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, uint8_t *ea, void **te);
 static int ta_init_radix(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static int flush_radix_entry(struct radix_node *rn, void *arg);
@@ -412,7 +414,7 @@ static int ta_zero_cnt_radix_tentry(void *ta_state, struct table_info *ti,
 
 static int
 ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct radix_node_head *rnh;
 
@@ -424,6 +426,11 @@ ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
 		rnh = (struct radix_node_head *)ti->state;
 		ent = (struct radix_addr_entry *)(rnh->rnh_matchaddr(&sa, &rnh->rh));
 		if (ent != NULL) {
+			if (ent->mac != 0 && ea == NULL)
+				return (0);
+			if (ent->mac != 0 &&
+			    memcmp(ea, &ent->mac, ETHER_ADDR_LEN) != 0)
+				return (0);
 			*val = ent->value;
 			if (te != NULL)
 				*te = (void *)ent;
@@ -437,6 +444,11 @@ ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
 		rnh = (struct radix_node_head *)ti->xstate;
 		xent = (struct radix_addr_xentry *)(rnh->rnh_matchaddr(&sa6, &rnh->rh));
 		if (xent != NULL) {
+			if (xent->mac != 0 && ea == NULL)
+				return (0);
+			if (xent->mac != 0 &&
+			    memcmp(ea, &xent->mac, ETHER_ADDR_LEN) != 0)
+				return (0);
 			*val = xent->value;
 			if (te != NULL)
 				*te = (void *)xent;
@@ -539,6 +551,7 @@ ta_dump_radix_tentry(void *ta_state, struct table_info *ti, void *e,
 		tent->masklen = n->masklen;
 		tent->subtype = AF_INET;
 		tent->v.kidx = n->value;
+		tent->mac = n->mac;
 		tent->bcnt = n->bcnt;
 		tent->pcnt = n->pcnt;
 		tent->timestamp = n->timestamp;
@@ -550,6 +563,7 @@ ta_dump_radix_tentry(void *ta_state, struct table_info *ti, void *e,
 		tent->masklen = xn->masklen;
 		tent->subtype = AF_INET6;
 		tent->v.kidx = xn->value;
+		tent->mac = n->mac;
 		tent->bcnt = n->bcnt;
 		tent->pcnt = n->pcnt;
 		tent->timestamp = n->timestamp;
@@ -740,9 +754,11 @@ ta_add_radix(void *ta_state, struct table_info *ti, struct tentry_info *tei,
 	/* Save current entry value from @tei */
 	if (tei->subtype == AF_INET) {
 		rnh = ti->state;
+		((struct radix_addr_entry *)tb->ent_ptr)->mac = tei->mac;
 		((struct radix_addr_entry *)tb->ent_ptr)->value = tei->value;
 	} else {
 		rnh = ti->xstate;
+		((struct radix_addr_xentry *)tb->ent_ptr)->mac = tei->mac;
 		((struct radix_addr_xentry *)tb->ent_ptr)->value = tei->value;
 	}
 
@@ -1035,11 +1051,11 @@ static __inline uint32_t hash_ip6_al(struct in6_addr *addr6, void *key, int mask
     int hsize);
 #endif
 static int ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int ta_lookup_chash_aligned(struct table_info *ti, void *key,
-    uint32_t keylen, uint32_t *val, void **te);
+    uint32_t keylen, uint32_t *val, uint8_t *ea, void **te);
 static int ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int chash_parse_opts(struct chash_cfg *cfg, char *data);
 static void ta_print_chash_config(void *ta_state, struct table_info *ti,
     char *buf, size_t bufsize);
@@ -1140,7 +1156,7 @@ hash_ip6_al(struct in6_addr *addr6, void *key, int mask, int hsize)
 
 static int
 ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -1189,7 +1205,7 @@ ta_lookup_chash_slow(struct table_info *ti, void *key, uint32_t keylen,
 
 static int
 ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -1242,7 +1258,7 @@ ta_lookup_chash_aligned(struct table_info *ti, void *key, uint32_t keylen,
 
 static int
 ta_lookup_chash_64(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct chashbhead *head;
 	struct chashentry *ent;
@@ -2125,7 +2141,7 @@ struct ta_buf_ifidx
 int compare_ifidx(const void *k, const void *v);
 static struct ifidx * ifidx_find(struct table_info *ti, void *key);
 static int ta_lookup_ifidx(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int ta_init_ifidx(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static void ta_change_ti_ifidx(void *ta_state, struct table_info *ti);
@@ -2271,7 +2287,7 @@ ifidx_find(struct table_info *ti, void *key)
 
 static int
 ta_lookup_ifidx(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct ifidx *ifi;
 
@@ -2895,7 +2911,7 @@ struct ta_buf_numarray
 int compare_numarray(const void *k, const void *v);
 static struct numarray *numarray_find(struct table_info *ti, void *key);
 static int ta_lookup_numarray(struct table_info *ti, void *key,
-    uint32_t keylen, uint32_t *val, void **te);
+    uint32_t keylen, uint32_t *val, uint8_t *ea, void **te);
 static int ta_init_numarray(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static void ta_destroy_numarray(void *ta_state, struct table_info *ti);
@@ -2958,7 +2974,7 @@ numarray_find(struct table_info *ti, void *key)
 
 static int
 ta_lookup_numarray(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct numarray *ri;
 
@@ -3406,7 +3422,7 @@ static __inline uint32_t hash_flow4(struct fhashentry4 *f, int hsize);
 static __inline uint32_t hash_flow6(struct fhashentry6 *f, int hsize);
 static uint32_t hash_flow_ent(struct fhashentry *ent, uint32_t size);
 static int ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int ta_init_fhash(struct ip_fw_chain *ch, void **ta_state,
 struct table_info *ti, char *data, uint8_t tflags);
 static void ta_destroy_fhash(void *ta_state, struct table_info *ti);
@@ -3496,7 +3512,7 @@ hash_flow_ent(struct fhashentry *ent, uint32_t size)
 
 static int
 ta_lookup_fhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct fhashbhead *head;
 	struct fhashentry *ent;
@@ -4151,7 +4167,7 @@ struct table_algo flow_hash = {
  */
 
 static int ta_lookup_kfib(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int kfib_parse_opts(int *pfib, char *data);
 static void ta_print_kfib_config(void *ta_state, struct table_info *ti,
     char *buf, size_t bufsize);
@@ -4173,7 +4189,7 @@ static void ta_foreach_kfib(void *ta_state, struct table_info *ti,
 
 static int
 ta_lookup_kfib(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 #ifdef INET
 	struct nhop4_basic nh4;
@@ -4508,7 +4524,7 @@ ta_print_mhash_config(void *ta_state, struct table_info *ti, char *buf,
 
 static __inline int
 ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2,
-    struct macdata *mac, uint32_t *val, void **te)
+    struct macdata *mac, uint32_t *val, uint8_t *ea, void **te)
 {
 	struct macdata any;
 	struct mhashentry *ent;
@@ -4529,7 +4545,7 @@ ta_lookup_find_mhash(struct mhashbhead *head, uint32_t hash2,
 
 static int
 ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, void **te)
+    uint32_t *val, uint8_t *ea, void **te)
 {
 	struct macdata mac;
 	struct mhashbhead *head;
@@ -4543,21 +4559,21 @@ ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
 	hsize = 1 << (ti->data & 0xFF);
 	hash2 = hash_mac2(key, hsize);
 	if (ta_lookup_find_mhash(head, hash2,
-	    (struct macdata *)key, val, te) == 1)
+	    (struct macdata *)key, val, NULL, te) == 1)
 		return (1);
 
 	/* src any */
 	memcpy(mac.addr, key, 6);
 	memset(mac.addr + 6, 0, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val, te) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, NULL, te) == 1)
 		return (1);
 
 	/* dst any */
 	memset(mac.addr, 0, 6);
 	memcpy(mac.addr + 6, (uintptr_t *)key + 6, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val, te) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, NULL, te) == 1)
 		return (1);
 
 	return (0);
