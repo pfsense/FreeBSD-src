@@ -380,7 +380,7 @@ struct ta_buf_radix
 };
 
 static int ta_lookup_radix(struct table_info *ti, void *key, uint32_t keylen,
-    uint32_t *val, uint8_t *ea, uint8_t *ea, void **te);
+    uint32_t *val, uint8_t *ea, void **te);
 static int ta_init_radix(struct ip_fw_chain *ch, void **ta_state,
     struct table_info *ti, char *data, uint8_t tflags);
 static int flush_radix_entry(struct radix_node *rn, void *arg);
