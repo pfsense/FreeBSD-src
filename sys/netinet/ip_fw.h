@@ -887,6 +887,7 @@ typedef struct	_ipfw_obj_tentry {
 	uint16_t	idx;		/* Table name index		*/
 	uint16_t	spare1;
 	uint64_t	bcnt;		/* Byte counter */
+	uint64_t	mac;		/* MAC address for mixed enties */
 	uint64_t	pcnt;		/* Packet counter */
 	time_t		timestamp;	/* Timestamp of last match */
 	union {
