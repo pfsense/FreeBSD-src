@@ -1198,7 +1198,7 @@ static void
 tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
     uint8_t tflags)
 {
-	char *p, *pp;
+	char *mac, *p, *pp;
 	int mask, af;
 	struct in6_addr *paddr, tmp;
 	struct tflow_entry *tfe;
@@ -1214,6 +1214,15 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 
 	switch (type) {
 	case IPFW_TABLE_ADDR:
+		/* Remove the ',' if exists */
+		if ((p = strchr(arg, ',')) != NULL) {
+			*p = '\0';
+			mac = p + 1;
+			if (ether_aton_r(mac,
+			    (struct ether_addr *)&tentry->mac) == NULL)
+				errx(EX_DATAERR, "bad MAC address: %s", mac);
+		}
+
 		/* Remove / if exists */
 		if ((p = strchr(arg, '/')) != NULL) {
 			*p = '\0';
@@ -1928,7 +1937,12 @@ table_show_entry(ipfw_xtable_info *i, ipfw_obj_tentry *tent)
 	case IPFW_TABLE_ADDR:
 		/* IPv4 or IPv6 prefixes */
 		inet_ntop(tent->subtype, &tent->k, tbuf, sizeof(tbuf));
-		printf("%s/%u %s", tbuf, tent->masklen, pval);
+		if (tent->mac != 0) {
+			printf("%s/%u", tbuf, tent->masklen);
+			ether_ntoa_r((struct ether_addr *)&tent->mac, tbuf);
+			printf(" %s %s", tbuf, pval);
+		} else
+			printf("%s/%u %s", tbuf, tent->masklen, pval);
 		break;
 	case IPFW_TABLE_MAC2:
 		/* Ethernet MAC address */

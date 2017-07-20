@@ -383,7 +383,7 @@ iface_match(struct ifnet *ifp, ipfw_insn_if *cmd, struct ip_fw_chain *chain,
 	if (cmd->name[0] != '\0') { /* match by name */
 		if (cmd->name[0] == '\1') /* use tablearg to match */
 			return ipfw_lookup_table(chain, cmd->p.kidx, 0,
-			    &ifp->if_index, tablearg, te);
+			    &ifp->if_index, tablearg, NULL, te);
 		/* Check name */
 		if (cmd->p.glob) {
 			if (fnmatch(cmd->name, ifp->if_xname, 0) == 0)
@@ -1307,11 +1307,13 @@ do {								\
 		uint32_t tablearg = 0;
 		int l, cmdlen, skip_or; /* skip rest of OR block */
 		struct ip_fw *f;
+		uint8_t *ea;
 
 		f = chain->map[f_pos];
 		if (V_set_disable & (1 << f->set) )
 			continue;
 
+		ea = NULL;
 		te = NULL;
 		tidx = 0;
 		tkeylen = 0;
@@ -1414,7 +1416,8 @@ do {								\
 				if (args->eh != NULL) {	/* have MAC header */
 					uint32_t v = 0;
 					match = ipfw_lookup_table(chain,
-					    cmd->arg1, 0, args->eh, &v, &te);
+					    cmd->arg1, 0, args->eh, &v, NULL,
+					    &te);
 					if (cmdlen == F_INSN_SIZE(ipfw_insn_u32))
 						match = ((ipfw_insn_u32 *)cmd)->d[0] == v;
 					if (match) {
@@ -1567,9 +1570,11 @@ do {								\
 #endif /* !USERSPACE */
 					else
 						break;
+					if (args->eh != NULL)	/* have MAC header */
+						ea = (uint8_t *)args->eh->ether_dhost;
 					match = ipfw_lookup_table(chain,
 					    cmd->arg1, keylen, pkey, &vidx,
-					    &te);
+					    ea, &te);
 					if (!match)
 						break;
 					tablearg = vidx;
@@ -1600,8 +1605,10 @@ do {								\
 						pkey = &args->f_id.src_ip6;
 				} else
 					break;
+				if (args->eh != NULL)	/* have MAC header */
+					ea = (uint8_t *)args->eh->ether_shost;
 				match = ipfw_lookup_table(chain, cmd->arg1,
-				    keylen, pkey, &vidx, &te);
+				    keylen, pkey, &vidx, ea, &te);
 				if (!match)
 					break;
 				if (cmdlen == F_INSN_SIZE(ipfw_insn_u32)) {
@@ -1620,7 +1627,8 @@ do {								\
 				{
 					uint32_t v = 0;
 					match = ipfw_lookup_table(chain,
-					    cmd->arg1, 0, &args->f_id, &v, &te);
+					    cmd->arg1, 0, &args->f_id, &v,
+					    NULL, &te);
 					if (cmdlen == F_INSN_SIZE(ipfw_insn_u32))
 						match = ((ipfw_insn_u32 *)cmd)->d[0] ==
 						    TARG_VAL(chain, v, tag);
