@@ -22,8 +22,6 @@
 
     <pubdate>$FreeBSD$</pubdate>
 
-    <!-- Last rev: 288943 -->
-
     <copyright>
       <year>2017</year>
       <holder role="mailto:doc@FreeBSD.org">The &os; Documentation
@@ -252,6 +250,18 @@
 	enumerates primes beyond
 	<literal>3825123056546413050</literal>, up to a new limit of
 	<literal>2^64 - 1</literal>.</para>
+
+      <para revision="320654">The &man.rcp.1;, &man.rlogin.1;,
+	&man.rsh.1;, &man.ruptime.1;, &man.rwho.1;, &man.rlogind.8;,
+	&man.rshd.8;, and &man.rwhod.8; utilities have been marked as
+	deprecated, and planned for removal in
+	&os;&nbsp;12.0-RELEASE.</para>
+
+      <para revision="320874">The &man.gdb.1; and &man.kgdb.1;
+	utilities have been marked as deprecated, and planned for
+	removal from the base system in the future.  A newer version
+	is available in the <filename
+	  role="package">devel/gdb</filename> port.</para>
     </sect2>
 
     <sect2 xml:id="userland-contrib">
@@ -628,6 +638,13 @@
 	sponsor="&chelsio;">&man.devctl.8; now supports a &quot;clear
 	driver&quot; command as a complement to &quot;set
 	driver&quot;.</para>
+
+      <para revision="320954">The &man.digi.4;, &man.ie.4;,
+	&man.mcd.4;, &man.scd.4;, &man.si.4;, &man.spic.4;, and
+	&man.wl.4; drivers have been marked as deprecated, and removed
+	in &os;&nbsp;12.0.  The associated &man.sicontrol.8; and
+	&man.wlconfig.8; utilities have been deprecated, as
+	well.</para>
     </sect2>
 
     <sect2 xml:id="drivers-storage">
@@ -779,6 +796,11 @@
       <para revision="312790">The &os; virtual machines provided on
 	Amazon&reg; EC2&trade; now enable <acronym>IPv6</acronym> by
 	default.</para>
+
+      <para revision="320760" contrib="sponsor" sponsor="&amazon;">The
+	&man.ena.4; driver has been added, providing support for
+	&quot;next generation&quot; Enhanced Networking on the
+	Amazon&reg;&nbsp;EC2&trade; platform.</para>
     </sect2>
 
     <sect2 xml:id="hardware-arm">
@@ -813,6 +835,13 @@
 
     <sect2 xml:id="storage-zfs">
       <title>ZFS</title>
+
+      <para revision="307265">A new &man.sysctl.8;,
+	<literal>vfs.zfs.compressed_arc_enabled</literal>, has been
+	added, which when enabled stores compressed, on-disk data in
+	the <acronym>ZFS</acronym> <acronym>ARC</acronym>, increasing
+	the amount of data that can be cached in physical memory.  It
+	is enabled by default.</para>
 
       <para revision="318785">The
 	<literal>vfs.zfs.debug_flags</literal> &man.sysctl.8; has been
@@ -895,48 +924,11 @@
       Collection, package infrastructure, and package maintenance and
       installation tools.</para>
 
-    <sect2 xml:id="ports-infrastructure">
-      <title>Infrastructure Changes</title>
-
-      <para>&nbsp;</para>
-    </sect2>
-
     <sect2 xml:id="ports-packages ">
       <title>Packaging Changes</title>
 
-      <para>&nbsp;</para>
-    </sect2>
-  </sect1>
-
-  <sect1 xml:id="doc">
-    <title>Documentation</title>
-
-    <para>This section covers changes to the &os;&nbsp;Documentation
-      Project sources and toolchain.</para>
-
-    <sect2 xml:id="doc-sources">
-      <title>Documentation Source Changes</title>
-
-      <para>&nbsp;</para>
-    </sect2>
-
-    <sect2 xml:id="doc-toolchain">
-      <title>Documentation Toolchain Changes</title>
-
-      <para>&nbsp;</para>
-    </sect2>
-  </sect1>
-
-  <sect1 xml:id="releng">
-    <title>Release Engineering and Integration</title>
-
-    <para>This section convers changes that are specific to the
-      &os;&nbsp;Release Engineering processes.</para>
-
-    <sect2 xml:id="releng-changes">
-      <title>Integration Changes</title>
-
-      <para>&nbsp;</para>
+      <para>The &man.pkg.8; utility has been updated to version
+	1.10.1.</para>
     </sect2>
   </sect1>
 </article>
