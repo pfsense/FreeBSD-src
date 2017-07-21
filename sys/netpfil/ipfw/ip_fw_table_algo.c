@@ -4559,21 +4559,21 @@ ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
 	hsize = 1 << (ti->data & 0xFF);
 	hash2 = hash_mac2(key, hsize);
 	if (ta_lookup_find_mhash(head, hash2,
-	    (struct macdata *)key, val, NULL, te) == 1)
+	    (struct macdata *)key, val, ea, te) == 1)
 		return (1);
 
 	/* src any */
 	memcpy(mac.addr, key, 6);
 	memset(mac.addr + 6, 0, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val, NULL, te) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, ea, te) == 1)
 		return (1);
 
 	/* dst any */
 	memset(mac.addr, 0, 6);
 	memcpy(mac.addr + 6, (uintptr_t *)key + 6, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
-	if (ta_lookup_find_mhash(head, hash2, &mac, val, NULL, te) == 1)
+	if (ta_lookup_find_mhash(head, hash2, &mac, val, ea, te) == 1)
 		return (1);
 
 	return (0);
