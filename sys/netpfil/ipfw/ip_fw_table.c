@@ -1200,6 +1200,8 @@ find_table_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	if (error == 0) {
 		pval = get_table_value(ch, tc, tent->v.kidx);
 		ipfw_export_table_value_v1(pval, &tent->v.value);
+		if (tent->timestamp != 0)
+			tent->timestamp += da->boottime;
 	}
 	IPFW_UH_RUNLOCK(ch);
 
