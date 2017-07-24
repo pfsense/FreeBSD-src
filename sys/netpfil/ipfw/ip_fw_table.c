@@ -1152,6 +1152,7 @@ find_table_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	struct table_algo *ta;
 	struct table_info *kti;
 	struct table_value *pval;
+	struct timeval boottime;
 	struct namedobj_instance *ni;
 	int error;
 	size_t sz;
@@ -1200,8 +1201,10 @@ find_table_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	if (error == 0) {
 		pval = get_table_value(ch, tc, tent->v.kidx);
 		ipfw_export_table_value_v1(pval, &tent->v.value);
-		if (tent->timestamp != 0)
-			tent->timestamp += da->boottime;
+		if (tent->timestamp != 0) {
+			getboottime(&boottime);
+			tent->timestamp += boottime.tv_sec;
+		}
 	}
 	IPFW_UH_RUNLOCK(ch);
 
