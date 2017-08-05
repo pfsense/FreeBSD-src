@@ -4571,7 +4571,7 @@ ta_lookup_mhash(struct table_info *ti, void *key, uint32_t keylen,
 
 	/* dst any */
 	memset(mac.addr, 0, 6);
-	memcpy(mac.addr + 6, (uintptr_t *)key + 6, 6);
+	memcpy(mac.addr + 6, (uint8_t *)key + 6, 6);
 	hash2 = hash_mac2(mac.addr, hsize);
 	if (ta_lookup_find_mhash(head, hash2, &mac, val, ea, te) == 1)
 		return (1);
