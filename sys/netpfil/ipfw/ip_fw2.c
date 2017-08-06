@@ -1833,32 +1833,48 @@ do {								\
 				break;
 
 			case O_RECV:
+			{
+				void *ifte = NULL;
+
 				match = iface_match(m->m_pkthdr.rcvif,
-				    (ipfw_insn_if *)cmd, chain, &tablearg, &te);
-				if (match && te != NULL) {
+				    (ipfw_insn_if *)cmd, chain, &tablearg,
+				    &ifte);
+				if (match && ifte != NULL) {
+					te = ifte;
 					tkeylen = 0;
 					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
 				}
 				break;
+			}
 
 			case O_XMIT:
+			{
+				void *ifte = NULL;
+
 				match = iface_match(oif, (ipfw_insn_if *)cmd,
-				    chain, &tablearg, &te);
-				if (match && te != NULL) {
+				    chain, &tablearg, &ifte);
+				if (match && ifte != NULL) {
+					te = ifte;
 					tkeylen = 0;
 					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
 				}
 				break;
+			}
 
 			case O_VIA:
+			{
+				void *ifte = NULL;
+
 				match = iface_match(oif ? oif :
 				    m->m_pkthdr.rcvif, (ipfw_insn_if *)cmd,
-				    chain, &tablearg, &te);
-				if (match && te != NULL) {
+				    chain, &tablearg, &ifte);
+				if (match && ifte != NULL) {
+					te = ifte;
 					tkeylen = 0;
 					tidx = ((ipfw_insn_if *)cmd)->p.kidx;
 				}
 				break;
+			}
 
 			case O_MACADDR2_LOOKUP:
 				if (args->eh != NULL) {	/* have MAC header */
