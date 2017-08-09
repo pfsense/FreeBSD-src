@@ -6491,7 +6491,7 @@ done:
 		pd.act.pqid = r->pqid;
 		pd.act.qid = r->qid;
 	}
-	if (action == PF_PASS && r->qid) {
+	if (action == PF_PASS && pd.act.qid) {
 		if (pd.pf_mtag == NULL &&
 		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
 			action = PF_DROP;
@@ -6500,9 +6500,9 @@ done:
 			if (s != NULL)
 				pd.pf_mtag->qid_hash = pf_state_hash(s);
 			if (pqid || (pd.tos & IPTOS_LOWDELAY))
-				pd.pf_mtag->qid = r->pqid;
+				pd.pf_mtag->qid = pd.act.pqid;
 			else
-				pd.pf_mtag->qid = r->qid;
+				pd.pf_mtag->qid = pd.act.qid;
 			/* Add hints for ecn. */
 			pd.pf_mtag->hdr = h;
 		}
