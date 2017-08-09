@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #define FDT_TYPE_LEN	64
 
 #define FDT_REG_CELLS	4
+#define FDT_RANGES_SIZE 48
 
 vm_paddr_t fdt_immr_pa;
 vm_offset_t fdt_immr_va;
@@ -144,7 +145,7 @@ fdt_get_range_by_busaddr(phandle_t node, u_long addr, u_long *base,
 int
 fdt_get_range(phandle_t node, int range_id, u_long *base, u_long *size)
 {
-	pcell_t ranges[6], *rangesptr;
+	pcell_t ranges[FDT_RANGES_SIZE], *rangesptr;
 	pcell_t addr_cells, size_cells, par_addr_cells;
 	u_long par_bus_addr, pbase, psize;
 	int err, len, tuple_size, tuples;
