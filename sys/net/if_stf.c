@@ -479,8 +479,6 @@ stf_getsrcifa6(struct ifnet *ifp, struct in6_addr *addr, struct in6_addr *mask)
 	TAILQ_FOREACH(ia, &ifp->if_addrhead, ifa_link) {
 		if (ia->ifa_addr->sa_family != AF_INET6)
 			continue;
-		if (stf_getsrcifa6(ifp, &addr6, &mask6) != 0)
-			continue;
 		if (sc->srcv4_addr != INADDR_ANY)
 			bcopy(&sc->srcv4_addr, &in, sizeof(in));
 		else {
