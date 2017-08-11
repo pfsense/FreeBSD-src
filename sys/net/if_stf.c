@@ -1033,10 +1033,9 @@ stf_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifaddr *ifa;
 	struct ifdrv *ifd;
 	struct ifreq *ifr;
-	struct sockaddr_in6 *sin6;
+	struct sockaddr_in sin4;
 	struct stf_softc *sc, *sc_cur;
 	struct stfv4args args;
-	struct in_addr addr;
 	struct in6_addr addr6, mask6;
 	int error, mtu;
 
@@ -1124,13 +1123,9 @@ stf_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = EAFNOSUPPORT;
 			break;
 		}
-		sin6 = (struct sockaddr_in6 *)ifa->ifa_addr;
-		if (!IN6_IS_ADDR_6TO4(&sin6->sin6_addr)) {
-			error = EINVAL;
-			break;
-		}
-		bcopy(GET_V4(&sin6->sin6_addr), &addr, sizeof(addr));
-		if (isrfc1918addr(&addr)) {
+		if (stf_getin4addr(sc_cur, &sin4,
+		    satosin6(ifa->ifa_addr)->sin6_addr,
+		    satosin6(ifa->ifa_netmask)->sin6_addr) == NULL) {
 			error = EINVAL;
 			break;
 		}
