@@ -357,7 +357,30 @@ mvneta_set_mac_address(struct mvneta_softc *sc, uint8_t *addr)
 static int
 mvneta_get_mac_address(struct mvneta_softc *sc, uint8_t *addr)
 {
+	char env[128], *macstr;
+	int count;
 	uint32_t mac_l, mac_h;
+	uint32_t tmpmac[ETHER_ADDR_LEN];
+
+	if (sc->unit == 0)
+		strlcpy(env, "ethaddr", sizeof(env));
+	else {
+		env[sizeof(env) - 1] = 0;
+		snprintf(env, sizeof(env) - 1, "eth%daddr", sc->unit);
+	}
+	macstr = getenv(env);
+	if (macstr != NULL) {
+		count = sscanf(macstr, "%x%*c%x%*c%x%*c%x%*c%x%*c%x",
+		    &tmpmac[0], &tmpmac[1],
+		    &tmpmac[2], &tmpmac[3],
+		    &tmpmac[4], &tmpmac[5]);
+		if (count == ETHER_ADDR_LEN) {
+			for (i = 0; i < ETHER_ADDR_LEN; i++)
+				addr[i] = tmpmac[i];
+		}
+		freenv(macstr);
+		return (0);
+	}
 
 #ifdef FDT
 	if (mvneta_fdt_mac_address(sc, addr) == 0)
