@@ -363,10 +363,10 @@ mvneta_get_mac_address(struct mvneta_softc *sc, uint8_t *addr)
 	uint32_t tmpmac[ETHER_ADDR_LEN];
 
 	if (device_get_unit(sc->dev) == 0)
-		strlcpy(env, "ethaddr", sizeof(env));
+		strlcpy(env, "uboot.ethaddr", sizeof(env));
 	else {
 		env[sizeof(env) - 1] = 0;
-		snprintf(env, sizeof(env) - 1, "eth%daddr",
+		snprintf(env, sizeof(env) - 1, "uboot.eth%daddr",
 		    device_get_unit(sc->dev));
 	}
 	macstr = kern_getenv(env);
