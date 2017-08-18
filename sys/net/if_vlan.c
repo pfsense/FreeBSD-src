@@ -1136,12 +1136,8 @@ vlan_start(struct ifnet *ifp)
 		 * Send it, precisely as ether_output() would have.
 		 */
 		error = (p->if_transmit)(p, m);
-		if (error == 0) {
-			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
-			if_inc_counter(ifp, IFCOUNTER_OBYTES, len);
-			if_inc_counter(ifp, IFCOUNTER_OMCASTS, mcast);
-		} else
-			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		if_inc_counter(ifp,
+		    (error == 0) ? IFCOUNTER_OPACKETS : IFCOUNTER_OERRORS, 1);
 	}
 }
 
