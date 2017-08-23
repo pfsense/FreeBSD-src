@@ -378,12 +378,8 @@ stf_encapcheck(const struct mbuf *m, int off, int proto, void *arg)
 
 		ip6_sprintf(buf, &addr6);
 		DEBUG_PRINTF(1, "%s: addr6 = %s\n", __func__, buf);
-		//ip6_sprintf(buf, &ia6->ia_addr.sin6_addr);
-		//DEBUG_PRINTF(1, "%s: ia6->ia_addr = %s\n", __func__, buf);
 		ip6_sprintf(buf, &mask6);
 		DEBUG_PRINTF(1, "%s: mask6 = %s\n", __func__, buf);
-		//ip6_sprintf(buf, &ia6->ia_prefixmask.sin6_addr);
-		//DEBUG_PRINTF(1, "%s: ia6->ia_prefixmask = %s\n", __func__, buf);
 
 		ip_sprintf(buf, &sin4addr.sin_addr);
 		DEBUG_PRINTF(1, "%s: sin4addr.sin_addr = %s\n", __func__, buf);
@@ -399,14 +395,13 @@ stf_encapcheck(const struct mbuf *m, int off, int proto, void *arg)
 	 * local 6to4 address.
 	 * success on: dst = 10.1.1.1, ia6->ia_addr = 2002:0a01:0101:...
 	 */
-	DEBUG_PRINTF(1, "%s: check1: sin4addr.sin_addr == ip.ip_dst?\n",
-	    __func__);
 	if (sin4addr.sin_addr.s_addr != ip.ip_dst.s_addr) {
-		DEBUG_PRINTF(1, "%s: check1: false.  Ignore this packet.\n", __func__);
+		DEBUG_PRINTF(1,
+		    "%s: IPv4 dst address do not match the encoded address.  "
+		    "Ignore this packet.\n", __func__);
 		return (0);
 	}
 
-	DEBUG_PRINTF(1, "%s: check2: addr6 is 2002::/16?\n", __func__);
 	if (IN6_IS_ADDR_6TO4(&addr6)) {
 		/*
 		 * 6to4 (RFC 3056).
@@ -431,21 +426,18 @@ stf_encapcheck(const struct mbuf *m, int off, int proto, void *arg)
 			ip_sprintf(buf, &sin4mask.sin_addr);
 			DEBUG_PRINTF(1, "%s: sin4mask = %s\n",
 			    __func__, buf);
-			DEBUG_PRINTF(1,
-			    "%s: check3: sin4addr.sin_addr & mask == ip.ip_src & mask\n",
-			    __func__);
 		}
 #endif
 
 		if ((sin4addr.sin_addr.s_addr & sin4mask.sin_addr.s_addr) !=
 		    (ip.ip_src.s_addr & sin4mask.sin_addr.s_addr)) {
-			DEBUG_PRINTF(1, "%s: check3: false.  Ignore this packet.\n",
-			    __func__);
+			DEBUG_PRINTF(1,
+			    "%s: v4 address do not match expected address.  "
+			    "Ignore this packet.\n", __func__);
 			return (0);
 		}
 	} else {
 		/* 6rd (RFC 5569) */
-		DEBUG_PRINTF(1, "%s: check2: false.  6rd.\n", __func__);
 		/*
 		 * No restriction on the src address in the case of
 		 * 6rd because the stf(4) interface always has a
@@ -457,7 +449,6 @@ stf_encapcheck(const struct mbuf *m, int off, int proto, void *arg)
 		 * and then it discard them silently.
 		 */
 	}
-	DEBUG_PRINTF(1, "%s: all clear!\n", __func__);
 
 	/* stf interface makes single side match only */
 	return 32;
@@ -994,12 +985,13 @@ stf_getin4addr(struct stf_softc *sc, struct sockaddr_in *sin,
 				q[i] = ((p[j] & mask) << (8 - residue));
 				q[i] |=  ((p[j + 1] >> residue) & mask);
 				DEBUG_PRINTF(2,
-				    "FINAL  i = %d  q[%d] - p[%d/%d] %x\n",
+				    "FINAL i = %d  q[%d] - p[%d/%d] %x\n",
 				    i, q[i], p[j], p[j + 1] >> residue, q[i]);
 			} else {
 				q[i] = p[j];
-				DEBUG_PRINTF(2, "FINAL q[%d] - p[%d] %x\n",
-				    q[i], p[j], q[i]);
+				DEBUG_PRINTF(2,
+				    "FINAL i = %d q[%d] - p[%d] %x\n",
+				    i, q[i], p[j], q[i]);
 			}
 		}
 		if (v4residue)
@@ -1017,7 +1009,6 @@ stf_getin4addr(struct stf_softc *sc, struct sockaddr_in *sin,
 
 		ip_sprintf(tmpbuf, in);
 		DEBUG_PRINTF(1, "%s: in->in_addr = %s\n", __func__, tmpbuf);
-		DEBUG_PRINTF(1, "%s: leave\n", __func__);
 	}
 #endif
 
