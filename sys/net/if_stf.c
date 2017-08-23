@@ -987,8 +987,9 @@ stf_getin4addr(struct stf_softc *sc, struct sockaddr_in *sin,
 		 * prefixlen is not a multiple of 8.
 		 */
 		DEBUG_PRINTF(2, "residue = %d 0x%x\n", residue, mask);
-		for (j = 0, i = (loop - (sc->v4prefixlen / 8));
-		    i < loop; j++, i++) {
+		for (j = (loop - (sc->v4prefixlen / 8)),
+		     i = (loop - (sc->v4prefixlen / 8));
+		     i < loop; j++, i++) {
 			if (residue) {
 				q[i] = ((p[j] & mask) << (8 - residue));
 				q[i] |=  ((p[j + 1] >> residue) & mask);
@@ -1001,16 +1002,12 @@ stf_getin4addr(struct stf_softc *sc, struct sockaddr_in *sin,
 				    q[i], p[j], q[i]);
 			}
 		}
-		if (v4residue) {
+		if (v4residue)
 		 	q[loop - (sc->v4prefixlen / 8)] &= v4mask;
-			if (sc->v4prefixlen > 0 && sc->v4prefixlen < 32)
-				in->s_addr |= sc->inaddr;
-		}
-		/*
-		 * if (in->s_addr != sc->srcv4_addr)
-		 *   printf("Wrong decoded address %x/%x!!!!\n", in->s_addr,
-		 *       sc->srcv4_addr);
-		 */
+
+		if (sc->v4prefixlen > 0 && sc->v4prefixlen < 32)
+			in->s_addr |= sc->inaddr &
+			    ((uint32_t)(-1) >> (32 - sc->v4prefixlen));
 	}
 
 #if STF_DEBUG > 3
