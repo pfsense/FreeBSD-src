@@ -512,7 +512,7 @@ soc_identify(void)
 
 	memset(tmp, 0, sizeof(tmp));
 	memset(mv_soc_model, 0, sizeof(mv_soc_model));
-	snprintf(mv_soc_model, sizoef(mv_soc_model) - 1, "%s", dev);
+	snprintf(mv_soc_model, sizoef(mv_soc_model) - 1, "SOC: %s", dev);
 	printf("%s", dev);
 	if (*rev != '\0') {
 		printf(" rev %s", rev);
@@ -520,7 +520,7 @@ soc_identify(void)
 		strlcat(mv_soc_model, tmp, sizeof(mv_soc_model));
 	}
 	printf(", TClock %dMHz", get_tclk() / 1000 / 1000);
-	snprintf(tmp, sizeof(tmp) - 1, ", TClock %dMHz\n",
+	snprintf(tmp, sizeof(tmp) - 1, ", TClock %dMHz",
 	    get_tclk() / 1000 / 1000);
 	strlcat(mv_soc_model, tmp, sizeof(mv_soc_model));
 	freq = get_cpu_freq();
