@@ -8,7 +8,7 @@
     bin
         cat
         ..
-        chown
+        chmod
         ..
         date
         ..
@@ -316,6 +316,18 @@
         ..
         libcam
         ..
+        libcasper
+            services
+                cap_dns
+                ..
+                cap_grp
+                ..
+                cap_pwd
+                ..
+                cap_sysctl
+                ..
+            ..
+        ..
         libcrypt
         ..
         libdevdctl
@@ -331,6 +343,8 @@
         libproc
         ..
         librt
+        ..
+        libsbuf
         ..
         libthr
             dlopen
@@ -382,7 +396,11 @@
                 ..
                 plain
                 ..
+                tap
+                ..
             ..
+        ..
+        zoneinfo
         ..
     ..
     sys
@@ -610,6 +628,8 @@
         ..
         dirname
         ..
+        du
+        ..
         file2c
         ..
         getconf
@@ -640,6 +660,8 @@
         ..
         printf
         ..
+        procstat
+        ..
         sdiff
         ..
         sed
@@ -647,6 +669,8 @@
             ..
         ..
         soelim
+        ..
+        stat
         ..
         tail
         ..
@@ -678,6 +702,8 @@
         ..
     ..
     usr.sbin
+        chown
+        ..
         etcupdate
         ..
         extattr

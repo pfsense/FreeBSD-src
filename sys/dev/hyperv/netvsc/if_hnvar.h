@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Microsoft Corp.
+ * Copyright (c) 2016-2017 Microsoft Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,10 +59,11 @@ struct hn_tx_ring;
 
 struct hn_rx_ring {
 	struct ifnet	*hn_ifp;
-	struct ifnet	*hn_vf;		/* SR-IOV VF */
+	struct ifnet	*hn_rxvf_ifp;	/* SR-IOV VF for RX */
 	struct hn_tx_ring *hn_txr;
 	void		*hn_pktbuf;
 	int		hn_pktbuf_len;
+	int		hn_rx_flags;	/* HN_RX_FLAG_ */
 	uint8_t		*hn_rxbuf;	/* shadow sc->hn_rxbuf */
 	int		hn_rx_idx;
 
@@ -82,7 +83,6 @@ struct hn_rx_ring {
 
 	/* Rarely used stuffs */
 	struct sysctl_oid *hn_rx_sysctl_tree;
-	int		hn_rx_flags;
 
 	void		*hn_br;		/* TX/RX bufring */
 	struct hyperv_dma hn_br_dma;
@@ -96,6 +96,7 @@ struct hn_rx_ring {
 
 #define HN_RX_FLAG_ATTACHED	0x0001
 #define HN_RX_FLAG_BR_REF	0x0002
+#define HN_RX_FLAG_XPNT_VF	0x0004
 
 struct hn_tx_ring {
 #ifndef HN_USE_TXDESC_BUFRING
@@ -184,6 +185,10 @@ struct hn_softc {
 	int		hn_rx_ring_inuse;
 	struct hn_rx_ring *hn_rx_ring;
 
+	struct rmlock	hn_vf_lock;
+	struct ifnet	*hn_vf_ifp;	/* SR-IOV VF */
+	uint32_t	hn_xvf_flags;	/* transparent VF flags */
+
 	int		hn_tx_ring_cnt;
 	int		hn_tx_ring_inuse;
 	struct hn_tx_ring *hn_tx_ring;
@@ -238,6 +243,26 @@ struct hn_softc {
 
 	eventhandler_tag	hn_ifaddr_evthand;
 	eventhandler_tag	hn_ifnet_evthand;
+	eventhandler_tag	hn_ifnet_atthand;
+	eventhandler_tag	hn_ifnet_dethand;
+	eventhandler_tag	hn_ifnet_lnkhand;
+
+	/*
+	 * Transparent VF delayed initialization.
+	 */
+	int			hn_vf_rdytick;	/* ticks, 0 == ready */
+	struct taskqueue	*hn_vf_taskq;
+	struct timeout_task	hn_vf_init;
+
+	/*
+	 * Saved information for VF under transparent mode.
+	 */
+	void			(*hn_vf_input)
+				(struct ifnet *, struct mbuf *);
+	int			hn_saved_caps;
+	u_int			hn_saved_tsomax;
+	u_int			hn_saved_tsosegcnt;
+	u_int			hn_saved_tsosegsz;
 };
 
 #define HN_FLAG_RXBUF_CONNECTED		0x0001
@@ -248,9 +273,12 @@ struct hn_softc {
 #define HN_FLAG_NO_SLEEPING		0x0020
 #define HN_FLAG_RXBUF_REF		0x0040
 #define HN_FLAG_CHIM_REF		0x0080
-#define HN_FLAG_VF			0x0100
+#define HN_FLAG_RXVF			0x0100
 
 #define HN_FLAG_ERRORS			(HN_FLAG_RXBUF_REF | HN_FLAG_CHIM_REF)
+
+#define HN_XVFFLAG_ENABLED		0x0001
+#define HN_XVFFLAG_ACCBPF		0x0002
 
 #define HN_NO_SLEEPING(sc)			\
 do {						\

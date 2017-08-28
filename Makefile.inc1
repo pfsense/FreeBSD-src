@@ -589,8 +589,7 @@ TARGET_ABI=	gnueabi
 # is added before the port PREFIX library path.
 XCFLAGS+=	-isystem ${WORLDTMP}/usr/include -L${WORLDTMP}/usr/lib
 # Force using libc++ for external GCC.
-# XXX: This should be checking MK_GNUCXX == no
-.if ${X_COMPILER_VERSION} >= 40800
+.if ${X_COMPILER_TYPE} == gcc && ${X_COMPILER_VERSION} >= 40800
 XCXXFLAGS+=	-isystem ${WORLDTMP}/usr/include/c++/v1 -std=c++11 \
 		-nostdinc++ -L${WORLDTMP}/../lib/libc++
 .endif
@@ -636,6 +635,7 @@ _INSTALL_DDIR=	${DESTDIR}/${DISTDIR}
 INSTALL_DDIR=	${_INSTALL_DDIR:S://:/:g:C:/$::}
 .if defined(NO_ROOT)
 METALOG?=	${DESTDIR}/${DISTDIR}/METALOG
+METALOG:=	${METALOG:C,//+,/,g}
 IMAKE+=		-DNO_ROOT METALOG=${METALOG}
 INSTALLFLAGS+=	-U -M ${METALOG} -D ${INSTALL_DDIR}
 MTREEFLAGS+=	-W
@@ -678,7 +678,15 @@ _worldtmp: .PHONY
 .endif
 .else
 	rm -rf ${WORLDTMP}/legacy/usr/include
-.endif
+.if ${USING_SYSTEM_COMPILER} == "yes"
+.for cc in cc c++
+	if [ -x ${WORLDTMP}/usr/bin/${cc} ]; then \
+		inum=$$(stat -f %i ${WORLDTMP}/usr/bin/${cc}); \
+		find ${WORLDTMP}/usr/bin -inum $${inum} -delete; \
+	fi
+.endfor
+.endif	# ${USING_SYSTEM_COMPILER} == "yes"
+.endif	# !defined(NO_CLEAN)
 .for _dir in \
     lib lib/casper usr legacy/bin legacy/usr
 	mkdir -p ${WORLDTMP}/${_dir}
@@ -2528,8 +2536,7 @@ CD2CFLAGS+=	-isystem ${XDDESTDIR}/usr/include -L${XDDESTDIR}/usr/lib
 # combined with --sysroot.
 CD2CFLAGS+=	-B${XDDESTDIR}/usr/lib
 # Force using libc++ for external GCC.
-# XXX: This should be checking MK_GNUCXX == no
-.if ${X_COMPILER_VERSION} >= 40800
+.if ${X_COMPILER_TYPE} == gcc && ${X_COMPILER_VERSION} >= 40800
 CD2CXXFLAGS+=	-isystem ${XDDESTDIR}/usr/include/c++/v1 -std=c++11 \
 		-nostdinc++
 .endif
