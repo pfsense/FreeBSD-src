@@ -29,7 +29,6 @@ device		uart
 device		uart_snps
 
 # Network
-device		ether
 device		bpf
 device		mdio
 device		etherswitch
