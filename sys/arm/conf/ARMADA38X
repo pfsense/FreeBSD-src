@@ -30,6 +30,7 @@ device		uart_snps
 
 # Network
 device		bpf
+device		mii
 device		mdio
 device		etherswitch
 device		e6000sw
