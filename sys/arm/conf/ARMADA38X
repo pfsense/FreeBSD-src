@@ -125,28 +125,3 @@ device		pl310
 
 # FDT
 options 	FDT
-<<<<<<< HEAD
-=======
-options 	FDT_DTB_STATIC
-makeoptions 	FDT_DTS_FILE=armada-388-clearfog.dts
-
-# HWPMC
-#device hwpmc
-#options HWPMC_HOOKS
-
-
-# Watchdog support
-# If we don't enable the watchdog driver, the system could potentially
-# reboot automatically because the boot loader might have enabled the
-# watchdog.
-device		ti_wdt
-
-# Mailbox support
-device		ti_mbox
-
-# PMU support (for CCNT).
-device		pmu
-
-# Netmap provides direct access to TX/RX rings on supported NICs
-#device		netmap			# netmap(4) support
->>>>>>> 839fcfc... Include a pfSense for the ClearFog.
