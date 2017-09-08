@@ -4,6 +4,9 @@
 
 KMOD=   if_cpsw
 SRCS=   if_cpsw.c device_if.h bus_if.h ofw_bus_if.h miibus_if.h
+
+.if defined(CPSW_ETHERSWITCH)
 SRCS+=	etherswitch_if.h
+.endif
 
 .include <bsd.kmod.mk>
