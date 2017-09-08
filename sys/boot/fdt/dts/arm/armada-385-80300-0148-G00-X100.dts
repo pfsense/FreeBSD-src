@@ -354,6 +354,9 @@
 				status = "okay";
 			};
 
+			crypto@92000 {
+				status = "okay";
+			};
 		};
 
 		/* TODO - Check buffer manager... */
