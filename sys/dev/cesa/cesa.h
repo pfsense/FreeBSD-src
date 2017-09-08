@@ -61,8 +61,8 @@
  */
 
 /* Values below are optimized for requests containing about 1.5 kB of data */
-#define CESA_SA_DESC_PER_REQ		2
-#define CESA_TDMA_DESC_PER_REQ		8
+#define CESA_SA_DESC_PER_REQ		8
+#define CESA_TDMA_DESC_PER_REQ		32
 
 #define CESA_SA_DESCRIPTORS		(CESA_SA_DESC_PER_REQ * CESA_REQUESTS)
 #define CESA_TDMA_DESCRIPTORS		(CESA_TDMA_DESC_PER_REQ * CESA_REQUESTS)
