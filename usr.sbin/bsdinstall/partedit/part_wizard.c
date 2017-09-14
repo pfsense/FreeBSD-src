@@ -102,7 +102,7 @@ boot_disk(struct gmesh *mesh)
 	const char *type, *desc;
 	char diskdesc[512];
 	char *chosen;
-	int i, err, selected, n = 0;
+	int i, err, selected, fd, n = 0;
 
 	LIST_FOREACH(classp, &mesh->lg_class, lg_class) {
 		if (strcmp(classp->lg_name, "DISK") != 0 &&
@@ -129,6 +129,19 @@ boot_disk(struct gmesh *mesh)
 					continue;
 				if (strncmp(pp->lg_name, "cd", 2) == 0)
 					continue;
+				/* Skip memory disk used by factory mfsroot */
+				if (strncmp(pp->lg_name, "md", 2) == 0)
+					continue;
+
+				/*
+				 * Check if disk is available to be open for
+				 * write operations, it helps to prevent USB
+				 * stick used to boot to be shown
+				 */
+				fd = g_open(pp->lg_name, 1);
+				if (fd == -1)
+					continue;
+				g_close(fd);
 
 				disks = realloc(disks, (++n)*sizeof(disks[0]));
 				disks[n-1].name = pp->lg_name;
