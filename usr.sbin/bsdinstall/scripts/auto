@@ -393,7 +393,8 @@ if [ -n "${mounted_nullfs}" ]; then
 fi
 
 if [ -f /root/factory.sh ]; then
-	sh /root/factory.sh || error "System configuration failed"
+	sh -x /root/factory.sh 2>/tmp/factory.debug \
+	    || error "System configuration failed"
 fi
 #bsdinstall rootpass || error "Could not set root password"
 
