@@ -1,4 +1,4 @@
 include		ARMADA38X
 include		pfSense
 
-ident		pfSense-Rogue1
+ident		pfSense-SG-3100
