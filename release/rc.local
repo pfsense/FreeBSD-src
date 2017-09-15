@@ -18,6 +18,13 @@ if ! mdconfig -l | grep -q md3; then
 	mount /dev/md3 /etc
 fi
 
+# Mount /dev/ufs/pfSense_Install on factory to prevent USB stick disk used
+# to boot to be shown as an option to install
+if [ -e /dev/ufs/pfSense_Install -a ! -d /tmp/usb_install_media ]; then
+	mkdir -p /tmp/usb_install_media
+	mount /dev/ufs/pfSense_Install /tmp/usb_install_media
+fi
+
 MACHINE=`uname -m`
 
 # resolv.conf from DHCP ends up in here, so make sure the directory exists
