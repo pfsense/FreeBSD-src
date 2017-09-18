@@ -62,6 +62,10 @@ __FBSDID("$FreeBSD$");
 #define	SDHCI_FDT_GENERIC	2
 #define	SDHCI_FDT_XLNX_ZY7	3
 
+#define	MV_SDIO3_CONF		0
+#define	MV_SDIO3_CONF_FB_CLK	(1 << 2)
+#define	MV_SDIO3_CONF_CLK_INV	(1 << 0)
+
 static struct ofw_compat_data compat_data[] = {
 	{ "marvell,armada-380-sdhci",	SDHCI_FDT_ARMADA38X },
 	{ "sdhci_generic",		SDHCI_FDT_GENERIC },
@@ -71,6 +75,7 @@ static struct ofw_compat_data compat_data[] = {
 
 struct sdhci_fdt_softc {
 	device_t	dev;		/* Controller device */
+	u_int		devid;		/* Device ID */
 	u_int		quirks;		/* Chip specific quirks */
 	u_int		caps;		/* If we override SDHCI_CAPABILITIES */
 	uint32_t	max_clk;	/* Max possible freq */
@@ -128,6 +133,8 @@ sdhci_fdt_read_4(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 	val32 = bus_read_4(sc->mem_res[slot->num], off);
 	if (off == SDHCI_CAPABILITIES && sc->no_18v)
 		val32 &= ~SDHCI_CAN_VDD_180;
+	if (sc->devid == SDHCI_FDT_ARMADA38X && off == SDHCI_CAPABILITIES2)
+		val32 &= ~(SDHCI_CAN_SDR104 | SDHCI_TUNE_SDR50);
 
 	return (val32);
 }
@@ -177,6 +184,25 @@ sdhci_fdt_get_ro(device_t bus, device_t dev)
 	return (sdhci_generic_get_ro(bus, dev) ^ sc->wp_inverted);
 }
 
+static void
+sdhci_fdt_mv_init(device_t dev)
+{
+	int rid;
+	struct resource *res;
+	uint32_t reg;
+
+	rid = 2;
+	res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid, RF_ACTIVE);
+	if (res == NULL) {
+		device_printf(dev, "SDIO3-conf register not present.\n");
+		return;
+	}
+	reg = bus_read_4(res, MV_SDIO3_CONF);
+	reg &= ~MV_SDIO3_CONF_CLK_INV;
+	bus_write_4(res, MV_SDIO3_CONF, reg);
+	bus_release_resource(dev, SYS_RES_MEMORY, rman_get_rid(res), res);
+}
+
 static int
 sdhci_fdt_probe(device_t dev)
 {
@@ -191,7 +217,8 @@ sdhci_fdt_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	switch (ofw_bus_search_compatible(dev, compat_data)->ocd_data) {
+	sc->devid = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
+	switch (sc->devid) {
 	case SDHCI_FDT_ARMADA38X:
 		sc->quirks = SDHCI_QUIRK_BROKEN_AUTO_STOP;
 		device_set_desc(dev, "ARMADA38X SDHCI controller");
@@ -268,6 +295,10 @@ sdhci_fdt_attach(device_t dev)
 		sc->num_slots++;
 	}
 	device_printf(dev, "%d slot(s) allocated\n", sc->num_slots);
+
+	/* Platform init. */
+	if (sc->devid == SDHCI_FDT_ARMADA38X && sc->num_slots == 1)
+		sdhci_fdt_mv_init(dev);
 
 	/* Activate the interrupt */
 	err = bus_setup_intr(dev, sc->irq_res, INTR_TYPE_MISC | INTR_MPSAFE,
