@@ -113,8 +113,9 @@ is31fl319x_pwm_sysctl(SYSCTL_HANDLER_ARGS)
 	if (error != 0 || req->newptr == NULL)
 		return (error);
 
-	enable = (enable == 0) ? 1 : 0;
-	sc->sc_conf1 ^= IS31FL319X_CONF1_PWM(led);
+	sc->sc_conf1 &= ~IS31FL319X_CONF1_PWM(led);
+	if (enable == 0)
+		sc->sc_conf1 |= IS31FL319X_CONF1_PWM(led);
 	if (is31fl319x_write(sc->sc_dev, IS31FL319X_CONF1, &sc->sc_conf1,
 	    sizeof(sc->sc_conf1)) != 0)
 		return (ENXIO);
