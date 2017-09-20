@@ -120,6 +120,8 @@ is31fl319x_pwm_sysctl(SYSCTL_HANDLER_ARGS)
 		return (ENXIO);
 	if (is31fl319x_reg_update(sc, IS31FL319X_DATA_UPDATE) != 0)
 		return (ENXIO);
+	if (is31fl319x_reg_update(sc, IS31FL319X_TIME_UPDATE) != 0)
+		return (ENXIO);
 
 	return (0);
 }
@@ -438,7 +440,7 @@ is31fl319x_attach(device_t dev)
 	/* Update the booting status, kernel is loading. */
 	data[0] = 0;
 	data[1] = 0;
-	data[2] = 50;
+	data[2] = 35;
 	if (is31fl319x_write(dev, IS31FL319X_PWM(6), data, sizeof(data)) != 0)
 		return (ENXIO);
 	data[2] = 100;
