@@ -148,7 +148,7 @@ is31fl319x_pin_timer_sysctl(SYSCTL_HANDLER_ARGS)
 		ms = IS31FL319X_T0_MAX_TIME;
 
 	a = b = 0;
-	if (ms > 260) {
+	if (ms >= 260) {
 		ms /= 260;
 		while (ms / (2 << b) > 15) {
 			if (ms / (2 << b) > 15)
@@ -230,8 +230,8 @@ is31fl319x_t1t3_sysctl(SYSCTL_HANDLER_ARGS)
 		a = 7;	/* 100 ms */
 	else if (ms >= 260) {
 		ms /= 260;
-		while (ms / (2 << a) > 0) {
-			if (ms / (2 << a) > 0)
+		while (ms / (2 << a) > 1) {
+			if (ms / (2 << a) > 1)
 				a++;
 			else
 				break;
@@ -273,11 +273,11 @@ is31fl319x_t2_sysctl(SYSCTL_HANDLER_ARGS)
 		ms = IS31FL319X_T2_MAX_TIME;
 
 	b = 0;
-	if (ms > 260) {
+	if (ms >= 260) {
 		ms /= 260;
 		b = 1;
-		while (ms / (2 << (b - 1)) > 0) {
-			if (ms / (2 << (b - 1)) > 0)
+		while (ms / (2 << (b - 1)) > 1) {
+			if (ms / (2 << (b - 1)) > 1)
 				b++;
 			else
 				break;
