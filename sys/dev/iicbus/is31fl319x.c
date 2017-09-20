@@ -446,7 +446,17 @@ is31fl319x_attach(device_t dev)
 	data[2] = 100;
 	if (is31fl319x_write(dev, IS31FL319X_PWM(3), data, sizeof(data)) != 0)
 		return (ENXIO);
+
+	/* Enable breath on LED 2 and 3. */
+	sc->sc_conf1 |= (6 << 4);
+	if (is31fl319x_write(sc->sc_dev, IS31FL319X_CONF1, &sc->sc_conf1,
+	    sizeof(sc->sc_conf1)) != 0)
+		return (ENXIO);
+
+	/* Update register data. */
 	if (is31fl319x_reg_update(sc, IS31FL319X_DATA_UPDATE) != 0)
+		return (ENXIO);
+	if (is31fl319x_reg_update(sc, IS31FL319X_TIME_UPDATE) != 0)
 		return (ENXIO);
 
 	return (0);
