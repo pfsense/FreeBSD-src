@@ -464,7 +464,7 @@ SYSCTL_INT(_hw_hn, OID_AUTO, use_txdesc_bufring, CTLFLAG_RD,
 
 #ifdef HN_IFSTART_SUPPORT
 /* Use ifnet.if_start instead of ifnet.if_transmit */
-static int			hn_use_if_start = 0;
+static int			hn_use_if_start = 1;
 SYSCTL_INT(_hw_hn, OID_AUTO, use_if_start, CTLFLAG_RDTUN,
     &hn_use_if_start, 0, "Use if_start TX method");
 #endif
@@ -1345,7 +1345,7 @@ hn_attach(device_t dev)
 
 		ifp->if_start = hn_start;
 		IFQ_SET_MAXLEN(&ifp->if_snd, qdepth);
-		ifp->if_snd.ifq_drv_maxlen = qdepth - 1;
+		ifp->if_snd.ifq_drv_maxlen = 0;
 		IFQ_SET_READY(&ifp->if_snd);
 	} else
 #endif
