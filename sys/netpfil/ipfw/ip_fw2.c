@@ -1621,8 +1621,12 @@ do {								\
 						pkey = &args->f_id.src_ip6;
 				} else
 					break;
-				if (args->eh != NULL)	/* have MAC header */
-					ea = (uint8_t *)args->eh->ether_shost;
+				if (args->eh != NULL) {	/* have MAC header */
+					if (cmd->opcode == O_IP_DST_LOOKUP)
+						ea = (uint8_t *)args->eh->ether_dhost;
+					else
+						ea = (uint8_t *)args->eh->ether_shost;
+				}
 				match = ipfw_lookup_table(chain, cmd->arg1,
 				    keylen, pkey, &vidx, ea, &te);
 				if (!match)
