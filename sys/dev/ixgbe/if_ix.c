@@ -3025,7 +3025,7 @@ ixgbe_init_locked(struct adapter *adapter)
 	 * need to be kick-started
 	 */
 	if (hw->phy.type == ixgbe_phy_none) {
-		err = hw->phy.ops.identify(hw);
+		err = hw->phy.ops.identify_sfp(hw);
 		if (err == IXGBE_ERR_SFP_NOT_SUPPORTED) {
 			device_printf(dev,
 			    "Unsupported SFP+ module type was detected.\n");
