@@ -1253,7 +1253,7 @@ ixgbe_init_locked(struct adapter *adapter)
 	 * need to be kick-started
 	 */
 	if (hw->phy.type == ixgbe_phy_none) {
-		err = hw->phy.ops.identify(hw);
+		err = hw->phy.ops.identify_sfp(hw);
 		if (err == IXGBE_ERR_SFP_NOT_SUPPORTED) {
                 	device_printf(dev,
 			    "Unsupported SFP+ module type was detected.\n");
@@ -3830,8 +3830,7 @@ ixgbe_handle_mod(void *context, int pending)
 		    "Setup failure - unsupported SFP+ module type.\n");
 		goto out;
 	}
-	if (hw->phy.multispeed_fiber)
-		taskqueue_enqueue(adapter->tq, &adapter->msf_task);
+	taskqueue_enqueue(adapter->tq, &adapter->msf_task);
 out:
 	/* Update media type */
 	switch (hw->mac.ops.get_media_type(hw)) {
