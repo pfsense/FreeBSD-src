@@ -1052,12 +1052,6 @@ vlan_start(struct ifnet *ifp)
 	uint16_t tag;
 	int error, len, mcast;
 
-	if (ALTQ_IS_ENABLED(&ifp->if_snd)) {
-		IFQ_POLL_NOLOCK(&ifp->if_snd, m);
-		if (m == NULL)
-			return;
-	}
-
 	ifv = ifp->if_softc;
 	p = PARENT(ifv);
 	for (;;) {
