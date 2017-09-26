@@ -39,6 +39,7 @@ SRCF+=		enable_execute_stack
 SRCF+=		eprintf
 SRCF+=		extendhfsf2
 SRCF+=		ffsdi2
+SRCF+=		ffssi2
 SRCF+=		ffsti2
 SRCF+=		fixdfdi
 SRCF+=		fixdfti
@@ -219,3 +220,10 @@ SRCS+=		switch8.S
 SRCS+=		switchu8.S
 SRCS+=		sync_synchronize.S
 .endif
+
+# GCC-6.3 on mips32 requires bswap32 built-in.
+.if ${MACHINE_CPUARCH} == "mips"
+SRCS+=		bswapdi2.c
+SRCS+=		bswapsi2.c
+.endif
+
