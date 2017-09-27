@@ -86,10 +86,11 @@ struct atu_opt {
 #define	PSC_CONTROL_SPD1000		0x2
 #define	SWITCH_ID			0x3
 #define	PORT_CONTROL			0x4
-#define	PORT_CONTROL_1			0x5
-#define	PORT_CONTROL_1_FID_MASK		0xf
+#define	PORT_CONTROL1			0x5
+#define	PORT_CONTROL1_FID_MASK		0xf
 #define	PORT_VLAN_MAP			0x6
 #define	PORT_VID			0x7
+#define	PORT_CONTROL2			0x8
 #define	PORT_ASSOCIATION_VECTOR		0xb
 #define	PORT_ATU_CTRL			0xc
 #define	RX_COUNTER			0x12
@@ -99,7 +100,10 @@ struct atu_opt {
 #define	PORT_VID_DEF_VID_MASK		0xfff
 #define	PORT_VID_PRIORITY_MASK		0xc00
 
-#define	PORT_CONTROL_ENABLE		0x3
+#define	PORT_CONTROL_ENABLE		0x0003
+#define	PORT_CONTROL_FRAME		0x0300
+#define	PORT_CONTROL_EGRESS		0x3000
+#define	PORT_CONTROL2_DOT1Q		0x0c00
 
 /* PORT_VLAN fields */
 #define	PORT_VLAN_MAP_TABLE_MASK	0x7f
@@ -110,10 +114,40 @@ struct atu_opt {
  * Switch Global Register 1 accessed via REG_GLOBAL_ADDR
  */
 #define	SWITCH_GLOBAL_STATUS		0
+#define	SWITCH_GLOBAL_STATUS_IR		(1 << 11)
 #define	SWITCH_GLOBAL_CONTROL		4
 #define	SWITCH_GLOBAL_CONTROL2		28
 
 #define	MONITOR_CONTROL			26
+
+/* VTU operation */
+#define	VTU_OPERATION			5
+#define	VTU_VID				6
+#define	VTU_DATA			7
+#define	VTU_DATA2			8
+
+#define	VTU_PORT_UNMODIFIED		0
+#define	VTU_PORT_UNTAGGED		1
+#define	VTU_PORT_TAGGED			2
+#define	VTU_PORT_DISCARD		3
+#define	VTU_PORT(p)			(((p) % 4) * 4)
+#define	VTU_PORT_MASK			3
+#define	VTU_BUSY			(1 << 15)
+#define	VTU_VID_VALID			(1 << 12)
+#define	VTU_VID_MASK			0xfff
+
+/* VTU opcodes */
+#define	VTU_OP_MASK			(7 << 12)
+#define	VTU_NOP				(0 << 12)
+#define	VTU_FLUSH			(1 << 12)
+#define	VTU_LOAD			(3 << 12)
+#define	VTU_PURGE			(3 << 12)
+#define	VTU_GET_NEXT			(4 << 12)
+#define	STU_LOAD			(5 << 12)
+#define	STU_PURGE			(5 << 12)
+#define	STU_GET_NEXT			(6 << 12)
+#define	VTU_GET_VIOLATION_DATA		(7 << 12)
+#define	VTU_CLEAR_VIOLATION_DATA	(7 << 12)
 
 /* ATU operation */
 #define	ATU_FID				1
@@ -202,6 +236,8 @@ struct atu_opt {
 #define	SCR_AND_MISC_PTR_CFG		0x7000
 #define	SCR_AND_MISC_DATA_CFG_MASK	0xf0
 
+#define	E6000SW_NUM_VLANS		128
+#define	E6000SW_NUM_LAGS		16
 #define	E6000SW_NUM_PHY_REGS		29
 #define	E6000SW_MAX_PORTS		8
 #define	E6000SW_DEFAULT_AGETIME		20
