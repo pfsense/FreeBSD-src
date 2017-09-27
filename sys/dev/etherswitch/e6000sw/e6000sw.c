@@ -194,7 +194,7 @@ MODULE_DEPEND(e6000sw, mdio, 1, 1, 1);
 	MDIO_WRITEREG(device_get_parent(dev), (addr), (reg), (val))
 
 #undef E6000SW_DEBUG
-#if E6000SW_DEBUG
+#if defined(E6000SW_DEBUG)
 #define	E6000SW_BUFSZ		16
 static void
 e6000sw_vtu_dump(e6000sw_softc_t *sc)
@@ -800,7 +800,7 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 	int i, port, ret;
 	uint32_t members;
 
-#if E6000SW_DEBUG
+#if defined(E6000SW_DEBUG)
 	e6000sw_vtu_dump(sc);
 #endif
 
