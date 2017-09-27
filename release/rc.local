@@ -25,6 +25,10 @@ if [ -e /dev/ufs/pfSense_Install -a ! -d /tmp/usb_install_media ]; then
 	mount /dev/ufs/pfSense_Install /tmp/usb_install_media
 fi
 
+if [ -f /root/factory-pre.sh ]; then
+	sh -x /root/factory-pre.sh >/tmp/factory-pre.debug 2>&1
+fi
+
 MACHINE=`uname -m`
 
 # resolv.conf from DHCP ends up in here, so make sure the directory exists
