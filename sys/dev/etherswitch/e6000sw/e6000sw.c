@@ -88,7 +88,7 @@ static etherswitch_info_t etherswitch_info = {
 	.es_nports =		0,
 	.es_nvlangroups =	0,
 	.es_vlan_caps =		ETHERSWITCH_VLAN_PORT | ETHERSWITCH_VLAN_DOT1Q,
-	.es_switch_caps =	ETHERSWITCH_CAPS_PORTS_MASK;
+	.es_switch_caps =	ETHERSWITCH_CAPS_PORTS_MASK,
 	.es_name =		"Marvell 6000 series switch"
 };
 
