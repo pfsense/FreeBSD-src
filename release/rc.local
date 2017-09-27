@@ -27,6 +27,9 @@ fi
 
 if [ -f /root/factory-pre.sh ]; then
 	sh -x /root/factory-pre.sh >/tmp/factory-pre.debug 2>&1
+	unset CE_message
+else
+	CE_message=1
 fi
 
 MACHINE=`uname -m`
@@ -82,7 +85,26 @@ if [ -f /etc/installerconfig ]; then
 	exit 
 fi
 
-bsddialog --backtitle "pfSense Installer" --title "Welcome" --yes-label "Install" --no-label "Rescue Shell" --yesno "Welcome to pfSense! Would you like to begin an installation or use the Rescue Shell?" 0 0
+if [ -n "${CE_message}" ]; then
+	msg="pfSense(r) Community Edition software is distributed only for use by the community of pfSense users.\n\n"
+	msg="${msg}Copyright 2017 Rubicon Communications, LLC.  All Rights Reserved.\n\n"
+	msg="${msg}Absolutely No Commercial Distribution Is Allowed."
+else
+	msg="This software is only for use on platforms supplied by Rubicon Communications, LLC (Netgate).\n\n"
+	msg="${msg}Copyright 2017 Rubicon Communications, LLC.  All Rights Reserved."
+fi
+
+if [ ! -f /tmp/buildroom ]; then
+	exec 3>&1
+	bsddialog --backtitle "pfSense Installer" \
+		--title "Copyright and distribution notice" \
+		--msgbox "${msg}" 0 0 2>&1 1>&3
+	exec 3>&-
+fi
+
+IOPTS="\
+\"Install\" \"Install pfSense\" \
+\"Rescue Shell\" \"Launch a shell for rescue operations\""
 
 case $? in
 $BSDDIALOG_OK)	# Install
