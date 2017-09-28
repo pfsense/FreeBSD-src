@@ -467,6 +467,7 @@ add_geom_children(struct ggeom *gp, int recurse, struct partedit_item **items,
 	struct gconsumer *cp;
 	struct gprovider *pp;
 	struct gconfig *gc;
+	int fd;
 
 	if (strcmp(gp->lg_class->lg_name, "PART") == 0 &&
 	    !LIST_EMPTY(&gp->lg_config)) {
@@ -486,6 +487,19 @@ add_geom_children(struct ggeom *gp, int recurse, struct partedit_item **items,
 		/* Skip WORM media */
 		if (strncmp(pp->lg_name, "cd", 2) == 0)
 			continue;
+		/* Skip memory disk used by factory mfsroot */
+		if (strncmp(pp->lg_name, "md", 2) == 0)
+			continue;
+
+		/*
+		 * Check if disk is available to be open for
+		 * write operations, it helps to prevent USB
+		 * stick used to boot to be shown
+		 */
+		fd = g_open(pp->lg_name, 1);
+		if (fd == -1)
+			continue;
+		g_close(fd);
 
 		*items = realloc(*items,
 		    (*nitems+1)*sizeof(struct partedit_item));
