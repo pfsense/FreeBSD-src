@@ -105,8 +105,6 @@ static void e6000sw_lock(device_t);
 static void e6000sw_unlock(device_t);
 static int e6000sw_getport(device_t, etherswitch_port_t *);
 static int e6000sw_setport(device_t, etherswitch_port_t *);
-static int e6000sw_init_port_vlan(e6000sw_softc_t *);
-static int e6000sw_init_dot1q_vlan(e6000sw_softc_t *);
 static int e6000sw_set_vlan_mode(e6000sw_softc_t *, uint32_t);
 static int e6000sw_readreg_wrapper(device_t, int);
 static int e6000sw_writereg_wrapper(device_t, int, int);
