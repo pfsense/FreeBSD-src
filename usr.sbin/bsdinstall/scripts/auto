@@ -278,7 +278,11 @@ exec 3>&-
 
 case "$PARTMODE" in
 "Auto (UFS)")	# Guided
-	bsdinstall autopart || error "Partitioning error"
+	if [ -e /dev/mirror/pfSenseMirror ]; then
+		bsdinstall scriptedpart mirror/pfSenseMirror || error "Partitioning error"
+	else
+		bsdinstall autopart || error "Partitioning error"
+	fi
 	bsdinstall fix_fstab || error "Failed to set partition labels"
 	bsdinstall mount || error "Failed to mount filesystem"
 	;;
