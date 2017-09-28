@@ -102,6 +102,33 @@ dialog_workaround()
 
 ############################################################ MAIN
 
+# Try to be smart and detect target disk when there is only one
+skip_disks=""
+for label in FreeBSD pfSense; do
+	disk=$(glabel status | grep ${label}_Install | awk '{print $3}' \
+		| sed 's/p[0-9]*//')
+	[ -z "$disk" ] \
+		&& continue
+	skip_disks="${skip_disks}${skip_disks:+ }${disk}"
+done
+target_disk=""
+for disk in $(sysctl -n kern.disks); do
+	skip=""
+	for skip_disk in "${skip_disks}"; do
+		if [ "${disk}" = "${skip_disk}" ]; then
+			skip=1
+			break
+		fi
+	done
+	[ -n "${skip}" ] \
+		&& continue
+	if [ -n "${target_disk}" ]; then
+		target_disk=""
+		break
+	fi
+	target_disk="${disk}"
+done
+
 f_dprintf "Began Installation at %s" "$( date )"
 
 rm -rf $BSDINSTALL_TMPETC
@@ -280,6 +307,8 @@ case "$PARTMODE" in
 "Auto (UFS)")	# Guided
 	if [ -e /dev/mirror/pfSenseMirror ]; then
 		bsdinstall scriptedpart mirror/pfSenseMirror || error "Partitioning error"
+	elif [ -n "${target_disk}" ]; then
+		bsdinstall scriptedpart "${target_disk}" || error "Partitioning error"
 	else
 		bsdinstall autopart || error "Partitioning error"
 	fi
@@ -403,9 +432,9 @@ fi
 #bsdinstall rootpass || error "Could not set root password"
 
 trap true SIGINT	# This section is optional
-if [ "$NETCONFIG_DONE" != yes ]; then
+#if [ "$NETCONFIG_DONE" != yes ]; then
 #	bsdinstall netconfig	# Don't check for errors -- the user may cancel
-fi
+#fi
 #bsdinstall time
 #bsdinstall services
 #bsdinstall hardening
