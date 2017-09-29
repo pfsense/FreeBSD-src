@@ -121,11 +121,14 @@ struct atu_opt {
 #define	MONITOR_CONTROL			26
 
 /* VTU operation */
+#define	VTU_FID				2
 #define	VTU_OPERATION			5
 #define	VTU_VID				6
 #define	VTU_DATA			7
 #define	VTU_DATA2			8
 
+#define	VTU_FID_MASK			0xff
+#define	VTU_FID_POLICY			(1 << 12)
 #define	VTU_PORT_UNMODIFIED		0
 #define	VTU_PORT_UNTAGGED		1
 #define	VTU_PORT_TAGGED			2

@@ -256,9 +256,12 @@ e6000sw_vtu_dump(e6000sw_softc_t *sc)
 			}
 		}
 
+		reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_FID);
 		device_printf(sc->dev,
-		    "vlan: %d\tdiscard: %s tagged: %s untagged: %s unmodified: %s\n",
-		    vlan & VTU_VID_MASK, strlen(discard) > 0 ? discard : "none",
+		    "vlan: %d\tfid: %d%s\tdiscard: %s tagged: %s untagged: %s unmodified: %s\n",
+		    vlan & VTU_VID_MASK, reg & VTU_FID_MASK,
+		    (reg & VTU_FID_POLICY) ? "*" : "",
+		    strlen(discard) > 0 ? discard : "none",
 		    strlen(tagged) > 0 ? tagged : "none",
 		    strlen(untagged) > 0 ? untagged : "none",
 		    strlen(unmodified) > 0 ? unmodified : "none");
