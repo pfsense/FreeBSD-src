@@ -125,7 +125,7 @@ static void e6000sw_ifmedia_sts(struct ifnet *, struct ifmediareq *);
 static int e6000sw_atu_mac_table(device_t, e6000sw_softc_t *, struct atu_opt *,
     int);
 static int e6000sw_vtu_flush(e6000sw_softc_t *);
-static int e6000sw_vtu_update(e6000sw_softc_t *, int, int, int, int);
+static int e6000sw_vtu_update(e6000sw_softc_t *, int, int, int, int, int);
 static int e6000sw_waitready(e6000sw_softc_t *, uint32_t, uint32_t);
 static void e6000sw_get_pvid(e6000sw_softc_t *, int, int *);
 static void e6000sw_set_pvid(e6000sw_softc_t *, int, int);
@@ -857,7 +857,8 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 				members |= (1 << i);
 			}
 		}
-		e6000sw_port_vlan_assign(sc, port, port + 1, members);
+		/* Default to FID 0. */
+		e6000sw_port_vlan_assign(sc, port, 0, members);
 	}
 
 	/* Reset internal VLAN table. */
@@ -867,7 +868,7 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 	/* Create default VLAN (1). */
 	if (sc->vlan_mode == ETHERSWITCH_VLAN_DOT1Q) {
 		sc->vlans[0] = 1;
-		e6000sw_vtu_update(sc, sc->vlans[0], 0, 0, sc->ports_mask);
+		e6000sw_vtu_update(sc, 0, sc->vlans[0], 1, 0, sc->ports_mask);
 	}
 
 	/* Enable all ports */
@@ -1039,8 +1040,8 @@ e6000sw_set_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 
 	/* Set VLAN to '0' removes it from table. */
 	if (vlan == 0) {
-		e6000sw_vtu_update(sc, sc->vlans[vg->es_vlangroup],
-		    VTU_PURGE, 0, 0);
+		e6000sw_vtu_update(sc, VTU_PURGE,
+		    sc->vlans[vg->es_vlangroup], 0, 0, 0);
 		sc->vlans[vg->es_vlangroup] = 0;
 		return (0);
 	}
@@ -1051,7 +1052,8 @@ e6000sw_set_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 			return (EINVAL);
 
 	sc->vlans[vg->es_vlangroup] = vlan;
-	e6000sw_vtu_update(sc, vlan, 0, vg->es_member_ports & sc->num_ports,
+	e6000sw_vtu_update(sc, 0, vlan, vg->es_vlangroup + 1,
+	    vg->es_member_ports & sc->num_ports,
 	    vg->es_untagged_ports & sc->num_ports);
 
 	return (0);
@@ -1545,8 +1547,8 @@ e6000sw_vtu_flush(e6000sw_softc_t *sc)
 }
 
 static int
-e6000sw_vtu_update(e6000sw_softc_t *sc, int vid, int purge, int members,
-    int untagged)
+e6000sw_vtu_update(e6000sw_softc_t *sc, int purge, int vid, int fid,
+    int members, int untagged)
 {
 	int i, op;
 	uint32_t data;
@@ -1576,6 +1578,7 @@ e6000sw_vtu_update(e6000sw_softc_t *sc, int vid, int purge, int members,
 			}
 		}
 		e6000sw_writereg(sc, REG_GLOBAL, VTU_DATA2, data);
+		e6000sw_writereg(sc, REG_GLOBAL, VTU_FID, fid & VTU_FID_MASK);
 		op = VTU_LOAD;
 	} else
 		op = VTU_PURGE;
