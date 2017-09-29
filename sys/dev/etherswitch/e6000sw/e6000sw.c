@@ -204,7 +204,7 @@ e6000sw_vtu_dump(e6000sw_softc_t *sc)
 	uint32_t reg;
 
 	if (e6000sw_waitready(sc, VTU_OPERATION, VTU_BUSY)) {
-		device_printf(sc->dev, "VTU unit is busy, cannot read\n");
+		device_printf(sc->dev, "VTU unit is busy, cannot access\n");
 		return;
 	}
 
@@ -1108,7 +1108,7 @@ e6000sw_get_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 		return (0);
 
 	if (e6000sw_waitready(sc, VTU_OPERATION, VTU_BUSY)) {
-		device_printf(sc->dev, "VTU unit is busy, cannot read\n");
+		device_printf(sc->dev, "VTU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 
@@ -1465,8 +1465,7 @@ e6000sw_atu_mac_table(device_t dev, e6000sw_softc_t *sc, struct atu_opt *atu,
 	}
 
 	if (e6000sw_waitready(sc, ATU_OPERATION, ATU_UNIT_BUSY)) {
-		device_printf(dev, "ATU unit is busy, cannot access"
-		    "register\n");
+		device_printf(dev, "ATU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 
@@ -1507,7 +1506,7 @@ e6000sw_atu_flush(device_t dev, e6000sw_softc_t *sc, int flag)
 		return (0);
 
 	if (e6000sw_waitready(sc, ATU_OPERATION, ATU_UNIT_BUSY)) {
-		device_printf(dev, "Atu unit is busy, cannot flush\n");
+		device_printf(dev, "ATU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 	ret = e6000sw_readreg(sc, REG_GLOBAL, ATU_OPERATION);
@@ -1538,7 +1537,7 @@ e6000sw_vtu_flush(e6000sw_softc_t *sc)
 {
 
 	if (e6000sw_waitready(sc, VTU_OPERATION, VTU_BUSY)) {
-		device_printf(sc->dev, "VTU unit is busy, cannot read\n");
+		device_printf(sc->dev, "VTU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 
@@ -1559,7 +1558,7 @@ e6000sw_vtu_update(e6000sw_softc_t *sc, int vid, int purge, int members,
 	uint32_t data;
 
 	if (e6000sw_waitready(sc, VTU_OPERATION, VTU_BUSY)) {
-		device_printf(sc->dev, "VTU unit is busy, cannot read\n");
+		device_printf(sc->dev, "VTU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 
