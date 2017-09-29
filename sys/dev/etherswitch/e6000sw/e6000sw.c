@@ -1053,8 +1053,8 @@ e6000sw_set_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 
 	sc->vlans[vg->es_vlangroup] = vlan;
 	e6000sw_vtu_update(sc, 0, vlan, vg->es_vlangroup + 1,
-	    vg->es_member_ports & sc->num_ports,
-	    vg->es_untagged_ports & sc->num_ports);
+	    vg->es_member_ports & sc->ports_mask,
+	    vg->es_untagged_ports & sc->ports_mask);
 
 	return (0);
 }
