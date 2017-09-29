@@ -1406,12 +1406,13 @@ e6000sw_tick(void *arg)
 static void
 e6000sw_setup(device_t dev, e6000sw_softc_t *sc)
 {
-	uint16_t atu_ctrl, atu_age;
+	uint16_t atu_ctrl;
 
-	/* Set aging time */
-	e6000sw_writereg(sc, REG_GLOBAL, ATU_CONTROL,
-	    (E6000SW_DEFAULT_AGETIME << ATU_CONTROL_AGETIME) |
-	    (1 << ATU_CONTROL_LEARN2ALL));
+	/* Set aging time. */
+	atu_ctrl = e6000sw_readreg(sc, REG_GLOBAL, ATU_CONTROL);
+	atu_ctrl &= ~ATU_CONTROL_AGETIME_MASK;
+	atu_ctrl |= E6000SW_DEFAULT_AGETIME << ATU_CONTROL_AGETIME;
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_CONTROL, atu_ctrl);
 
 	/* Send all with specific mac address to cpu port */
 	e6000sw_writereg(sc, REG_GLOBAL2, MGMT_EN_2x, MGMT_EN_ALL);
@@ -1430,16 +1431,6 @@ e6000sw_setup(device_t dev, e6000sw_softc_t *sc)
 	e6000sw_atu_flush(dev, sc, NO_OPERATION);
 	e6000sw_atu_mac_table(dev, sc, NULL, NO_OPERATION);
 	e6000sw_set_atustat(dev, sc, 0, COUNT_ALL);
-
-	/* Set ATU AgeTime to 15 seconds */
-	atu_age = 1;
-
-	atu_ctrl = e6000sw_readreg(sc, REG_GLOBAL, ATU_CONTROL);
-
-	/* Set new AgeTime field */
-	atu_ctrl &= ~ATU_CONTROL_AGETIME_MASK;
-	e6000sw_writereg(sc, REG_GLOBAL, ATU_CONTROL, atu_ctrl |
-	    (atu_age << ATU_CONTROL_AGETIME));
 }
 
 static void
