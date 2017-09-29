@@ -113,6 +113,9 @@ for label in FreeBSD pfSense; do
 done
 target_disk=""
 for disk in $(sysctl -n kern.disks); do
+	if echo "${disk}" | egrep -q '^cd'; then
+		continue
+	fi
 	skip=""
 	for skip_disk in "${skip_disks}"; do
 		if [ "${disk}" = "${skip_disk}" ]; then
