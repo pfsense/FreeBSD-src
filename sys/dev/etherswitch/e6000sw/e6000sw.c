@@ -1025,7 +1025,7 @@ e6000sw_set_port_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 		return (EINVAL);
 	}
 
-	e6000sw_port_vlan_assign(sc, port, port + 1, vg->es_untagged_ports);
+	e6000sw_port_vlan_assign(sc, port, 0, vg->es_untagged_ports);
 	vg->es_vid = port | ETHERSWITCH_VID_VALID;
 
 	return (0);
