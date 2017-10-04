@@ -59,6 +59,7 @@ enum cmdmode {
 	MODE_NONE = 0,
 	MODE_PORT,
 	MODE_CONFIG,
+	MODE_LAGGROUP,
 	MODE_VLANGROUP,
 	MODE_REGISTER,
 	MODE_PHYREG
@@ -270,6 +271,45 @@ set_port_mediaopt(struct cfg *cfg, char *argv[])
 }
 
 static void
+set_laggroup_members(struct cfg *cfg, char *argv[])
+{
+	etherswitch_laggroup_t lag;
+	int member, untagged;
+	char *c, *d;
+	int v;
+
+	member = untagged = 0;
+	memset(&lag, 0, sizeof(lag));
+	if (strcmp(argv[1], "none") != 0) {
+		for (c=argv[1]; *c; c=d) {
+			v = strtol(c, &d, 0);
+			if (d == c)
+				break;
+			if (v < 0 || v >= cfg->info.es_nports)
+				errx(EX_USAGE, "Member port must be between 0 and %d", cfg->info.es_nports-1);
+			if (d[0] == ',' || d[0] == '\0' ||
+				((d[0] == 't' || d[0] == 'T') && (d[1] == ',' || d[1] == '\0'))) {
+				if (d[0] == 't' || d[0] == 'T') {
+					untagged &= ~ETHERSWITCH_PORTMASK(v);
+					d++;
+				} else
+					untagged |= ETHERSWITCH_PORTMASK(v);
+				member |= ETHERSWITCH_PORTMASK(v);
+				d++;
+			} else
+				errx(EX_USAGE, "Invalid members specification \"%s\"", d);
+		}
+	}
+	lag.es_laggroup = cfg->unit;
+	if (ioctl(cfg->fd, IOETHERSWITCHGETLAGGROUP, &lag) != 0)
+		err(EX_OSERR, "ioctl(IOETHERSWITCHGETLAGGROUP)");
+	lag.es_member_ports = member;
+	lag.es_untagged_ports = untagged;
+	if (ioctl(cfg->fd, IOETHERSWITCHSETLAGGROUP, &lag) != 0)
+		err(EX_OSERR, "ioctl(IOETHERSWITCHSETLAGGROUP)");
+}
+
+static void
 set_vlangroup_vid(struct cfg *cfg, char *argv[])
 {
 	int v;
@@ -467,6 +507,36 @@ print_port(struct cfg *cfg, int port)
 }
 
 static void
+print_laggroup(struct cfg *cfg, int laggroup)
+{
+	etherswitch_laggroup_t lag;
+	int i, comma;
+
+	lag.es_laggroup = laggroup;
+	if (ioctl(cfg->fd, IOETHERSWITCHGETLAGGROUP, &lag) != 0)
+		err(EX_OSERR, "ioctl(IOETHERSWITCHGETLAGGROUP)");
+	if (lag.es_lag_valid == 0)
+		return;
+	printf("laggroup%d:\n", laggroup);
+	printf("\tmembers ");
+	comma = 0;
+	if (lag.es_member_ports != 0)
+		for (i = 0; i < cfg->info.es_nports; i++) {
+			if ((lag.es_member_ports & ETHERSWITCH_PORTMASK(i)) != 0) {
+				if (comma)
+					printf(",");
+				printf("%d", i);
+				if ((lag.es_untagged_ports & ETHERSWITCH_PORTMASK(i)) == 0)
+					printf("t");
+				comma = 1;
+			}
+		}
+	else
+		printf("none");
+	printf("\n");
+}
+
+static void
 print_vlangroup(struct cfg *cfg, int vlangroup)
 {
 	etherswitch_vlangroup_t vg;
@@ -513,9 +583,16 @@ print_info(struct cfg *cfg)
 	else
 		c = cfg->controlfile;
 	if (cfg->verbose) {
-		printf("%s: %s with %d ports and %d VLAN groups\n", c,
-		    cfg->info.es_name, cfg->info.es_nports,
-		    cfg->info.es_nvlangroups);
+		if (cfg->info.es_switch_caps & ETHERSWITCH_CAPS_LAGG)
+			printf(
+			    "%s: %s with %d ports, %d VLAN groups and %d LAG groups\n",
+			    c, cfg->info.es_name, cfg->info.es_nports,
+			    cfg->info.es_nvlangroups, cfg->info.es_nlaggroups);
+		else
+			printf(
+			    "%s: %s with %d ports and %d VLAN groups\n",
+			    c, cfg->info.es_name, cfg->info.es_nports,
+			    cfg->info.es_nvlangroups);
 		printf("%s: ", c);
 		printb("Switch capabilities",  cfg->info.es_switch_caps,
 		    ETHERSWITCH_CAPS_BITS);
@@ -531,6 +608,10 @@ print_info(struct cfg *cfg)
 		    (cfg->info.es_ports_mask[i / 32] & (1 << (i % 32))) == 0)
 			continue;
 		print_port(cfg, i);
+	}
+	if (cfg->info.es_switch_caps & ETHERSWITCH_CAPS_LAGG) {
+		for (i=0; i<cfg->info.es_nlaggroups; i++)
+			print_laggroup(cfg, i);
 	}
 	for (i=0; i<cfg->info.es_nvlangroups; i++) {
 		print_vlangroup(cfg, i);
@@ -552,6 +633,9 @@ usage(struct cfg *cfg __unused, char *argv[] __unused)
 	fprintf(stderr, "\t\tport commands: pvid, media, mediaopt\n");
 	fprintf(stderr, "\tetherswitchcfg [-f control file] reg "
 	    "register[=value]\n");
+	fprintf(stderr, "\tetherswitchcfg [-f control file] laggroupX "
+	    "command parameter\n");
+	fprintf(stderr, "\t\tlaggroup commands: members\n");
 	fprintf(stderr, "\tetherswitchcfg [-f control file] vlangroupX "
 	    "command parameter\n");
 	fprintf(stderr, "\t\tvlangroup commands: vlan, members\n");
@@ -577,6 +661,9 @@ newmode(struct cfg *cfg, enum cmdmode mode)
 		break;
 	case MODE_PORT:
 		print_port(cfg, cfg->unit);
+		break;
+	case MODE_LAGGROUP:
+		print_laggroup(cfg, cfg->unit);
 		break;
 	case MODE_VLANGROUP:
 		print_vlangroup(cfg, cfg->unit);
@@ -636,6 +723,16 @@ main(int argc, char *argv[])
 				if (cfg.unit < 0 || cfg.unit >= cfg.info.es_nports)
 					errx(EX_USAGE, "port unit must be between 0 and %d", cfg.info.es_nports - 1);
 				newmode(&cfg, MODE_PORT);
+			} else if (sscanf(argv[0], "laggroup%d", &cfg.unit) == 1) {
+				if ((cfg.info.es_switch_caps &
+				    ETHERSWITCH_CAPS_LAGG) == 0)
+					errx(EX_USAGE,
+					    "laggroup is not supported by the switch.");
+				if (cfg.unit < 0 || cfg.unit >= cfg.info.es_nlaggroups)
+					errx(EX_USAGE,
+					    "laggroup unit must be between 0 and %d",
+					    cfg.info.es_nlaggroups - 1);
+				newmode(&cfg, MODE_LAGGROUP);
 			} else if (sscanf(argv[0], "vlangroup%d", &cfg.unit) == 1) {
 				if (cfg.unit < 0 || cfg.unit >= cfg.info.es_nvlangroups)
 					errx(EX_USAGE,
@@ -656,6 +753,7 @@ main(int argc, char *argv[])
 			break;
 		case MODE_PORT:
 		case MODE_CONFIG:
+		case MODE_LAGGROUP:
 		case MODE_VLANGROUP:
 			for(i=0; cmds[i].name != NULL; i++) {
 				if (cfg.mode == cmds[i].mode && strcmp(argv[0], cmds[i].name) == 0) {
@@ -713,6 +811,7 @@ static struct cmds cmds[] = {
 	{ MODE_PORT, "dropuntagged", 0, set_port_flag },
 	{ MODE_PORT, "-dropuntagged", 0, set_port_flag },
 	{ MODE_CONFIG, "vlan_mode", 1, set_vlan_mode },
+	{ MODE_LAGGROUP, "members", 1, set_laggroup_members },
 	{ MODE_VLANGROUP, "vlan", 1, set_vlangroup_vid },
 	{ MODE_VLANGROUP, "members", 1, set_vlangroup_members },
 	{ 0, NULL, 0, NULL }

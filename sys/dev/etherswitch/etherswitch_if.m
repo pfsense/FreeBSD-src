@@ -25,6 +25,18 @@ CODE {
 	}
 
 	static int
+	null_etherswitch_getlaggroup(device_t dev, etherswitch_laggroup_t *conf)
+	{
+		return (EINVAL);
+	}
+
+	static int
+	null_etherswitch_setlaggroup(device_t dev, etherswitch_laggroup_t *conf)
+	{
+		return (EINVAL);
+	}
+
+	static int
 	null_etherswitch_getconf(device_t dev, etherswitch_conf_t *conf)
 	{
 		return (0);
@@ -125,6 +137,22 @@ METHOD int setvgroup {
 	device_t	dev;
 	etherswitch_vlangroup_t *vg;
 }
+
+#
+# Get LAGG configuration
+#
+METHOD int getlaggroup {
+	device_t	dev;
+	etherswitch_laggroup_t *vg;
+} DEFAULT null_etherswitch_getlaggroup;
+
+#
+# Set LAGG configuration
+#
+METHOD int setlaggroup {
+	device_t	dev;
+	etherswitch_laggroup_t *vg;
+} DEFAULT null_etherswitch_setlaggroup;
 
 #
 # Get the Switch configuration
