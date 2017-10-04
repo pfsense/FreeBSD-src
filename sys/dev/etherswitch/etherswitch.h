@@ -37,8 +37,9 @@ typedef struct etherswitch_phyreg etherswitch_phyreg_t;
 "\020\1ISL\2PORT\3DOT1Q\4DOT1Q4K\5QinQ"
 
 #define	ETHERSWITCH_CAPS_PORTS_MASK	(1 << 0)	/* Ports mask */
+#define	ETHERSWITCH_CAPS_LAGG		(1 << 1)	/* LAGG support */
 #define	ETHERSWITCH_CAPS_BITS		\
-"\020\1PORTSMASK"
+"\020\1PORTSMASK\2LAGG"
 
 #define	MAX_PORTS			1024
 #define	MAX_PORTS_UINT32		(MAX_PORTS / sizeof(uint32_t))
@@ -46,6 +47,7 @@ typedef struct etherswitch_phyreg etherswitch_phyreg_t;
 struct etherswitch_info {
 	int		es_nports;
 	int		es_nvlangroups;
+	int		es_nlaggroups;
 	char		es_name[ETHERSWITCH_NAMEMAX];
 	uint32_t	es_vlan_caps;
 	uint32_t	es_switch_caps;
@@ -99,6 +101,14 @@ struct etherswitch_port {
 };
 typedef struct etherswitch_port etherswitch_port_t;
 
+struct etherswitch_laggroup {
+	int		es_lag_valid;
+	int		es_laggroup;
+	int		es_member_ports;
+	int		es_untagged_ports;
+};
+typedef struct etherswitch_laggroup etherswitch_laggroup_t;
+
 struct etherswitch_vlangroup {
 	int		es_vlangroup;
 	int		es_vid;
@@ -121,5 +131,7 @@ typedef struct etherswitch_vlangroup etherswitch_vlangroup_t;
 #define IOETHERSWITCHSETPHYREG		_IOW('i', 9, etherswitch_phyreg_t)
 #define IOETHERSWITCHGETCONF		_IOR('i', 10, etherswitch_conf_t)
 #define IOETHERSWITCHSETCONF		_IOW('i', 11, etherswitch_conf_t)
+#define	IOETHERSWITCHGETLAGGROUP	_IOWR('i', 12, etherswitch_laggroup_t)
+#define	IOETHERSWITCHSETLAGGROUP	_IOW('i', 13, etherswitch_laggroup_t)
 
 #endif

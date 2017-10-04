@@ -180,6 +180,14 @@ etherswitchioctl(struct cdev *cdev, u_long cmd, caddr_t data, int flags, struct 
 		error = ETHERSWITCH_SETVGROUP(etherswitch, (etherswitch_vlangroup_t *)data);
 		break;
 
+	case IOETHERSWITCHGETLAGGROUP:
+		error = ETHERSWITCH_GETLAGGROUP(etherswitch, (etherswitch_laggroup_t *)data);
+		break;
+
+	case IOETHERSWITCHSETLAGGROUP:
+		error = ETHERSWITCH_SETLAGGROUP(etherswitch, (etherswitch_laggroup_t *)data);
+		break;
+
 	case IOETHERSWITCHGETPHYREG:
 		phyreg = (etherswitch_phyreg_t *)data;
 		phyreg->val = ETHERSWITCH_READPHYREG(etherswitch, phyreg->phy, phyreg->reg);
