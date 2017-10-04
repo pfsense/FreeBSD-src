@@ -709,9 +709,10 @@ e6000sw_unlock(device_t dev)
 static int
 e6000sw_getport(device_t dev, etherswitch_port_t *p)
 {
-	struct mii_data *mii;
 	int err;
 	struct ifmediareq *ifmr;
+	struct mii_data *mii;
+	uint16_t reg;
 
 	e6000sw_softc_t *sc = device_get_softc(dev);
 	E6000SW_LOCK_ASSERT(sc, SA_UNLOCKED);
@@ -721,10 +722,17 @@ e6000sw_getport(device_t dev, etherswitch_port_t *p)
 	if (!e6000sw_is_portenabled(sc, p->es_port))
 		return (0);
 
-	err = 0;
 	E6000SW_LOCK(sc);
 	e6000sw_get_pvid(sc, p->es_port, &p->es_pvid);
 
+	/* Port flags. */
+	reg = e6000sw_readreg(sc, REG_PORT(p->es_port), PORT_CONTROL2);
+	if (reg & PORT_CONTROL2_DISC_TAGGED)
+		p->es_flags |= ETHERSWITCH_PORT_DROPTAGGED;
+	if (reg & PORT_CONTROL2_DISC_UNTAGGED)
+		p->es_flags |= ETHERSWITCH_PORT_DROPUNTAGGED;
+
+	err = 0;
 	if (e6000sw_is_fixedport(sc, p->es_port)) {
 		if (e6000sw_is_cpuport(sc, p->es_port))
 			p->es_flags |= ETHERSWITCH_PORT_CPU;
@@ -754,6 +762,7 @@ e6000sw_setport(device_t dev, etherswitch_port_t *p)
 	e6000sw_softc_t *sc;
 	int err;
 	struct mii_data *mii;
+	uint16_t reg;
 
 	sc = device_get_softc(dev);
 	E6000SW_LOCK_ASSERT(sc, SA_UNLOCKED);
@@ -765,6 +774,16 @@ e6000sw_setport(device_t dev, etherswitch_port_t *p)
 
 	err = 0;
 	E6000SW_LOCK(sc);
+	reg = e6000sw_readreg(sc, REG_PORT(p->es_port), PORT_CONTROL2);
+	if (p->es_flags & ETHERSWITCH_PORT_DROPTAGGED)
+		reg |= PORT_CONTROL2_DISC_TAGGED;
+	else
+		reg &= ~PORT_CONTROL2_DISC_TAGGED;
+	if (p->es_flags & ETHERSWITCH_PORT_DROPUNTAGGED)
+		reg |= PORT_CONTROL2_DISC_UNTAGGED;
+	else
+		reg &= ~PORT_CONTROL2_DISC_UNTAGGED;
+	e6000sw_writereg(sc, REG_PORT(p->es_port), PORT_CONTROL2, reg);
 	if (p->es_pvid != 0)
 		e6000sw_set_pvid(sc, p->es_port, p->es_pvid);
 	if (e6000sw_is_phyport(sc, p->es_port)) {
