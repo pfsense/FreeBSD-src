@@ -54,11 +54,17 @@ growfs_start ()
 		# raw device
 		rawdev="$rootdev"
 	else
-		rawdev=$(glabel status | awk '$1 == "'"$rootdev"'" { print $3 }')
+		rawdev=$(glabel status | awk 'index("'"$rootdev"'", $1) { print $3 }')
 		if [ x"$rawdev" = x"" ]; then
 			echo "Can't figure out device for: $rootdev"
 			return
 		fi
+	fi
+
+	if [ x"diskid" = x"${rootdev%/*}" ]; then
+		search=$rootdev
+	else
+		search=$rawdev
 	fi
 
 	sysctl -b kern.geom.conftxt | awk '
@@ -89,7 +95,7 @@ growfs_start ()
 		}
 		exit 0
 	}
-}' dev="$rawdev"
+}' dev="$search"
 	gpart commit "$rootdev"
 	growfs -y /dev/"$rootdev"
 }
