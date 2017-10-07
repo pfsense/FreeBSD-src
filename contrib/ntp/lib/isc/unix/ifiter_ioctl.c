@@ -104,7 +104,7 @@ struct isc_interfaceiter {
 # ifdef IFNAMSIZ
 #  define IF_NAMESIZE  IFNAMSIZ
 # else
-#  define IF_NAMESIZE 16
+#  define IF_NAMESIZE 64
 # endif
 #endif
 #endif
