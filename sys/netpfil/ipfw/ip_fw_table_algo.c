@@ -2738,7 +2738,7 @@ ta_dump_ifidx_tentry(void *ta_state, struct table_info *ti, void *e,
 
 	ife = (struct ifentry *)e;
 
-	tent->masklen = 8 * IF_NAMESIZE;
+	tent->masklen = min(2 << ((sizeof(uint8_t) * 8) - 1), 8 * IF_NAMESIZE);
 	memcpy(&tent->k, ife->no.name, IF_NAMESIZE);
 	tent->v.kidx = ife->value;
 
