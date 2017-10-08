@@ -611,7 +611,7 @@ mvneta_attach(device_t self)
 		mvneta_detach(self);
 		return (ENOMEM);
 	}
-	if_initname(ifp, "mvn", device_get_unit(self));
+	if_initname(ifp, device_get_name(self), device_get_unit(self));
 
 	/*
 	 * We can support 802.1Q VLAN-sized frames and jumbo
