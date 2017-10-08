@@ -122,7 +122,7 @@ static const char hexlist[] = "0123456789abcdef";
 char *
 link_ntoa(const struct sockaddr_dl *sdl)
 {
-	static char obuf[128];
+	static char obuf[64];
 	_Static_assert(sizeof(obuf) >= IFNAMSIZ + 20, "obuf is too small");
 	char *out;
 	const u_char *in, *inlim;
