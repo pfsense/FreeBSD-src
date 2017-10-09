@@ -1318,7 +1318,7 @@ fprintlog(struct filed *f, int flags, const char *msg)
 		dprintf(" %s\n", f->f_un.f_ring.f_rname);
 		v->iov_base = "\n";
 		v->iov_len = 1;
-		if (rbwritev(f, iov, 7)==-1) {
+		if (rbwritev(f, iov, IOV_SIZE)==-1) {
 			int e = errno;
 			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
 			(void)close(f->f_file);
@@ -2848,7 +2848,7 @@ ssize_t rbwritev(struct filed *f, struct iovec *iov, int iovcnt) {
 
 
 ssize_t rbwrite(struct filed *f, char *buf, size_t nbytes) {
-	size_t maxwrite = f->f_un.f_ring.f_footer->cf_max - f->f_un.f_ring.f_footer->cf_next;
+	size_t maxwrite;
 	ssize_t err;
 	ssize_t out = 0;
 
