@@ -2853,6 +2853,8 @@ ssize_t rbwrite(struct filed *f, char *buf, size_t nbytes) {
 	ssize_t out = 0;
 
 	f->f_un.f_ring.f_footer->cf_lock = 1;
+	if (f->f_un.f_ring.f_footer->cf_next >= f->f_un.f_ring.f_footer->cf_max)
+		f->f_un.f_ring.f_footer->cf_next = 0;
 	while (nbytes>0) {
 		maxwrite = f->f_un.f_ring.f_footer->cf_max - f->f_un.f_ring.f_footer->cf_next;
 		if (maxwrite>nbytes) maxwrite = nbytes;
