@@ -193,7 +193,58 @@ MODULE_DEPEND(e6000sw, mdio, 1, 1, 1);
 
 #undef E6000SW_DEBUG
 #if defined(E6000SW_DEBUG)
+static void
+e6000sw_atu_dump(e6000sw_softc_t *sc, int fid)
+{
+	uint16_t data, mac1, mac2, mac3, reg;
+
+	if (e6000sw_waitready(sc, ATU_OPERATION, ATU_UNIT_BUSY)) {
+		device_printf(sc->dev, "ATU unit is busy, cannot access\n");
+		return;
+	}
+
+	/* Set the start MAC address and FID. */
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_FID, fid);
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_DATA, 0);
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_MAC_ADDR01, 0);
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_MAC_ADDR23, 0);
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_MAC_ADDR45, 0);
+	reg = e6000sw_readreg(sc, REG_GLOBAL, ATU_OPERATION) & ~ATU_OP_MASK;
+	e6000sw_writereg(sc, REG_GLOBAL, ATU_OPERATION, reg | GET_NEXT_IN_FIB);
+	for (;;) {
+		reg = e6000sw_readreg(sc, REG_GLOBAL, ATU_OPERATION);
+		if ((reg & VTU_OP_MASK) != GET_NEXT_IN_FIB) {
+			device_printf(sc->dev, "Out of sync!\n");
+			return;
+		}
+		e6000sw_writereg(sc, REG_GLOBAL, ATU_OPERATION,
+		    reg | ATU_UNIT_BUSY);
+		if (e6000sw_waitready(sc, ATU_OPERATION, ATU_UNIT_BUSY)) {
+			device_printf(sc->dev, "Timeout while reading\n");
+			return;
+		}
+		data = e6000sw_readreg(sc, REG_GLOBAL, ATU_DATA);
+		if ((data & ATU_STATE_MASK) == 0)
+			return;
+
+		mac1 = e6000sw_readreg(sc, REG_GLOBAL, ATU_MAC_ADDR01);
+		mac2 = e6000sw_readreg(sc, REG_GLOBAL, ATU_MAC_ADDR23);
+		mac3 = e6000sw_readreg(sc, REG_GLOBAL, ATU_MAC_ADDR45);
+		if (data & ATU_DATA_LAG)
+			device_printf(sc->dev, "fid: %3d  lag: %3d  ", fid,
+			    (data & ATU_LAG_MASK) >> ATU_LAG_SHIFT);
+		else
+			device_printf(sc->dev, "fid: %3d  port: %2d  ", fid,
+			    ffs((data & ATU_PORT_MASK) >> ATU_PORT_SHIFT) - 1);
+		printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x (%#x)\n",
+		    (mac1 >> 8) & 0xff, mac1 & 0xff,
+		    (mac2 >> 8) & 0xff, mac2 & 0xff,
+		    (mac3 >> 8) & 0xff, mac3 & 0xff, data);
+	}
+}
+
 #define	E6000SW_BUFSZ		16
+
 static void
 e6000sw_vtu_dump(e6000sw_softc_t *sc)
 {
