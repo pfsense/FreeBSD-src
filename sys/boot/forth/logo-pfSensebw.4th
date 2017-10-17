@@ -35,9 +35,9 @@
 : logo ( x y -- ) \ B/W pfSense logo (15 rows x 32 columns)
 
 	s"                               " logo+
+	s"                               " logo+
 	s"   __________________________  " logo+
-	s"  /                          \ " logo+
-	s" |                        ____|" logo+
+	s"  /                       ___\ " logo+
 	s" |                      /`     " logo+
 	s" |                     /    :-|" logo+
 	s" |      _________  ___/    /_ |" logo+
