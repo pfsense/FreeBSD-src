@@ -18,6 +18,7 @@ arm/mv/mv_localbus.c		standard
 arm/mv/mv_machdep.c		standard
 arm/mv/mv_pci_ctrl.c		optional	pci | fdt
 arm/mv/mv_pci.c			optional	pci
+arm/mv/mv_spi.c			optional	mv_spi spibus
 arm/mv/mv_ts.c			standard
 arm/mv/timer.c			optional	!soc_mv_armada38x
 
