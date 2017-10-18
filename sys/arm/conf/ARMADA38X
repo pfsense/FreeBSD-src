@@ -66,6 +66,11 @@ device		sdhci			# mmc/sd host controller
 # SATA
 device		ahci
 
+# SPI
+device		mx25l
+device		mv_spi
+device		spibus
+
 # I2C
 device		iic
 device		iicbus
