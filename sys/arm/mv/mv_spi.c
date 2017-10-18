@@ -327,7 +327,7 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 			reg = MV_SPI_READ(sc, MV_SPI_CONTROL);
 			if (reg & MV_SPI_CTRL_SMEMREADY)
 				break;
-			DELAY(100);
+			DELAY(1);
 		}
 		if (timeout == 0)
 			break;
