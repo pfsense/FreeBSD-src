@@ -59,6 +59,7 @@ struct mv_spi_softc {
 	uint32_t		sc_flags;
 	uint32_t		sc_written;
 	void			*sc_intrhand;
+	bool			sc_bytelen;
 };
 
 #define	MV_SPI_BUSY		0x1
@@ -71,8 +72,10 @@ struct mv_spi_softc {
 
 #define	MV_SPI_CONTROL		0
 #define	MV_SPI_CTRL_CS_SHIFT		2
+#define	MV_SPI_CTRL_SMEMREADY		(1 << 1)
 #define	MV_SPI_CTRL_CS_ACTIVE		(1 << 0)
 #define	MV_SPI_CONF		0x4
+#define	MV_SPI_CONF_BYTELEN		(1 << 5)
 #define	MV_SPI_DATAOUT		0x8
 #define	MV_SPI_DATAIN		0xc
 #define	MV_SPI_INTR_STAT	0x10
@@ -175,47 +178,60 @@ mv_spi_detach(device_t dev)
 }
 
 static __inline void
-mv_spi_rx_byte(struct mv_spi_softc *sc)
+mv_spi_rx_bytes(struct mv_spi_softc *sc)
 {
 	struct spi_command *cmd;
-	uint32_t read;
-	uint8_t *data;
+	uint32_t data, read;
+	uint8_t bytes, *p;
 
+	data = 0;
 	cmd = sc->sc_cmd; 
-	if (sc->sc_read < sc->sc_len && sc->sc_written > 0) {
-		data = (uint8_t *)cmd->rx_cmd;
+	bytes = (sc->sc_len >= 2) ? 2 : 1;
+	if (sc->sc_read < sc->sc_len)
+		data = MV_SPI_READ(sc, MV_SPI_DATAIN);
+	while (sc->sc_read < sc->sc_len && bytes > 0) {
+		p = (uint8_t *)cmd->rx_cmd;
 		read = sc->sc_read++;
 		if (read >= cmd->rx_cmd_sz) {
-			data = (uint8_t *)cmd->rx_data;
+			p = (uint8_t *)cmd->rx_data;
 			read -= cmd->rx_cmd_sz;
 		}
-		data[read] = MV_SPI_READ(sc, MV_SPI_DATAIN) & 0xff;
+		p[read] = (data >> ((2 - bytes) * 8)) & 0xff;
+		bytes--;
 	}
 }
 
 static __inline void
-mv_spi_tx_byte(struct mv_spi_softc *sc)
+mv_spi_tx_bytes(struct mv_spi_softc *sc)
 {
 	struct spi_command *cmd;
-	uint32_t written;
-	uint8_t *data;
+	uint32_t data, written;
+	uint8_t bytes, count, *p;
 
+	data = 0;
+	count = 0;
 	cmd = sc->sc_cmd; 
-	if (sc->sc_written < sc->sc_len) {
-		data = (uint8_t *)cmd->tx_cmd;
+	bytes = (sc->sc_len >= 2) ? 2 : 1;
+	while (sc->sc_written < sc->sc_len && bytes > 0) {
+		p = (uint8_t *)cmd->tx_cmd;
 		written = sc->sc_written++;
 		if (written >= cmd->tx_cmd_sz) {
-			data = (uint8_t *)cmd->tx_data;
+			p = (uint8_t *)cmd->tx_data;
 			written -= cmd->tx_cmd_sz;
 		}
-		MV_SPI_WRITE(sc, MV_SPI_DATAOUT, data[written]);
+		data |= p[written] << ((2 - bytes) * 8);
+		bytes--;
+		count++;
 	}
+	if (count > 0)
+		MV_SPI_WRITE(sc, MV_SPI_DATAOUT, data);
 }
 
 static void
 mv_spi_intr(void *arg)
 {
 	struct mv_spi_softc *sc;
+	uint32_t reg;
 
 	sc = (struct mv_spi_softc *)arg;
 	MV_SPI_LOCK(sc);
@@ -227,10 +243,17 @@ mv_spi_intr(void *arg)
 	}
 
 	/* RX */
-	mv_spi_rx_byte(sc);
+	mv_spi_rx_bytes(sc);
+
+	if (sc->sc_bytelen && (sc->sc_len - sc->sc_written) < 2) {
+		reg = MV_SPI_READ(sc, MV_SPI_CONF);
+		reg &= ~MV_SPI_CONF_BYTELEN;
+		MV_SPI_WRITE(sc, MV_SPI_CONF, reg);
+		sc->sc_bytelen = false;
+	}
 
 	/* TX */
-	mv_spi_tx_byte(sc);
+	mv_spi_tx_bytes(sc);
 
 	/* Check for end of transfer. */
 	if (sc->sc_written == sc->sc_len && sc->sc_read == sc->sc_len)
@@ -244,7 +267,7 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 {
 	struct mv_spi_softc *sc;
 	uint32_t cs, reg;
-	int err;
+	int resid, timeout;
 
 	KASSERT(cmd->tx_cmd_sz == cmd->rx_cmd_sz,
 	    ("TX/RX command sizes should be equal"));
@@ -275,13 +298,41 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	reg = MV_SPI_READ(sc, MV_SPI_CONTROL);
 	MV_SPI_WRITE(sc, MV_SPI_CONTROL, reg | MV_SPI_CTRL_CS_ACTIVE);
 
-	MV_SPI_WRITE(sc, MV_SPI_INTR_MASK, MV_SPI_INTR_SMEMREADY);
+	/* Is the buffer big enough to enable the two byte FIFO ? */
+	if (sc->sc_len >= 2)
+		sc->sc_bytelen = true;
+	reg = MV_SPI_READ(sc, MV_SPI_CONF);
+	if (sc->sc_bytelen)
+		reg |= MV_SPI_CONF_BYTELEN;
+	else
+		reg &= ~MV_SPI_CONF_BYTELEN;
+	MV_SPI_WRITE(sc, MV_SPI_CONF, reg);
 
-	/* Write the first byte to start the transmission. */
-	mv_spi_tx_byte(sc);
+	while ((resid = sc->sc_len - sc->sc_written) > 0) {
 
-	/* Wait for the transaction to complete. */
-	err = mtx_sleep(dev, &sc->sc_mtx, 0, "mv_spi", hz * 2);
+		if (sc->sc_bytelen && resid < 2) {
+			reg = MV_SPI_READ(sc, MV_SPI_CONF);
+			reg &= ~MV_SPI_CONF_BYTELEN;
+			MV_SPI_WRITE(sc, MV_SPI_CONF, reg);
+			sc->sc_bytelen = false;
+		}
+
+		/*
+		 * Write to start the transmission and read the byte
+		 * back when ready.
+		 */
+		mv_spi_tx_bytes(sc);
+		timeout = 1000;
+		while (--timeout > 0) {
+			reg = MV_SPI_READ(sc, MV_SPI_CONTROL);
+			if (reg & MV_SPI_CTRL_SMEMREADY)
+				break;
+			DELAY(100);
+		}
+		if (timeout == 0)
+			break;
+		mv_spi_rx_bytes(sc);
+	}
 
 	/* Stop the controller. */
 	MV_SPI_WRITE(sc, MV_SPI_INTR_MASK, 0);
@@ -298,12 +349,7 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	 * Check for transfer timeout.  The SPI controller doesn't
 	 * return errors.
 	 */
-	if (err == EWOULDBLOCK) {
-		device_printf(sc->sc_dev, "SPI error\n");
-		err = EIO;
-	}
-
-	return (err);
+	return ((timeout == 0) ? EIO : 0);
 }
 
 static phandle_t
