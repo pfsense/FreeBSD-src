@@ -339,6 +339,9 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	MV_SPI_WRITE(sc, MV_SPI_INTR_STAT, 0);
 	reg = MV_SPI_READ(sc, MV_SPI_CONTROL);
 	MV_SPI_WRITE(sc, MV_SPI_CONTROL, reg & ~MV_SPI_CTRL_CS_ACTIVE);
+	reg = MV_SPI_READ(sc, MV_SPI_CONF);
+	MV_SPI_WRITE(sc, MV_SPI_CONF, reg &  ~MV_SPI_CONF_BYTELEN);
+	sc->sc_bytelen = false;
 
 	/* Release the controller and wakeup the next thread waiting for it. */
 	sc->sc_flags = 0;
