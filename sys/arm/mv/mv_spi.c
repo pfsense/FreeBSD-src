@@ -274,9 +274,9 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	KASSERT(cmd->tx_data_sz == cmd->rx_data_sz,
 	    ("TX/RX data sizes should be equal"));
 
-        /* Get the proper chip select for this child. */
-        spibus_get_cs(child, &cs);
-        cs &= ~SPIBUS_CS_HIGH;
+	/* Get the proper chip select for this child. */
+	spibus_get_cs(child, &cs);
+	cs &= ~SPIBUS_CS_HIGH;
 
 	sc = device_get_softc(dev);
 	MV_SPI_LOCK(sc);
@@ -340,7 +340,7 @@ mv_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	reg = MV_SPI_READ(sc, MV_SPI_CONTROL);
 	MV_SPI_WRITE(sc, MV_SPI_CONTROL, reg & ~MV_SPI_CTRL_CS_ACTIVE);
 	reg = MV_SPI_READ(sc, MV_SPI_CONF);
-	MV_SPI_WRITE(sc, MV_SPI_CONF, reg &  ~MV_SPI_CONF_BYTELEN);
+	MV_SPI_WRITE(sc, MV_SPI_CONF, reg & ~MV_SPI_CONF_BYTELEN);
 	sc->sc_bytelen = false;
 
 	/* Release the controller and wakeup the next thread waiting for it. */
