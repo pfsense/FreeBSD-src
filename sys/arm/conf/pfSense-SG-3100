@@ -2,7 +2,3 @@ include		ARMADA38X
 include		pfSense
 
 ident		pfSense-SG-3100
-
-nodevice	mx25l
-nodevice	mv_spi
-nodevice	spibus
