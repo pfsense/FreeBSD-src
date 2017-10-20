@@ -397,6 +397,7 @@ mx25l_read(device_t dev, off_t offset, caddr_t data, off_t count)
 		txBuf[4] = 0;
 	}
 
+	memset(data, 0, count);
 	cmd.tx_cmd = txBuf;
 	cmd.rx_cmd = rxBuf;
 	cmd.tx_data = data;
