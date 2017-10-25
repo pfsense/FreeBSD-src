@@ -3545,7 +3545,7 @@ mvneta_update_mib(struct mvneta_softc *sc)
 		sc->sysctl_mib[i].counter += val;
 		switch (mvneta_mib_list[i].regnum) {
 			case MVNETA_MIB_RX_GOOD_OCT:
-				if_inc_counter(sc->ifp, IFCOUNTER_IBYTES, val);
+				//if_inc_counter(sc->ifp, IFCOUNTER_IBYTES, val);
 				break;
 			case MVNETA_MIB_RX_BAD_FRAME:
 				if_inc_counter(sc->ifp, IFCOUNTER_IERRORS, val);
@@ -3557,7 +3557,7 @@ mvneta_update_mib(struct mvneta_softc *sc)
 				if_inc_counter(sc->ifp, IFCOUNTER_IMCASTS, val);
 				break;
 			case MVNETA_MIB_TX_GOOD_OCT:
-				if_inc_counter(sc->ifp, IFCOUNTER_OBYTES, val);
+				//if_inc_counter(sc->ifp, IFCOUNTER_OBYTES, val);
 				break;
 			case MVNETA_MIB_TX_GOOD_FRAME:
 				if_inc_counter(sc->ifp, IFCOUNTER_OPACKETS, val);
