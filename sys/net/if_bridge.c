@@ -246,8 +246,7 @@ static void	bridge_ifdetach(void *arg __unused, struct ifnet *);
 static void	bridge_init(void *);
 static void	bridge_dummynet(struct mbuf *, struct ifnet *);
 static void	bridge_stop(struct ifnet *, int);
-static int	bridge_transmit(struct ifnet *, struct mbuf *);
-static void	bridge_qflush(struct ifnet *);
+static void	bridge_start(struct ifnet *);
 static struct mbuf *bridge_input(struct ifnet *, struct mbuf *);
 static int	bridge_output(struct ifnet *, struct mbuf *, struct sockaddr *,
 		    struct rtentry *);
@@ -658,10 +657,12 @@ bridge_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	if_initname(ifp, bridge_name, unit);
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = bridge_ioctl;
-	ifp->if_transmit = bridge_transmit;
-	ifp->if_qflush = bridge_qflush;
+	ifp->if_start = bridge_start;
 	ifp->if_init = bridge_init;
 	ifp->if_type = IFT_BRIDGE;
+	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
+	ifp->if_snd.ifq_drv_maxlen = 0;
+	IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Generate an ethernet address with a locally administered address.
@@ -746,6 +747,7 @@ bridge_clone_destroy(struct ifnet *ifp)
 	BRIDGE_LIST_UNLOCK();
 
 	bstp_detach(&sc->sc_stp);
+	IFQ_PURGE(&ifp->if_snd);
 	ether_ifdetach(ifp);
 	if_free(ifp);
 
@@ -2103,43 +2105,33 @@ sendunicast:
 	return (0);
 }
 
-/*
- * bridge_transmit:
- *
- *	Do output on a bridge.
- *
- */
-static int
-bridge_transmit(struct ifnet *ifp, struct mbuf *m)
+
+static void
+bridge_start(struct ifnet *ifp)
 {
 	struct bridge_softc *sc;
 	struct ether_header *eh;
 	struct ifnet *dst_if;
-	int error = 0;
+	struct mbuf *m;
 
 	sc = ifp->if_softc;
+        for (;;) {
+                IFQ_DEQUEUE(&ifp->if_snd, m);
+                if (m == NULL)
+                        break;
 
-	ETHER_BPF_MTAP(ifp, m);
+		ETHER_BPF_MTAP(ifp, m);
 
-	eh = mtod(m, struct ether_header *);
+		eh = mtod(m, struct ether_header *);
 
-	BRIDGE_LOCK(sc);
-	if (((m->m_flags & (M_BCAST|M_MCAST)) == 0) &&
-	    (dst_if = bridge_rtlookup(sc, eh->ether_dhost, 1)) != NULL) {
-		BRIDGE_UNLOCK(sc);
-		error = bridge_enqueue(sc, dst_if, m);
-	} else
-		bridge_broadcast(sc, ifp, m, 0);
-
-	return (error);
-}
-
-/*
- * The ifp->if_qflush entry point for if_bridge(4) is no-op.
- */
-static void
-bridge_qflush(struct ifnet *ifp __unused)
-{
+		BRIDGE_LOCK(sc);
+		if (((m->m_flags & (M_BCAST|M_MCAST)) == 0) &&
+		    (dst_if = bridge_rtlookup(sc, eh->ether_dhost, 1)) != NULL) {
+			BRIDGE_UNLOCK(sc);
+			(void)bridge_enqueue(sc, dst_if, m);
+		} else
+			bridge_broadcast(sc, ifp, m, 0);
+	}
 }
 
 /*
