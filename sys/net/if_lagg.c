@@ -840,10 +840,13 @@ lagg_port_destroy(struct lagg_port *lp, int rundelport)
 
 		/*
 		 * Update lladdr for each port (new primary needs update
-		 * as well, to switch from old lladdr to its 'real' one)
+		 * as well, to switch from old lladdr to its 'real' one).
+		 * We can skip this if the lagg is being destroyed.
 		 */
-		CK_SLIST_FOREACH(lp_ptr, &sc->sc_ports, lp_entries)
-			if_setlladdr(lp_ptr->lp_ifp, lladdr, ETHER_ADDR_LEN);
+		if (sc->sc_destroying == 0) {
+			CK_SLIST_FOREACH(lp_ptr, &sc->sc_ports, lp_entries)
+				if_setlladdr(lp_ptr->lp_ifp, lladdr, ETHER_ADDR_LEN);
+		}
 	}
 
 	if (lp->lp_ifflags)
