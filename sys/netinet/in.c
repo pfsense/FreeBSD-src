@@ -1295,6 +1295,9 @@ in_lltable_delete_entry(struct lltable *llt, struct llentry *lle)
 #ifdef DIAGNOSTIC
 	log(LOG_INFO, "ifaddr cache = %p is deleted\n", lle);
 #endif
+	/* cancel timer */
+	if (callout_stop(&lle->lle_timer) > 0)
+		LLE_REMREF(lle);
 	llentry_free(lle);
 }
 
