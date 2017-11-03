@@ -118,7 +118,9 @@ options		NETGRAPH_DEFLATE
 options		NETGRAPH_PRED1
 
 # IPSEC
-options		TCP_SIGNATURE
+options 	IPSEC		# IP (v4/v6) security
+options 	IPSEC_SUPPORT	# Allow kldload of ipsec and tcpmd5
+options 	TCP_SIGNATURE
 device		enc
 
 # ALTQ
