@@ -1140,7 +1140,7 @@ cpswp_init_locked(void *arg)
 #endif
 	struct cpswp_softc *sc = arg;
 	struct ifnet *ifp;
-	uint32_t reg;
+	uint32_t ports, reg;
 
 	CPSW_DEBUGF(sc->swsc, (""));
 	CPSW_PORT_LOCK_ASSERT(sc);
@@ -1177,10 +1177,13 @@ cpswp_init_locked(void *arg)
 		/* Set Port VID. */
 		cpsw_write_4(sc->swsc, CPSW_PORT_P_VLAN(sc->unit + 1),
 		    sc->vlan & 0xfff);
+		/* Default to port + CPU port. */
+		ports = (1 << (sc->unit + 1)) | (1 << 0);
 		cpsw_ale_update_vlan_table(sc->swsc, sc->vlan,
-		    (1 << (sc->unit + 1)) | (1 << 0), /* Member list */
-		    (1 << (sc->unit + 1)) | (1 << 0), /* Untagged egress */
-		    (1 << (sc->unit + 1)) | (1 << 0), 0); /* mcast reg flood */
+		    ports,		/* Member list */
+		    ports,		/* Untagged egress */
+		    ports,		/* Mcast reg flood */
+		    (sc->swsc->allmulti ? ports : 0)); /* Mcast unreg flood */
 #ifdef CPSW_ETHERSWITCH
 		for (i = 0; i < CPSW_VLANS; i++) {
 			if (cpsw_vgroups[i].vid != -1)
@@ -1371,9 +1374,8 @@ cpsw_set_promisc(struct cpswp_softc *sc, int set)
 static void
 cpsw_set_allmulti(struct cpswp_softc *sc, int set)
 {
-	if (set) {
-		printf("All-multicast mode unimplemented\n");
-	}
+	sc->swsc->allmulti = (set) ? true : false;
+	cpswp_ale_update_addresses(sc, 1);
 }
 
 static int
@@ -2954,7 +2956,8 @@ cpsw_setvgroup(device_t dev, etherswitch_vlangroup_t *vg)
 
 	cpsw_vgroups[vg->es_vlangroup].vid = vg->es_vid;
 	cpsw_ale_update_vlan_table(sc, vg->es_vid, vg->es_member_ports,
-	    vg->es_untagged_ports, vg->es_member_ports, 0);
+	    vg->es_untagged_ports, vg->es_member_ports,
+	    (sc->allmulti ? vg->es_member_ports : 0));
 
 	return (0);
 }
