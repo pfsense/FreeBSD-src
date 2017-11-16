@@ -88,7 +88,8 @@ struct cpsw_softc {
 	device_t	dev;
 	int		active_slave;
 	int		debug;
-	int		dualemac;
+	bool		dualemac;
+	bool		allmulti;
 	phandle_t	node;
 	struct bintime	attach_uptime; /* system uptime when attach happened. */
 	struct cpsw_port port[2];
