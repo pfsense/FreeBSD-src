@@ -226,6 +226,11 @@ cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_root.c			optional zfs compile-wi
 cddl/contrib/opensolaris/uts/common/fs/zfs/zap.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/zap_leaf.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/zap_micro.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/zcp.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/zcp_get.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/zcp_global.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/zcp_iter.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/zcp_synctask.c		optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/zfeature.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/zfs_acl.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/zfs_byteswap.c		optional zfs compile-with "${ZFS_C}"
@@ -265,6 +270,34 @@ cddl/contrib/opensolaris/uts/common/zmod/trees.c			optional zfs compile-with "${
 cddl/contrib/opensolaris/uts/common/zmod/zmod.c				optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/zmod/zmod_subr.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/zmod/zutil.c			optional zfs compile-with "${ZFS_C}"
+# zfs lua support
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lapi.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lauxlib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lbaselib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lbitlib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lcode.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lcompat.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lcorolib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lctype.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ldebug.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ldo.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ldump.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lfunc.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lgc.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/llex.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lmem.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lobject.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lopcodes.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lparser.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lstate.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lstring.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lstrlib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ltable.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ltablib.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/ltm.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lundump.c		optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lvm.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lzio.c			optional zfs compile-with "${ZFS_C}"
 # dtrace specific
 cddl/contrib/opensolaris/uts/common/dtrace/dtrace.c	optional dtrace compile-with "${DTRACE_C}" \
 							warning "kernel contains CDDL licensed DTRACE"
@@ -1687,13 +1720,13 @@ dev/ie/if_ie.c			optional ie isa nowerror
 dev/ie/if_ie_isa.c		optional ie isa
 dev/iicbus/ad7418.c		optional ad7418
 dev/iicbus/ds1307.c		optional ds1307
-dev/iicbus/ds133x.c		optional ds133x
-dev/iicbus/ds1374.c		optional ds1374
+dev/iicbus/ds13rtc.c		optional ds13rtc | ds133x | ds1374
 dev/iicbus/ds1672.c		optional ds1672
 dev/iicbus/ds3231.c		optional ds3231
 dev/iicbus/icee.c		optional icee
 dev/iicbus/if_ic.c		optional ic
 dev/iicbus/iic.c		optional iic
+dev/iicbus/iic_recover_bus.c	optional iicbus
 dev/iicbus/iicbb.c		optional iicbb
 dev/iicbus/iicbb_if.m		optional iicbb
 dev/iicbus/iicbus.c		optional iicbus
@@ -1703,10 +1736,11 @@ dev/iicbus/iicsmb.c		optional iicsmb				\
 	dependency	"iicbus_if.h"
 dev/iicbus/iicoc.c		optional iicoc
 dev/iicbus/is31fl319x.c		optional is31fl319x gpio
+dev/iicbus/isl12xx.c		optional isl12xx
 dev/iicbus/lm75.c		optional lm75
+dev/iicbus/nxprtc.c		optional nxprtc | pcf8563
 dev/iicbus/ofw_iicbus.c		optional fdt iicbus
 dev/iicbus/pca9552.c		optional pca9552 gpio
-dev/iicbus/pcf8563.c		optional pcf8563
 dev/iicbus/s35390a.c		optional s35390a
 dev/iir/iir.c			optional iir
 dev/iir/iir_ctrl.c		optional iir
@@ -2131,6 +2165,62 @@ dev/le/if_le_pci.c		optional le pci
 dev/le/lance.c			optional le
 dev/led/led.c			standard
 dev/lge/if_lge.c		optional lge
+dev/liquidio/base/cn23xx_pf_device.c		optional lio	\
+	compile-with "${NORMAL_C}				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_console.c			optional lio	\
+	compile-with "${NORMAL_C}				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_ctrl.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_device.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_droq.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_mem_ops.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_request_manager.c		optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/base/lio_response_manager.c	optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_core.c				optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_ioctl.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_main.c				optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_rss.c				optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_rxtx.c				optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+dev/liquidio/lio_sysctl.c			optional lio	\
+	compile-with "${NORMAL_C} 				\
+	-I$S/dev/liquidio -I$S/dev/liquidio/base -DSMP"
+lio.c	optional lio						\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk lio_23xx_nic.bin.fw:lio_23xx_nic.bin -mlio_23xx_nic.bin -c${.TARGET}" \
+	no-implicit-rule before-depend local			\
+	clean		"lio.c"
+lio_23xx_nic.bin.fw.fwo optional lio				\
+	dependency	"lio_23xx_nic.bin.fw"			\
+	compile-with	"${NORMAL_FWO}"				\
+	no-implicit-rule					\
+	clean		"lio_23xx_nic.bin.fw.fwo"
+lio_23xx_nic.bin.fw	optional lio					\
+	dependency	"$S/contrib/dev/liquidio/lio_23xx_nic.bin.uu"	\
+	compile-with	"${NORMAL_FW}"					\
+	no-obj no-implicit-rule						\
+	clean		"lio_23xx_nic.bin.fw"
 dev/lmc/if_lmc.c		optional lmc
 dev/malo/if_malo.c		optional malo
 dev/malo/if_malohal.c		optional malo
@@ -2169,6 +2259,7 @@ dev/mii/micphy.c		optional miibus fdt | micphy fdt
 dev/mii/mii.c			optional miibus | mii
 dev/mii/mii_bitbang.c		optional miibus | mii_bitbang
 dev/mii/mii_physubr.c		optional miibus | mii
+dev/mii/mii_fdt.c		optional miibus fdt | mii fdt
 dev/mii/miibus_if.m		optional miibus | mii
 dev/mii/mlphy.c			optional miibus | mlphy
 dev/mii/nsgphy.c		optional miibus | nsgphy
@@ -2187,6 +2278,7 @@ dev/mii/tlphy.c			optional miibus | tlphy
 dev/mii/truephy.c		optional miibus | truephy
 dev/mii/ukphy.c			optional miibus | mii
 dev/mii/ukphy_subr.c		optional miibus | mii
+dev/mii/vscphy.c		optional miibus | vscphy
 dev/mii/xmphy.c			optional miibus | xmphy
 dev/mk48txx/mk48txx.c		optional mk48txx
 dev/mlx/mlx.c			optional mlx
@@ -2972,6 +3064,7 @@ dev/usb/input/uep.c		optional uep
 dev/usb/input/uhid.c		optional uhid
 dev/usb/input/ukbd.c		optional ukbd
 dev/usb/input/ums.c		optional ums
+dev/usb/input/wmt.c		optional wmt
 dev/usb/input/wsp.c		optional wsp
 #
 # USB quirks
@@ -4290,6 +4383,27 @@ ofed/drivers/net/mlx4/en_tx.c			optional mlxen		\
 	no-depend obj-prefix "mlx4_"					\
 	compile-with "${OFED_C_NOIMP} -I$S/ofed/drivers/net/mlx4/"
 
+dev/mlx5/mlx5_ib/mlx5_ib_ah.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_cq.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_doorbell.c		optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_mad.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_main.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_mem.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_mr.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_qp.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_roce.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_ib/mlx5_ib_srq.c			optional mlx5ib pci ofed \
+	compile-with "${OFED_C}"
+
 dev/mlx5/mlx5_core/mlx5_alloc.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_cmd.c			optional mlx5 pci	\
@@ -4497,6 +4611,7 @@ vm/swap_pager.c			standard
 vm/uma_core.c			standard
 vm/uma_dbg.c			standard
 vm/memguard.c			optional DEBUG_MEMGUARD
+vm/vm_domain.c			standard
 vm/vm_fault.c			standard
 vm/vm_glue.c			standard
 vm/vm_init.c			standard
@@ -4511,7 +4626,8 @@ vm/vm_pager.c			standard
 vm/vm_phys.c			standard
 vm/vm_radix.c			standard
 vm/vm_reserv.c			standard
-vm/vm_domain.c			standard
+vm/vm_swapout.c			optional !NO_SWAPPING
+vm/vm_swapout_dummy.c		optional NO_SWAPPING
 vm/vm_unix.c			standard
 vm/vm_zeroidle.c		standard
 vm/vnode_pager.c		standard

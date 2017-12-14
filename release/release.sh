@@ -1,6 +1,6 @@
 #!/bin/sh
 #-
-# Copyright (c) 2013-2015 The FreeBSD Foundation
+# Copyright (c) 2013-2017 The FreeBSD Foundation
 # Copyright (c) 2013 Glen Barber
 # Copyright (c) 2011 Nathan Whitehorn
 # All rights reserved.
@@ -148,10 +148,11 @@ env_check() {
 		WITH_COMPRESSED_IMAGES=
 		NODOC=yes
 		case ${EMBEDDED_TARGET}:${EMBEDDED_TARGET_ARCH} in
-			arm:armv6)
-				chroot_build_release_cmd="chroot_arm_armv6_build_release"
+			arm:arm*|arm64:aarch64)
+				chroot_build_release_cmd="chroot_arm_build_release"
 				;;
 			*)
+				;;
 		esac
 	fi
 
@@ -251,8 +252,8 @@ chroot_setup() {
 extra_chroot_setup() {
 	mkdir -p ${CHROOTDIR}/dev
 	mount -t devfs devfs ${CHROOTDIR}/dev
-	[ -e /etc/resolv.conf ] && cp /etc/resolv.conf \
-		${CHROOTDIR}/etc/resolv.conf
+	[ -e /etc/resolv.conf -a ! -e ${CHROOTDIR}/etc/resolv.conf ] && \
+		cp /etc/resolv.conf ${CHROOTDIR}/etc/resolv.conf
 	# Run ldconfig(8) in the chroot directory so /var/run/ld-elf*.so.hints
 	# is created.  This is needed by ports-mgmt/pkg.
 	eval chroot ${CHROOTDIR} /etc/rc.d/ldconfig forcerestart
@@ -279,8 +280,11 @@ extra_chroot_setup() {
 			PBUILD_FLAGS="OSVERSION=${_OSVERSION} BATCH=yes"
 			PBUILD_FLAGS="${PBUILD_FLAGS} UNAME_r=${UNAME_r}"
 			PBUILD_FLAGS="${PBUILD_FLAGS} OSREL=${REVISION}"
-			chroot ${CHROOTDIR} make -C /usr/ports/textproc/docproj \
-				${PBUILD_FLAGS} OPTIONS_UNSET="FOP IGOR" \
+			PBUILD_FLAGS="${PBUILD_FLAGS} WRKDIRPREFIX=/tmp/ports"
+			PBUILD_FLAGS="${PBUILD_FLAGS} DISTDIR=/tmp/distfiles"
+			chroot ${CHROOTDIR} env ${PBUILD_FLAGS} make -C \
+				/usr/ports/textproc/docproj \
+				OPTIONS_UNSET="FOP IGOR" \
 				FORCE_PKG_REGISTER=1 \
 				install clean distclean
 		fi
@@ -293,9 +297,12 @@ extra_chroot_setup() {
 		PBUILD_FLAGS="OSVERSION=${_OSVERSION} BATCH=yes"
 		PBUILD_FLAGS="${PBUILD_FLAGS} UNAME_r=${UNAME_r}"
 		PBUILD_FLAGS="${PBUILD_FLAGS} OSREL=${REVISION}"
+		PBUILD_FLAGS="${PBUILD_FLAGS} WRKDIRPREFIX=/tmp/ports"
+		PBUILD_FLAGS="${PBUILD_FLAGS} DISTDIR=/tmp/distfiles"
 		for _PORT in ${EMBEDDEDPORTS}; do
-			eval chroot ${CHROOTDIR} make -C /usr/ports/${_PORT} \
-				FORCE_PKG_REGISTER=1 ${PBUILD_FLAGS} install clean distclean
+			eval chroot ${CHROOTDIR} env ${PBUILD_FLAGS} make -C \
+				/usr/ports/${_PORT} \
+				FORCE_PKG_REGISTER=1 install clean distclean
 		done
 	fi
 
@@ -346,13 +353,19 @@ chroot_build_release() {
 	return 0
 } # chroot_build_release()
 
-# chroot_arm_armv6_build_release(): Create arm/armv6 SD card image.
-chroot_arm_armv6_build_release() {
+# chroot_arm_build_release(): Create arm SD card image.
+chroot_arm_build_release() {
 	load_target_env
 	eval chroot ${CHROOTDIR} make -C /usr/src/release obj
-	if [ -e "${RELENGDIR}/tools/${EMBEDDED_TARGET}.subr" ]; then
-		. "${RELENGDIR}/tools/${EMBEDDED_TARGET}.subr"
-	fi
+	case ${EMBEDDED_TARGET} in
+		arm|arm64)
+			if [ -e "${RELENGDIR}/tools/arm.subr" ]; then
+				. "${RELENGDIR}/tools/arm.subr"
+			fi
+			;;
+		*)
+			;;
+	esac
 	[ ! -z "${RELEASECONF}" ] && . "${RELEASECONF}"
 	WORLDDIR="$(eval chroot ${CHROOTDIR} make -C /usr/src/release -V WORLDDIR)"
 	OBJDIR="$(eval chroot ${CHROOTDIR} make -C /usr/src/release -V .OBJDIR)"
@@ -381,7 +394,7 @@ chroot_arm_armv6_build_release() {
 		> CHECKSUM.SHA256
 
 	return 0
-} # chroot_arm_armv6_build_release()
+} # chroot_arm_build_release()
 
 # main(): Start here.
 main() {

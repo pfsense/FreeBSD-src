@@ -243,7 +243,9 @@ DRIVER_MODULE(ix, pci, ix_driver, ix_devclass, 0, 0);
 
 MODULE_DEPEND(ix, pci, 1, 1, 1);
 MODULE_DEPEND(ix, ether, 1, 1, 1);
+#ifdef DEV_NETMAP
 MODULE_DEPEND(ix, netmap, 1, 1, 1);
+#endif
 
 /*
  * TUNEABLE PARAMETERS:
@@ -728,6 +730,8 @@ ixgbe_attach(device_t dev)
 	ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
 	IXGBE_WRITE_REG(hw, IXGBE_CTRL_EXT, ctrl_ext);
 
+	hw->allow_unsupported_sfp = allow_unsupported_sfp;
+
 	/*
 	 * Initialize the shared code
 	 */
@@ -740,7 +744,6 @@ ixgbe_attach(device_t dev)
 	if (hw->mbx.ops.init_params)
 		hw->mbx.ops.init_params(hw);
 
-	hw->allow_unsupported_sfp = allow_unsupported_sfp;
 
 	/* Pick up the 82599 settings */
 	if (hw->mac.type != ixgbe_mac_82598EB) {

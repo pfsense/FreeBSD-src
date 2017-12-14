@@ -258,6 +258,7 @@ MAN=	aac.4 \
 	led.4 \
 	lge.4 \
 	${_linux.4} \
+	${_liquidio.4} \
 	lm75.4 \
 	lmc.4 \
 	lo.4 \
@@ -383,7 +384,9 @@ MAN=	aac.4 \
 	ng_vlan.4 \
 	nmdm.4 \
 	nsp.4 \
-	${_ntb_hw.4} \
+	${_ntb.4} \
+	${_ntb_hw_intel.4} \
+	${_ntb_hw_plx.4} \
 	${_ntb_transport.4} \
 	${_if_ntb.4} \
 	null.4 \
@@ -578,6 +581,7 @@ MAN=	aac.4 \
 	wlan_tkip.4 \
 	wlan_wep.4 \
 	wlan_xauth.4 \
+	wmt.4 \
 	${_wpi.4} \
 	wsp.4 \
 	xe.4 \
@@ -614,7 +618,8 @@ MLINKS+=${_bxe.4} ${_if_bxe.4}
 MLINKS+=cas.4 if_cas.4
 MLINKS+=cdce.4 if_cdce.4
 MLINKS+=cfi.4 cfid.4
-MLINKS+=cloudabi.4 cloudabi64.4
+MLINKS+=cloudabi.4 cloudabi32.4 \
+	cloudabi.4 cloudabi64.4
 MLINKS+=crypto.4 cryptodev.4
 MLINKS+=cue.4 if_cue.4
 MLINKS+=cxgb.4 if_cxgb.4
@@ -707,7 +712,6 @@ MLINKS+=netintro.4 net.4 \
 	netintro.4 networking.4
 MLINKS+=${_nfe.4} ${_if_nfe.4}
 MLINKS+=nge.4 if_nge.4
-MLINKS+=${_ntb_hw.4} ${_ntb.4}
 MLINKS+=${_nxge.4} ${_if_nxge.4}
 MLINKS+=ow.4 onewire.4
 MLINKS+=patm.4 if_patm.4
@@ -819,6 +823,7 @@ _if_wpi.4=	if_wpi.4
 _ipmi.4=	ipmi.4
 _io.4=		io.4
 _linux.4=	linux.4
+_liquidio.4=	liquidio.4
 _ndis.4=	ndis.4
 _nfe.4=		nfe.4
 _nfsmb.4=	nfsmb.4
@@ -853,7 +858,8 @@ _xnb.4=		xnb.4
 _if_ntb.4=	if_ntb.4
 _ioat.4=	ioat.4
 _ntb.4=		ntb.4
-_ntb_hw.4=	ntb_hw.4
+_ntb_hw_intel.4=	ntb_hw_intel.4
+_ntb_hw_plx.4=	ntb_hw_plx.4
 _ntb_transport.4=ntb_transport.4
 _qlxge.4=	qlxge.4
 _qlxgb.4=	qlxgb.4
@@ -906,6 +912,7 @@ MAN+=		iser.4
 
 .if ${MK_OFED} != "no"
 MAN+=		mlx4ib.4
+MAN+=		mlx5ib.4
 .endif
 
 .if ${MK_TESTS} != "no"

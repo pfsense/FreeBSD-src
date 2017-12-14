@@ -75,6 +75,7 @@
 #include <sys/sched.h>
 #include <sys/acl.h>
 #include <vm/vm_param.h>
+#include <sys/zil.h>
 
 /*
  * Programming rules.
@@ -1035,31 +1036,18 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 			 * holding up the transaction if the data copy hangs
 			 * up on a pagefault (e.g., from an NFS server mapping).
 			 */
-#ifdef illumos
 			size_t cbytes;
-#endif
 
 			abuf = dmu_request_arcbuf(sa_get_db(zp->z_sa_hdl),
 			    max_blksz);
 			ASSERT(abuf != NULL);
 			ASSERT(arc_buf_size(abuf) == max_blksz);
-#ifdef illumos
 			if (error = uiocopy(abuf->b_data, max_blksz,
 			    UIO_WRITE, uio, &cbytes)) {
 				dmu_return_arcbuf(abuf);
 				break;
 			}
 			ASSERT(cbytes == max_blksz);
-#else
-			ssize_t resid = uio->uio_resid;
-			error = vn_io_fault_uiomove(abuf->b_data, max_blksz, uio);
-			if (error != 0) {
-				uio->uio_offset -= resid - uio->uio_resid;
-				uio->uio_resid = resid;
-				dmu_return_arcbuf(abuf);
-				break;
-			}
-#endif
 		}
 
 		/*
@@ -1137,10 +1125,8 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 				dmu_assign_arcbuf(sa_get_db(zp->z_sa_hdl),
 				    woff, abuf, tx);
 			}
-#ifdef illumos
 			ASSERT(tx_bytes <= uio->uio_resid);
 			uioskip(uio, tx_bytes);
-#endif
 		}
 		if (tx_bytes && vn_has_cached_data(vp)) {
 			update_pages(vp, woff, tx_bytes, zfsvfs->z_os,
@@ -1275,7 +1261,7 @@ zfs_get_done(zgd_t *zgd, int error)
 	VN_RELE_ASYNC(ZTOV(zp), dsl_pool_vnrele_taskq(dmu_objset_pool(os)));
 
 	if (error == 0 && zgd->zgd_bp)
-		zil_add_block(zgd->zgd_zilog, zgd->zgd_bp);
+		zil_lwb_add_block(zgd->zgd_lwb, zgd->zgd_bp);
 
 	kmem_free(zgd, sizeof (zgd_t));
 }
@@ -1288,7 +1274,7 @@ static int zil_fault_io = 0;
  * Get data to generate a TX_WRITE intent log record.
  */
 int
-zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
+zfs_get_data(void *arg, lr_write_t *lr, char *buf, struct lwb *lwb, zio_t *zio)
 {
 	zfsvfs_t *zfsvfs = arg;
 	objset_t *os = zfsvfs->z_os;
@@ -1296,13 +1282,13 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	uint64_t object = lr->lr_foid;
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;
-	blkptr_t *bp = &lr->lr_blkptr;
 	dmu_buf_t *db;
 	zgd_t *zgd;
 	int error = 0;
 
-	ASSERT(zio != NULL);
-	ASSERT(size != 0);
+	ASSERT3P(lwb, !=, NULL);
+	ASSERT3P(zio, !=, NULL);
+	ASSERT3U(size, !=, 0);
 
 	/*
 	 * Nothing to do if the file has been removed
@@ -1320,7 +1306,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	}
 
 	zgd = (zgd_t *)kmem_zalloc(sizeof (zgd_t), KM_SLEEP);
-	zgd->zgd_zilog = zfsvfs->z_log;
+	zgd->zgd_lwb = lwb;
 	zgd->zgd_private = zp;
 
 	/*
@@ -1343,7 +1329,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	} else { /* indirect write */
 		/*
 		 * Have to lock the whole block to ensure when it's
-		 * written out and it's checksum is being calculated
+		 * written out and its checksum is being calculated
 		 * that no one can change the data. We need to re-check
 		 * blocksize after we get the lock in case it's changed!
 		 */
@@ -1373,11 +1359,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 			    DMU_READ_NO_PREFETCH);
 
 		if (error == 0) {
-			blkptr_t *obp = dmu_buf_get_blkptr(db);
-			if (obp) {
-				ASSERT(BP_IS_HOLE(bp));
-				*bp = *obp;
-			}
+			blkptr_t *bp = &lr->lr_blkptr;
 
 			zgd->zgd_db = db;
 			zgd->zgd_bp = bp;
@@ -5929,7 +5911,6 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 	vnode_t *vp = ap->a_vp;;
 	zfsvfs_t *zfsvfs = vp->v_vfsp->vfs_data;
 	znode_t *zp = VTOZ(vp);
-	uint64_t parent;
 	int ltype;
 	int error;
 
@@ -5940,13 +5921,7 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 	 * If we are a snapshot mounted under .zfs, run the operation
 	 * on the covered vnode.
 	 */
-	if ((error = sa_lookup(zp->z_sa_hdl,
-	    SA_ZPL_PARENT(zfsvfs), &parent, sizeof (parent))) != 0) {
-		ZFS_EXIT(zfsvfs);
-		return (error);
-	}
-
-	if (zp->z_id != parent || zfsvfs->z_parent == zfsvfs) {
+	if (zp->z_id != zfsvfs->z_root || zfsvfs->z_parent == zfsvfs) {
 		char name[MAXNAMLEN + 1];
 		znode_t *dzp;
 		size_t len;

@@ -816,6 +816,7 @@ g_attach(struct g_consumer *cp, struct g_provider *pp)
 	g_trace(G_T_TOPOLOGY, "g_attach(%p, %p)", cp, pp);
 	KASSERT(cp->provider == NULL, ("attach but attached"));
 	cp->provider = pp;
+	cp->flags &= ~G_CF_ORPHAN;
 	LIST_INSERT_HEAD(&pp->consumers, cp, consumers);
 	error = redo_rank(cp->geom);
 	if (error) {
@@ -914,8 +915,8 @@ g_access(struct g_consumer *cp, int dcr, int dcw, int dce)
 		return (EPERM);
 	/* If we try to open more but provider is error'ed: fail */
 	else if ((dcr > 0 || dcw > 0 || dce > 0) && pp->error != 0) {
-		printf("%s(%d): provider %s has error\n",
-		       __func__, __LINE__, pp->name);
+		printf("%s(%d): provider %s has error %d set\n",
+		    __func__, __LINE__, pp->name, pp->error);
 		return (pp->error);
 	}
 

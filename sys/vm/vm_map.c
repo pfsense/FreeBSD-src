@@ -1556,6 +1556,18 @@ again:
 	return (result);
 }
 
+/*
+ *	vm_map_find_min() is a variant of vm_map_find() that takes an
+ *	additional parameter (min_addr) and treats the given address
+ *	(*addr) differently.  Specifically, it treats *addr as a hint
+ *	and not as the minimum address where the mapping is created.
+ *
+ *	This function works in two phases.  First, it tries to
+ *	allocate above the hint.  If that fails and the hint is
+ *	greater than min_addr, it performs a second pass, replacing
+ *	the hint with min_addr as the minimum address for the
+ *	allocation.
+ */
 int
 vm_map_find_min(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
     vm_offset_t *addr, vm_size_t length, vm_offset_t min_addr,
@@ -1962,7 +1974,7 @@ vm_map_pmap_enter(vm_map_t map, vm_offset_t addr, vm_prot_t prot,
 			    (pagesizes[p->psind] - 1)) == 0) {
 				mask = atop(pagesizes[p->psind]) - 1;
 				if (tmpidx + mask < psize &&
-				    vm_page_ps_is_valid(p)) {
+				    vm_page_ps_test(p, PS_ALL_VALID, NULL)) {
 					p += mask;
 					threshold += mask;
 				}
@@ -3610,12 +3622,13 @@ vm_map_stack_locked(vm_map_t map, vm_offset_t addrbos, vm_size_t max_ssize,
 	KASSERT(orient != (MAP_STACK_GROWS_DOWN | MAP_STACK_GROWS_UP),
 	    ("bi-dir stack"));
 
-	sgp = (vm_size_t)stack_guard_page * PAGE_SIZE;
 	if (addrbos < vm_map_min(map) ||
-	    addrbos > vm_map_max(map) ||
-	    addrbos + max_ssize < addrbos ||
-	    sgp >= max_ssize)
-		return (KERN_NO_SPACE);
+	    addrbos + max_ssize > vm_map_max(map) ||
+	    addrbos + max_ssize <= addrbos)
+		return (KERN_INVALID_ADDRESS);
+	sgp = (vm_size_t)stack_guard_page * PAGE_SIZE;
+	if (sgp >= max_ssize)
+		return (KERN_INVALID_ARGUMENT);
 
 	init_ssize = growsize;
 	if (max_ssize < init_ssize + sgp)

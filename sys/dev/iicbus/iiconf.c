@@ -113,26 +113,30 @@ iicbus_request_bus(device_t bus, device_t dev, int how)
 
 	IICBUS_LOCK(sc);
 
-	while ((error == 0) && (sc->owner != NULL))
+	while (error == 0 && sc->owner != NULL && sc->owner != dev)
 		error = iicbus_poll(sc, how);
 
 	if (error == 0) {
-		sc->owner = dev;
-		/* 
-		 * Drop the lock around the call to the bus driver. 
-		 * This call should be allowed to sleep in the IIC_WAIT case.
-		 * Drivers might also need to grab locks that would cause LOR
-		 * if our lock is held.
-		 */
-		IICBUS_UNLOCK(sc);
-		/* Ask the underlying layers if the request is ok */
-		error = IICBUS_CALLBACK(device_get_parent(bus),
-		    IIC_REQUEST_BUS, (caddr_t)&how);
-		IICBUS_LOCK(sc);
-
-		if (error != 0) {
-			sc->owner = NULL;
-			wakeup_one(sc);
+		++sc->owncount;
+		if (sc->owner == NULL) {
+			sc->owner = dev;
+			/* 
+			 * Drop the lock around the call to the bus driver, it
+			 * should be allowed to sleep in the IIC_WAIT case.
+			 * Drivers might also need to grab locks that would
+			 * cause a LOR if our lock is held.
+			 */
+			IICBUS_UNLOCK(sc);
+			/* Ask the underlying layers if the request is ok */
+			error = IICBUS_CALLBACK(device_get_parent(bus),
+			    IIC_REQUEST_BUS, (caddr_t)&how);
+			IICBUS_LOCK(sc);
+	
+			if (error != 0) {
+				sc->owner = NULL;
+				sc->owncount = 0;
+				wakeup_one(sc);
+			}
 		}
 	}
 
@@ -150,7 +154,6 @@ int
 iicbus_release_bus(device_t bus, device_t dev)
 {
 	struct iicbus_softc *sc = (struct iicbus_softc *)device_get_softc(bus);
-	int error;
 
 	IICBUS_LOCK(sc);
 
@@ -159,26 +162,16 @@ iicbus_release_bus(device_t bus, device_t dev)
 		return (IIC_EBUSBSY);
 	}
 
-	/* 
-	 * Drop the lock around the call to the bus driver. 
-	 * This call should be allowed to sleep in the IIC_WAIT case.
-	 * Drivers might also need to grab locks that would cause LOR
-	 * if our lock is held.
-	 */
-	IICBUS_UNLOCK(sc);
-	/* Ask the underlying layers if the release is ok */
-	error = IICBUS_CALLBACK(device_get_parent(bus), IIC_RELEASE_BUS, NULL);
-
-	if (error == 0) {
+	if (--sc->owncount == 0) {
+		/* Drop the lock while informing the low-level driver. */
+		IICBUS_UNLOCK(sc);
+		IICBUS_CALLBACK(device_get_parent(bus), IIC_RELEASE_BUS, NULL);
 		IICBUS_LOCK(sc);
 		sc->owner = NULL;
-
-		/* wakeup a waiting thread */
 		wakeup_one(sc);
-		IICBUS_UNLOCK(sc);
 	}
-
-	return (error);
+	IICBUS_UNLOCK(sc);
+	return (0);
 }
 
 /*
@@ -419,7 +412,7 @@ iicbus_transfer_gen(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 {
 	int i, error, lenread, lenwrote, nkid, rpstart, addr;
 	device_t *children, bus;
-	bool nostop;
+	bool nostop, started;
 
 	if ((error = device_get_children(dev, &children, &nkid)) != 0)
 		return (IIC_ERESOURCE);
@@ -431,6 +424,7 @@ iicbus_transfer_gen(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 	rpstart = 0;
 	free(children, M_TEMP);
 	nostop = iicbus_get_nostop(dev);
+	started = false;
 	for (i = 0, error = 0; i < nmsgs && error == 0; i++) {
 		addr = msgs[i].slave;
 		if (msgs[i].flags & IIC_M_RD)
@@ -443,9 +437,10 @@ iicbus_transfer_gen(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 				error = iicbus_repeated_start(bus, addr, 0);
 			else
 				error = iicbus_start(bus, addr, 0);
+			if (error != 0)
+				break;
+			started = true;
 		}
-		if (error != 0)
-			break;
 
 		if (msgs[i].flags & IIC_M_RD)
 			error = iicbus_read(bus, msgs[i].buf, msgs[i].len,
@@ -464,7 +459,7 @@ iicbus_transfer_gen(device_t dev, struct iic_msg *msgs, uint32_t nmsgs)
 			iicbus_stop(bus);
 		}
 	}
-	if (error != 0 && !nostop)
+	if (error != 0 && started)
 		iicbus_stop(bus);
 	return (error);
 }
