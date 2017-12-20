@@ -48,6 +48,7 @@ struct atu_opt {
 #define	MV88E6352	0x3520
 #define	MV88E6172	0x1720
 #define	MV88E6176	0x1760
+#define	MV88E6190	0x1900
 
 #define	MVSWITCH(_sc, id)	((_sc)->swid == (id))
 
@@ -56,7 +57,7 @@ struct atu_opt {
  */
 #define	REG_GLOBAL			0x1b
 #define	REG_GLOBAL2			0x1c
-#define	REG_PORT(p)			(0x10 + (p))
+#define	REG_PORT(_sc, p)		(((_sc)->port_base) + (p))
 
 #define	REG_NUM_MAX			31
 
@@ -74,6 +75,7 @@ struct atu_opt {
 
 #define	PSC_CONTROL			0x1
 #define	PSC_CONTROL_FORCED_SPD		(1 << 13)
+#define	PSC_CONTROL_ALT_SPD		(1 << 12)
 #define	PSC_CONTROL_EEE_ON		(1 << 9)
 #define	PSC_CONTROL_FORCED_EEE		(1 << 8)
 #define	PSC_CONTROL_FC_ON		(1 << 7)
@@ -82,7 +84,8 @@ struct atu_opt {
 #define	PSC_CONTROL_FORCED_LINK		(1 << 4)
 #define	PSC_CONTROL_FULLDPX		(1 << 3)
 #define	PSC_CONTROL_FORCED_DPX		(1 << 2)
-#define	PSC_CONTROL_SPD2500		0x3
+#define	PSC_CONTROL_SPD10G		0x3
+#define	PSC_CONTROL_SPD2500		PSC_CONTROL_SPD10G
 #define	PSC_CONTROL_SPD1000		0x2
 #define	SWITCH_ID			0x3
 #define	PORT_CONTROL			0x4
@@ -108,7 +111,6 @@ struct atu_opt {
 #define	PORT_CONTROL2_DISC_UNTAGGED	(1 << 8)
 
 /* PORT_VLAN fields */
-#define	PORT_VLAN_MAP_TABLE_MASK	0x7f
 #define	PORT_VLAN_MAP_FID		12
 #define	PORT_VLAN_MAP_FID_MASK		0xf000
 
@@ -244,7 +246,7 @@ struct atu_opt {
 #define	E6000SW_NUM_VLANS		128
 #define	E6000SW_NUM_LAGS		16
 #define	E6000SW_NUM_PHY_REGS		29
-#define	E6000SW_MAX_PORTS		8
+#define	E6000SW_MAX_PORTS		11
 #define	E6000SW_DEFAULT_AGETIME		20
 #define	E6000SW_RETRIES			100
 #define	E6000SW_SMI_TIMEOUT		16
