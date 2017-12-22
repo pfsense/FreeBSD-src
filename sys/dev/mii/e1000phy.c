@@ -209,6 +209,9 @@ e1000phy_reset(struct mii_softc *sc)
 		}
 	} else {
 		switch (sc->mii_mpd_model) {
+		case MII_MODEL_xxMARVELL_E1000:
+			reg |= E1000_SCR_AUTO_X_MODE;
+			break;
 		case MII_MODEL_xxMARVELL_E1111:
 		case MII_MODEL_xxMARVELL_E1112:
 		case MII_MODEL_xxMARVELL_E1116:
