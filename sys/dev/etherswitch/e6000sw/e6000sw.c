@@ -239,11 +239,11 @@ e6000sw_atu_dump(e6000sw_softc_t *sc, int fid)
 		mac2 = e6000sw_readreg(sc, REG_GLOBAL, ATU_MAC_ADDR23);
 		mac3 = e6000sw_readreg(sc, REG_GLOBAL, ATU_MAC_ADDR45);
 		if (data & ATU_DATA_LAG)
-			device_printf(sc->dev, "fid: %3d  lag: %3d  ", fid,
+			device_printf(sc->dev, "fid: %4d  lag: %3d  ", fid,
 			    (data & ATU_LAG_MASK) >> ATU_LAG_SHIFT);
 		else
-			device_printf(sc->dev, "fid: %3d  port: %2d  ", fid,
-			    ffs((data & ATU_PORT_MASK) >> ATU_PORT_SHIFT) - 1);
+			device_printf(sc->dev, "fid: %4d  port: %2d  ", fid,
+			    ffs((data & ATU_PORT_MASK(sc)) >> ATU_PORT_SHIFT) - 1);
 		printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x (%#x)\n",
 		    (mac1 >> 8) & 0xff, mac1 & 0xff,
 		    (mac2 >> 8) & 0xff, mac2 & 0xff,
@@ -251,7 +251,7 @@ e6000sw_atu_dump(e6000sw_softc_t *sc, int fid)
 	}
 }
 
-#define	E6000SW_BUFSZ		16
+#define	E6000SW_BUFSZ		32
 
 static void
 e6000sw_vtu_dump(e6000sw_softc_t *sc)
@@ -293,9 +293,9 @@ e6000sw_vtu_dump(e6000sw_softc_t *sc)
 		memset(untagged, 0, sizeof(untagged));
 		reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_DATA);
 		for (i = 0; i < sc->num_ports; i++) {
-			if (i == 4)
+			if (i == VTU_PPREG(sc))
 				reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_DATA2);
-			port = (reg >> VTU_PORT(i)) & VTU_PORT_MASK;
+			port = (reg >> VTU_PORT(sc, i)) & VTU_PORT_MASK;
 			if (port == VTU_PORT_UNMODIFIED)
 				buf = unmodified;
 			else if (port == VTU_PORT_UNTAGGED)
@@ -317,8 +317,8 @@ e6000sw_vtu_dump(e6000sw_softc_t *sc)
 
 		reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_FID);
 		device_printf(sc->dev,
-		    "fid: %3d%s  vlan: %4d  discard: %11s  tagged: %11s  untagged: %11s  unmodified: %11s\n",
-		    reg & VTU_FID_MASK, (reg & VTU_FID_POLICY) ? "*" : "",
+		    "fid: %4d%s  vlan: %4d  discard: %22s  tagged: %22s  untagged: %22s  unmodified: %22s\n",
+		    reg & VTU_FID_MASK(sc), (reg & VTU_FID_POLICY) ? "*" : "",
 		    vlan & VTU_VID_MASK,
 		    strlen(discard) > 0 ? discard : "none",
 		    strlen(tagged) > 0 ? tagged : "none",
@@ -806,6 +806,21 @@ e6000sw_detach(device_t dev)
 static etherswitch_info_t*
 e6000sw_getinfo(device_t dev)
 {
+#if defined(E6000SW_DEBUG)
+	int i;
+	struct e6000sw_softc *sc;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK(sc);
+	if (sc->vlan_mode == ETHERSWITCH_VLAN_DOT1Q) {
+		e6000sw_vtu_dump(sc);
+		for (i = 0; i < etherswitch_info.es_nvlangroups; i++)
+			if (sc->vlans[i] != 0)
+				e6000sw_atu_dump(sc, i + 1);
+	} else
+		e6000sw_atu_dump(sc, 0);
+	E6000SW_UNLOCK(sc);
+#endif
 
 	return (&etherswitch_info);
 }
@@ -1053,6 +1068,11 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 		e6000sw_writereg(sc, REG_PORT(sc, port), PORT_CONTROL,
 		    (ret | PORT_CONTROL_ENABLE));
 	}
+
+#if defined(E6000SW_DEBUG)
+	if (sc->vlan_mode == ETHERSWITCH_VLAN_DOT1Q)
+		e6000sw_vtu_dump(sc);
+#endif
 
 	return (0);
 }
@@ -1314,9 +1334,9 @@ e6000sw_get_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 	vg->es_vid |= ETHERSWITCH_VID_VALID;
 	reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_DATA);
 	for (i = 0; i < sc->num_ports; i++) {
-		if (i == 4)
+		if (i == VTU_PPREG(sc))
 			reg = e6000sw_readreg(sc, REG_GLOBAL, VTU_DATA2);
-		port = (reg >> VTU_PORT(i)) & VTU_PORT_MASK;
+		port = (reg >> VTU_PORT(sc, i)) & VTU_PORT_MASK;
 		if (port == VTU_PORT_UNTAGGED) {
 			vg->es_untagged_ports |= (1 << i);
 			vg->es_member_ports |= (1 << i);
@@ -1728,34 +1748,36 @@ e6000sw_vtu_update(e6000sw_softc_t *sc, int purge, int vid, int fid,
     int members, int untagged)
 {
 	int i, op;
-	uint32_t data;
+	uint32_t data[2];
 
 	if (e6000sw_waitready(sc, VTU_OPERATION, VTU_BUSY)) {
 		device_printf(sc->dev, "VTU unit is busy, cannot access\n");
 		return (EBUSY);
 	}
 
-	data = (vid & VTU_VID_MASK);
+	*data = (vid & VTU_VID_MASK);
 	if (purge == 0)
-		data |= VTU_VID_VALID;
-	e6000sw_writereg(sc, REG_GLOBAL, VTU_VID, data);
+		*data |= VTU_VID_VALID;
+	e6000sw_writereg(sc, REG_GLOBAL, VTU_VID, *data);
 
 	if (purge == 0) {
-		data = 0;
+		data[0] = 0;
+		data[1] = 0;
 		for (i = 0; i < sc->num_ports; i++) {
 			if ((untagged & (1 << i)) != 0)
-				data |= VTU_PORT_UNTAGGED << VTU_PORT(i);
+				data[i / VTU_PPREG(sc)] |=
+				    VTU_PORT_UNTAGGED << VTU_PORT(sc, i);
 			else if ((members & (1 << i)) != 0)
-				data |= VTU_PORT_TAGGED << VTU_PORT(i);
+				data[i / VTU_PPREG(sc)] |=
+				    VTU_PORT_TAGGED << VTU_PORT(sc, i);
 			else
-				data |= VTU_PORT_DISCARD << VTU_PORT(i);
-			if (i == 3) {
-				e6000sw_writereg(sc, REG_GLOBAL, VTU_DATA, data);
-				data = 0;
-			}
+				data[i / VTU_PPREG(sc)] |=
+				    VTU_PORT_DISCARD << VTU_PORT(sc, i);
 		}
-		e6000sw_writereg(sc, REG_GLOBAL, VTU_DATA2, data);
-		e6000sw_writereg(sc, REG_GLOBAL, VTU_FID, fid & VTU_FID_MASK);
+		e6000sw_writereg(sc, REG_GLOBAL, VTU_DATA, data[0]);
+		e6000sw_writereg(sc, REG_GLOBAL, VTU_DATA2, data[1]);
+		e6000sw_writereg(sc, REG_GLOBAL, VTU_FID,
+		    fid & VTU_FID_MASK(sc));
 		op = VTU_LOAD;
 	} else
 		op = VTU_PURGE;
