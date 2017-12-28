@@ -131,13 +131,14 @@ struct atu_opt {
 #define	VTU_DATA			7
 #define	VTU_DATA2			8
 
-#define	VTU_FID_MASK			0xff
+#define	VTU_FID_MASK(_sc)		(MVSWITCH((_sc), MV88E6190) ? 0xfff: 0xff)
 #define	VTU_FID_POLICY			(1 << 12)
 #define	VTU_PORT_UNMODIFIED		0
 #define	VTU_PORT_UNTAGGED		1
 #define	VTU_PORT_TAGGED			2
 #define	VTU_PORT_DISCARD		3
-#define	VTU_PORT(p)			(((p) % 4) * 4)
+#define	VTU_PPREG(_sc)			(MVSWITCH((_sc), MV88E6190) ? 8 : 4)
+#define	VTU_PORT(_sc, p)		(((p) % VTU_PPREG(_sc)) * (16 / VTU_PPREG(_sc)))
 #define	VTU_PORT_MASK			3
 #define	VTU_BUSY			(1 << 15)
 #define	VTU_VID_VALID			(1 << 12)
@@ -165,6 +166,12 @@ struct atu_opt {
 #define	ATU_MAC_ADDR23			14
 #define	ATU_MAC_ADDR45			15
 
+#define	ATU_DATA_LAG                    (1 << 15)
+#define	ATU_PORT_MASK(_sc)		(MVSWITCH((_sc), MV88E6190) ? 0xfff0: 0xff0)
+#define	ATU_PORT_SHIFT                  4
+#define	ATU_LAG_MASK                    0xf0
+#define	ATU_LAG_SHIFT                   4
+#define	ATU_STATE_MASK                  0xf
 #define	ATU_UNIT_BUSY			(1 << 15)
 #define	ENTRY_STATE			0xf
 
@@ -174,16 +181,17 @@ struct atu_opt {
 #define	ATU_CONTROL_LEARN2ALL		3
 
 /* ATU opcode */
-#define	NO_OPERATION			(0 << 0)
-#define	FLUSH_ALL			(1 << 0)
-#define	FLUSH_NON_STATIC		(1 << 1)
-#define	LOAD_FROM_FIB			(3 << 0)
-#define	PURGE_FROM_FIB			(3 << 0)
-#define	GET_NEXT_IN_FIB			(1 << 2)
-#define	FLUSH_ALL_IN_FIB		(5 << 0)
-#define	FLUSH_NON_STATIC_IN_FIB		(3 << 1)
-#define	GET_VIOLATION_DATA		(7 << 0)
-#define	CLEAR_VIOLATION_DATA		(7 << 0)
+#define	ATU_OP_MASK                     (7 << 12)
+#define	NO_OPERATION                    (0 << 12)
+#define	FLUSH_ALL                       (1 << 12)
+#define	FLUSH_NON_STATIC                (2 << 12)
+#define	LOAD_FROM_FIB                   (3 << 12)
+#define	PURGE_FROM_FIB                  (3 << 12)
+#define	GET_NEXT_IN_FIB                 (4 << 12)
+#define	FLUSH_ALL_IN_FIB                (5 << 12)
+#define	FLUSH_NON_STATIC_IN_FIB         (6 << 12)
+#define	GET_VIOLATION_DATA              (7 << 12)
+#define	CLEAR_VIOLATION_DATA            (7 << 12)
 
 /* ATU Stats */
 #define	COUNT_ALL			(0 << 0)
