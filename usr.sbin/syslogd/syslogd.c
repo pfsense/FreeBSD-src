@@ -1658,7 +1658,7 @@ configfiles(const struct dirent *dp)
 	return (1);
 }
 
-static void
+static struct filed **
 readconfigfile(FILE *cf, struct filed **nextp, int allow_includes)
 {
 	FILE *cf2;
@@ -1719,7 +1719,7 @@ readconfigfile(FILE *cf, struct filed **nextp, int allow_includes)
 				if (cf2 == NULL)
 					continue;
 				dprintf("reading %s\n", file);
-				readconfigfile(cf2, nextp, 0);
+				nextp = readconfigfile(cf2, nextp, 0);
 				fclose(cf2);
 			}
 			free(ent);
@@ -1786,6 +1786,7 @@ readconfigfile(FILE *cf, struct filed **nextp, int allow_includes)
 		nextp = &f->f_next;
 		cfline(cline, f, prog, host);
 	}
+	return nextp;
 }
 
 /*
