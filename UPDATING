@@ -49,6 +49,12 @@ from older version of current across the gcc/clang cutover is a bit fragile.
 
 	Fix pf(4) housekeeping thread causes kernel panic. [EN-17:08]
 
+20180108:
+	lint(1) binaries and library are no longer built by default.  To
+	enable building them, define WITH_LINT in src.conf.  If you are using
+	a FreeBSD 12 or later system to build 11-stable, you may need to
+	install a lint(1) binary to use WITH_LINT.
+
 20170725:
 	11.1-RELEASE.
 
