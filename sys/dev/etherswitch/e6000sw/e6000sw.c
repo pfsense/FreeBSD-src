@@ -370,10 +370,8 @@ e6000sw_probe(device_t dev)
 	resource_int_value(device_get_name(sc->dev),
 	    device_get_unit(sc->dev), "is8190", &is_8190);
 #endif
-
-	if (sc->sw_addr < 0 || sc->sw_addr > 32 || sc->sw_addr % 2)
+	if (sc->sw_addr < 0 || sc->sw_addr > 32)
 		return (ENXIO);
-
 	if (sc->sw_addr != 0)
 		sc->multi_chip = true;
 
