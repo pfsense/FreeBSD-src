@@ -537,8 +537,6 @@ struct pf_rule {
 	u_int16_t		 pqid;
 	u_int32_t		 dnpipe;
 	u_int32_t		 pdnpipe;
-#define	PFRULE_DN_IS_PIPE	0x00000010
-#define	PFRULE_DN_IS_QUEUE	0x00000020
 	u_int32_t                free_flags;
 	u_int32_t		 rt_listid;
 	u_int32_t		 nr;
@@ -796,6 +794,8 @@ struct pf_state {
 /*  was	PFSTATE_PFLOW		0x04 */
 #define	PFSTATE_NOSYNC		0x08
 #define	PFSTATE_ACK		0x10
+#define	PFRULE_DN_IS_PIPE	0x40
+#define	PFRULE_DN_IS_QUEUE	0x80
 #define	PFSTATE_SETPRIO		0x0200
 #define	PFSTATE_SETMASK   (PFSTATE_SETPRIO)
 	u_int8_t		 timeout;
