@@ -710,6 +710,32 @@ is_icmp6_query(int icmp6_type)
 	return (0);
 }
 
+static int
+map_icmp_unreach(int code)
+{
+
+	/* RFC 7915 p4.2 */
+	switch (code) {
+	case ICMP_UNREACH_NET:
+	case ICMP_UNREACH_HOST:
+	case ICMP_UNREACH_SRCFAIL:
+	case ICMP_UNREACH_NET_UNKNOWN:
+	case ICMP_UNREACH_HOST_UNKNOWN:
+	case ICMP_UNREACH_TOSNET:
+	case ICMP_UNREACH_TOSHOST:
+		return (ICMP6_DST_UNREACH_NOROUTE);
+	case ICMP_UNREACH_PORT:
+		return (ICMP6_DST_UNREACH_NOPORT);
+	default:
+		/*
+		 * Map the rest of codes into admit prohibited.
+		 * XXX: unreach proto should be mapped into ICMPv6
+		 * parameter problem, but we use only unreach type.
+		 */
+		return (ICMP6_DST_UNREACH_ADMIN);
+	}
+}
+
 static void
 send_reject6(struct ip_fw_args *args, int code, u_int hlen, struct ip6_hdr *ip6)
 {
@@ -850,6 +876,9 @@ check_uidgid(ipfw_insn_u32 *insn, struct ip_fw_args *args, int *ugid_lookupp,
 	} else if (id->proto == IPPROTO_UDP) {
 		lookupflags = INPLOOKUP_WILDCARD;
 		pi = &V_udbinfo;
+	} else if (id->proto == IPPROTO_UDPLITE) {
+		lookupflags = INPLOOKUP_WILDCARD;
+		pi = &V_ulitecbinfo;
 	} else
 		return 0;
 	lookupflags |= INPLOOKUP_RLOCKPCB;
@@ -1215,6 +1244,7 @@ do {								\
 				break;
 
 			case IPPROTO_UDP:
+			case IPPROTO_UDPLITE:
 				PULLUP_TO(hlen, ulp, struct udphdr);
 				dst_port = UDP(ulp)->uh_dport;
 				src_port = UDP(ulp)->uh_sport;
@@ -1392,6 +1422,7 @@ do {								\
 				break;
 
 			case IPPROTO_UDP:
+			case IPPROTO_UDPLITE:
 				PULLUP_TO(hlen, ulp, struct udphdr);
 				dst_port = UDP(ulp)->uh_dport;
 				src_port = UDP(ulp)->uh_sport;
@@ -1529,7 +1560,8 @@ do {								\
 				if (offset != 0)
 					break;
 				if (proto == IPPROTO_TCP ||
-				    proto == IPPROTO_UDP)
+				    proto == IPPROTO_UDP ||
+				    proto == IPPROTO_UDPLITE)
 					match = check_uidgid(
 						    (ipfw_insn_u32 *)cmd,
 						    args, &ucred_lookup,
@@ -1712,6 +1744,7 @@ do {								\
 						/* Skip proto without ports */
 						if (proto != IPPROTO_TCP &&
 						    proto != IPPROTO_UDP &&
+						    proto != IPPROTO_UDPLITE &&
 						    proto != IPPROTO_SCTP)
 							break;
 						if (vidx == 2 /* dst-port */)
@@ -1885,8 +1918,9 @@ do {								\
 				 * to guarantee that we have a
 				 * packet with port info.
 				 */
-				if ((proto==IPPROTO_UDP || proto==IPPROTO_TCP)
-				    && offset == 0) {
+				if ((proto == IPPROTO_UDP ||
+				    proto == IPPROTO_UDPLITE ||
+				    proto == IPPROTO_TCP) && offset == 0) {
 					u_int16_t x =
 					    (cmd->opcode == O_IP_SRCPORT) ?
 						src_port : dst_port ;
@@ -2273,6 +2307,8 @@ do {								\
 					pi = &V_tcbinfo;
 				else if (proto == IPPROTO_UDP)
 					pi = &V_udbinfo;
+				else if (proto == IPPROTO_UDPLITE)
+					pi = &V_ulitecbinfo;
 				else
 					break;
 
@@ -2645,9 +2681,12 @@ do {								\
 				    (proto != IPPROTO_ICMPV6 ||
 				     (is_icmp6_query(icmp6_type) == 1)) &&
 				    !(m->m_flags & (M_BCAST|M_MCAST)) &&
-				    !IN6_IS_ADDR_MULTICAST(&args->f_id.dst_ip6)) {
-					send_reject6(
-					    args, cmd->arg1, hlen,
+				    !IN6_IS_ADDR_MULTICAST(
+					&args->f_id.dst_ip6)) {
+					send_reject6(args,
+					    cmd->opcode == O_REJECT ?
+					    map_icmp_unreach(cmd->arg1):
+					    cmd->arg1, hlen,
 					    (struct ip6_hdr *)ip);
 					m = args->m;
 				}

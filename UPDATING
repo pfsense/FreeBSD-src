@@ -16,6 +16,21 @@ from older versions of FreeBSD, try WITHOUT_CLANG and WITH_GCC to bootstrap to
 the tip of head, and then rebuild without this option. The bootstrap process
 from older version of current across the gcc/clang cutover is a bit fragile.
 
+20180211:
+	The LOADER_FIREWIRE_SUPPORT build variable as been renamed to
+	WITH/OUT_LOADER_FIREWIRE. LOADER_{NO_,}GELI_SUPPORT has been renamed
+	to WITH/OUT_LOADER_GELI.
+
+20180210:
+	The geli password typed at boot is now hidden.  To restore the previous
+	behavior, see geli(8) for configuration options.
+
+20180113:
+	The SW_WATCHDOG option is no longer necessary to enable the
+	hardclock-based software watchdog if no hardware watchdog is
+	configured. As before, SW_WATCHDOG will cause the software
+	watchdog to be enabled even if a hardware watchdog is configured.
+
 20180108:
 	lint(1) binaries and library are no longer built by default.  To
 	enable building them, define WITH_LINT in src.conf.  If you are using

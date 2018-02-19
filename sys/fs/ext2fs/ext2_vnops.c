@@ -179,6 +179,7 @@ struct vop_vector ext2_fifoops = {
 	.vop_getattr =		ext2_getattr,
 	.vop_inactive =		ext2_inactive,
 	.vop_kqfilter =		ext2fifo_kqfilter,
+	.vop_pathconf =		ext2_pathconf,
 	.vop_print =		ext2_print,
 	.vop_read =		VOP_PANIC,
 	.vop_reclaim =		ext2_reclaim,
@@ -1596,11 +1597,11 @@ ext2_pathconf(struct vop_pathconf_args *ap)
 	case _PC_NAME_MAX:
 		*ap->a_retval = NAME_MAX;
 		break;
-	case _PC_PATH_MAX:
-		*ap->a_retval = PATH_MAX;
-		break;
 	case _PC_PIPE_BUF:
-		*ap->a_retval = PIPE_BUF;
+		if (ap->a_vp->v_type == VDIR || ap->a_vp->v_type == VFIFO)
+			*ap->a_retval = PIPE_BUF;
+		else
+			error = EINVAL;
 		break;
 	case _PC_CHOWN_RESTRICTED:
 		*ap->a_retval = 1;
@@ -1626,11 +1627,6 @@ ext2_pathconf(struct vop_pathconf_args *ap)
 
 	case _PC_MIN_HOLE_SIZE:
 		*ap->a_retval = ap->a_vp->v_mount->mnt_stat.f_iosize;
-		break;
-	case _PC_ASYNC_IO:
-		/* _PC_ASYNC_IO should have been handled by upper layers. */
-		KASSERT(0, ("_PC_ASYNC_IO should not get here"));
-		error = EINVAL;
 		break;
 	case _PC_PRIO_IO:
 		*ap->a_retval = 0;
@@ -1661,7 +1657,7 @@ ext2_pathconf(struct vop_pathconf_args *ap)
 		break;
 
 	default:
-		error = EINVAL;
+		error = vop_stdpathconf(ap);
 		break;
 	}
 	return (error);
@@ -2065,15 +2061,6 @@ ext2_ind_read(struct vop_read_args *ap)
 		}
 
 		/*
-		 * If IO_DIRECT then set B_DIRECT for the buffer.  This
-		 * will cause us to attempt to release the buffer later on
-		 * and will cause the buffer cache to attempt to free the
-		 * underlying pages.
-		 */
-		if (ioflag & IO_DIRECT)
-			bp->b_flags |= B_DIRECT;
-
-		/*
 		 * We should only get non-zero b_resid when an I/O error
 		 * has occurred, which should cause us to break above.
 		 * However, if the short read did not cause an error,
@@ -2090,25 +2077,7 @@ ext2_ind_read(struct vop_read_args *ap)
 		    (int)xfersize, uio);
 		if (error)
 			break;
-
-		if (ioflag & (IO_VMIO|IO_DIRECT)) {
-			/*
-			 * If it's VMIO or direct I/O, then we don't
-			 * need the buf, mark it available for
-			 * freeing. If it's non-direct VMIO, the VM has
-			 * the data.
-			 */
-			bp->b_flags |= B_RELBUF;
-			brelse(bp);
-		} else {
-			/*
-			 * Otherwise let whoever
-			 * made the request take care of
-			 * freeing it. We just queue
-			 * it onto another list.
-			 */
-			bqrelse(bp);
-		}
+		vfs_bio_brelse(bp, ioflag);
 	}
 
 	/*
@@ -2117,14 +2086,8 @@ ext2_ind_read(struct vop_read_args *ap)
 	 * completion has not set a new value into it. so it must have come
 	 * from a 'break' statement
 	 */
-	if (bp != NULL) {
-		if (ioflag & (IO_VMIO|IO_DIRECT)) {
-			bp->b_flags |= B_RELBUF;
-			brelse(bp);
-		} else {
-			bqrelse(bp);
-		}
-	}
+	if (bp != NULL)
+		vfs_bio_brelse(bp, ioflag);
 
 	if ((error == 0 || uio->uio_resid != orig_resid) &&
 	    (vp->v_mount->mnt_flag & (MNT_NOATIME | MNT_RDONLY)) == 0)
@@ -2382,9 +2345,8 @@ ext2_write(struct vop_write_args *ap)
 		if (error != 0 && (bp->b_flags & B_CACHE) == 0 &&
 		    fs->e2fs_bsize == xfersize)
 			vfs_bio_clrbuf(bp);
-		if (ioflag & (IO_VMIO|IO_DIRECT)) {
-			bp->b_flags |= B_RELBUF;
-		}
+
+		vfs_bio_set_flags(bp, ioflag);
 
 		/*
 		 * If IO_SYNC each buffer is written synchronously.  Otherwise

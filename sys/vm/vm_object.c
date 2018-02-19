@@ -1461,7 +1461,7 @@ retry:
 		if (vm_page_rename(m, new_object, idx)) {
 			VM_OBJECT_WUNLOCK(new_object);
 			VM_OBJECT_WUNLOCK(orig_object);
-			VM_WAIT;
+			vm_radix_wait();
 			VM_OBJECT_WLOCK(orig_object);
 			VM_OBJECT_WLOCK(new_object);
 			goto retry;
@@ -1523,8 +1523,9 @@ vm_object_collapse_scan_wait(vm_object_t object, vm_page_t p, vm_page_t next,
 		vm_page_lock(p);
 	VM_OBJECT_WUNLOCK(object);
 	VM_OBJECT_WUNLOCK(backing_object);
+	/* The page is only NULL when rename fails. */
 	if (p == NULL)
-		VM_WAIT;
+		vm_radix_wait();
 	else
 		vm_page_busy_sleep(p, "vmocol", false);
 	VM_OBJECT_WLOCK(object);
@@ -2267,7 +2268,7 @@ void
 vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
     uint8_t queue)
 {
-	vm_object_t tobject;
+	vm_object_t tobject, t1object;
 	vm_page_t m, tm;
 	vm_pindex_t end_pindex, pindex, tpindex;
 	int depth, locked_depth;
@@ -2281,6 +2282,7 @@ vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
 		return;
 	pindex = OFF_TO_IDX(offset);
 	end_pindex = pindex + atop(length);
+again:
 	locked_depth = 1;
 	VM_OBJECT_RLOCK(object);
 	m = vm_page_find_least(object, pindex);
@@ -2314,16 +2316,26 @@ vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
 			m = TAILQ_NEXT(m, listq);
 		}
 		vm_page_lock(tm);
+		if (vm_page_xbusied(tm)) {
+			for (tobject = object; locked_depth >= 1;
+			    locked_depth--) {
+				t1object = tobject->backing_object;
+				VM_OBJECT_RUNLOCK(tobject);
+				tobject = t1object;
+			}
+			vm_page_busy_sleep(tm, "unwbo", true);
+			goto again;
+		}
 		vm_page_unwire(tm, queue);
 		vm_page_unlock(tm);
 next_page:
 		pindex++;
 	}
 	/* Release the accumulated object locks. */
-	for (depth = 0; depth < locked_depth; depth++) {
-		tobject = object->backing_object;
-		VM_OBJECT_RUNLOCK(object);
-		object = tobject;
+	for (tobject = object; locked_depth >= 1; locked_depth--) {
+		t1object = tobject->backing_object;
+		VM_OBJECT_RUNLOCK(tobject);
+		tobject = t1object;
 	}
 }
 

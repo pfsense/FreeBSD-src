@@ -1947,8 +1947,10 @@ psmattach(device_t dev)
 
 	/* Elantech trackpad`s sync bit differs from touchpad`s one */
 	if (sc->hw.model == MOUSE_MODEL_ELANTECH &&
-	    (sc->elanhw.hascrc || sc->elanhw.hastrackpoint))
+	    (sc->elanhw.hascrc || sc->elanhw.hastrackpoint)) {
 		sc->config |= PSM_CONFIG_NOCHECKSYNC;
+		sc->flags &= ~PSM_NEED_SYNCBITS;
+	}
 
 	if (!verbose)
 		printf("psm%d: model %s, device ID %d\n",
@@ -1959,8 +1961,9 @@ psmattach(device_t dev)
 		    sc->hw.hwid >> 8, sc->hw.buttons);
 		printf("psm%d: config:%08x, flags:%08x, packet size:%d\n",
 		    unit, sc->config, sc->flags, sc->mode.packetsize);
-		printf("psm%d: syncmask:%02x, syncbits:%02x\n",
-		    unit, sc->mode.syncmask[0], sc->mode.syncmask[1]);
+		printf("psm%d: syncmask:%02x, syncbits:%02x%s\n",
+		    unit, sc->mode.syncmask[0], sc->mode.syncmask[1],
+		    sc->config & PSM_CONFIG_NOCHECKSYNC ? " (sync not checked)" : "");
 	}
 
 	if (bootverbose)
@@ -2975,8 +2978,9 @@ psmintr(void *arg)
 			sc->flags &= ~PSM_NEED_SYNCBITS;
 			VLOG(2, (LOG_DEBUG,
 			    "psmintr: Sync bytes now %04x,%04x\n",
-			    sc->mode.syncmask[0], sc->mode.syncmask[0]));
-		} else if ((c & sc->mode.syncmask[0]) != sc->mode.syncmask[1]) {
+			    sc->mode.syncmask[0], sc->mode.syncmask[1]));
+		} else if ((sc->config & PSM_CONFIG_NOCHECKSYNC) == 0 &&
+		    (c & sc->mode.syncmask[0]) != sc->mode.syncmask[1]) {
 			VLOG(3, (LOG_DEBUG, "psmintr: out of sync "
 			    "(%04x != %04x) %d cmds since last error.\n",
 			    c & sc->mode.syncmask[0], sc->mode.syncmask[1],
@@ -4183,7 +4187,7 @@ proc_elantech(struct psm_softc *sc, packetbuf_t *pb, mousestatus_t *ms,
 	/* Determine packet format and do a sanity check for out of sync packets. */
 	if (ELANTECH_PKT_IS_DEBOUNCE(pb, sc->elanhw.hwversion))
 		pkt = ELANTECH_PKT_NOP;
-	else if (ELANTECH_PKT_IS_TRACKPOINT(pb))
+	else if (sc->elanhw.hastrackpoint && ELANTECH_PKT_IS_TRACKPOINT(pb))
 		pkt = ELANTECH_PKT_TRACKPOINT;
 	else
 	switch (sc->elanhw.hwversion) {
@@ -4887,13 +4891,19 @@ psmsoftintr(void *arg)
 			break;
 
 		case MOUSE_MODEL_SYNAPTICS:
-			if (proc_synaptics(sc, pb, &ms, &x, &y, &z) != 0)
+			if (proc_synaptics(sc, pb, &ms, &x, &y, &z) != 0) {
+				VLOG(3, (LOG_DEBUG, "synaptics: "
+				    "packet rejected\n"));
 				goto next;
+			}
 			break;
 
 		case MOUSE_MODEL_ELANTECH:
-			if (proc_elantech(sc, pb, &ms, &x, &y, &z) != 0)
+			if (proc_elantech(sc, pb, &ms, &x, &y, &z) != 0) {
+				VLOG(3, (LOG_DEBUG, "elantech: "
+				    "packet rejected\n"));
 				goto next;
+			}
 			break;
 
 		case MOUSE_MODEL_TRACKPOINT:
@@ -4989,9 +4999,9 @@ next_native:
 		    sizeof(sc->queue.buf);
 		sc->queue.count += pb->inputbytes;
 	}
-	pb->inputbytes = 0;
 
 next:
+	pb->inputbytes = 0;
 	if (++sc->pqueue_start >= PSM_PACKETQUEUE)
 		sc->pqueue_start = 0;
 	} while (sc->pqueue_start != sc->pqueue_end);

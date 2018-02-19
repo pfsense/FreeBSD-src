@@ -41,6 +41,7 @@
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <geom/geom.h>
+#include <crypto/intake.h>
 #else
 #include <assert.h>
 #include <stdio.h>
@@ -99,6 +100,8 @@
 #define	G_ELI_FLAG_NODELETE		0x00000040
 /* This GELI supports GELIBoot */
 #define	G_ELI_FLAG_GELIBOOT		0x00000080
+/* Hide passphrase length in GELIboot. */
+#define	G_ELI_FLAG_GELIDISPLAYPASS	0x00000100
 /* RUNTIME FLAGS. */
 /* Provider was open for writing. */
 #define	G_ELI_FLAG_WOPEN		0x00010000
@@ -139,6 +142,10 @@
 #define	G_ELI_CRYPTO_SW		2
 
 #ifdef _KERNEL
+#if (MAX_KEY_BYTES < G_ELI_DATAIVKEYLEN)
+#error "MAX_KEY_BYTES is less than G_ELI_DATAKEYLEN"
+#endif
+
 extern int g_eli_debug;
 extern u_int g_eli_overwrites;
 extern u_int g_eli_batch;
@@ -686,8 +693,8 @@ int g_eli_crypto_decrypt(u_int algo, u_char *data, size_t datasize,
     const u_char *key, size_t keysize);
 
 struct hmac_ctx {
-	SHA512_CTX	shactx;
-	u_char		k_opad[128];
+	SHA512_CTX	innerctx;
+	SHA512_CTX	outerctx;
 };
 
 void g_eli_crypto_hmac_init(struct hmac_ctx *ctx, const uint8_t *hkey,

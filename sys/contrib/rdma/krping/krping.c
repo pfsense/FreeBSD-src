@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <linux/device.h>
 #include <linux/pci.h>
 #include <linux/sched.h>
+#include <linux/wait.h>
 
 #include <asm/atomic.h>
 
@@ -3184,7 +3185,9 @@ krping_get_ipv6_scope_id(char *name)
 
 	if (name == NULL)
 		return (0);
+	CURVNET_SET_QUIET(TD_TO_VNET(curthread));
 	ifp = ifunit_ref(name);
+	CURVNET_RESTORE();
 	if (ifp == NULL)
 		return (0);
 	retval = ifp->if_index;
