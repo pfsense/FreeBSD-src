@@ -1586,7 +1586,7 @@ while :; do
 		# Make sure each disk will have room for ZFS
 		if f_expand_number "$ZFSBOOT_SWAP_SIZE" swapsize &&
 		   f_expand_number "$ZFSBOOT_BOOT_POOL_SIZE" bootsize &&
-		   f_expand_number "1g" zpoolmin
+		   f_expand_number "4g" zpoolmin
 		then
 			minsize=$(( $swapsize + $zpoolmin )) teeny_disks=
 			[ "$ZFSBOOT_BOOT_POOL" ] &&
