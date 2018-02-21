@@ -1370,8 +1370,9 @@ fix_cpuid(void)
 	return (false);
 }
 
+#ifdef __amd64__
 void
-identify_cpu1(void)
+identify_cpu(void)
 {
 	u_int regs[4];
 
@@ -1388,29 +1389,7 @@ identify_cpu1(void)
 	cpu_feature = regs[3];
 	cpu_feature2 = regs[2];
 }
-
-void
-identify_cpu2(void)
-{
-	u_int regs[4], cpu_stdext_disable;
-
-	if (cpu_high >= 7) {
-		cpuid_count(7, 0, regs);
-		cpu_stdext_feature = regs[1];
-
-		/*
-		 * Some hypervisors failed to filter out unsupported
-		 * extended features.  Allow to disable the
-		 * extensions, activation of which requires setting a
-		 * bit in CR4, and which VM monitors do not support.
-		 */
-		cpu_stdext_disable = 0;
-		TUNABLE_INT_FETCH("hw.cpu_stdext_disable", &cpu_stdext_disable);
-		cpu_stdext_feature &= ~cpu_stdext_disable;
-
-		cpu_stdext_feature2 = regs[2];
-	}
-}
+#endif
 
 /*
  * Final stage of CPU identification.
@@ -1418,7 +1397,7 @@ identify_cpu2(void)
 void
 finishidentcpu(void)
 {
-	u_int regs[4];
+	u_int regs[4], cpu_stdext_disable;
 #ifdef __i386__
 	u_char ccr3;
 #endif
@@ -1437,7 +1416,22 @@ finishidentcpu(void)
 		cpu_mon_max_size = regs[1] &  CPUID5_MON_MAX_SIZE;
 	}
 
-	identify_cpu2();
+	if (cpu_high >= 7) {
+		cpuid_count(7, 0, regs);
+		cpu_stdext_feature = regs[1];
+
+		/*
+		 * Some hypervisors failed to filter out unsupported
+		 * extended features.  Allow to disable the
+		 * extensions, activation of which requires setting a
+		 * bit in CR4, and which VM monitors do not support.
+		 */
+		cpu_stdext_disable = 0;
+		TUNABLE_INT_FETCH("hw.cpu_stdext_disable", &cpu_stdext_disable);
+		cpu_stdext_feature &= ~cpu_stdext_disable;
+
+		cpu_stdext_feature2 = regs[2];
+	}
 
 #ifdef __i386__
 	if (cpu_high > 0 &&
