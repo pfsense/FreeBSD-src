@@ -108,7 +108,7 @@ ENTRY(cpu_switch)
 	movl	%fs,%eax
 	cmpl	$KUF32SEL,%eax
 	jne	1f
-	rdfsbase %rax
+	rdfsbaseq %rax
 	movq	%rax,PCB_FSBASE(%r8)
 1:	movl	%gs,%eax
 	cmpl	$KUG32SEL,%eax

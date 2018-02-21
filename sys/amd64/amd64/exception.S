@@ -340,10 +340,10 @@ prot_addrf:
 	jz	2f
 	cmpw	$KUF32SEL,TF_FS(%rsp)
 	jne	1f
-	rdfsbase %rax
+	rdfsbaseq %rax
 1:	cmpw	$KUG32SEL,TF_GS(%rsp)
 	jne	2f
-	rdgsbase %rdx
+	rdgsbaseq %rdx
 2:	swapgs
 	movq	PCPU(CURPCB),%rdi
 	testb	$CPUID_STDEXT_FSGSBASE,cpu_stdext_feature(%rip)
@@ -533,7 +533,7 @@ nmi_fromuserspace:
 	jz	2f
 	cmpw	$KUF32SEL,TF_FS(%rsp)
 	jne	1f
-	rdfsbase %rax
+	rdfsbaseq %rax
 	movq	%rax,PCB_FSBASE(%rdi)
 1:	cmpw	$KUG32SEL,TF_GS(%rsp)
 	jne	2f
