@@ -3138,6 +3138,7 @@ static int
 set_fpcontext(struct thread *td, mcontext_t *mcp, char *xfpustate,
     size_t xfpustate_len)
 {
+	union savefpu *fpstate;
 	int error;
 
 	if (mcp->mc_fpformat == _MC_FPFMT_NODEV)
@@ -3151,8 +3152,10 @@ set_fpcontext(struct thread *td, mcontext_t *mcp, char *xfpustate,
 		error = 0;
 	} else if (mcp->mc_ownedfp == _MC_FPOWNED_FPU ||
 	    mcp->mc_ownedfp == _MC_FPOWNED_PCB) {
-		error = npxsetregs(td, (union savefpu *)&mcp->mc_fpstate,
-		    xfpustate, xfpustate_len);
+		fpstate = (union savefpu *)&mcp->mc_fpstate;
+		if (cpu_fxsr)
+			fpstate->sv_xmm.sv_env.en_mxcsr &= cpu_mxcsr_mask;
+		error = npxsetregs(td, fpstate, xfpustate, xfpustate_len);
 	} else
 		return (EINVAL);
 	return (error);
