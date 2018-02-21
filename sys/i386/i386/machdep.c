@@ -2472,8 +2472,6 @@ init386(int first)
 	else
 		init_static_kenv(NULL, 0);
 
-	identify_hypervisor();
-
 	/* Init basic tunables, hz etc */
 	init_param1();
 

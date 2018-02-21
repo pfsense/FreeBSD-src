@@ -1252,7 +1252,7 @@ static const char *const vm_pnames[] = {
 	NULL
 };
 
-void
+static void
 identify_hypervisor(void)
 {
 	u_int regs[4];
@@ -1401,6 +1401,7 @@ identify_cpu(void)
 	cpu_feature2 = regs[2];
 #endif
 
+	identify_hypervisor();
 	cpu_vendor_id = find_cpu_vendor_id();
 
 	if (fix_cpuid()) {
