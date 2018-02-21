@@ -87,6 +87,8 @@ extern	struct pcpu __pcpu[];
 char *doublefault_stack;
 char *nmi_stack;
 
+extern inthand_t IDTVEC(fast_syscall), IDTVEC(fast_syscall32);
+
 /*
  * Local data and functions.
  */
@@ -186,7 +188,7 @@ init_secondary(void)
 {
 	struct pcpu *pc;
 	struct nmi_pcpu *np;
-	u_int64_t cr0;
+	u_int64_t msr, cr0;
 	int cpu, gsel_tss, x;
 	struct region_descriptor ap_gdt;
 
@@ -261,7 +263,15 @@ init_secondary(void)
 	cr0 &= ~(CR0_CD | CR0_NW | CR0_EM);
 	load_cr0(cr0);
 
-	amd64_conf_fast_syscall();
+	/* Set up the fast syscall stuff */
+	msr = rdmsr(MSR_EFER) | EFER_SCE;
+	wrmsr(MSR_EFER, msr);
+	wrmsr(MSR_LSTAR, (u_int64_t)IDTVEC(fast_syscall));
+	wrmsr(MSR_CSTAR, (u_int64_t)IDTVEC(fast_syscall32));
+	msr = ((u_int64_t)GSEL(GCODE_SEL, SEL_KPL) << 32) |
+	      ((u_int64_t)GSEL(GUCODE32_SEL, SEL_UPL) << 48);
+	wrmsr(MSR_STAR, msr);
+	wrmsr(MSR_SF_MASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D);
 
 	/* signal our startup to the BSP. */
 	mp_naps++;
