@@ -375,7 +375,7 @@ trap(struct trapframe *frame)
 #ifdef DEV_ISA
 		case T_NMI:
 			nmi_handle_intr(type, frame);
-			goto out;
+			break;
 #endif /* DEV_ISA */
 
 		case T_OFLOW:		/* integer overflow fault */
@@ -413,7 +413,7 @@ trap(struct trapframe *frame)
 			if (dtrace_return_probe_ptr != NULL &&
 			    dtrace_return_probe_ptr(&regs) == 0)
 				goto out;
-			goto userout;
+			break;
 #endif
 		}
 	} else {
