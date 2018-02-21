@@ -89,16 +89,14 @@ call_trapsignal(struct thread *td, int sig, int code, void *addr)
 }
 
 int
-cpu_fetch_syscall_args(struct thread *td)
+cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
 	struct proc *p;
 	register_t *ap;
-	struct syscall_args *sa;
 	int nap;
 
 	nap = 8;
 	p = td->td_proc;
-	sa = &td->td_sa;
 	ap = &td->td_frame->tf_a[0];
 
 	sa->code = td->td_frame->tf_t[0];
@@ -153,14 +151,15 @@ dump_regs(struct trapframe *frame)
 static void
 svc_handler(struct trapframe *frame)
 {
+	struct syscall_args sa;
 	struct thread *td;
 	int error;
 
 	td = curthread;
 	td->td_frame = frame;
 
-	error = syscallenter(td);
-	syscallret(td, error);
+	error = syscallenter(td, &sa);
+	syscallret(td, error, &sa);
 }
 
 static void

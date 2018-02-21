@@ -119,7 +119,8 @@ struct sysentvec {
 	u_long		*sv_maxssiz;
 	u_int		sv_flags;
 	void		(*sv_set_syscall_retval)(struct thread *, int);
-	int		(*sv_fetch_syscall_args)(struct thread *);
+	int		(*sv_fetch_syscall_args)(struct thread *, struct
+			    syscall_args *);
 	const char	**sv_syscallnames;
 	vm_offset_t	sv_timekeep_base;
 	vm_offset_t	sv_shared_page_base;

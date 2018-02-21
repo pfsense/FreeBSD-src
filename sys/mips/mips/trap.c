@@ -339,16 +339,12 @@ static int emulate_unaligned_access(struct trapframe *frame, int mode);
 extern void fswintrberr(void); /* XXX */
 
 int
-cpu_fetch_syscall_args(struct thread *td)
+cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
-	struct trapframe *locr0;
+	struct trapframe *locr0 = td->td_frame;
 	struct sysentvec *se;
-	struct syscall_args *sa;
 	int error, nsaved;
 
-	locr0 = td->td_frame;
-	sa = &td->td_sa;
-	
 	bzero(sa->args, sizeof(sa->args));
 
 	/* compute next PC after syscall instruction */
@@ -790,18 +786,19 @@ dofault:
 
 	case T_SYSCALL + T_USER:
 		{
+			struct syscall_args sa;
 			int error;
 
-			td->td_sa.trapframe = trapframe;
-			error = syscallenter(td);
+			sa.trapframe = trapframe;
+			error = syscallenter(td, &sa);
 
 #if !defined(SMP) && (defined(DDB) || defined(DEBUG))
 			if (trp == trapdebug)
-				trapdebug[TRAPSIZE - 1].code = td->td_sa.code;
+				trapdebug[TRAPSIZE - 1].code = sa.code;
 			else
-				trp[-1].code = td->td_sa.code;
+				trp[-1].code = sa.code;
 #endif
-			trapdebug_enter(td->td_frame, -td->td_sa.code);
+			trapdebug_enter(td->td_frame, -sa.code);
 
 			/*
 			 * The sync'ing of I & D caches for SYS_ptrace() is
@@ -809,7 +806,7 @@ dofault:
 			 * instead of being done here under a special check
 			 * for SYS_ptrace().
 			 */
-			syscallret(td, error);
+			syscallret(td, error, &sa);
 			return (trapframe->pc);
 		}
 

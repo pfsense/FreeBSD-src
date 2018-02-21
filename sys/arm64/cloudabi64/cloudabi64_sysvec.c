@@ -67,14 +67,10 @@ cloudabi64_proc_setregs(struct thread *td, struct image_params *imgp,
 }
 
 static int
-cloudabi64_fetch_syscall_args(struct thread *td)
+cloudabi64_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
-	struct trapframe *frame;
-	struct syscall_args *sa;
+	struct trapframe *frame = td->td_frame;
 	int i;
-
-	frame = td->td_frame;
-	sa = &td->td_sa;
 
 	/* Obtain system call number. */
 	sa->code = frame->tf_x[8];

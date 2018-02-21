@@ -829,18 +829,16 @@ dblfault_handler(struct trapframe *frame)
 }
 
 int
-cpu_fetch_syscall_args(struct thread *td)
+cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
 	struct proc *p;
 	struct trapframe *frame;
 	register_t *argp;
-	struct syscall_args *sa;
 	caddr_t params;
 	int reg, regcnt, error;
 
 	p = td->td_proc;
 	frame = td->td_frame;
-	sa = &td->td_sa;
 	reg = 0;
 	regcnt = 6;
 
@@ -891,6 +889,7 @@ cpu_fetch_syscall_args(struct thread *td)
 void
 amd64_syscall(struct thread *td, int traced)
 {
+	struct syscall_args sa;
 	int error;
 	ksiginfo_t ksi;
 
@@ -900,7 +899,7 @@ amd64_syscall(struct thread *td, int traced)
 		/* NOT REACHED */
 	}
 #endif
-	error = syscallenter(td);
+	error = syscallenter(td, &sa);
 
 	/*
 	 * Traced syscall.
@@ -916,16 +915,15 @@ amd64_syscall(struct thread *td, int traced)
 
 	KASSERT(PCB_USER_FPU(td->td_pcb),
 	    ("System call %s returning with kernel FPU ctx leaked",
-	     syscallname(td->td_proc, td->td_sa.code)));
+	     syscallname(td->td_proc, sa.code)));
 	KASSERT(td->td_pcb->pcb_save == get_pcb_user_save_td(td),
 	    ("System call %s returning with mangled pcb_save",
-	     syscallname(td->td_proc, td->td_sa.code)));
+	     syscallname(td->td_proc, sa.code)));
 	KASSERT(td->td_md.md_invl_gen.gen == 0,
 	    ("System call %s returning with leaked invl_gen %lu",
-	    syscallname(td->td_proc, td->td_sa.code),
-	    td->td_md.md_invl_gen.gen));
+	    syscallname(td->td_proc, sa.code), td->td_md.md_invl_gen.gen));
 
-	syscallret(td, error);
+	syscallret(td, error, &sa);
 
 	/*
 	 * If the user-supplied value of %rip is not a canonical

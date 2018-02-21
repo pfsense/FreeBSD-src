@@ -99,14 +99,12 @@ __FBSDID("$FreeBSD$");
 void swi_handler(struct trapframe *);
 
 int
-cpu_fetch_syscall_args(struct thread *td)
+cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
 	struct proc *p;
 	register_t *ap;
-	struct syscall_args *sa;
 	int error;
 
-	sa = &td->td_sa;
 	sa->code = td->td_frame->tf_r7;
 	ap = &td->td_frame->tf_r0;
 	if (sa->code == SYS_syscall) {
@@ -143,14 +141,15 @@ cpu_fetch_syscall_args(struct thread *td)
 static void
 syscall(struct thread *td, struct trapframe *frame)
 {
+	struct syscall_args sa;
 	int error;
 
-	td->td_sa.nap = 4;
+	sa.nap = 4;
 
-	error = syscallenter(td);
+	error = syscallenter(td, &sa);
 	KASSERT(error != 0 || td->td_ar == NULL,
 	    ("returning from syscall with td_ar set!"));
-	syscallret(td, error);
+	syscallret(td, error, &sa);
 }
 
 void

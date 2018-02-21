@@ -1012,18 +1012,16 @@ dblfault_handler()
 }
 
 int
-cpu_fetch_syscall_args(struct thread *td)
+cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
 	struct proc *p;
 	struct trapframe *frame;
-	struct syscall_args *sa;
 	caddr_t params;
 	long tmp;
 	int error;
 
 	p = td->td_proc;
 	frame = td->td_frame;
-	sa = &td->td_sa;
 
 	params = (caddr_t)frame->tf_esp + sizeof(int);
 	sa->code = frame->tf_eax;
@@ -1084,6 +1082,7 @@ void
 syscall(struct trapframe *frame)
 {
 	struct thread *td;
+	struct syscall_args sa;
 	register_t orig_tf_eflags;
 	int error;
 	ksiginfo_t ksi;
@@ -1100,7 +1099,7 @@ syscall(struct trapframe *frame)
 	td = curthread;
 	td->td_frame = frame;
 
-	error = syscallenter(td);
+	error = syscallenter(td, &sa);
 
 	/*
 	 * Traced syscall.
@@ -1116,10 +1115,10 @@ syscall(struct trapframe *frame)
 
 	KASSERT(PCB_USER_FPU(td->td_pcb),
 	    ("System call %s returning with kernel FPU ctx leaked",
-	     syscallname(td->td_proc, td->td_sa.code)));
+	     syscallname(td->td_proc, sa.code)));
 	KASSERT(td->td_pcb->pcb_save == get_pcb_user_save_td(td),
 	    ("System call %s returning with mangled pcb_save",
-	     syscallname(td->td_proc, td->td_sa.code)));
+	     syscallname(td->td_proc, sa.code)));
 
-	syscallret(td, error);
+	syscallret(td, error, &sa);
 }
