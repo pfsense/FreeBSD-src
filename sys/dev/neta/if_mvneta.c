@@ -458,7 +458,7 @@ mvneta_dma_create(struct mvneta_softc *sc)
 	    maxsize,				/* maxsize */
 	    1,					/* nsegments */
 	    maxsegsz,				/* maxsegsz */
-	    0,					/* flags */
+	    BUS_DMA_COHERENT,			/* flags */
 	    NULL, NULL,				/* lockfunc, lockfuncarg */
 	    &sc->tx_dtag);			/* dmat */
 	if (error != 0) {
@@ -475,7 +475,7 @@ mvneta_dma_create(struct mvneta_softc *sc)
 	    MVNETA_PACKET_SIZE,			/* maxsize */
 	    MVNETA_TX_SEGLIMIT,			/* nsegments */
 	    MVNETA_PACKET_SIZE,			/* maxsegsz */
-	    BUS_DMA_ALLOCNOW,			/* flags */
+	    BUS_DMA_COHERENT | BUS_DMA_ALLOCNOW,	/* flags */
 	    NULL, NULL,				/* lockfunc, lockfuncarg */
 	    &sc->txmbuf_dtag);
 	if (error != 0) {
@@ -506,7 +506,7 @@ mvneta_dma_create(struct mvneta_softc *sc)
 	    sizeof(struct mvneta_rx_desc) * MVNETA_RX_RING_CNT, /* maxsize */
 	    1,					/* nsegments */
 	    sizeof(struct mvneta_rx_desc) * MVNETA_RX_RING_CNT, /* maxsegsz */
-	    0,					/* flags */
+	    BUS_DMA_COHERENT,			/* flags */
 	    NULL, NULL,				/* lockfunc, lockfuncarg */
 	    &sc->rx_dtag);			/* dmat */
 	if (error != 0) {
@@ -524,7 +524,7 @@ mvneta_dma_create(struct mvneta_softc *sc)
 	    NULL, NULL,				/* filtfunc, filtfuncarg */
 	    MVNETA_PACKET_SIZE, 1,		/* maxsize, nsegments */
 	    MVNETA_PACKET_SIZE,			/* maxsegsz */
-	    0,					/* flags */
+	    BUS_DMA_COHERENT,			/* flags */
 	    NULL, NULL,				/* lockfunc, lockfuncarg */
 	    &sc->rxbuf_dtag);			/* dmat */
 	if (error != 0) {
@@ -1214,7 +1214,7 @@ mvneta_ring_alloc_rx_queue(struct mvneta_softc *sc, int q)
 	/* Allocate DMA memory for Rx descriptors */
 	error = bus_dmamem_alloc(sc->rx_dtag,
 	    (void**)&(rx->desc),
-	    BUS_DMA_NOWAIT | BUS_DMA_ZERO,
+	    BUS_DMA_NOWAIT | BUS_DMA_ZERO | BUS_DMA_COHERENT,
 	    &rx->desc_map);
 	if (error != 0 || rx->desc == NULL)
 		goto fail;
@@ -1226,7 +1226,8 @@ mvneta_ring_alloc_rx_queue(struct mvneta_softc *sc, int q)
 		goto fail;
 
 	for (i = 0; i < MVNETA_RX_RING_CNT; i++) {
-		error = bus_dmamap_create(sc->rxbuf_dtag, 0, &dmap);
+		error = bus_dmamap_create(sc->rxbuf_dtag, BUS_DMA_COHERENT,
+		    &dmap);
 		if (error != 0) {
 			device_printf(sc->dev,
 			    "Failed to create DMA map for Rx buffer num: %d\n", i);
@@ -1256,7 +1257,7 @@ mvneta_ring_alloc_tx_queue(struct mvneta_softc *sc, int q)
 	mtx_init(&tx->ring_mtx, "mvneta_tx", NULL, MTX_DEF);
 	error = bus_dmamem_alloc(sc->tx_dtag,
 	    (void**)&(tx->desc),
-	    BUS_DMA_NOWAIT | BUS_DMA_ZERO,
+	    BUS_DMA_NOWAIT | BUS_DMA_ZERO | BUS_DMA_COHERENT,
 	    &tx->desc_map);
 	if (error != 0 || tx->desc == NULL)
 		goto fail;
@@ -1423,7 +1424,7 @@ mvneta_ring_init_tx_queue(struct mvneta_softc *sc, int q)
 		txbuf = &tx->txbuf[i];
 		txbuf->m = NULL;
 		/* Tx handle needs DMA map for busdma_load_mbuf() */
-		error = bus_dmamap_create(sc->txmbuf_dtag, 0,
+		error = bus_dmamap_create(sc->txmbuf_dtag, BUS_DMA_COHERENT,
 		    &txbuf->dmap);
 		if (error != 0) {
 			device_printf(sc->dev,
