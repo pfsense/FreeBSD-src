@@ -138,7 +138,7 @@ static LIST_HEAD(,uma_zone) uma_cachezones =
     LIST_HEAD_INITIALIZER(uma_cachezones);
 
 /* This RW lock protects the keg list */
-static struct rwlock_padalign uma_rwlock;
+static struct rwlock_padalign __exclusive_cache_line uma_rwlock;
 
 /* Linked list of boot time pages */
 static LIST_HEAD(,uma_slab) uma_boot_pages =
@@ -1127,7 +1127,9 @@ noobj_alloc(uma_zone_t zone, vm_size_t bytes, uint8_t *flags, int wait)
 	npages = howmany(bytes, PAGE_SIZE);
 	while (npages > 0) {
 		p = vm_page_alloc(NULL, 0, VM_ALLOC_INTERRUPT |
-		    VM_ALLOC_WIRED | VM_ALLOC_NOOBJ);
+		    VM_ALLOC_WIRED | VM_ALLOC_NOOBJ |
+		    ((wait & M_WAITOK) != 0 ? VM_ALLOC_WAITOK :
+		    VM_ALLOC_NOWAIT));
 		if (p != NULL) {
 			/*
 			 * Since the page does not belong to an object, its
@@ -1137,11 +1139,6 @@ noobj_alloc(uma_zone_t zone, vm_size_t bytes, uint8_t *flags, int wait)
 			npages--;
 			continue;
 		}
-		if (wait & M_WAITOK) {
-			VM_WAIT;
-			continue;
-		}
-
 		/*
 		 * Page allocation failed, free intermediate pages and
 		 * exit.
@@ -1326,10 +1323,6 @@ keg_large_init(uma_keg_t keg)
 	keg->uk_ipers = 1;
 	keg->uk_rsize = keg->uk_size;
 
-	/* We can't do OFFPAGE if we're internal, bail out here. */
-	if (keg->uk_flags & UMA_ZFLAG_INTERNAL)
-		return;
-
 	/* Check whether we have enough space to not do OFFPAGE. */
 	if ((keg->uk_flags & UMA_ZONE_OFFPAGE) == 0) {
 		shsize = sizeof(struct uma_slab);
@@ -1337,8 +1330,17 @@ keg_large_init(uma_keg_t keg)
 			shsize = (shsize & ~UMA_ALIGN_PTR) +
 			    (UMA_ALIGN_PTR + 1);
 
-		if ((PAGE_SIZE * keg->uk_ppera) - keg->uk_rsize < shsize)
-			keg->uk_flags |= UMA_ZONE_OFFPAGE;
+		if (PAGE_SIZE * keg->uk_ppera - keg->uk_rsize < shsize) {
+			/*
+			 * We can't do OFFPAGE if we're internal, in which case
+			 * we need an extra page per allocation to contain the
+			 * slab header.
+			 */
+			if ((keg->uk_flags & UMA_ZFLAG_INTERNAL) == 0)
+				keg->uk_flags |= UMA_ZONE_OFFPAGE;
+			else
+				keg->uk_ppera++;
+		}
 	}
 
 	if ((keg->uk_flags & UMA_ZONE_OFFPAGE) &&
@@ -2075,6 +2077,15 @@ uma_zdestroy(uma_zone_t zone)
 	sx_slock(&uma_drain_lock);
 	zone_free_item(zones, zone, NULL, SKIP_NONE);
 	sx_sunlock(&uma_drain_lock);
+}
+
+void
+uma_zwait(uma_zone_t zone)
+{
+	void *item;
+
+	item = uma_zalloc_arg(zone, NULL, M_WAITOK);
+	uma_zfree(zone, item);
 }
 
 /* See uma.h */

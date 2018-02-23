@@ -249,23 +249,23 @@ SYSCTL_INT(_vfs, OID_AUTO, unmapped_buf_allowed, CTLFLAG_RD,
 /*
  * This lock synchronizes access to bd_request.
  */
-static struct mtx_padalign bdlock;
+static struct mtx_padalign __exclusive_cache_line bdlock;
 
 /*
  * This lock protects the runningbufreq and synchronizes runningbufwakeup and
  * waitrunningbufspace().
  */
-static struct mtx_padalign rbreqlock;
+static struct mtx_padalign __exclusive_cache_line rbreqlock;
 
 /*
  * Lock that protects needsbuffer and the sleeps/wakeups surrounding it.
  */
-static struct rwlock_padalign nblock;
+static struct rwlock_padalign __exclusive_cache_line nblock;
 
 /*
  * Lock that protects bdirtywait.
  */
-static struct mtx_padalign bdirtylock;
+static struct mtx_padalign __exclusive_cache_line bdirtylock;
 
 /*
  * Wakeup point for bufdaemon, as well as indicator of whether it is already
@@ -344,7 +344,7 @@ static int bq_len[BUFFER_QUEUES];
 /*
  * Lock for each bufqueue
  */
-static struct mtx_padalign bqlocks[BUFFER_QUEUES];
+static struct mtx_padalign __exclusive_cache_line bqlocks[BUFFER_QUEUES];
 
 /*
  * per-cpu empty buffer cache.
@@ -2716,7 +2716,7 @@ vfs_vmio_extend(struct buf *bp, int desiredpages, int size)
 	 */
 	obj = bp->b_bufobj->bo_object;
 	VM_OBJECT_WLOCK(obj);
-	while (bp->b_npages < desiredpages) {
+	if (bp->b_npages < desiredpages) {
 		/*
 		 * We must allocate system pages since blocking
 		 * here could interfere with paging I/O, no
@@ -2727,14 +2727,12 @@ vfs_vmio_extend(struct buf *bp, int desiredpages, int size)
 		 * deadlocks once allocbuf() is called after
 		 * pages are vfs_busy_pages().
 		 */
-		m = vm_page_grab(obj, OFF_TO_IDX(bp->b_offset) + bp->b_npages,
-		    VM_ALLOC_NOBUSY | VM_ALLOC_SYSTEM |
-		    VM_ALLOC_WIRED | VM_ALLOC_IGN_SBUSY |
-		    VM_ALLOC_COUNT(desiredpages - bp->b_npages));
-		if (m->valid == 0)
-			bp->b_flags &= ~B_CACHE;
-		bp->b_pages[bp->b_npages] = m;
-		++bp->b_npages;
+		(void)vm_page_grab_pages(obj,
+		    OFF_TO_IDX(bp->b_offset) + bp->b_npages,
+		    VM_ALLOC_SYSTEM | VM_ALLOC_IGN_SBUSY |
+		    VM_ALLOC_NOBUSY | VM_ALLOC_WIRED,
+		    &bp->b_pages[bp->b_npages], desiredpages - bp->b_npages);
+		bp->b_npages = desiredpages;
 	}
 
 	/*
@@ -4442,18 +4440,14 @@ vm_hold_load_pages(struct buf *bp, vm_offset_t from, vm_offset_t to)
 	index = (from - trunc_page((vm_offset_t)bp->b_data)) >> PAGE_SHIFT;
 
 	for (pg = from; pg < to; pg += PAGE_SIZE, index++) {
-tryagain:
 		/*
 		 * note: must allocate system pages since blocking here
 		 * could interfere with paging I/O, no matter which
 		 * process we are.
 		 */
 		p = vm_page_alloc(NULL, 0, VM_ALLOC_SYSTEM | VM_ALLOC_NOOBJ |
-		    VM_ALLOC_WIRED | VM_ALLOC_COUNT((to - pg) >> PAGE_SHIFT));
-		if (p == NULL) {
-			VM_WAIT;
-			goto tryagain;
-		}
+		    VM_ALLOC_WIRED | VM_ALLOC_COUNT((to - pg) >> PAGE_SHIFT) |
+		    VM_ALLOC_WAITOK);
 		pmap_qenter(pg, &p, 1);
 		bp->b_pages[index] = p;
 	}
