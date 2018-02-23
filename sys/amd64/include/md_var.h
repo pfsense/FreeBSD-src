@@ -38,6 +38,7 @@ extern  uint64_t *vm_page_dump;
 
 struct	savefpu;
 
+void	amd64_conf_fast_syscall(void);
 void	amd64_db_resume_dbreg(void);
 void	amd64_syscall(struct thread *td, int traced);
 void	doreti_iret(void) __asm(__STRING(doreti_iret));
