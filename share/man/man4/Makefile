@@ -46,6 +46,7 @@ MAN=	aac.4 \
 	amdpm.4 \
 	${_amdsbwd.4} \
 	${_amdsmb.4} \
+	${_amdsmn.4} \
 	${_amdtemp.4} \
 	${_bxe.4} \
 	amr.4 \
@@ -244,6 +245,7 @@ MAN=	aac.4 \
 	ixgbe.4 \
 	ixl.4 \
 	ixlv.4 \
+	jedec_dimm.4 \
 	jedec_ts.4 \
 	jme.4 \
 	joy.4 \
@@ -792,6 +794,7 @@ _attimer.4=	attimer.4
 _aibs.4=	aibs.4
 _amdsbwd.4=	amdsbwd.4
 _amdsmb.4=	amdsmb.4
+_amdsmn.4=	amdsmn.4
 _amdtemp.4=	amdtemp.4
 _asmc.4=	asmc.4
 _bxe.4=		bxe.4
