@@ -1182,7 +1182,7 @@ vlan_start(struct ifnet *ifp)
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			VLAN_RUNLOCK();
 			m_freem(m);
-			return (ENETDOWN);
+			return;
 		}
 		p = PARENT(ifv);
 		len = m->m_pkthdr.len;
@@ -1198,7 +1198,7 @@ vlan_start(struct ifnet *ifp)
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			VLAN_RUNLOCK();
 			m_freem(m);
-			return (ENETDOWN);
+			return;
 		}
 
 		/*
