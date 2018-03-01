@@ -2699,8 +2699,7 @@ do {								\
 				break;
 
 			case O_FORWARD_IP:
-				if (q == NULL || q->rule != f ||
-				    dyn_dir == MATCH_FORWARD) {
+				if (q == NULL || dyn_dir == MATCH_FORWARD) {
 				    struct sockaddr_in *sa;
 
 				    sa = &(((ipfw_insn_sa *)cmd)->sa);
@@ -2758,8 +2757,7 @@ do {								\
 
 #ifdef INET6
 			case O_FORWARD_IP6:
-				if (q == NULL || q->rule != f ||
-				    dyn_dir == MATCH_FORWARD) {
+				if (q == NULL || dyn_dir == MATCH_FORWARD) {
 					struct sockaddr_in6 *sin6;
 
 					sin6 = &(((ipfw_insn_sa6 *)cmd)->sa);
