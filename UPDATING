@@ -16,10 +16,18 @@ from older versions of FreeBSD, try WITHOUT_CLANG and WITH_GCC to bootstrap to
 the tip of head, and then rebuild without this option. The bootstrap process
 from older version of current across the gcc/clang cutover is a bit fragile.
 
-20170926:
-	Clang, llvm, lldb, compiler-rt and libc++ have been upgraded to 5.0.0.
-	Please see the 20141231 entry below for information about prerequisites
-	and upgrading, if you are not already using clang 3.5.0 or higher.
+20180307	p7	FreeBSD-SA-18:01.ipsec
+			FreeBSD-SA-18:02.ntp
+			FreeBSD-EN-18:01.tzdata
+			FreeBSD-EN-18:02.file
+
+	Fix ipsec validation and use-after-free. [SA-18:01.ipsec]
+
+	Fix multiple vulnerabilities in ntp. [SA-18:02.ntp]
+
+	Update timezone database information. [EN-18:01.tzdata]
+
+	Update file(1) to new version with security update. [EN-18:02.file]
 
 20171209	p6	FreeBSD-SA-17:12.openssl
 
@@ -43,6 +51,11 @@ from older version of current across the gcc/clang cutover is a bit fragile.
 20171017	p2	FreeBSD-SA-17:07.wpa
 
 	Fix WPA2 protocol vulnerability. [SA-17:07]
+
+20170926:
+	Clang, llvm, lldb, compiler-rt and libc++ have been upgraded to 5.0.0.
+	Please see the 20141231 entry below for information about prerequisites
+	and upgrading, if you are not already using clang 3.5.0 or higher.
 
 20170810	p1	FreeBSD-SA-17:06.openssh
 			FreeBSD-EN-17:07.vnet
