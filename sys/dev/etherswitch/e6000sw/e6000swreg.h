@@ -220,25 +220,29 @@ struct atu_opt {
 #define	ATU_STATS_BIN			14
 #define	ATU_STATS_FLAG			12
 
+/* Offset of SMI registers in multi-chip setup. */
+#define	SMI_CMD				0
+#define	SMI_DATA			1
+
 /*
- * PHY registers accessed via 'Switch Global Registers' (REG_GLOBAL2).
+ * 'Switch Global Registers 2' (REG_GLOBAL2).
  */
+
+/* PHY registers */
 #define	SMI_PHY_CMD_REG			0x18
+#define	 SMI_CMD_BUSY			(1 << 15)
+#define	 SMI_CMD_MODE_C22		(1 << 12)
+#define	 SMI_CMD_C22_WRITE		(1 << 10)
+#define	 SMI_CMD_C22_READ		(2 << 10)
+#define	 SMI_CMD_OP_C22_WRITE						\
+	 (SMI_CMD_C22_WRITE | SMI_CMD_BUSY | SMI_CMD_MODE_C22)
+#define	 SMI_CMD_OP_C22_READ						\
+	 (SMI_CMD_C22_READ | SMI_CMD_BUSY | SMI_CMD_MODE_C22)
+#define	 SMI_CMD_DEV_ADDR		5
+#define	 SMI_CMD_DEV_ADDR_MASK		0x3e0
+#define	 SMI_CMD_REG_ADDR_MASK		0x1f
 #define	SMI_PHY_DATA_REG		0x19
-
-#define	PHY_DATA_MASK			0xffff
-
-#define	PHY_CMD_SMI_BUSY		15
-#define	PHY_CMD_MODE			12
-#define	PHY_CMD_MODE_MDIO		1
-#define	PHY_CMD_MODE_XMDIO		0
-#define	PHY_CMD_OPCODE			10
-#define	PHY_CMD_OPCODE_WRITE		1
-#define	PHY_CMD_OPCODE_READ		2
-#define	PHY_CMD_DEV_ADDR		5
-#define	PHY_CMD_DEV_ADDR_MASK		0x3e0
-#define	PHY_CMD_REG_ADDR		0
-#define	PHY_CMD_REG_ADDR_MASK		0x1f
+#define	 PHY_DATA_MASK			0xffff
 
 #define	PHY_PAGE_REG			22
 

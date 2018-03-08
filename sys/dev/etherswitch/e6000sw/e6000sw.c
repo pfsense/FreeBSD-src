@@ -198,12 +198,6 @@ DRIVER_MODULE(etherswitch, e6000sw, etherswitch_driver, etherswitch_devclass, 0,
 DRIVER_MODULE(miibus, e6000sw, miibus_driver, miibus_devclass, 0, 0);
 MODULE_DEPEND(e6000sw, mdio, 1, 1, 1);
 
-#define	SMI_CMD			0
-#define	SMI_CMD_BUSY		(1 << 15)
-#define	SMI_CMD_OP_READ		((2 << 10) | SMI_CMD_BUSY | (1 << 12))
-#define	SMI_CMD_OP_WRITE	((1 << 10) | SMI_CMD_BUSY | (1 << 12))
-#define	SMI_DATA		1
-
 #undef E6000SW_DEBUG
 #if defined(E6000SW_DEBUG)
 static void
@@ -690,23 +684,6 @@ out_fail:
 	return (err);
 }
 
-static __inline int
-e6000sw_poll_done(e6000sw_softc_t *sc)
-{
-	int i;
-
-	for (i = 0; i < E6000SW_SMI_TIMEOUT; i++) {
-
-		if ((e6000sw_readreg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG) &
-		    (1 << PHY_CMD_SMI_BUSY)) == 0)
-			return (0);
-
-		pause("e6000sw PHY poll", hz/1000);
-	}
-
-	return (ETIMEDOUT);
-}
-
 /*
  * PHY registers are paged. Put page index in reg 22 (accessible from every
  * page), then access specific register.
@@ -715,8 +692,6 @@ static int
 e6000sw_readphy(device_t dev, int phy, int reg)
 {
 	e6000sw_softc_t *sc;
-	uint32_t val;
-	int err;
 
 	sc = device_get_softc(dev);
 	if (!e6000sw_is_phyport(sc, phy) || reg >= E6000SW_NUM_PHY_REGS) {
@@ -725,24 +700,17 @@ e6000sw_readphy(device_t dev, int phy, int reg)
 	}
 
 	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
-
-	err = e6000sw_poll_done(sc);
-	if (err != 0) {
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
 		device_printf(dev, "Timeout while waiting for switch\n");
-		return (err);
+		return (ETIMEDOUT);
 	}
 
-	val = 1 << PHY_CMD_SMI_BUSY;
-	val |= PHY_CMD_MODE_MDIO << PHY_CMD_MODE;
-	val |= PHY_CMD_OPCODE_READ << PHY_CMD_OPCODE;
-	val |= (reg << PHY_CMD_REG_ADDR) & PHY_CMD_REG_ADDR_MASK;
-	val |= (phy << PHY_CMD_DEV_ADDR) & PHY_CMD_DEV_ADDR_MASK;
-	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG, val);
-
-	err = e6000sw_poll_done(sc);
-	if (err != 0) {
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    SMI_CMD_OP_C22_READ | (reg & SMI_CMD_REG_ADDR_MASK) |
+	    ((phy << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK));
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
 		device_printf(dev, "Timeout while waiting for switch\n");
-		return (err);
+		return (ETIMEDOUT);
 	}
 
 	val = e6000sw_readreg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG);
@@ -754,8 +722,6 @@ static int
 e6000sw_writephy(device_t dev, int phy, int reg, int data)
 {
 	e6000sw_softc_t *sc;
-	uint32_t val;
-	int err;
 
 	sc = device_get_softc(dev);
 	if (!e6000sw_is_phyport(sc, phy) || reg >= E6000SW_NUM_PHY_REGS) {
@@ -764,27 +730,18 @@ e6000sw_writephy(device_t dev, int phy, int reg, int data)
 	}
 
 	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
-
-	err = e6000sw_poll_done(sc);
-	if (err != 0) {
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
 		device_printf(dev, "Timeout while waiting for switch\n");
-		return (err);
+		return (ETIMEDOUT);
 	}
 
-	val = 1 << PHY_CMD_SMI_BUSY;
-	val |= PHY_CMD_MODE_MDIO << PHY_CMD_MODE;
-	val |= PHY_CMD_OPCODE_WRITE << PHY_CMD_OPCODE;
-	val |= (reg << PHY_CMD_REG_ADDR) & PHY_CMD_REG_ADDR_MASK;
-	val |= (phy << PHY_CMD_DEV_ADDR) & PHY_CMD_DEV_ADDR_MASK;
 	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG,
 	    data & PHY_DATA_MASK);
-	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG, val);
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    SMI_CMD_OP_C22_WRITE | (reg & SMI_CMD_REG_ADDR_MASK) |
+	    ((phy << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK));
 
-	err = e6000sw_poll_done(sc);
-	if (err != 0)
-		device_printf(dev, "Timeout while waiting for switch\n");
-
-	return (err);
+	return (0);
 }
 
 static int
@@ -1438,7 +1395,8 @@ e6000sw_readreg(e6000sw_softc_t *sc, int addr, int reg)
 		return (0xffff);
 	}
 	MDIO_WRITE(sc->dev, sc->sw_addr, SMI_CMD,
-	    SMI_CMD_OP_READ | (addr << 5) | reg);
+	    SMI_CMD_OP_C22_READ | (reg & SMI_CMD_REG_ADDR_MASK) |
+	    ((addr << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK));
 	if (e6000sw_smi_waitready(sc, sc->sw_addr)) {
 		printf("e6000sw: readreg timeout\n");
 		return (0xffff);
@@ -1464,11 +1422,8 @@ e6000sw_writereg(e6000sw_softc_t *sc, int addr, int reg, int val)
 	}
 	MDIO_WRITE(sc->dev, sc->sw_addr, SMI_DATA, val);
 	MDIO_WRITE(sc->dev, sc->sw_addr, SMI_CMD,
-	    SMI_CMD_OP_WRITE | (addr << 5) | reg);
-	if (e6000sw_smi_waitready(sc, sc->sw_addr)) {
-		printf("e6000sw: readreg timeout\n");
-		return;
-	}
+	    SMI_CMD_OP_C22_WRITE | (reg & SMI_CMD_REG_ADDR_MASK) |
+	    ((addr << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK));
 }
 
 static __inline bool
