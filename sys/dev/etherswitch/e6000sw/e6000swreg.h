@@ -228,6 +228,15 @@ struct atu_opt {
  * 'Switch Global Registers 2' (REG_GLOBAL2).
  */
 
+/* EEPROM registers */
+#define	EEPROM_CMD			0x14
+#define	 EEPROM_BUSY			(1 << 15)
+#define	 EEPROM_READ_CMD		(4 << 12)
+#define	 EEPROM_WRITE_CMD		(3 << 12)
+#define	 EEPROM_WRITE_EN		(1 << 10)
+#define	 EEPROM_DATA_MASK		0xff
+#define	EEPROM_ADDR			0x15
+
 /* PHY registers */
 #define	SMI_PHY_CMD_REG			0x18
 #define	 SMI_CMD_BUSY			(1 << 15)
@@ -262,5 +271,7 @@ struct atu_opt {
 #define	E6000SW_DEFAULT_AGETIME		20
 #define	E6000SW_RETRIES			100
 #define	E6000SW_SMI_TIMEOUT		16
+#define	E6000SW_IOBUF_BLKSIZE		(4 * 1024)	/*  4 KiB block */
+#define	E6000SW_IOBUF_SIZE		(64 * 1024)	/* 64 KiB max. */
 
 #endif /* _E6000SWREG_H_ */

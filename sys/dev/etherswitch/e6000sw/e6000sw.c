@@ -38,6 +38,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
+#include <sys/sysctl.h>
 
 #include <net/if.h>
 #include <net/if_media.h>
@@ -100,6 +101,9 @@ typedef struct e6000sw_softc {
 	int			port_base;	/* SMI base addr of port regs */
 	int			sw_addr;
 	int			num_ports;
+
+	ssize_t			iosize;
+	void			*iobuf;
 } e6000sw_softc_t;
 
 static etherswitch_info_t etherswitch_info = {
@@ -132,6 +136,11 @@ static int e6000sw_getvgroup_wrapper(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_setvgroup_wrapper(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_setvgroup(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_getvgroup(device_t, etherswitch_vlangroup_t *);
+static ssize_t e6000sw_getiosize(device_t);
+static ssize_t e6000sw_getioblksize(device_t);
+static void *e6000sw_getiobuf(device_t);
+static int e6000sw_ioread(device_t, off_t, ssize_t);
+static int e6000sw_iowrite(device_t, off_t, ssize_t);
 static void e6000sw_setup(device_t, e6000sw_softc_t *);
 static void e6000sw_tick(void *);
 static void e6000sw_set_atustat(device_t, e6000sw_softc_t *, int, int);
@@ -183,6 +192,11 @@ static device_method_t e6000sw_methods[] = {
 	DEVMETHOD(etherswitch_writephyreg,	e6000sw_writephy_wrapper),
 	DEVMETHOD(etherswitch_setvgroup,	e6000sw_setvgroup_wrapper),
 	DEVMETHOD(etherswitch_getvgroup,	e6000sw_getvgroup_wrapper),
+	DEVMETHOD(etherswitch_getioblksize,	e6000sw_getioblksize),
+	DEVMETHOD(etherswitch_getiosize,	e6000sw_getiosize),
+	DEVMETHOD(etherswitch_getiobuf,		e6000sw_getiobuf),
+	DEVMETHOD(etherswitch_ioread,		e6000sw_ioread),
+	DEVMETHOD(etherswitch_iowrite,		e6000sw_iowrite),
 
 	DEVMETHOD_END
 };
@@ -197,6 +211,13 @@ DRIVER_MODULE(etherswitch, e6000sw, etherswitch_driver, etherswitch_devclass, 0,
     0);
 DRIVER_MODULE(miibus, e6000sw, miibus_driver, miibus_devclass, 0, 0);
 MODULE_DEPEND(e6000sw, mdio, 1, 1, 1);
+
+static SYSCTL_NODE(_hw, OID_AUTO, e6000sw, CTLFLAG_RD, 0,
+    "Marvell E6000 series Switch Parameters");
+
+static int e6000sw_eeprom_wp = TRUE;
+SYSCTL_INT(_hw_e6000sw, OID_AUTO, eeprom_wp, CTLFLAG_RDTUN, &e6000sw_eeprom_wp,
+    0, "Enable eeprom write protect.");
 
 #undef E6000SW_DEBUG
 #if defined(E6000SW_DEBUG)
@@ -348,6 +369,10 @@ e6000sw_probe(device_t dev)
 	is_8190 = 0;
 	sc = device_get_softc(dev);
 	sc->dev = dev;
+
+	/* Do not set iosize until iobuf is ready. */
+	sc->iosize = -1;
+	sc->iobuf = NULL;
 
 #ifdef FDT
 	dsa_node = fdt_find_compatible(OF_finddevice("/"),
@@ -585,6 +610,8 @@ e6000sw_attach(device_t dev)
 		device_printf(dev, "single-chip addressing mode\n");
 
 	sx_init(&sc->sx, "e6000sw");
+	sc->iobuf = malloc(E6000SW_IOBUF_BLKSIZE, M_E6000SW, M_WAITOK);
+	sc->iosize = E6000SW_IOBUF_SIZE;
 
 	E6000SW_LOCK(sc);
 	e6000sw_setup(dev, sc);
@@ -752,6 +779,8 @@ e6000sw_detach(device_t dev)
 
 	sc = device_get_softc(dev);
 	bus_generic_detach(dev);
+	if (sc->iobuf != NULL)
+		free(sc->iobuf, M_E6000SW);
 	sx_destroy(&sc->sx);
 	for (phy = 0; phy < sc->num_ports; phy++) {
 		if (sc->miibus[phy] != NULL)
@@ -1747,6 +1776,87 @@ e6000sw_vtu_update(e6000sw_softc_t *sc, int purge, int vid, int fid,
 	if (E6000SW_WAITREADY(sc, VTU_OPERATION, VTU_BUSY)) {
 		device_printf(sc->dev, "Timeout while flushing VTU\n");
 		return (ETIMEDOUT);
+	}
+
+	return (0);
+}
+
+static ssize_t
+e6000sw_getiosize(device_t dev)
+{
+	e6000sw_softc_t *sc;
+
+	sc = device_get_softc(dev);
+
+	return (sc->iosize);
+}
+
+static ssize_t
+e6000sw_getioblksize(device_t dev __unused)
+{
+
+	return (E6000SW_IOBUF_BLKSIZE);
+}
+
+static void *
+e6000sw_getiobuf(device_t dev)
+{
+	e6000sw_softc_t *sc;
+
+	sc = device_get_softc(dev);
+
+	return (sc->iobuf);
+}
+
+static int
+e6000sw_ioread(device_t dev, off_t off, ssize_t len)
+{
+	e6000sw_softc_t *sc;
+	ssize_t resid;
+	uint8_t *iobuf;
+	uint32_t reg;
+
+	sc = device_get_softc(dev);
+	iobuf = (uint8_t *)sc->iobuf;
+	for (resid = 0; resid < len; resid++) {
+		if (E6000SW_WAITREADY2(sc, EEPROM_CMD, EEPROM_BUSY)) {
+			device_printf(sc->dev, "EEPROM is busy, cannot access\n");
+			return (ETIMEDOUT);
+		}
+		e6000sw_writereg(sc, REG_GLOBAL2, EEPROM_ADDR, off + resid);
+		e6000sw_writereg(sc, REG_GLOBAL2, EEPROM_CMD,
+		    EEPROM_READ_CMD | EEPROM_BUSY);
+		if (E6000SW_WAITREADY2(sc, EEPROM_CMD, EEPROM_BUSY)) {
+			device_printf(sc->dev, "EEPROM is busy, cannot access\n");
+			return (ETIMEDOUT);
+		}
+		reg = e6000sw_readreg(sc, REG_GLOBAL2, EEPROM_CMD);
+		iobuf[resid] = reg & EEPROM_DATA_MASK;
+	}
+
+	return (0);
+}
+
+static int
+e6000sw_iowrite(device_t dev, off_t off, ssize_t len)
+{
+	e6000sw_softc_t *sc;
+	ssize_t resid;
+	uint8_t *iobuf;
+
+	if (e6000sw_eeprom_wp)
+		return (EPERM);
+	sc = device_get_softc(dev);
+	iobuf = (uint8_t *)sc->iobuf;
+	for (resid = 0; resid < len; resid++) {
+		if (E6000SW_WAITREADY2(sc, EEPROM_CMD, EEPROM_BUSY)) {
+			device_printf(sc->dev, "EEPROM is busy, cannot access\n");
+			return (ETIMEDOUT);
+		}
+		e6000sw_writereg(sc, REG_GLOBAL2, EEPROM_ADDR, off + resid);
+		e6000sw_writereg(sc, REG_GLOBAL2, EEPROM_CMD,
+		    EEPROM_BUSY | EEPROM_WRITE_CMD | EEPROM_WRITE_EN |
+		    (iobuf[resid] & EEPROM_DATA_MASK));
 	}
 
 	return (0);
