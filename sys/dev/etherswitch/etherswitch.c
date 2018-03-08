@@ -295,7 +295,7 @@ etherswitchiowrite(struct cdev *cdev, struct uio *uio, int ioflag)
 			break;
 	}
 
-	return (0);
+	return (error);
 }
 
 MODULE_VERSION(etherswitch, 1);
