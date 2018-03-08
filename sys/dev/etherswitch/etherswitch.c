@@ -72,13 +72,16 @@ driver_t etherswitch_driver = {
 	sizeof(struct etherswitch_softc),
 };
 
-static	d_ioctl_t	etherswitchioctl;
+static d_ioctl_t	etherswitchioctl;
+static d_read_t		etherswitchioread;
+static d_write_t	etherswitchiowrite;
 
 static struct cdevsw etherswitch_cdevsw = {
 	.d_version =	D_VERSION,
-	.d_flags =	D_TRACKCLOSE,
 	.d_ioctl =	etherswitchioctl,
 	.d_name =	"etherswitch",
+	.d_read =	etherswitchioread,
+	.d_write =	etherswitchiowrite,
 };
 
 static void
@@ -213,6 +216,86 @@ etherswitchioctl(struct cdev *cdev, u_long cmd, caddr_t data, int flags, struct 
 	}
 
 	return (error);
+}
+
+static int
+etherswitchioread(struct cdev *cdev, struct uio *uio, int ioflag)
+{
+	device_t etherswitch;
+	int error;
+	ssize_t ioblksize, iosize, len;
+	struct etherswitch_softc *sc;
+	void *iobuf;
+
+	sc = (struct etherswitch_softc *)cdev->si_drv1;
+ 	etherswitch = device_get_parent(sc->sc_dev);
+	ioblksize = ETHERSWITCH_GETIOBLKSIZE(etherswitch);
+	iosize = ETHERSWITCH_GETIOSIZE(etherswitch);
+	iobuf = ETHERSWITCH_GETIOBUF(etherswitch);
+	if (ioblksize == -1 || iosize == -1 || iobuf == NULL)
+		return (EINVAL);
+	if (uio->uio_offset == iosize)
+		return (0);
+	if (uio->uio_offset > iosize)
+		return (EIO);
+	if (uio->uio_resid > ioblksize)
+		return (EIO);
+
+	error = 0;
+	while (uio->uio_resid > 0) {
+		if (uio->uio_offset >= iosize)
+			break;
+		len = MIN(ioblksize - (uio->uio_offset & (ioblksize - 1)),
+		    uio->uio_resid);
+		error = ETHERSWITCH_IOREAD(etherswitch, uio->uio_offset, len);
+		if (error != 0)
+			break;
+		error = uiomove(iobuf, len, uio);
+		if (error != 0)
+			break;
+	}
+
+	return (error);
+}
+
+static int
+etherswitchiowrite(struct cdev *cdev, struct uio *uio, int ioflag)
+{
+	device_t etherswitch;
+	int error;
+	off_t offset;
+	ssize_t ioblksize, iosize, len;
+	struct etherswitch_softc *sc;
+	void *iobuf;
+
+	sc = (struct etherswitch_softc *)cdev->si_drv1;
+ 	etherswitch = device_get_parent(sc->sc_dev);
+	ioblksize = ETHERSWITCH_GETIOBLKSIZE(etherswitch);
+	iosize = ETHERSWITCH_GETIOSIZE(etherswitch);
+	iobuf = ETHERSWITCH_GETIOBUF(etherswitch);
+	if (ioblksize == -1 || iosize == -1 || iobuf == NULL)
+		return (EINVAL);
+	if (uio->uio_offset >= iosize)
+		return (EIO);
+	if (uio->uio_resid > ioblksize)
+		return (EIO);
+
+	error = 0;
+	while (uio->uio_resid > 0) {
+		if (uio->uio_offset >= iosize)
+			break;
+		len = MIN(ioblksize - (uio->uio_offset & (ioblksize - 1)),
+		    uio->uio_resid);
+		offset = uio->uio_offset;
+		error = uiomove(iobuf, len, uio);
+		if (error != 0)
+			break;
+		error = ETHERSWITCH_IOWRITE(etherswitch, offset, len);
+		if (error != 0)
+			break;
+	}
+
+	return (0);
 }
 
 MODULE_VERSION(etherswitch, 1);
