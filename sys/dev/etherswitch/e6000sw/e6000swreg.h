@@ -247,6 +247,16 @@ struct atu_opt {
 	 (SMI_CMD_C22_WRITE | SMI_CMD_BUSY | SMI_CMD_MODE_C22)
 #define	 SMI_CMD_OP_C22_READ						\
 	 (SMI_CMD_C22_READ | SMI_CMD_BUSY | SMI_CMD_MODE_C22)
+#define	 SMI_CMD_C45			(0 << 12)
+#define	 SMI_CMD_C45_ADDR		(0 << 10)
+#define	 SMI_CMD_C45_WRITE		(1 << 10)
+#define	 SMI_CMD_C45_READ		(3 << 10)
+#define	 SMI_CMD_OP_C45_ADDR						\
+	 (SMI_CMD_C45_ADDR | SMI_CMD_BUSY | SMI_CMD_C45)
+#define	 SMI_CMD_OP_C45_WRITE						\
+	 (SMI_CMD_C45_WRITE | SMI_CMD_BUSY | SMI_CMD_C45)
+#define	 SMI_CMD_OP_C45_READ						\
+	 (SMI_CMD_C45_READ | SMI_CMD_BUSY | SMI_CMD_C45)
 #define	 SMI_CMD_DEV_ADDR		5
 #define	 SMI_CMD_DEV_ADDR_MASK		0x3e0
 #define	 SMI_CMD_REG_ADDR_MASK		0x1f
@@ -263,6 +273,12 @@ struct atu_opt {
 
 #define	SCR_AND_MISC_PTR_CFG		0x7000
 #define	SCR_AND_MISC_DATA_CFG_MASK	0xf0
+
+/* SERDES registers. */
+#define	E6000SW_SERDES_DEV		4
+#define	E6000SW_SERDES_PCS_CTL1		0x1000
+#define	E6000SW_SERDES_SGMII_CTL	0x2000
+#define	 E6000SW_SERDES_PDOWN		(1 << 11)
 
 #define	E6000SW_NUM_VLANS		128
 #define	E6000SW_NUM_LAGS		16

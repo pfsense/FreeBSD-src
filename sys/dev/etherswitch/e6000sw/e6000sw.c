@@ -118,6 +118,8 @@ static void e6000sw_identify(driver_t *, device_t);
 static int e6000sw_probe(device_t);
 static int e6000sw_attach(device_t);
 static int e6000sw_detach(device_t);
+static int e6000sw_read_xmdio(device_t, int, int, int);
+static int e6000sw_write_xmdio(device_t, int, int, int, int);
 static int e6000sw_readphy(device_t, int, int);
 static int e6000sw_writephy(device_t, int, int, int);
 static etherswitch_info_t* e6000sw_getinfo(device_t);
@@ -602,9 +604,36 @@ e6000sw_attach_miibus(e6000sw_softc_t *sc, int port)
 	return (0);
 }
 
+static void
+e6000sw_serdes_power(device_t dev, int port, bool sgmii)
+{
+	uint32_t reg;
+
+	/* SGMII */
+	reg = e6000sw_read_xmdio(dev, port, E6000SW_SERDES_DEV,
+	    E6000SW_SERDES_SGMII_CTL);
+	if (sgmii)
+		reg &= ~E6000SW_SERDES_PDOWN;
+	else
+		reg |= E6000SW_SERDES_PDOWN;
+	e6000sw_write_xmdio(dev, port, E6000SW_SERDES_DEV,
+	    E6000SW_SERDES_SGMII_CTL, reg);
+
+	/* 10GBASE-R/10GBASE-X4/X2 */
+	reg = e6000sw_read_xmdio(dev, port, E6000SW_SERDES_DEV,
+	    E6000SW_SERDES_PCS_CTL1);
+	if (sgmii)
+		reg |= E6000SW_SERDES_PDOWN;
+	else
+		reg &= ~E6000SW_SERDES_PDOWN;
+	e6000sw_write_xmdio(dev, port, E6000SW_SERDES_DEV,
+	    E6000SW_SERDES_PCS_CTL1, reg);
+}
+
 static int
 e6000sw_attach(device_t dev)
 {
+	bool sgmii;
 	e6000sw_softc_t *sc;
 #ifdef FDT
 	phandle_t child;
@@ -685,6 +714,15 @@ e6000sw_attach(device_t dev)
 				reg |= PSC_CONTROL_FORCED_EEE;
 			e6000sw_writereg(sc, REG_PORT(sc, port), PSC_CONTROL,
 			    reg);
+			/* Power on the SERDES interfaces. */
+			if (MVSWITCH(sc, MV88E6190) &&
+			    (port == 9 || port == 10)) {
+				if (e6000sw_is_fixed25port(sc, port))
+					sgmii = false;
+				else
+					sgmii = true;
+				e6000sw_serdes_power(sc->dev, port, sgmii);
+			}
 		}
 
 		/* Don't attach miibus at CPU/fixed ports */
@@ -721,6 +759,79 @@ out_fail:
 	e6000sw_detach(dev);
 
 	return (err);
+}
+
+/* XMDIO/Clause 45 access. */
+static int
+e6000sw_read_xmdio(device_t dev, int phy, int devaddr, int devreg)
+{
+	e6000sw_softc_t *sc;
+	uint32_t reg;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
+		device_printf(dev, "Timeout while waiting for switch\n");
+		return (ETIMEDOUT);
+	}
+
+	reg = devaddr & SMI_CMD_REG_ADDR_MASK;
+	reg |= (phy << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK;
+
+	/* Load C45 register address. */
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG, devreg);
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    reg | SMI_CMD_OP_C45_ADDR);
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
+		device_printf(dev, "Timeout while waiting for switch\n");
+		return (ETIMEDOUT);
+	}
+
+	/* Start C45 read operation. */
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    reg | SMI_CMD_OP_C45_READ);
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
+		device_printf(dev, "Timeout while waiting for switch\n");
+		return (ETIMEDOUT);
+	}
+
+	/* Read C45 data. */
+	reg = e6000sw_readreg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG);
+
+	return (reg & PHY_DATA_MASK);
+}
+
+static int
+e6000sw_write_xmdio(device_t dev, int phy, int devaddr, int devreg, int val)
+{
+	e6000sw_softc_t *sc;
+	uint32_t reg;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
+		device_printf(dev, "Timeout while waiting for switch\n");
+		return (ETIMEDOUT);
+	}
+
+	reg = devaddr & SMI_CMD_REG_ADDR_MASK;
+	reg |= (phy << SMI_CMD_DEV_ADDR) & SMI_CMD_DEV_ADDR_MASK;
+
+	/* Load C45 register address. */
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG, devreg);
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    reg | SMI_CMD_OP_C45_ADDR);
+	if (E6000SW_WAITREADY2(sc, SMI_PHY_CMD_REG, SMI_CMD_BUSY)) {
+		device_printf(dev, "Timeout while waiting for switch\n");
+		return (ETIMEDOUT);
+	}
+
+	/* Load data and start the C45 write operation. */
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_DATA_REG, devreg);
+	e6000sw_writereg(sc, REG_GLOBAL2, SMI_PHY_CMD_REG,
+	    reg | SMI_CMD_OP_C45_WRITE);
+
+	return (0);
 }
 
 /*
