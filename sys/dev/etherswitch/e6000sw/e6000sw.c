@@ -842,6 +842,7 @@ static int
 e6000sw_readphy(device_t dev, int phy, int reg)
 {
 	e6000sw_softc_t *sc;
+	uint32_t val;
 
 	sc = device_get_softc(dev);
 	if (!e6000sw_is_phyport(sc, phy) || reg >= E6000SW_NUM_PHY_REGS) {
