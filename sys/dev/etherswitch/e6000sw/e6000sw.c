@@ -472,7 +472,8 @@ e6000sw_parse_child_fdt(e6000sw_softc_t *sc, phandle_t child, int *pport)
 
 	if (OF_getprop_alloc(child, "label", 1, (void **)&portlabel) > 0) {
 		if (strncmp(portlabel, "cpu", 3) == 0) {
-			device_printf(sc->dev, "CPU port at %d\n", port);
+			if (bootverbose)
+				device_printf(sc->dev, "CPU port at %d\n", port);
 			sc->cpuports_mask |= (1 << port);
 			sc->fixed_mask |= (1 << port);
 		}
@@ -496,10 +497,12 @@ e6000sw_parse_child_fdt(e6000sw_softc_t *sc, phandle_t child, int *pport)
 		}
 		free(name, M_OFWPROP);
 	}
-	if ((sc->fixed_mask & (1 << port)) != 0)
-		device_printf(sc->dev, "fixed port at %d\n", port);
-	else
-		device_printf(sc->dev, "PHY at port %d\n", port);
+	if (bootverbose) {
+		if ((sc->fixed_mask & (1 << port)) != 0)
+			device_printf(sc->dev, "fixed port at %d\n", port);
+		else
+			device_printf(sc->dev, "PHY at port %d\n", port);
+	}
 
 	return (0);
 }
@@ -540,12 +543,21 @@ e6000sw_parse_hinted_port(e6000sw_softc_t *sc, int port)
 	if (err == 0 && val != 0) {
 		sc->cpuports_mask |= (1 << port);
 		sc->fixed_mask |= (1 << port);
+		if (bootverbose)
+			device_printf(sc->dev, "CPU port at %d\n", port);
 	}
 	err = e6000sw_check_hint_val(sc->dev, &val, "port%dspeed", port);
 	if (err == 0 && val != 0) {
 		sc->fixed_mask |= (1 << port);
 		if (val == 2500)
 			sc->fixed25_mask |= (1 << port);
+	}
+
+	if (bootverbose) {
+		if ((sc->fixed_mask & (1 << port)) != 0)
+			device_printf(sc->dev, "fixed port at %d\n", port);
+		else
+			device_printf(sc->dev, "PHY at port %d\n", port);
 	}
 
 	return (0);
