@@ -225,6 +225,34 @@ set_port_flag(struct cfg *cfg, char *argv[])
 		err(EX_OSERR, "ioctl(IOETHERSWITCHSETPORT)");
 }
 
+static int
+set_port_state(struct cfg *cfg, char *argv[])
+{
+	etherswitch_port_t p;
+	uint32_t state;
+
+	if ((cfg->info.es_switch_caps & ETHERSWITCH_CAPS_PSTATE) == 0) {
+		printf("%s: setting the port state is not supported.\n",
+		    cfg->controlfile);
+		return;
+	}
+	state = ETHERSWITCH_PSTATE_DISABLED;
+	if (strcasecmp(argv[0], "blocking") == 0)
+		state = ETHERSWITCH_PSTATE_BLOCKING;
+	else if (strcasecmp(argv[0], "learning") == 0)
+		state = ETHERSWITCH_PSTATE_LEARNING;
+	else if (strcasecmp(argv[0], "forwarding") == 0)
+		state = ETHERSWITCH_PSTATE_FORWARDING;
+
+	bzero(&p, sizeof(p));
+	p.es_port = cfg->unit;
+	if (ioctl(cfg->fd, IOETHERSWITCHGETPORT, &p) != 0)
+		err(EX_OSERR, "ioctl(IOETHERSWITCHGETPORT)");
+	p.es_state = state;
+	if (ioctl(cfg->fd, IOETHERSWITCHSETPORT, &p) != 0)
+		err(EX_OSERR, "ioctl(IOETHERSWITCHSETPORT)");
+}
+
 static void
 set_port_media(struct cfg *cfg, char *argv[])
 {
@@ -484,6 +512,10 @@ print_port(struct cfg *cfg, int port)
 	printf("port%d:\n", port);
 	if (cfg->conf.vlan_mode == ETHERSWITCH_VLAN_DOT1Q)
 		printf("\tpvid: %d\n", p.es_pvid);
+	if (cfg->info.es_switch_caps & ETHERSWITCH_CAPS_PSTATE) {
+		printb("\tstate", p.es_state, ETHERSWITCH_PSTATE_BITS);
+		printf("\n");
+	}
 	printb("\tflags", p.es_flags, ETHERSWITCH_PORT_FLAGS_BITS);
 	printf("\n");
 	printf("\tmedia: ");
@@ -814,6 +846,10 @@ static struct cmds cmds[] = {
 	{ MODE_PORT, "-droptagged", 0, set_port_flag },
 	{ MODE_PORT, "dropuntagged", 0, set_port_flag },
 	{ MODE_PORT, "-dropuntagged", 0, set_port_flag },
+	{ MODE_PORT, "disabled", 0, set_port_state },
+	{ MODE_PORT, "blocking", 0, set_port_state },
+	{ MODE_PORT, "learning", 0, set_port_state },
+	{ MODE_PORT, "forwarding", 0, set_port_state },
 	{ MODE_CONFIG, "vlan_mode", 1, set_vlan_mode },
 	{ MODE_LAGGROUP, "members", 1, set_laggroup_members },
 	{ MODE_VLANGROUP, "vlan", 1, set_vlangroup_vid },
