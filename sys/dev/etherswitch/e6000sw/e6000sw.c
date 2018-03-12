@@ -110,7 +110,8 @@ static etherswitch_info_t etherswitch_info = {
 	.es_nports =		0,
 	.es_nvlangroups =	0,
 	.es_vlan_caps =		ETHERSWITCH_VLAN_PORT | ETHERSWITCH_VLAN_DOT1Q,
-	.es_switch_caps =	ETHERSWITCH_CAPS_PORTS_MASK,
+	.es_switch_caps =	ETHERSWITCH_CAPS_PORTS_MASK |
+				ETHERSWITCH_CAPS_PSTATE,
 	.es_name =		"Marvell 6000 series switch"
 };
 
@@ -220,6 +221,9 @@ static SYSCTL_NODE(_hw, OID_AUTO, e6000sw, CTLFLAG_RD, 0,
 static int e6000sw_eeprom_wp = TRUE;
 SYSCTL_INT(_hw_e6000sw, OID_AUTO, eeprom_wp, CTLFLAG_RDTUN, &e6000sw_eeprom_wp,
     0, "Enable eeprom write protect.");
+static int e6000sw_default_disabled = FALSE;
+SYSCTL_INT(_hw_e6000sw, OID_AUTO, default_disabled, CTLFLAG_RDTUN,
+    &e6000sw_default_disabled, 0, "Keep ports disabled at boot.");
 
 #undef E6000SW_DEBUG
 #if defined(E6000SW_DEBUG)
@@ -1010,6 +1014,22 @@ e6000sw_getport(device_t dev, etherswitch_port_t *p)
 	E6000SW_LOCK(sc);
 	e6000sw_get_pvid(sc, p->es_port, &p->es_pvid);
 
+	/* Port state. */
+	reg = e6000sw_readreg(sc, REG_PORT(sc, p->es_port), PORT_CONTROL);
+	switch (reg & PORT_CONTROL_ENABLE) {
+	case PORT_CONTROL_BLOCKING:
+		p->es_state = ETHERSWITCH_PSTATE_BLOCKING;
+		break;
+	case PORT_CONTROL_LEARNING:
+		p->es_state = ETHERSWITCH_PSTATE_LEARNING;
+		break;
+	case PORT_CONTROL_FORWARDING:
+		p->es_state = ETHERSWITCH_PSTATE_FORWARDING;
+		break;
+	default:
+		p->es_state = ETHERSWITCH_PSTATE_DISABLED;
+	}
+
 	/* Port flags. */
 	reg = e6000sw_readreg(sc, REG_PORT(sc, p->es_port), PORT_CONTROL2);
 	if (reg & PORT_CONTROL2_DISC_TAGGED)
@@ -1059,6 +1079,26 @@ e6000sw_setport(device_t dev, etherswitch_port_t *p)
 
 	err = 0;
 	E6000SW_LOCK(sc);
+
+	/* Port state. */
+	reg = e6000sw_readreg(sc, REG_PORT(sc, p->es_port), PORT_CONTROL);
+	reg &= ~PORT_CONTROL_ENABLE;
+	switch (p->es_state) {
+	case ETHERSWITCH_PSTATE_BLOCKING:
+		reg |= PORT_CONTROL_BLOCKING;
+		break;
+	case ETHERSWITCH_PSTATE_LEARNING:
+		reg |= PORT_CONTROL_LEARNING;
+		break;
+	case ETHERSWITCH_PSTATE_FORWARDING:
+		reg |= PORT_CONTROL_FORWARDING;
+		break;
+	default:
+		reg |= PORT_CONTROL_DISABLED;
+	}
+	e6000sw_writereg(sc, REG_PORT(sc, p->es_port), PORT_CONTROL, reg);
+
+	/* Port flags. */
 	reg = e6000sw_readreg(sc, REG_PORT(sc, p->es_port), PORT_CONTROL2);
 	if (p->es_flags & ETHERSWITCH_PORT_DROPTAGGED)
 		reg |= PORT_CONTROL2_DISC_TAGGED;
@@ -1175,13 +1215,15 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 		e6000sw_vtu_update(sc, 0, sc->vlans[0], 1, 0, sc->ports_mask);
 	}
 
-	/* Enable all ports */
-	for (port = 0; port < sc->num_ports; port++) {
-		if (!e6000sw_is_portenabled(sc, port))
-			continue;
-		ret = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_CONTROL);
-		e6000sw_writereg(sc, REG_PORT(sc, port), PORT_CONTROL,
-		    (ret | PORT_CONTROL_ENABLE));
+	if (e6000sw_default_disabled == false) {
+		/* Enable all ports */
+		for (port = 0; port < sc->num_ports; port++) {
+			if (!e6000sw_is_portenabled(sc, port))
+				continue;
+			ret = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_CONTROL);
+			e6000sw_writereg(sc, REG_PORT(sc, port), PORT_CONTROL,
+			    (ret | PORT_CONTROL_ENABLE));
+		}
 	}
 
 #if defined(E6000SW_DEBUG)
