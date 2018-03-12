@@ -225,7 +225,7 @@ set_port_flag(struct cfg *cfg, char *argv[])
 		err(EX_OSERR, "ioctl(IOETHERSWITCHSETPORT)");
 }
 
-static int
+static void
 set_port_state(struct cfg *cfg, char *argv[])
 {
 	etherswitch_port_t p;
