@@ -96,7 +96,7 @@ typedef struct e6000sw_softc {
 	uint32_t		fixed_mask;
 	uint32_t		fixed25_mask;
 	uint32_t		used_mask;
-	uint32_t		port_vlan_mask;
+	uint32_t		ports_mask;
 	int			phy_base;	/* SMI base addr of PHY regs */
 	int			port_base;	/* SMI base addr of port regs */
 	int			sw_addr;
@@ -402,13 +402,13 @@ e6000sw_probe(device_t dev)
 		return (ENXIO);
 
 	/* Set defaults for 88E6XXX family. */
-	sc->port_vlan_mask = 0x7f;
+	sc->ports_mask = 0x7f;
 	sc->port_base = 0x10;
 
 	/* 88E6190 with 11 ports uses a different mapping. */
 	if (is_8190 != 0) {
 		sc->port_base = 0;
-		sc->port_vlan_mask = 0x7ff;
+		sc->ports_mask = 0x7ff;
 	}
 
 	/*
@@ -1128,9 +1128,9 @@ e6000sw_port_vlan_assign(e6000sw_softc_t *sc, int port, uint32_t fid,
 	uint32_t reg;
 
 	reg = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_VLAN_MAP);
-	reg &= ~sc->port_vlan_mask;
+	reg &= ~sc->ports_mask;
 	reg &= ~PORT_VLAN_MAP_FID_MASK;
-	reg |= members & sc->port_vlan_mask & ~(1 << port);
+	reg |= members & sc->ports_mask & ~(1 << port);
 	reg |= (fid << PORT_VLAN_MAP_FID) & PORT_VLAN_MAP_FID_MASK;
 	e6000sw_writereg(sc, REG_PORT(sc, port), PORT_VLAN_MAP, reg);
 	reg = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_CONTROL1);
@@ -1445,7 +1445,7 @@ e6000sw_get_port_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 	}
 
 	reg = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_VLAN_MAP);
-	vg->es_untagged_ports = vg->es_member_ports = reg & sc->port_vlan_mask;
+	vg->es_untagged_ports = vg->es_member_ports = reg & sc->ports_mask;
 	vg->es_vid = port | ETHERSWITCH_VID_VALID;
 	vg->es_fid = (reg & PORT_VLAN_MAP_FID_MASK) >> PORT_VLAN_MAP_FID;
 	reg = e6000sw_readreg(sc, REG_PORT(sc, port), PORT_CONTROL1);
