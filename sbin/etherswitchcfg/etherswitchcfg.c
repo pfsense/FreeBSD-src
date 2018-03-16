@@ -619,7 +619,7 @@ print_info(struct cfg *cfg)
 	if (cfg->verbose) {
 		if (cfg->info.es_switch_caps & ETHERSWITCH_CAPS_LAGG)
 			printf(
-			    "%s: %s with %d ports, %d VLAN groups and %d LAG groups\n",
+			    "%s: %s with %d ports, %d VLAN groups and %d LAGG groups\n",
 			    c, cfg->info.es_name, cfg->info.es_nports,
 			    cfg->info.es_nvlangroups, cfg->info.es_nlaggroups);
 		else
