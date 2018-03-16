@@ -95,7 +95,7 @@ typedef struct e6000sw_softc {
 	uint32_t		cpuports_mask;
 	uint32_t		fixed_mask;
 	uint32_t		fixed25_mask;
-	uint32_t		ports_mask;
+	uint32_t		used_mask;
 	uint32_t		port_vlan_mask;
 	int			phy_base;	/* SMI base addr of PHY regs */
 	int			port_base;	/* SMI base addr of port regs */
@@ -676,7 +676,7 @@ e6000sw_attach(device_t dev)
 #endif
 
 		/* Port is in use. */
-		sc->ports_mask |= (1 << port);
+		sc->used_mask |= (1 << port);
 
 		err = e6000sw_init_interface(sc, port);
 		if (err != 0) {
@@ -741,7 +741,7 @@ e6000sw_attach(device_t dev)
 	}
 
 	etherswitch_info.es_nports = sc->num_ports;
-	etherswitch_info.es_ports_mask[0] = sc->ports_mask;
+	etherswitch_info.es_ports_mask[0] = sc->used_mask;
 
 	/* Default to port vlan. */
 	e6000sw_set_vlan_mode(sc, ETHERSWITCH_VLAN_PORT);
@@ -1212,7 +1212,7 @@ e6000sw_init_vlan(struct e6000sw_softc *sc)
 	/* Create default VLAN (1). */
 	if (sc->vlan_mode == ETHERSWITCH_VLAN_DOT1Q) {
 		sc->vlans[0] = 1;
-		e6000sw_vtu_update(sc, 0, sc->vlans[0], 1, 0, sc->ports_mask);
+		e6000sw_vtu_update(sc, 0, sc->vlans[0], 1, 0, sc->used_mask);
 	}
 
 	if (e6000sw_default_disabled == false) {
@@ -1408,8 +1408,8 @@ e6000sw_set_dot1q_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 
 	sc->vlans[vg->es_vlangroup] = vlan;
 	e6000sw_vtu_update(sc, 0, vlan, vg->es_vlangroup + 1,
-	    vg->es_member_ports & sc->ports_mask,
-	    vg->es_untagged_ports & sc->ports_mask);
+	    vg->es_member_ports & sc->used_mask,
+	    vg->es_untagged_ports & sc->used_mask);
 
 	return (0);
 }
@@ -1655,7 +1655,7 @@ static __inline bool
 e6000sw_is_portenabled(e6000sw_softc_t *sc, int port)
 {
 
-	return ((sc->ports_mask & (1 << port)) ? true : false);
+	return ((sc->used_mask & (1 << port)) ? true : false);
 }
 
 static __inline void
