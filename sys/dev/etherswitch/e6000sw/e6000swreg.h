@@ -90,7 +90,10 @@ struct atu_opt {
 #define	SWITCH_ID			0x3
 #define	PORT_CONTROL			0x4
 #define	PORT_CONTROL1			0x5
-#define	PORT_CONTROL1_FID_MASK		0xf
+#define	 PORT_CONTROL1_LAG_PORT		(1 << 14)
+#define	 PORT_CONTROL1_LAG_ID_MASK	0xf
+#define	 PORT_CONTROL1_LAG_ID_SHIFT	8
+#define	 PORT_CONTROL1_FID_MASK		0xf
 #define	PORT_VLAN_MAP			0x6
 #define	PORT_VID			0x7
 #define	PORT_CONTROL2			0x8
@@ -206,9 +209,14 @@ struct atu_opt {
 #define	MGMT_EN_2x			2
 #define	MGMT_EN_0x			3
 #define	SWITCH_MGMT			5
+#define	LAG_MASK			7
+#define	LAG_MAPPING			8
 #define	ATU_STATS			14
 
 #define	MGMT_EN_ALL			0xffff
+#define	LAG_UPDATE			(1 << 15)
+#define	LAG_MASKNUM_SHIFT		12
+#define	LAGID_SHIFT			11
 
 /* SWITCH_MGMT fields */
 
@@ -285,7 +293,7 @@ struct atu_opt {
 #define	 E6000SW_SERDES_PDOWN		(1 << 11)
 
 #define	E6000SW_NUM_VLANS		128
-#define	E6000SW_NUM_LAGS		16
+#define	E6000SW_NUM_LAGMASK		8
 #define	E6000SW_NUM_PHY_REGS		29
 #define	E6000SW_MAX_PORTS		11
 #define	E6000SW_DEFAULT_AGETIME		20

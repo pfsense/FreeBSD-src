@@ -100,6 +100,7 @@ typedef struct e6000sw_softc {
 	int			phy_base;	/* SMI base addr of PHY regs */
 	int			port_base;	/* SMI base addr of port regs */
 	int			sw_addr;
+	int			num_laggs;
 	int			num_ports;
 
 	ssize_t			iosize;
@@ -108,10 +109,11 @@ typedef struct e6000sw_softc {
 
 static etherswitch_info_t etherswitch_info = {
 	.es_nports =		0,
+	.es_nlaggroups =	0,
 	.es_nvlangroups =	0,
 	.es_vlan_caps =		ETHERSWITCH_VLAN_PORT | ETHERSWITCH_VLAN_DOT1Q,
 	.es_switch_caps =	ETHERSWITCH_CAPS_PORTS_MASK |
-				ETHERSWITCH_CAPS_PSTATE,
+				ETHERSWITCH_CAPS_PSTATE | ETHERSWITCH_CAPS_LAGG,
 	.es_name =		"Marvell 6000 series switch"
 };
 
@@ -139,6 +141,11 @@ static int e6000sw_getvgroup_wrapper(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_setvgroup_wrapper(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_setvgroup(device_t, etherswitch_vlangroup_t *);
 static int e6000sw_getvgroup(device_t, etherswitch_vlangroup_t *);
+static int e6000sw_resetlagg(e6000sw_softc_t *);
+static int e6000sw_getlaggroup_wrapper(device_t, etherswitch_laggroup_t *);
+static int e6000sw_setlaggroup_wrapper(device_t, etherswitch_laggroup_t *);
+static int e6000sw_setlaggroup(device_t, etherswitch_laggroup_t *);
+static int e6000sw_getlaggroup(device_t, etherswitch_laggroup_t *);
 static ssize_t e6000sw_getiosize(device_t);
 static ssize_t e6000sw_getioblksize(device_t);
 static void *e6000sw_getiobuf(device_t);
@@ -195,6 +202,8 @@ static device_method_t e6000sw_methods[] = {
 	DEVMETHOD(etherswitch_writephyreg,	e6000sw_writephy_wrapper),
 	DEVMETHOD(etherswitch_setvgroup,	e6000sw_setvgroup_wrapper),
 	DEVMETHOD(etherswitch_getvgroup,	e6000sw_getvgroup_wrapper),
+	DEVMETHOD(etherswitch_setlaggroup,	e6000sw_setlaggroup_wrapper),
+	DEVMETHOD(etherswitch_getlaggroup,	e6000sw_getlaggroup_wrapper),
 	DEVMETHOD(etherswitch_getioblksize,	e6000sw_getioblksize),
 	DEVMETHOD(etherswitch_getiosize,	e6000sw_getiosize),
 	DEVMETHOD(etherswitch_getiobuf,		e6000sw_getiobuf),
@@ -421,6 +430,7 @@ e6000sw_probe(device_t dev)
 	E6000SW_UNLOCK(sc);
 	sx_destroy(&sc->sx);
 
+	sc->num_laggs = 16;
 	switch (sc->swid) {
 	case MV88E6141:
 		description = "Marvell 88E6141";
@@ -446,6 +456,7 @@ e6000sw_probe(device_t dev)
 		break;
 	case MV88E6190:
 		description = "Marvell 88E6190";
+		//sc->num_laggs = 32;	/* Only 16 LAGGs for now. */
 		sc->num_ports = 11;
 		break;
 	default:
@@ -741,7 +752,11 @@ e6000sw_attach(device_t dev)
 	}
 
 	etherswitch_info.es_nports = sc->num_ports;
+	etherswitch_info.es_nlaggroups = sc->num_laggs;
 	etherswitch_info.es_ports_mask[0] = sc->used_mask;
+
+	/* Reset LAGG settings. */
+	e6000sw_resetlagg(sc);
 
 	/* Default to port vlan. */
 	e6000sw_set_vlan_mode(sc, ETHERSWITCH_VLAN_PORT);
@@ -1367,6 +1382,164 @@ e6000sw_getvgroup_wrapper(device_t dev, etherswitch_vlangroup_t *vg)
 }
 
 static int
+e6000sw_setlaggroup_wrapper(device_t dev, etherswitch_laggroup_t *lag)
+{
+	e6000sw_softc_t *sc;
+	int ret;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK_ASSERT(sc, SA_UNLOCKED);
+
+	E6000SW_LOCK(sc);
+	ret = e6000sw_setlaggroup(dev, lag);
+	E6000SW_UNLOCK(sc);
+
+	return (ret);
+}
+
+static int
+e6000sw_getlaggroup_wrapper(device_t dev, etherswitch_laggroup_t *lag)
+{
+	e6000sw_softc_t *sc;
+	int ret;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK_ASSERT(sc, SA_UNLOCKED);
+
+	E6000SW_LOCK(sc);
+	ret = e6000sw_getlaggroup(dev, lag);
+	E6000SW_UNLOCK(sc);
+
+	return (ret);
+}
+
+static int
+e6000sw_resetlagg(e6000sw_softc_t *sc)
+{
+	int i;
+
+	for (i = 0; i < sc->num_laggs; i++)
+		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING,
+		    i << LAGID_SHIFT | LAG_UPDATE);
+	for (i = 0; i < E6000SW_NUM_LAGMASK; i++)
+		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MASK,
+		    i << LAG_MASKNUM_SHIFT | LAG_UPDATE | sc->ports_mask);
+
+	return (0);
+}
+
+static int
+e6000sw_setlaggmask(e6000sw_softc_t *sc)
+{
+	int count, cycle, i, m, mask, port;
+	struct lagg_map {
+		int cycle;
+		int lag;
+		int pcount;
+		uint32_t ports;
+	} *map;
+	uint32_t reg;
+
+	map = malloc(sizeof(*map) * sc->num_laggs, M_E6000SW, M_WAITOK);
+	for (i = 0; i < sc->num_laggs; i++) {
+		map[i].lag = 0;
+		map[i].cycle = 0;
+		map[i].ports = 0;
+		map[i].pcount = 0;
+	}
+	count = 0;
+	for (i = 0; i < sc->num_laggs; i++) {
+
+		/* Read the LAGG ports. */
+		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING,
+		    i << LAGID_SHIFT);
+		reg = e6000sw_readreg(sc, REG_GLOBAL2, LAG_MAPPING);
+		if ((reg & sc->ports_mask) == 0)
+			continue;
+		map[count].lag = i;
+		map[count].ports = reg & sc->ports_mask;
+		for (port = 0; port < sc->num_ports; port++) {
+			if ((map[count].ports & (1 << port)) == 0)
+				continue;
+			map[count].pcount++;
+		}
+		++count;
+	}
+
+	for (mask = 0; mask < E6000SW_NUM_LAGMASK; mask++) {
+		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MASK,
+		    mask << LAG_MASKNUM_SHIFT);
+		reg = e6000sw_readreg(sc, REG_GLOBAL2, LAG_MASK);
+		reg |= sc->ports_mask;
+		for (port = 0; port < sc->num_ports; port++) {
+
+			for (m = 0; m < count; m++) {
+				cycle = mask % map[m].pcount;
+				if ((map[m].ports & (1 << port)) == 0)
+					continue;
+				if (map[m].cycle != cycle)
+					reg &= ~(1 << port);
+				map[m].cycle = ++map[m].cycle % map[m].pcount;
+			}
+		}
+		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MASK, reg | LAG_UPDATE);
+	}
+
+	free(map, M_E6000SW);
+
+	return (0);
+}
+
+static int
+e6000sw_setlaggroup(device_t dev, etherswitch_laggroup_t *lag)
+{
+	e6000sw_softc_t *sc;
+	int i, laggid;
+	uint32_t laggports, reg;
+
+	sc = device_get_softc(dev);
+
+	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
+
+	laggports = 0;
+	for (i = 0; i < sc->num_ports; i++) {
+		if (!e6000sw_is_portenabled(sc, i))
+			continue;
+		reg = e6000sw_readreg(sc, REG_PORT(sc, i), PORT_CONTROL1);
+		laggid = reg >> PORT_CONTROL1_LAG_ID_SHIFT;
+		laggid &= PORT_CONTROL1_LAG_ID_MASK;
+		if ((lag->es_untagged_ports & (1 << i)) == 0) {
+			if ((reg & PORT_CONTROL1_LAG_PORT) != 0 &&
+			    laggid == lag->es_laggroup) {
+				/* Disable LAG on port. */
+				reg &= ~PORT_CONTROL1_LAG_PORT;
+				reg &= ~(PORT_CONTROL1_LAG_ID_MASK <<
+				    PORT_CONTROL1_LAG_ID_SHIFT);
+				e6000sw_writereg(sc, REG_PORT(sc, i),
+				    PORT_CONTROL1, reg);
+			}
+			continue;
+		}
+		reg |= PORT_CONTROL1_LAG_PORT;
+		laggid = lag->es_laggroup & PORT_CONTROL1_LAG_ID_MASK;
+		reg |= laggid << PORT_CONTROL1_LAG_ID_SHIFT;
+		e6000sw_writereg(sc, REG_PORT(sc, i), PORT_CONTROL1, reg);
+
+		laggports |= (1 << i);
+	}
+
+	/* Update LAG mapping. */
+	reg = (lag->es_laggroup & PORT_CONTROL1_LAG_ID_MASK) << LAGID_SHIFT;
+	e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING, reg);
+	reg = e6000sw_readreg(sc, REG_GLOBAL2, LAG_MAPPING);
+	reg &= ~sc->ports_mask;
+	reg |= laggports | LAG_UPDATE;
+	e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING, reg);
+
+	return (e6000sw_setlaggmask(sc));
+}
+
+static int
 e6000sw_set_port_vlan(e6000sw_softc_t *sc, etherswitch_vlangroup_t *vg)
 {
 	uint32_t port;
@@ -1428,6 +1601,32 @@ e6000sw_setvgroup(device_t dev, etherswitch_vlangroup_t *vg)
 		return (e6000sw_set_dot1q_vlan(sc, vg));
 
 	return (EINVAL);
+}
+
+static int
+e6000sw_getlaggroup(device_t dev, etherswitch_laggroup_t *lag)
+{
+	e6000sw_softc_t *sc;
+	int laggid;
+	uint32_t reg;
+
+	sc = device_get_softc(dev);
+	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
+
+	lag->es_lag_valid = 0;
+	lag->es_member_ports = lag->es_untagged_ports = 0;
+	/* Read the LAGG ports. */
+	laggid = lag->es_laggroup & PORT_CONTROL1_LAG_ID_MASK;
+	e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING, laggid << LAGID_SHIFT);
+	reg = e6000sw_readreg(sc, REG_GLOBAL2, LAG_MAPPING);
+	lag->es_member_ports = reg & sc->ports_mask;
+	lag->es_untagged_ports = reg & sc->ports_mask;
+
+	/* Is this LAG group in use ? */
+	if (lag->es_untagged_ports != 0)
+		lag->es_lag_valid = 1;
+
+	return (0);
 }
 
 static int
