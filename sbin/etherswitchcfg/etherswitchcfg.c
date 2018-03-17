@@ -549,7 +549,7 @@ print_laggroup(struct cfg *cfg, int laggroup)
 	lag.es_laggroup = laggroup;
 	if (ioctl(cfg->fd, IOETHERSWITCHGETLAGGROUP, &lag) != 0)
 		err(EX_OSERR, "ioctl(IOETHERSWITCHGETLAGGROUP)");
-	if (lag.es_lag_valid == 0)
+	if (lag.es_lagg_valid == 0)
 		return;
 	printf("laggroup%d:\n", laggroup);
 	printf("\tmembers ");

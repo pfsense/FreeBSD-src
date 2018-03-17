@@ -1536,6 +1536,8 @@ e6000sw_setlaggroup(device_t dev, etherswitch_laggroup_t *lag)
 	reg |= laggports | LAG_UPDATE;
 	e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING, reg);
 
+	lag->es_lagg_valid = 1;
+
 	return (e6000sw_setlaggmask(sc));
 }
 
@@ -1613,7 +1615,7 @@ e6000sw_getlaggroup(device_t dev, etherswitch_laggroup_t *lag)
 	sc = device_get_softc(dev);
 	E6000SW_LOCK_ASSERT(sc, SA_XLOCKED);
 
-	lag->es_lag_valid = 0;
+	lag->es_lagg_valid = 0;
 	lag->es_member_ports = lag->es_untagged_ports = 0;
 	/* Read the LAGG ports. */
 	laggid = lag->es_laggroup & PORT_CONTROL1_LAG_ID_MASK;
@@ -1624,7 +1626,7 @@ e6000sw_getlaggroup(device_t dev, etherswitch_laggroup_t *lag)
 
 	/* Is this LAG group in use ? */
 	if (lag->es_untagged_ports != 0)
-		lag->es_lag_valid = 1;
+		lag->es_lagg_valid = 1;
 
 	return (0);
 }
