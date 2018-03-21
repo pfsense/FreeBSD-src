@@ -1417,7 +1417,21 @@ static int
 e6000sw_resetlagg(e6000sw_softc_t *sc)
 {
 	int i;
+	uint32_t reg;
 
+	for (i = 0; i < sc->num_ports; i++) {
+		if (!e6000sw_is_portenabled(sc, i))
+			continue;
+		reg = e6000sw_readreg(sc, REG_PORT(sc, i), PORT_CONTROL1);
+		if (reg & PORT_CONTROL1_LAG_PORT) {
+			/* Disable LAG on port. */
+			reg &= ~PORT_CONTROL1_LAG_PORT;
+			reg &= ~(PORT_CONTROL1_LAG_ID_MASK <<
+			    PORT_CONTROL1_LAG_ID_SHIFT);
+			e6000sw_writereg(sc, REG_PORT(sc, i),
+			    PORT_CONTROL1, reg);
+		}
+	}
 	for (i = 0; i < sc->num_laggs; i++)
 		e6000sw_writereg(sc, REG_GLOBAL2, LAG_MAPPING,
 		    i << LAGID_SHIFT | LAG_UPDATE);
