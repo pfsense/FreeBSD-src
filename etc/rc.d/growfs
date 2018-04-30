@@ -96,6 +96,7 @@ growfs_start ()
 		exit 0
 	}
 }' dev="$search"
+	gpart commit "$rootdev"
 	growfs -y /dev/"$rootdev"
 }
 

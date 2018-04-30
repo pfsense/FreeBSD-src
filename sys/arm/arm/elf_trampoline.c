@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/armreg.h>
 #include <machine/cpu.h>
 #include <machine/vmparam.h>	/* For KERNVIRTADDR */
+#include <machine/cpu.h>
 
 extern char kernel_start[];
 extern char kernel_end[];

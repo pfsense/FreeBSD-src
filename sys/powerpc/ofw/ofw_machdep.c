@@ -387,6 +387,7 @@ boolean_t
 OF_bootstrap()
 {
 	boolean_t status = FALSE;
+	int err = 0;
 
 #ifdef AIM
 	if (openfirmware_entry != NULL) {
@@ -403,7 +404,7 @@ OF_bootstrap()
 		if (status != TRUE)
 			return status;
 
-		OF_init(openfirmware);
+		err = OF_init(openfirmware);
 	} else
 #endif
 	if (fdt != NULL) {
@@ -412,9 +413,15 @@ OF_bootstrap()
 		if (status != TRUE)
 			return status;
 
-		OF_init(fdt);
-		OF_interpret("perform-fixup", 0);
+		err = OF_init(fdt);
+		if (err == 0)
+			OF_interpret("perform-fixup", 0);
 	} 
+
+	if (err != 0) {
+		OF_install(NULL, 0);
+		status = FALSE;
+	}
 
 	return (status);
 }

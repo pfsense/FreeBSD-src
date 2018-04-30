@@ -60,6 +60,7 @@ __FBSDID("$FreeBSD$");
 #include "privsep.h"
 
 #include <sys/capsicum.h>
+#include <sys/endian.h>
 
 #include <net80211/ieee80211_freebsd.h>
 
@@ -86,7 +87,7 @@ __FBSDID("$FreeBSD$");
 time_t cur_time;
 time_t default_lease_time = 43200; /* 12 hours... */
 
-char *path_dhclient_conf = _PATH_DHCLIENT_CONF;
+const char *path_dhclient_conf = _PATH_DHCLIENT_CONF;
 char *path_dhclient_db = NULL;
 
 int log_perror = 1;
@@ -126,15 +127,18 @@ void		 routehandler(struct protocol *);
 void		 usage(void);
 int		 check_option(struct client_lease *l, int option);
 int		 check_classless_option(unsigned char *data, int len);
-int		 ipv4addrs(char * buf);
+int		 ipv4addrs(const char * buf);
 int		 res_hnok(const char *dn);
 int		 check_search(const char *srch);
-char		*option_as_string(unsigned int code, unsigned char *data, int len);
+const char	*option_as_string(unsigned int code, unsigned char *data, int len);
 int		 fork_privchld(int, int);
 
 #define	ROUNDUP(a) \
 	    ((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 #define	ADVANCE(x, n) (x += ROUNDUP((n)->sa_len))
+
+/* Minimum MTU is 68 as per RFC791, p. 24 */
+#define MIN_MTU 68
 
 static time_t	scripttime;
 
@@ -193,26 +197,25 @@ uint8_t curbssid[6];
 static void
 disassoc(void *arg)
 {
-	struct interface_info *ifi = arg;
+	struct interface_info *_ifi = arg;
 
 	/*
 	 * Clear existing state.
 	 */
-	if (ifi->client->active != NULL) {
+	if (_ifi->client->active != NULL) {
 		script_init("EXPIRE", NULL);
 		script_write_params("old_",
-		    ifi->client->active);
-		if (ifi->client->alias)
+		    _ifi->client->active);
+		if (_ifi->client->alias)
 			script_write_params("alias_",
-				ifi->client->alias);
+				_ifi->client->alias);
 		script_go();
 	}
-	ifi->client->state = S_INIT;
+	_ifi->client->state = S_INIT;
 }
 
-/* ARGSUSED */
 void
-routehandler(struct protocol *p)
+routehandler(struct protocol *p __unused)
 {
 	char msg[2048], *addr;
 	struct rt_msghdr *rtm;
@@ -222,7 +225,7 @@ routehandler(struct protocol *p)
 	struct ieee80211_join_event *jev;
 	struct client_lease *l;
 	time_t t = time(NULL);
-	struct sockaddr *sa;
+	struct sockaddr_in *sa;
 	struct iaddr a;
 	ssize_t n;
 	int linkstat;
@@ -246,13 +249,13 @@ routehandler(struct protocol *p)
 		if (scripttime == 0 || t < scripttime + 10)
 			break;
 
-		sa = get_ifa((char *)(ifam + 1), ifam->ifam_addrs);
+		sa = (struct sockaddr_in*)get_ifa((char *)(ifam + 1), ifam->ifam_addrs);
 		if (sa == NULL)
 			break;
 
 		if ((a.len = sizeof(struct in_addr)) > sizeof(a.iabuf))
 			error("king bula sez: len mismatch");
-		memcpy(a.iabuf, &((struct sockaddr_in *)sa)->sin_addr, a.len);
+		memcpy(a.iabuf, &sa->sin_addr, a.len);
 		if (addr_eq(a, defaddr))
 			break;
 
@@ -263,7 +266,7 @@ routehandler(struct protocol *p)
 		if (l == NULL)	/* added/deleted addr is not the one we set */
 			break;
 
-		addr = inet_ntoa(((struct sockaddr_in *)sa)->sin_addr);
+		addr = inet_ntoa(sa->sin_addr);
 		if (rtm->rtm_type == RTM_NEWADDR)  {
 			/*
 			 * XXX: If someone other than us adds our address,
@@ -818,8 +821,19 @@ dhcpack(struct packet *packet)
 void
 bind_lease(struct interface_info *ip)
 {
+	struct option_data *opt;
+
 	/* Remember the medium. */
 	ip->client->new->medium = ip->client->medium;
+
+	opt = &ip->client->new->options[DHO_INTERFACE_MTU];
+	if (opt->len == sizeof(u_int16_t)) {
+		u_int16_t mtu = be16dec(opt->data);
+		if (mtu < MIN_MTU)
+			warning("mtu size %u < %d: ignored", (unsigned)mtu, MIN_MTU);
+		else
+			interface_set_mtu_unpriv(privfd, mtu);
+	}
 
 	/* Write out the new lease. */
 	write_client_lease(ip, ip->client->new, 0);
@@ -910,7 +924,7 @@ dhcp(struct packet *packet)
 {
 	struct iaddrlist *ap;
 	void (*handler)(struct packet *);
-	char *type;
+	const char *type;
 
 	switch (packet->packet_type) {
 	case DHCPOFFER:
@@ -948,7 +962,7 @@ dhcpoffer(struct packet *packet)
 	struct client_lease *lease, *lp;
 	int i;
 	int arp_timeout_needed, stop_selecting;
-	char *name = packet->options[DHO_DHCP_MESSAGE_TYPE].len ?
+	const char *name = packet->options[DHO_DHCP_MESSAGE_TYPE].len ?
 	    "DHCPOFFER" : "BOOTREPLY";
 
 	/* If we're not receptive to an offer right now, or if the offer
@@ -1478,7 +1492,8 @@ cancel:
 		memcpy(&to.s_addr, ip->client->destination.iabuf,
 		    sizeof(to.s_addr));
 
-	if (ip->client->state != S_REQUESTING)
+	if (ip->client->state != S_REQUESTING &&
+	    ip->client->state != S_REBOOTING)
 		memcpy(&from, ip->client->active->address.iabuf,
 		    sizeof(from));
 	else
@@ -1957,7 +1972,7 @@ write_client_lease(struct interface_info *ip, struct client_lease *lease,
 }
 
 void
-script_init(char *reason, struct string_list *medium)
+script_init(const char *reason, struct string_list *medium)
 {
 	size_t		 len, mediumlen = 0;
 	struct imsg_hdr	 hdr;
@@ -1992,7 +2007,7 @@ script_init(char *reason, struct string_list *medium)
 }
 
 void
-priv_script_init(char *reason, char *medium)
+priv_script_init(const char *reason, char *medium)
 {
 	struct interface_info *ip = ifi;
 
@@ -2020,7 +2035,7 @@ priv_script_init(char *reason, char *medium)
 }
 
 void
-priv_script_write_params(char *prefix, struct client_lease *lease)
+priv_script_write_params(const char *prefix, struct client_lease *lease)
 {
 	struct interface_info *ip = ifi;
 	u_int8_t dbuf[1500], *dp = NULL;
@@ -2160,7 +2175,7 @@ supersede:
 }
 
 void
-script_write_params(char *prefix, struct client_lease *lease)
+script_write_params(const char *prefix, struct client_lease *lease)
 {
 	size_t		 fn_len = 0, sn_len = 0, pr_len = 0;
 	struct imsg_hdr	 hdr;
@@ -2428,8 +2443,8 @@ go_daemon(void)
 int
 check_option(struct client_lease *l, int option)
 {
-	char *opbuf;
-	char *sbuf;
+	const char *opbuf;
+	const char *sbuf;
 
 	/* we use this, since this is what gets passed to dhclient-script */
 
@@ -2689,7 +2704,7 @@ check_search(const char *srch)
  * otherwise, return 0
  */
 int
-ipv4addrs(char * buf)
+ipv4addrs(const char * buf)
 {
 	struct in_addr jnk;
 	int count = 0;
@@ -2707,7 +2722,7 @@ ipv4addrs(char * buf)
 }
 
 
-char *
+const char *
 option_as_string(unsigned int code, unsigned char *data, int len)
 {
 	static char optbuf[32768]; /* XXX */

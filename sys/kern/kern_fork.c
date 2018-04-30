@@ -97,6 +97,8 @@ struct fork_args {
 };
 #endif
 
+EVENTHANDLER_LIST_DECLARE(process_fork);
+
 /* ARGSUSED */
 int
 sys_fork(struct thread *td, struct fork_args *uap)
@@ -481,6 +483,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	bzero(&td2->td_startzero,
 	    __rangeof(struct thread, td_startzero, td_endzero));
 	td2->td_sleeptimo = 0;
+	td2->td_vslock_sz = 0;
 	bzero(&td2->td_si, sizeof(td2->td_si));
 
 	bcopy(&td->td_startcopy, &td2->td_startcopy,
@@ -705,7 +708,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	 * Both processes are set up, now check if any loadable modules want
 	 * to adjust anything.
 	 */
-	EVENTHANDLER_INVOKE(process_fork, p1, p2, fr->fr_flags);
+	EVENTHANDLER_DIRECT_INVOKE(process_fork, p1, p2, fr->fr_flags);
 
 	/*
 	 * Set the child start time and mark the process as being complete.

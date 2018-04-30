@@ -40,8 +40,8 @@
 /* time values in nanoseconds */
 typedef s64 ktime_t;
 
-#define	KTIME_MAX                       ((s64)~((u64)1 << 63))
-#define	KTIME_SEC_MAX                   (KTIME_MAX / NSEC_PER_SEC)
+#define	KTIME_MAX			((s64)~((u64)1 << 63))
+#define	KTIME_SEC_MAX			(KTIME_MAX / NSEC_PER_SEC)
 
 static inline int64_t
 ktime_to_ns(ktime_t kt)
@@ -187,6 +187,15 @@ ktime_get_real_seconds(void)
 
 	nanotime(&ts);
 	return (ts.tv_sec);
+}
+
+static inline ktime_t
+ktime_get_raw(void)
+{
+	struct timespec ts;
+
+	nanotime(&ts);
+	return (timespec_to_ktime(ts));
 }
 
 static inline u64

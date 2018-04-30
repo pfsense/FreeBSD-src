@@ -68,6 +68,7 @@ __FBSDID("$FreeBSD$");
 #include <net/radix_mpath.h>
 #include <net/vnet.h>
 
+#include <net/pfil.h>
 #include <net/pfvar.h>
 #include <net/if_pflog.h>
 #include <net/if_pfsync.h>
@@ -879,7 +880,7 @@ pf_initialize()
 	if (pf_hashsize == 0 || !powerof2(pf_hashsize))
 		pf_hashsize = PF_HASHSIZ;
 	if (pf_srchashsize == 0 || !powerof2(pf_srchashsize))
-		pf_srchashsize = PF_HASHSIZ / 4;
+		pf_srchashsize = PF_SRCHASHSIZ;
 
 	V_pf_hashseed = arc4random();
 
@@ -893,10 +894,25 @@ pf_initialize()
 	V_pf_state_key_z = uma_zcreate("pf state keys",
 	    sizeof(struct pf_state_key), pf_state_key_ctor, NULL, NULL, NULL,
 	    UMA_ALIGN_PTR, 0);
-	V_pf_keyhash = malloc(pf_hashsize * sizeof(struct pf_keyhash),
-	    M_PFHASH, M_WAITOK | M_ZERO);
-	V_pf_idhash = malloc(pf_hashsize * sizeof(struct pf_idhash),
-	    M_PFHASH, M_WAITOK | M_ZERO);
+
+	V_pf_keyhash = mallocarray(pf_hashsize, sizeof(struct pf_keyhash),
+	    M_PFHASH, M_NOWAIT | M_ZERO);
+	V_pf_idhash = mallocarray(pf_hashsize, sizeof(struct pf_idhash),
+	    M_PFHASH, M_NOWAIT | M_ZERO);
+	if (V_pf_keyhash == NULL || V_pf_idhash == NULL) {
+		printf("pf: Unable to allocate memory for "
+		    "state_hashsize %lu.\n", pf_hashsize);
+
+		free(V_pf_keyhash, M_PFHASH);
+		free(V_pf_idhash, M_PFHASH);
+
+		pf_hashsize = PF_HASHSIZ;
+		V_pf_keyhash = mallocarray(pf_hashsize,
+		    sizeof(struct pf_keyhash), M_PFHASH, M_WAITOK | M_ZERO);
+		V_pf_idhash = mallocarray(pf_hashsize,
+		    sizeof(struct pf_idhash), M_PFHASH, M_WAITOK | M_ZERO);
+	}
+
 	pf_hashmask = pf_hashsize - 1;
 	for (i = 0, kh = V_pf_keyhash, ih = V_pf_idhash; i <= pf_hashmask;
 	    i++, kh++, ih++) {
@@ -911,8 +927,18 @@ pf_initialize()
 	V_pf_limits[PF_LIMIT_SRC_NODES].zone = V_pf_sources_z;
 	uma_zone_set_max(V_pf_sources_z, PFSNODE_HIWAT);
 	uma_zone_set_warning(V_pf_sources_z, "PF source nodes limit reached");
-	V_pf_srchash = malloc(pf_srchashsize * sizeof(struct pf_srchash),
-	  M_PFHASH, M_WAITOK|M_ZERO);
+
+	V_pf_srchash = mallocarray(pf_srchashsize,
+	    sizeof(struct pf_srchash), M_PFHASH, M_NOWAIT | M_ZERO);
+	if (V_pf_srchash == NULL) {
+		printf("pf: Unable to allocate memory for "
+		    "source_hashsize %lu.\n", pf_srchashsize);
+
+		pf_srchashsize = PF_SRCHASHSIZ;
+		V_pf_srchash = mallocarray(pf_srchashsize,
+		    sizeof(struct pf_srchash), M_PFHASH, M_WAITOK | M_ZERO);
+	}
+
 	pf_srchashmask = pf_srchashsize - 1;
 	for (i = 0, sh = V_pf_srchash; i <= pf_srchashmask; i++, sh++)
 		mtx_init(&sh->lock, "pf_srchash", NULL, MTX_DEF);
@@ -5711,7 +5737,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 			PACKET_UNDO_NAT(m0, pd, ntohs(ip->ip_off), s, dir);
 		}
 
-		if (pf_test(PF_OUT, ifp, &m0, NULL) != PF_PASS)
+		if (pf_test(PF_OUT, 0, ifp, &m0, NULL) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
 			goto done;
@@ -5954,7 +5980,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 			PACKET_UNDO_NAT(m0, pd, ip_off, s, dir);
 		}
 
-		if (pf_test6(PF_FWD, ifp, &m0, NULL) != PF_PASS)
+		if (pf_test6(PF_OUT, PFIL_FWD, ifp, &m0, NULL) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
 			goto done;
@@ -6147,7 +6173,7 @@ pf_check_proto_cksum(struct mbuf *m, int off, int len, u_int8_t p, sa_family_t a
 
 #ifdef INET
 int
-pf_test(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
+pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 {
 	struct pfi_kif		*kif;
 	u_short			 action, reason = 0, log = 0;
@@ -6645,7 +6671,7 @@ continueprocessing:
 
 #ifdef INET6
 int
-pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
+pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 {
 	struct pfi_kif		*kif;
 	u_short			 action, reason = 0, log = 0;
@@ -6656,30 +6682,11 @@ pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	struct pf_state		*s = NULL;
 	struct pf_ruleset	*ruleset = NULL;
 	struct pf_pdesc		 pd;
-	int			 off = 0, terminal = 0, dirndx, rh_cnt = 0, pqid = 0;
+	int			 off, terminal = 0, dirndx, rh_cnt = 0, pqid = 0;
 	struct m_tag		*dn_tag;
 	struct ip_fw_args        dnflow;
-	int			 fwdir = dir;
 
 	M_ASSERTPKTHDR(m);
-
-	/* Detect packet forwarding.
-	 * If the input interface is different from the output interface we're
-	 * forwarding.
-	 * We do need to be careful about bridges. If the
-	 * net.link.bridge.pfil_bridge sysctl is set we can be filtering on a
-	 * bridge, so if the input interface is a bridge member and the output
-	 * interface is its bridge or a member of the same bridge we're not
-	 * actually forwarding but bridging.
-	 */
-	if (dir == PF_OUT && m->m_pkthdr.rcvif && ifp != m->m_pkthdr.rcvif &&
-	    (m->m_pkthdr.rcvif->if_bridge == NULL ||
-	    (m->m_pkthdr.rcvif->if_bridge != ifp->if_softc &&
-	    m->m_pkthdr.rcvif->if_bridge != ifp->if_bridge)))
-		fwdir = PF_FWD;
-
-	if (dir == PF_FWD)
-		dir = PF_OUT;
 
 	if (!V_pf_status.running)
 		return (PF_PASS);
@@ -7146,7 +7153,7 @@ continueprocessing6:
 		PF_STATE_UNLOCK(s);
 
 	/* If reassembled packet passed, create new fragments. */
-	if (action == PF_PASS && *m0 && fwdir == PF_FWD &&
+	if (action == PF_PASS && *m0 && (pflags & PFIL_FWD) &&
 	    (mtag = m_tag_find(m, PF_REASSEMBLED, NULL)) != NULL)
 		action = pf_refragment6(ifp, m0, mtag);
 

@@ -1080,7 +1080,9 @@ tcp_usr_abort(struct socket *so)
 	    !(inp->inp_flags & INP_DROPPED)) {
 		tp = intotcpcb(inp);
 		TCPDEBUG1();
-		tcp_drop(tp, ECONNABORTED);
+		tp = tcp_drop(tp, ECONNABORTED);
+		if (tp == NULL)
+			goto dropped;
 		TCPDEBUG2(PRU_ABORT);
 		TCP_PROBE2(debug__user, tp, PRU_ABORT);
 	}
@@ -1091,6 +1093,7 @@ tcp_usr_abort(struct socket *so)
 		inp->inp_flags |= INP_SOCKREF;
 	}
 	INP_WUNLOCK(inp);
+dropped:
 	INP_INFO_RUNLOCK(&V_tcbinfo);
 }
 
@@ -1495,7 +1498,9 @@ tcp_ctloutput(struct socket *so, struct sockopt *sopt)
 		return (error);
 	} else if ((sopt->sopt_dir == SOPT_GET) && 
 	    (sopt->sopt_name == TCP_FUNCTION_BLK)) {
-		strcpy(fsn.function_set_name, tp->t_fb->tfb_tcp_block_name);
+		strncpy(fsn.function_set_name, tp->t_fb->tfb_tcp_block_name,
+		    TCP_FUNCTION_NAME_LEN_MAX);
+		fsn.function_set_name[TCP_FUNCTION_NAME_LEN_MAX - 1] = '\0';
 		fsn.pcbcnt = tp->t_fb->tfb_refcnt;
 		INP_WUNLOCK(inp);
 		error = sooptcopyout(sopt, &fsn, sizeof fsn);

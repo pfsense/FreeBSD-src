@@ -2136,6 +2136,7 @@ product FTDI TAVIR_STK500	0xfa33	FTDI compatible adapter
 product FTDI TERATRONIK_D2XX	0xec89	FTDI compatible adapter
 product FTDI TERATRONIK_VCP	0xec88	FTDI compatible adapter
 product FTDI THORLABS		0xfaf0	FTDI compatible adapter
+product FTDI TIAO		0x8a98	FTDI compatible adapter
 product FTDI TNC_X		0xebe0	FTDI compatible adapter
 product FTDI TTUSB		0xff20	FTDI compatible adapter
 product FTDI USBX_707		0xf857	FTDI compatible adapter
@@ -2548,6 +2549,7 @@ product JATON EDA		0x5704	Ethernet
 product JETI SPC1201		0x04b2	FTDI compatible adapter
 
 /* JMicron products */
+product JMICRON JMS567		0x0567	USB to SATA 6.0Gb/s bridge 
 product JMICRON JM20336		0x2336	USB to SATA Bridge
 product JMICRON JM20337		0x2338	USB to ATA/ATAPI Bridge
 
@@ -3632,6 +3634,7 @@ product PROLIFIC PL2305		0x2305	Parallel printer
 product PROLIFIC ATAPI4		0x2307	ATAPI-4 Controller
 product PROLIFIC PL2501		0x2501	PL2501 Host-Host interface
 product PROLIFIC PL2506		0x2506	PL2506 USB to IDE Bridge
+product PROLIFIC PL27A1		0x27A1	PL27A1 USB 3.0 Host-Host interface
 product PROLIFIC HCR331		0x331a	HCR331 Hybrid Card Reader
 product PROLIFIC PHAROS		0xaaa0	Prolific Pharos
 product PROLIFIC RSAQ3		0xaaa2	PL2303 Serial Adapter (IODATA USB-RSAQ3)

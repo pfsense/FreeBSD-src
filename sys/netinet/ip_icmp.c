@@ -555,11 +555,10 @@ icmp_input(struct mbuf **mp, int *offp, int proto)
 			ICMPSTAT_INC(icps_bmcastecho);
 			break;
 		}
-		icp->icmp_type = ICMP_ECHOREPLY;
 		if (badport_bandlim(BANDLIM_ICMP_ECHO) < 0)
 			goto freeit;
-		else
-			goto reflect;
+		icp->icmp_type = ICMP_ECHOREPLY;
+		goto reflect;
 
 	case ICMP_TSTAMP:
 		if (V_icmptstamprepl == 0)
@@ -573,13 +572,12 @@ icmp_input(struct mbuf **mp, int *offp, int proto)
 			ICMPSTAT_INC(icps_badlen);
 			break;
 		}
+		if (badport_bandlim(BANDLIM_ICMP_TSTAMP) < 0)
+			goto freeit;
 		icp->icmp_type = ICMP_TSTAMPREPLY;
 		icp->icmp_rtime = iptime();
 		icp->icmp_ttime = icp->icmp_rtime;	/* bogus, do later! */
-		if (badport_bandlim(BANDLIM_ICMP_TSTAMP) < 0)
-			goto freeit;
-		else
-			goto reflect;
+		goto reflect;
 
 	case ICMP_MASKREQ:
 		if (V_icmpmaskrepl == 0)
@@ -829,7 +827,7 @@ match:
 	ip->ip_ttl = V_ip_defttl;
 
 	if (optlen > 0) {
-		register u_char *cp;
+		u_char *cp;
 		int opt, cnt;
 		u_int len;
 
@@ -904,9 +902,9 @@ done:
 static void
 icmp_send(struct mbuf *m, struct mbuf *opts)
 {
-	register struct ip *ip = mtod(m, struct ip *);
-	register int hlen;
-	register struct icmp *icp;
+	struct ip *ip = mtod(m, struct ip *);
+	int hlen;
+	struct icmp *icp;
 
 	hlen = ip->ip_hl << 2;
 	m->m_data += hlen;

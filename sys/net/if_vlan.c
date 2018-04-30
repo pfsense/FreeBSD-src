@@ -195,25 +195,7 @@ static struct {
 	{0, NULL}
 };
 
-SYSCTL_DECL(_net_link);
-static SYSCTL_NODE(_net_link, IFT_L2VLAN, vlan, CTLFLAG_RW, 0,
-    "IEEE 802.1Q VLAN");
-static SYSCTL_NODE(_net_link_vlan, PF_LINK, link, CTLFLAG_RW, 0,
-    "for consistency");
-
-static VNET_DEFINE(int, soft_pad);
-#define	V_soft_pad	VNET(soft_pad)
-SYSCTL_INT(_net_link_vlan, OID_AUTO, soft_pad, CTLFLAG_RW | CTLFLAG_VNET,
-    &VNET_NAME(soft_pad), 0, "pad short frames before tagging");
-
-/*
- * For now, make preserving PCP via an mbuf tag optional, as it increases
- * per-packet memory allocations and frees.  In the future, it would be
- * preferable to reuse ether_vtag for this, or similar.
- */
-static int vlan_mtag_pcp = 0;
-SYSCTL_INT(_net_link_vlan, OID_AUTO, mtag_pcp, CTLFLAG_RW, &vlan_mtag_pcp, 0,
-	"Retain VLAN PCP information as packets are passed up the stack");
+extern int vlan_mtag_pcp;
 
 static const char vlanname[] = "vlan";
 static MALLOC_DEFINE(M_VLAN, vlanname, "802.1Q Virtual LAN Interface");
@@ -1200,6 +1182,12 @@ vlan_start(struct ifnet *ifp)
 			m_freem(m);
 			return;
 		}
+		if (!ether_8021q_frame(&m, ifp, p, ifv->ifv_vid, ifv->ifv_pcp)) {
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+			VLAN_RUNLOCK();
+			m_freem(m);
+			return;
+		}
 
 		/*
 		 * Pad the frame to the minimum size allowed if told to.
@@ -1838,12 +1826,8 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 #endif
 		break;
 	case SIOCGIFADDR:
-                {
-			struct sockaddr *sa;
-
-			sa = (struct sockaddr *)&ifr->ifr_data;
-			bcopy(IF_LLADDR(ifp), sa->sa_data, ifp->if_addrlen);
-                }
+		bcopy(IF_LLADDR(ifp), &ifr->ifr_addr.sa_data[0],
+		    ifp->if_addrlen);
 		break;
 	case SIOCGIFMEDIA:
 		VLAN_SLOCK();
@@ -1909,7 +1893,7 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 #endif
-		error = copyin(ifr->ifr_data, &vlr, sizeof(vlr));
+		error = copyin(ifr_data_get_ptr(ifr), &vlr, sizeof(vlr));
 		if (error)
 			break;
 		if (vlr.vlr_parent[0] == '\0') {
@@ -1940,7 +1924,7 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			vlr.vlr_tag = ifv->ifv_vid;
 		}
 		VLAN_SUNLOCK();
-		error = copyout(&vlr, ifr->ifr_data, sizeof(vlr));
+		error = copyout(&vlr, ifr_data_get_ptr(ifr), sizeof(vlr));
 		break;
 		
 	case SIOCSIFFLAGS:
@@ -1999,6 +1983,8 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		ifv->ifv_pcp = ifr->ifr_vlan_pcp;
 		vlan_tag_recalculate(ifv);
+		/* broadcast event about PCP change */
+		EVENTHANDLER_INVOKE(ifnet_event, ifp, IFNET_EVENT_PCP);
 		break;
 
 	case SIOCSIFCAP:

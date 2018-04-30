@@ -56,7 +56,8 @@ MTX_SYSINIT(pfil_heads_lock, &pfil_global_lock, "pfil_head_list lock",
 
 static struct packet_filter_hook *pfil_chain_get(int, struct pfil_head *);
 static int pfil_chain_add(pfil_chain_t *, struct packet_filter_hook *, int);
-static int pfil_chain_remove(pfil_chain_t *, pfil_func_t, void *);
+static int pfil_chain_remove(pfil_chain_t *, void *, void *);
+static int pfil_add_hook_priv(void *, void *, int, struct pfil_head *, bool);
 
 LIST_HEAD(pfilheadhead, pfil_head);
 VNET_DEFINE(struct pfilheadhead, pfil_head_list);
@@ -94,7 +95,7 @@ VNET_DEFINE(struct rmlock, pfil_lock);
  */
 int
 pfil_run_hooks(struct pfil_head *ph, struct mbuf **mp, struct ifnet *ifp,
-    int dir, struct inpcb *inp)
+    int dir, int flags, struct inpcb *inp)
 {
 	struct rm_priotracker rmpt;
 	struct packet_filter_hook *pfh;
@@ -105,7 +106,15 @@ pfil_run_hooks(struct pfil_head *ph, struct mbuf **mp, struct ifnet *ifp,
 	KASSERT(ph->ph_nhooks >= 0, ("Pfil hook count dropped < 0"));
 	for (pfh = pfil_chain_get(dir, ph); pfh != NULL;
 	     pfh = TAILQ_NEXT(pfh, pfil_chain)) {
-		if (!(pfh->pfil_flags & PFIL_DISABLED) && pfh->pfil_func != NULL) {
+		if (pfh->pfil_flags & PFIL_DISABLED)
+			continue;
+		if (pfh->pfil_func_flags != NULL) {
+			rv = (*pfh->pfil_func_flags)(pfh->pfil_arg, &m, ifp,
+			    dir, flags, inp);
+			if (rv != 0 || m == NULL)
+				break;
+		}
+		if (pfh->pfil_func != NULL) {
 			rv = (*pfh->pfil_func)(pfh->pfil_arg, &m, ifp, dir,
 			    inp);
 			if (rv != 0 || m == NULL)
@@ -389,6 +398,21 @@ pfil_head_get(int type, u_long val)
 }
 
 /*
+ * pfil_add_hook_flags() adds a function to the packet filter hook.  the
+ * flags are:
+ *	PFIL_IN		call me on incoming packets
+ *	PFIL_OUT	call me on outgoing packets
+ *	PFIL_ALL	call me on all of the above
+ *	PFIL_WAITOK	OK to call malloc with M_WAITOK.
+ */
+int
+pfil_add_hook_flags(pfil_func_flags_t func, void *arg, int flags,
+    struct pfil_head *ph)
+{
+	return (pfil_add_hook_priv(func, arg, flags, ph, true));
+}
+
+/*
  * pfil_add_hook() adds a function to the packet filter hook.  the
  * flags are:
  *	PFIL_IN		call me on incoming packets
@@ -399,11 +423,19 @@ pfil_head_get(int type, u_long val)
 int
 pfil_add_hook(pfil_func_t func, void *arg, int flags, struct pfil_head *ph)
 {
-	return (pfil_add_named_hook(func, arg, NULL, flags, ph));
+	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, false));
 }
 
 int
-pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags, struct pfil_head *ph)
+pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags,
+    struct pfil_head *ph)
+{
+	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, true));
+}
+
+static int
+pfil_add_hook_priv(void *func, void *arg, char *name, int flags,
+    struct pfil_head *ph, bool hasflags)
 {
 	struct packet_filter_hook *pfh1 = NULL;
 	struct packet_filter_hook *pfh2 = NULL;
@@ -427,7 +459,8 @@ pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags, struct p
 	}
 	PFIL_WLOCK(ph);
 	if (flags & PFIL_IN) {
-		pfh1->pfil_func = func;
+		pfh1->pfil_func_flags = hasflags ? func : NULL;
+		pfh1->pfil_func = hasflags ? NULL : func;
 		pfh1->pfil_arg = arg;
 		pfh1->pfil_name = name;
 		pfh1->pfil_flags &= ~PFIL_DISABLED;
@@ -437,7 +470,8 @@ pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags, struct p
 		ph->ph_nhooks++;
 	}
 	if (flags & PFIL_OUT) {
-		pfh2->pfil_func = func;
+		pfh2->pfil_func_flags = hasflags ? func : NULL;
+		pfh2->pfil_func = hasflags ? NULL : func;
 		pfh2->pfil_arg = arg;
 		pfh2->pfil_name = name;
 		pfh2->pfil_flags &= ~PFIL_DISABLED;
@@ -459,6 +493,17 @@ error:
 	if (pfh2 != NULL)
 		free(pfh2, M_IFADDR);
 	return (err);
+}
+
+/*
+ * pfil_remove_hook_flags removes a specific function from the packet filter hook
+ * chain.
+ */
+int
+pfil_remove_hook_flags(pfil_func_flags_t func, void *arg, int flags,
+    struct pfil_head *ph)
+{
+	return (pfil_remove_hook((pfil_func_t)func, arg, flags, ph));
 }
 
 /*
@@ -497,7 +542,9 @@ pfil_chain_add(pfil_chain_t *chain, struct packet_filter_hook *pfh1, int flags)
 	 * First make sure the hook is not already there.
 	 */
 	TAILQ_FOREACH(pfh, chain, pfil_chain)
-		if (pfh->pfil_func == pfh1->pfil_func &&
+		if (((pfh->pfil_func != NULL && pfh->pfil_func == pfh1->pfil_func) ||
+		    (pfh->pfil_func_flags != NULL &&
+		     pfh->pfil_func_flags == pfh1->pfil_func_flags)) &&
 		    pfh->pfil_arg == pfh1->pfil_arg)
 			return (EEXIST);
 
@@ -516,12 +563,13 @@ pfil_chain_add(pfil_chain_t *chain, struct packet_filter_hook *pfh1, int flags)
  * Internal: Remove a pfil hook from a hook chain.
  */
 static int
-pfil_chain_remove(pfil_chain_t *chain, pfil_func_t func, void *arg)
+pfil_chain_remove(pfil_chain_t *chain, void *func, void *arg)
 {
 	struct packet_filter_hook *pfh;
 
 	TAILQ_FOREACH(pfh, chain, pfil_chain)
-		if (pfh->pfil_func == func && pfh->pfil_arg == arg) {
+		if ((pfh->pfil_func == func || pfh->pfil_func_flags == func) &&
+		    pfh->pfil_arg == arg) {
 			TAILQ_REMOVE(chain, pfh, pfil_chain);
 			free(pfh, M_IFADDR);
 			return (0);

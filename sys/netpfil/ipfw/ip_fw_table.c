@@ -466,7 +466,7 @@ prepare_batch_buffer(struct ip_fw_chain *ch, struct table_algo *ta,
 	error = 0;
 	ta_buf_sz = ta->ta_buf_size;
 	if (count == 1) {
-		/* Sigle add/delete, use on-stack buffer */
+		/* Single add/delete, use on-stack buffer */
 		memset(*ta_buf, 0, TA_BUF_SZ);
 		ta_buf_m = *ta_buf;
 	} else {
@@ -3285,7 +3285,7 @@ alloc_table_config(struct ip_fw_chain *ch, struct tid_info *ti,
 		if (ntlv == NULL)
 			return (NULL);
 		name = ntlv->name;
-		set = ntlv->set;
+		set = (V_fw_tables_sets == 0) ? 0 : ntlv->set;
 	} else {
 		/* Compat part: convert number to string representation */
 		snprintf(bname, sizeof(bname), "%d", ti->uidx);

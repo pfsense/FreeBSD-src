@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2013 David Chisnall
  * All rights reserved.
  *
@@ -169,11 +171,14 @@ main(int argc, char **argv)
 		case 'o':
 		{
 			outfile_name = optarg;
-			outfile = open(optarg, O_CREAT | O_TRUNC | O_WRONLY, 0666);
-			if (outfile == -1)
+			if (strcmp(outfile_name, "-") != 0)
 			{
-				perror("Unable to open output file");
-				return EXIT_FAILURE;
+				outfile = open(optarg, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+				if (outfile == -1)
+				{
+					perror("Unable to open output file");
+					return EXIT_FAILURE;
+				}
 			}
 			break;
 		}

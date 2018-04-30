@@ -62,6 +62,10 @@ SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD | CTLFLAG_MPSAFE,
 SYSCTL_STRING(_hw, HW_MACHINE, machine, CTLFLAG_RD,
 	machine, 0, "Machine class");
 
+static char cpu_model[64];
+SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD,
+    cpu_model, sizeof(cpu_model), "Machine model");
+
 static char hw_buf[81];
 static int hw_buf_idx;
 static bool hw_buf_newline;
@@ -291,18 +295,13 @@ identify_arm_cpu(void)
 	for(i = 0; i < nitems(cpu_names); i++) {
 		if (cpu_names[i].implementer == cpuinfo.implementer &&
 		    cpu_names[i].part_number == cpuinfo.part_number) {
-			cpu_class = cpu_names[i].cpu_class;
-			snprintf(cpu_model, sizeof(cpu_model) - 1,
-			    "CPU: %s %s r%dp%d (ECO: 0x%08X)",
+			snprintf(cpu_model, sizeof(cpu_model),
+			    "%s %s r%dp%d (ECO: 0x%08X)",
 			    cpu_names[i].impl_name, cpu_names[i].core_name,
 			    cpuinfo.revision, cpuinfo.patch,
 			    cpuinfo.midr != cpuinfo.revidr ?
 			    cpuinfo.revidr : 0);
-			printf("CPU: %s %s r%dp%d (ECO: 0x%08X)\n",
-			    cpu_names[i].impl_name, cpu_names[i].core_name,
-			    cpuinfo.revision, cpuinfo.patch,
-			    cpuinfo.midr != cpuinfo.revidr ?
-			    cpuinfo.revidr : 0);
+			printf("CPU: %s\n", cpu_model);
 			break;
 		}
 

@@ -24,6 +24,9 @@ _srcconf_included_:
 .MAKE.MODE+=	curdirOk=yes
 .endif
 
+# The kernel build always expects .OBJDIR=.CURDIR.
+.OBJDIR: ${.CURDIR}
+
 # Can be overridden by makeoptions or /etc/make.conf
 KERNEL_KO?=	kernel
 KERNEL?=	kernel
@@ -106,6 +109,10 @@ DEFINED_PROF=	${PROF}
 # can override the others.
 CFLAGS+=	${CONF_CFLAGS}
 
+.if defined(LINKER_FEATURES) && ${LINKER_FEATURES:Mbuild-id}
+LDFLAGS+=	-Wl,--build-id=sha1
+.endif
+
 # Optional linting. This can be overridden in /etc/make.conf.
 LINTFLAGS=	${LINTOBJKERNFLAGS}
 
@@ -169,9 +176,10 @@ LINUXKPI_C=		${NORMAL_C} ${LINUXKPI_INCLUDES}
 
 # Infiniband C flags.  Correct include paths and omit errors that linux
 # does not honor.
-OFEDINCLUDES=	-I$S/ofed/include ${LINUXKPI_INCLUDES}
+OFEDINCLUDES=	-I$S/ofed/include -I$S/ofed/include/uapi ${LINUXKPI_INCLUDES}
 OFEDNOERR=	-Wno-cast-qual -Wno-pointer-arith
-OFEDCFLAGS=	${CFLAGS:N-I*} ${OFEDINCLUDES} ${CFLAGS:M-I*} ${OFEDNOERR}
+OFEDCFLAGS=	${CFLAGS:N-I*} -DCONFIG_INFINIBAND_USER_MEM \
+		${OFEDINCLUDES} ${CFLAGS:M-I*} ${OFEDNOERR}
 OFED_C_NOIMP=	${CC} -c -o ${.TARGET} ${OFEDCFLAGS} ${WERROR} ${PROF}
 OFED_C=		${OFED_C_NOIMP} ${.IMPSRC}
 

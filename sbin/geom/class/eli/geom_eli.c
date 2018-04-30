@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2004-2010 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * All rights reserved.
  *
@@ -670,7 +672,7 @@ static void
 eli_init(struct gctl_req *req)
 {
 	struct g_eli_metadata md;
-	unsigned char sector[sizeof(struct g_eli_metadata)];
+	unsigned char sector[sizeof(struct g_eli_metadata)] __aligned(4);
 	unsigned char key[G_ELI_USERKEYLEN];
 	char backfile[MAXPATHLEN];
 	const char *str, *prov;

@@ -47,6 +47,8 @@ struct inpcb;
 
 typedef	int	(*pfil_func_t)(void *, struct mbuf **, struct ifnet *, int,
 		    struct inpcb *);
+typedef	int	(*pfil_func_flags_t)(void *, struct mbuf **, struct ifnet *,
+		    int, int, struct inpcb *);
 
 /*
  * The packet filter hooks are designed for anything to call them to
@@ -55,16 +57,17 @@ typedef	int	(*pfil_func_t)(void *, struct mbuf **, struct ifnet *, int,
  */
 struct packet_filter_hook {
 	TAILQ_ENTRY(packet_filter_hook) pfil_chain;
-	pfil_func_t	 pfil_func;
-	void		*pfil_arg;
-	int		 pfil_flags;
-	char		*pfil_name;
+	pfil_func_t		 pfil_func;
+	pfil_func_flags_t	 pfil_func_flags;
+	void			*pfil_arg;
+	int			 pfil_flags;
 };
 
 #define PFIL_IN		0x00000001
 #define PFIL_OUT	0x00000002
 #define PFIL_WAITOK	0x00000004
-#define PFIL_DISABLED	0x00000008
+#define PFIL_FWD	0x00000008
+#define PFIL_DISABLED	0x00000010
 #define PFIL_ALL	(PFIL_IN|PFIL_OUT)
 
 typedef	TAILQ_HEAD(pfil_chain, packet_filter_hook) pfil_chain_t;
@@ -106,14 +109,16 @@ VNET_DECLARE(struct rmlock, pfil_lock);
 /* Public functions for pfil hook management by packet filters. */
 struct pfil_head *pfil_head_get(int, u_long);
 void	pfil_head_export_sysctl(struct pfil_head *, struct sysctl_oid_list *);
+int	pfil_add_hook_flags(pfil_func_flags_t, void *, int, struct pfil_head *);
 int	pfil_add_hook(pfil_func_t, void *, int, struct pfil_head *);
 int	pfil_add_named_hook(pfil_func_t, void *, char *, int, struct pfil_head *);
+int	pfil_remove_hook_flags(pfil_func_flags_t, void *, int, struct pfil_head *);
 int	pfil_remove_hook(pfil_func_t, void *, int, struct pfil_head *);
 #define	PFIL_HOOKED(p) ((p)->ph_nhooks > 0)
 
 /* Public functions to run the packet inspection by protocols. */
-int	pfil_run_hooks(struct pfil_head *, struct mbuf **, struct ifnet *,
-	    int, struct inpcb *inp);
+int	pfil_run_hooks(struct pfil_head *, struct mbuf **, struct ifnet *, int,
+    int, struct inpcb *inp);
 
 /* Public functions for pfil head management by protocols. */
 int	pfil_head_register(struct pfil_head *);

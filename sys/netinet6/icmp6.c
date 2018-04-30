@@ -592,14 +592,13 @@ icmp6_input(struct mbuf **mp, int *offp, int proto)
 			n->m_pkthdr.len = n0len + (noff - off);
 			n->m_next = n0;
 		} else {
-			nip6 = mtod(n, struct ip6_hdr *);
 			IP6_EXTHDR_GET(nicmp6, struct icmp6_hdr *, n, off,
 			    sizeof(*nicmp6));
 			noff = off;
 		}
-		nicmp6->icmp6_type = ICMP6_ECHO_REPLY;
-		nicmp6->icmp6_code = 0;
 		if (n) {
+			nicmp6->icmp6_type = ICMP6_ECHO_REPLY;
+			nicmp6->icmp6_code = 0;
 			ICMP6STAT_INC(icp6s_reflect);
 			ICMP6STAT_INC(icp6s_outhist[ICMP6_ECHO_REPLY]);
 			icmp6_reflect(n, noff);
@@ -689,6 +688,7 @@ icmp6_input(struct mbuf **mp, int *offp, int proto)
 				 */
 				m_free(n);
 				n = NULL;
+				break;
 			}
 			maxhlen = M_TRAILINGSPACE(n) -
 			    (sizeof(*nip6) + sizeof(*nicmp6) + 4);

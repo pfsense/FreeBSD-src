@@ -692,8 +692,8 @@ kern_sigaction(struct thread *td, int sig, const struct sigaction *act,
 	ps = p->p_sigacts;
 	mtx_lock(&ps->ps_mtx);
 	if (oact) {
+		memset(oact, 0, sizeof(*oact));
 		oact->sa_mask = ps->ps_catchmask[_SIG_IDX(sig)];
-		oact->sa_flags = 0;
 		if (SIGISMEMBER(ps->ps_sigonstack, sig))
 			oact->sa_flags |= SA_ONSTACK;
 		if (!SIGISMEMBER(ps->ps_sigintr, sig))
@@ -826,12 +826,10 @@ struct sigaction_args {
 };
 #endif
 int
-sys_sigaction(td, uap)
-	struct thread *td;
-	register struct sigaction_args *uap;
+sys_sigaction(struct thread *td, struct sigaction_args *uap)
 {
 	struct sigaction act, oact;
-	register struct sigaction *actp, *oactp;
+	struct sigaction *actp, *oactp;
 	int error;
 
 	actp = (uap->act != NULL) ? &act : NULL;
@@ -856,12 +854,10 @@ struct freebsd4_sigaction_args {
 };
 #endif
 int
-freebsd4_sigaction(td, uap)
-	struct thread *td;
-	register struct freebsd4_sigaction_args *uap;
+freebsd4_sigaction(struct thread *td, struct freebsd4_sigaction_args *uap)
 {
 	struct sigaction act, oact;
-	register struct sigaction *actp, *oactp;
+	struct sigaction *actp, *oactp;
 	int error;
 
 
@@ -888,13 +884,11 @@ struct osigaction_args {
 };
 #endif
 int
-osigaction(td, uap)
-	struct thread *td;
-	register struct osigaction_args *uap;
+osigaction(struct thread *td, struct osigaction_args *uap)
 {
 	struct osigaction sa;
 	struct sigaction nsa, osa;
-	register struct sigaction *nsap, *osap;
+	struct sigaction *nsap, *osap;
 	int error;
 
 	if (uap->signum <= 0 || uap->signum >= ONSIG)
@@ -924,9 +918,7 @@ osigaction(td, uap)
 #if !defined(__i386__)
 /* Avoid replicating the same stub everywhere */
 int
-osigreturn(td, uap)
-	struct thread *td;
-	struct osigreturn_args *uap;
+osigreturn(struct thread *td, struct osigreturn_args *uap)
 {
 
 	return (nosys(td, (struct nosys_args *)uap));
@@ -939,10 +931,9 @@ osigreturn(td, uap)
  * set to ignore signals that are ignored by default.
  */
 void
-siginit(p)
-	struct proc *p;
+siginit(struct proc *p)
 {
-	register int i;
+	int i;
 	struct sigacts *ps;
 
 	PROC_LOCK(p);
@@ -1114,9 +1105,7 @@ struct sigprocmask_args {
 };
 #endif
 int
-sys_sigprocmask(td, uap)
-	register struct thread *td;
-	struct sigprocmask_args *uap;
+sys_sigprocmask(struct thread *td, struct sigprocmask_args *uap)
 {
 	sigset_t set, oset;
 	sigset_t *setp, *osetp;
@@ -1144,9 +1133,7 @@ struct osigprocmask_args {
 };
 #endif
 int
-osigprocmask(td, uap)
-	register struct thread *td;
-	struct osigprocmask_args *uap;
+osigprocmask(struct thread *td, struct osigprocmask_args *uap)
 {
 	sigset_t set, oset;
 	int error;
@@ -1379,9 +1366,7 @@ struct sigpending_args {
 };
 #endif
 int
-sys_sigpending(td, uap)
-	struct thread *td;
-	struct sigpending_args *uap;
+sys_sigpending(struct thread *td, struct sigpending_args *uap)
 {
 	struct proc *p = td->td_proc;
 	sigset_t pending;
@@ -1400,9 +1385,7 @@ struct osigpending_args {
 };
 #endif
 int
-osigpending(td, uap)
-	struct thread *td;
-	struct osigpending_args *uap;
+osigpending(struct thread *td, struct osigpending_args *uap)
 {
 	struct proc *p = td->td_proc;
 	sigset_t pending;
@@ -1429,13 +1412,11 @@ struct osigvec_args {
 #endif
 /* ARGSUSED */
 int
-osigvec(td, uap)
-	struct thread *td;
-	register struct osigvec_args *uap;
+osigvec(struct thread *td, struct osigvec_args *uap)
 {
 	struct sigvec vec;
 	struct sigaction nsa, osa;
-	register struct sigaction *nsap, *osap;
+	struct sigaction *nsap, *osap;
 	int error;
 
 	if (uap->signum <= 0 || uap->signum >= ONSIG)
@@ -1469,9 +1450,7 @@ struct osigblock_args {
 };
 #endif
 int
-osigblock(td, uap)
-	register struct thread *td;
-	struct osigblock_args *uap;
+osigblock(struct thread *td, struct osigblock_args *uap)
 {
 	sigset_t set, oset;
 
@@ -1487,9 +1466,7 @@ struct osigsetmask_args {
 };
 #endif
 int
-osigsetmask(td, uap)
-	struct thread *td;
-	struct osigsetmask_args *uap;
+osigsetmask(struct thread *td, struct osigsetmask_args *uap)
 {
 	sigset_t set, oset;
 
@@ -1511,9 +1488,7 @@ struct sigsuspend_args {
 #endif
 /* ARGSUSED */
 int
-sys_sigsuspend(td, uap)
-	struct thread *td;
-	struct sigsuspend_args *uap;
+sys_sigsuspend(struct thread *td, struct sigsuspend_args *uap)
 {
 	sigset_t mask;
 	int error;
@@ -1579,9 +1554,7 @@ struct osigsuspend_args {
 #endif
 /* ARGSUSED */
 int
-osigsuspend(td, uap)
-	struct thread *td;
-	struct osigsuspend_args *uap;
+osigsuspend(struct thread *td, struct osigsuspend_args *uap)
 {
 	sigset_t mask;
 
@@ -1599,9 +1572,7 @@ struct osigstack_args {
 #endif
 /* ARGSUSED */
 int
-osigstack(td, uap)
-	struct thread *td;
-	register struct osigstack_args *uap;
+osigstack(struct thread *td, struct osigstack_args *uap)
 {
 	struct sigstack nss, oss;
 	int error = 0;
@@ -1634,9 +1605,7 @@ struct sigaltstack_args {
 #endif
 /* ARGSUSED */
 int
-sys_sigaltstack(td, uap)
-	struct thread *td;
-	register struct sigaltstack_args *uap;
+sys_sigaltstack(struct thread *td, struct sigaltstack_args *uap)
 {
 	stack_t ss, oss;
 	int error;
@@ -1819,9 +1788,7 @@ sys_kill(struct thread *td, struct kill_args *uap)
 }
 
 int
-sys_pdkill(td, uap)
-	struct thread *td;
-	struct pdkill_args *uap;
+sys_pdkill(struct thread *td, struct pdkill_args *uap)
 {
 	struct proc *p;
 	cap_rights_t rights;
@@ -2429,7 +2396,7 @@ static void
 tdsigwakeup(struct thread *td, int sig, sig_t action, int intrval)
 {
 	struct proc *p = td->td_proc;
-	register int prop;
+	int prop;
 	int wakeup_swapper;
 
 	wakeup_swapper = 0;
@@ -3113,9 +3080,7 @@ postsig(int sig)
  * Kill the current process for stated reason.
  */
 void
-killproc(p, why)
-	struct proc *p;
-	char *why;
+killproc(struct proc *p, char *why)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
@@ -3136,9 +3101,7 @@ killproc(p, why)
  * does not return.
  */
 void
-sigexit(td, sig)
-	struct thread *td;
-	int sig;
+sigexit(struct thread *td, int sig)
 {
 	struct proc *p = td->td_proc;
 
@@ -3622,9 +3585,7 @@ struct nosys_args {
 #endif
 /* ARGSUSED */
 int
-nosys(td, args)
-	struct thread *td;
-	struct nosys_args *args;
+nosys(struct thread *td, struct nosys_args *args)
 {
 	struct proc *p;
 
@@ -3649,9 +3610,7 @@ nosys(td, args)
  * credentials rather than those of the current process.
  */
 void
-pgsigio(sigiop, sig, checkctty)
-	struct sigio **sigiop;
-	int sig, checkctty;
+pgsigio(struct sigio **sigiop, int sig, int checkctty)
 {
 	ksiginfo_t ksi;
 	struct sigio *sigio;

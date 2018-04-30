@@ -96,6 +96,10 @@ __FBSDID("$FreeBSD$");
 
 MALLOC_DEFINE(M_BPF, "BPF", "BPF data");
 
+static struct bpf_if_ext dead_bpf_if = {
+	.bif_dlist = LIST_HEAD_INITIALIZER()
+};
+
 struct bpf_if {
 #define	bif_next	bif_ext.bif_next
 #define	bif_dlist	bif_ext.bif_dlist
@@ -157,6 +161,9 @@ struct bpf_dltlist32 {
 #define	BIOCSETFNR32	_IOW('B', 130, struct bpf_program32)
 #endif
 
+#define BPF_LOCK()	   sx_xlock(&bpf_sx)
+#define BPF_UNLOCK()		sx_xunlock(&bpf_sx)
+#define BPF_LOCK_ASSERT()	sx_assert(&bpf_sx, SA_XLOCKED)
 /*
  * bpf_iflist is a list of BPF interface structures, each corresponding to a
  * specific DLT.  The same network interface might have several BPF interface
@@ -164,7 +171,7 @@ struct bpf_dltlist32 {
  * frames, ethernet frames, etc).
  */
 static LIST_HEAD(, bpf_if)	bpf_iflist, bpf_freelist;
-static struct mtx	bpf_mtx;		/* bpf global lock */
+static struct sx	bpf_sx;		/* bpf global lock */
 static int		bpf_bpfd_cnt;
 
 static void	bpf_attachd(struct bpf_d *, struct bpf_if *);
@@ -687,7 +694,7 @@ bpf_check_upgrade(u_long cmd, struct bpf_d *d, struct bpf_insn *fcode, int flen)
 	 * Check if cmd looks like snaplen setting from
 	 * pcap_bpf.c:pcap_open_live().
 	 * Note we're not checking .k value here:
-	 * while pcap_open_live() definitely sets to to non-zero value,
+	 * while pcap_open_live() definitely sets to non-zero value,
 	 * we'd prefer to treat k=0 (deny ALL) case the same way: e.g.
 	 * do not consider upgrading immediately
 	 */
@@ -2635,7 +2642,7 @@ bpfdetach(struct ifnet *ifp)
 		 */
 		BPFIF_WLOCK(bp);
 		bp->bif_flags |= BPFIF_FLAG_DYING;
-		*bp->bif_bpf = NULL;
+		*bp->bif_bpf = (struct bpf_if *)&dead_bpf_if;
 		BPFIF_WUNLOCK(bp);
 
 		CTR4(KTR_NET, "%s: sheduling free for encap %d (%p) for if %p",
@@ -2800,7 +2807,7 @@ bpf_drvinit(void *unused)
 {
 	struct cdev *dev;
 
-	mtx_init(&bpf_mtx, "bpf global lock", NULL, MTX_DEF);
+	sx_init(&bpf_sx, "bpf global lock");
 	LIST_INIT(&bpf_iflist);
 	LIST_INIT(&bpf_freelist);
 
@@ -2954,13 +2961,13 @@ bpf_stats_sysctl(SYSCTL_HANDLER_ARGS)
 SYSINIT(bpfdev,SI_SUB_DRIVERS,SI_ORDER_MIDDLE,bpf_drvinit,NULL);
 
 #else /* !DEV_BPF && !NETGRAPH_BPF */
+
 /*
  * NOP stubs to allow bpf-using drivers to load and function.
  *
  * A 'better' implementation would allow the core bpf functionality
  * to be loaded at runtime.
  */
-static struct bpf_if bp_null;
 
 void
 bpf_tap(struct bpf_if *bp, u_char *pkt, u_int pktlen)
@@ -2988,7 +2995,7 @@ void
 bpfattach2(struct ifnet *ifp, u_int dlt, u_int hdrlen, struct bpf_if **driverp)
 {
 
-	*driverp = &bp_null;
+	*driverp = (struct bpf_if *)&dead_bpf_if;
 }
 
 void

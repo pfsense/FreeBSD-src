@@ -123,6 +123,26 @@ static const struct {
 	{0x3b298086, 0x00, "Intel Ibex Peak-M",	0},
 	{0x3b2c8086, 0x00, "Intel Ibex Peak-M (RAID)",	0},
 	{0x3b2f8086, 0x00, "Intel Ibex Peak-M",	0},
+	{0x19b08086, 0x00, "Intel Denverton",	0},
+	{0x19b18086, 0x00, "Intel Denverton",	0},
+	{0x19b28086, 0x00, "Intel Denverton",	0},
+	{0x19b38086, 0x00, "Intel Denverton",	0},
+	{0x19b48086, 0x00, "Intel Denverton",	0},
+	{0x19b58086, 0x00, "Intel Denverton",	0},
+	{0x19b68086, 0x00, "Intel Denverton",	0},
+	{0x19b78086, 0x00, "Intel Denverton",	0},
+	{0x19be8086, 0x00, "Intel Denverton",	0},
+	{0x19bf8086, 0x00, "Intel Denverton",	0},
+	{0x19c08086, 0x00, "Intel Denverton",	0},
+	{0x19c18086, 0x00, "Intel Denverton",	0},
+	{0x19c28086, 0x00, "Intel Denverton",	0},
+	{0x19c38086, 0x00, "Intel Denverton",	0},
+	{0x19c48086, 0x00, "Intel Denverton",	0},
+	{0x19c58086, 0x00, "Intel Denverton",	0},
+	{0x19c68086, 0x00, "Intel Denverton",	0},
+	{0x19c78086, 0x00, "Intel Denverton",	0},
+	{0x19ce8086, 0x00, "Intel Denverton",	0},
+	{0x19cf8086, 0x00, "Intel Denverton",	0},
 	{0x1c028086, 0x00, "Intel Cougar Point",	0},
 	{0x1c038086, 0x00, "Intel Cougar Point",	0},
 	{0x1c048086, 0x00, "Intel Cougar Point (RAID)",	0},
@@ -622,7 +642,6 @@ ahci_pci_resume(device_t dev)
 	return (bus_generic_resume(dev));
 }
 
-devclass_t ahci_devclass;
 static device_method_t ahci_methods[] = {
 	DEVMETHOD(device_probe,     ahci_probe),
 	DEVMETHOD(device_attach,    ahci_pci_attach),

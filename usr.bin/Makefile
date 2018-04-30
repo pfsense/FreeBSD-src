@@ -41,6 +41,7 @@ SUBDIR=	alias \
 	elfdump \
 	enigma \
 	env \
+	etdump \
 	expand \
 	false \
 	fetch \
@@ -133,8 +134,10 @@ SUBDIR=	alias \
 	rpcinfo \
 	rs \
 	rup \
+	ruptime \
 	rusers \
 	rwall \
+	rwho \
 	script \
 	sdiff \
 	sed \
@@ -215,6 +218,9 @@ SUBDIR.${MK_GAMES}+=	number
 SUBDIR.${MK_GAMES}+=	pom
 SUBDIR.${MK_GAMES}+=	primes
 SUBDIR.${MK_GAMES}+=	random
+.if ${MK_GNU_DIFF} == "no"
+SUBDIR+=		diff
+.endif
 .if ${MK_GPL_DTC} != "yes"
 .if ${COMPILER_FEATURES:Mc++11}
 SUBDIR+=	dtc
@@ -255,8 +261,6 @@ SUBDIR.${MK_OPENSSL}+=	newkey
 SUBDIR.${MK_QUOTAS}+=	quota
 SUBDIR.${MK_RCMDS}+=	rlogin
 SUBDIR.${MK_RCMDS}+=	rsh
-SUBDIR.${MK_RCMDS}+=	ruptime
-SUBDIR.${MK_RCMDS}+=	rwho
 SUBDIR.${MK_SENDMAIL}+=	vacation
 SUBDIR.${MK_TALK}+=	talk
 SUBDIR.${MK_TELNET}+=	telnet

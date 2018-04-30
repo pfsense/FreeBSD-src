@@ -190,7 +190,7 @@ kobject_add_complete(struct kobject *kobj, struct kobject *parent)
 		}
 		if (error)
 			sysfs_remove_dir(kobj);
-		
+
 	}
 	return (error);
 }
@@ -1734,7 +1734,7 @@ mod_timer(struct timer_list *timer, int expires)
 {
 
 	timer->expires = expires;
-	callout_reset(&timer->timer_callout,		      
+	callout_reset(&timer->callout,
 	    linux_timer_jiffies_until(expires),
 	    &linux_timer_callback_wrapper, timer);
 }
@@ -1743,7 +1743,7 @@ void
 add_timer(struct timer_list *timer)
 {
 
-	callout_reset(&timer->timer_callout,
+	callout_reset(&timer->callout,
 	    linux_timer_jiffies_until(timer->expires),
 	    &linux_timer_callback_wrapper, timer);
 }
@@ -1752,7 +1752,7 @@ void
 add_timer_on(struct timer_list *timer, int cpu)
 {
 
-	callout_reset_on(&timer->timer_callout,
+	callout_reset_on(&timer->callout,
 	    linux_timer_jiffies_until(timer->expires),
 	    &linux_timer_callback_wrapper, timer, cpu);
 }
@@ -1779,11 +1779,14 @@ linux_complete_common(struct completion *c, int all)
 	int wakeup_swapper;
 
 	sleepq_lock(c);
-	c->done++;
-	if (all)
+	if (all) {
+		c->done = UINT_MAX;
 		wakeup_swapper = sleepq_broadcast(c, SLEEPQ_SLEEP, 0, 0);
-	else
+	} else {
+		if (c->done != UINT_MAX)
+			c->done++;
 		wakeup_swapper = sleepq_signal(c, SLEEPQ_SLEEP, 0, 0);
+	}
 	sleepq_release(c);
 	if (wakeup_swapper)
 		kick_proc0();
@@ -1801,8 +1804,6 @@ linux_wait_for_common(struct completion *c, int flags)
 	if (SCHEDULER_STOPPED())
 		return (0);
 
-	DROP_GIANT();
-
 	task = current;
 
 	if (flags != 0)
@@ -1816,21 +1817,25 @@ linux_wait_for_common(struct completion *c, int flags)
 			break;
 		sleepq_add(c, NULL, "completion", flags, 0);
 		if (flags & SLEEPQ_INTERRUPTIBLE) {
+			DROP_GIANT();
 			error = -sleepq_wait_sig(c, 0);
+			PICKUP_GIANT();
 			if (error != 0) {
 				linux_schedule_save_interrupt_value(task, error);
 				error = -ERESTARTSYS;
 				goto intr;
 			}
-		} else
+		} else {
+			DROP_GIANT();
 			sleepq_wait(c, 0);
+			PICKUP_GIANT();
+		}
 	}
-	c->done--;
+	if (c->done != UINT_MAX)
+		c->done--;
 	sleepq_release(c);
 
 intr:
-	PICKUP_GIANT();
-
 	return (error);
 }
 
@@ -1847,8 +1852,6 @@ linux_wait_for_timeout_common(struct completion *c, int timeout, int flags)
 	if (SCHEDULER_STOPPED())
 		return (0);
 
-	DROP_GIANT();
-
 	task = current;
 
 	if (flags != 0)
@@ -1862,10 +1865,14 @@ linux_wait_for_timeout_common(struct completion *c, int timeout, int flags)
 			break;
 		sleepq_add(c, NULL, "completion", flags, 0);
 		sleepq_set_timeout(c, linux_timer_jiffies_until(end));
+
+		DROP_GIANT();
 		if (flags & SLEEPQ_INTERRUPTIBLE)
 			error = -sleepq_timedwait_sig(c, 0);
 		else
 			error = -sleepq_timedwait(c, 0);
+		PICKUP_GIANT();
+
 		if (error != 0) {
 			/* check for timeout */
 			if (error == -EWOULDBLOCK) {
@@ -1878,14 +1885,13 @@ linux_wait_for_timeout_common(struct completion *c, int timeout, int flags)
 			goto done;
 		}
 	}
-	c->done--;
+	if (c->done != UINT_MAX)
+		c->done--;
 	sleepq_release(c);
 
 	/* return how many jiffies are left */
 	error = linux_timer_jiffies_until(end);
 done:
-	PICKUP_GIANT();
-
 	return (error);
 }
 
@@ -1894,12 +1900,10 @@ linux_try_wait_for_completion(struct completion *c)
 {
 	int isdone;
 
-	isdone = 1;
 	sleepq_lock(c);
-	if (c->done)
+	isdone = (c->done != 0);
+	if (c->done != 0 && c->done != UINT_MAX)
 		c->done--;
-	else
-		isdone = 0;
 	sleepq_release(c);
 	return (isdone);
 }
@@ -1909,10 +1913,8 @@ linux_completion_done(struct completion *c)
 {
 	int isdone;
 
-	isdone = 1;
 	sleepq_lock(c);
-	if (c->done == 0)
-		isdone = 0;
+	isdone = (c->done != 0);
 	sleepq_release(c);
 	return (isdone);
 }
@@ -2020,22 +2022,22 @@ int
 register_inetaddr_notifier(struct notifier_block *nb)
 {
 
-        nb->tags[NETDEV_CHANGEIFADDR] = EVENTHANDLER_REGISTER(
-            ifaddr_event, linux_handle_ifaddr_event, nb, 0);
-        return (0);
+	nb->tags[NETDEV_CHANGEIFADDR] = EVENTHANDLER_REGISTER(
+	    ifaddr_event, linux_handle_ifaddr_event, nb, 0);
+	return (0);
 }
 
 int
 unregister_netdevice_notifier(struct notifier_block *nb)
 {
 
-        EVENTHANDLER_DEREGISTER(ifnet_link_event,
+	EVENTHANDLER_DEREGISTER(ifnet_link_event,
 	    nb->tags[NETDEV_UP]);
-        EVENTHANDLER_DEREGISTER(ifnet_arrival_event,
+	EVENTHANDLER_DEREGISTER(ifnet_arrival_event,
 	    nb->tags[NETDEV_REGISTER]);
-        EVENTHANDLER_DEREGISTER(ifnet_departure_event,
+	EVENTHANDLER_DEREGISTER(ifnet_departure_event,
 	    nb->tags[NETDEV_UNREGISTER]);
-        EVENTHANDLER_DEREGISTER(iflladdr_event,
+	EVENTHANDLER_DEREGISTER(iflladdr_event,
 	    nb->tags[NETDEV_CHANGEADDR]);
 
 	return (0);
@@ -2045,10 +2047,10 @@ int
 unregister_inetaddr_notifier(struct notifier_block *nb)
 {
 
-        EVENTHANDLER_DEREGISTER(ifaddr_event,
-            nb->tags[NETDEV_CHANGEIFADDR]);
+	EVENTHANDLER_DEREGISTER(ifaddr_event,
+	    nb->tags[NETDEV_CHANGEIFADDR]);
 
-        return (0);
+	return (0);
 }
 
 struct list_sort_thunk {
