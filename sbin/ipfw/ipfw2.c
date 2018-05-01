@@ -1293,14 +1293,14 @@ format_mac(struct buf_pr *bp, uint8_t *addr, uint8_t *mask)
 }
 
 static void
-print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo, ipfw_insn_ip *cmd)
+print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo, ipfw_insn *cmd)
 {
 	char *t;
 	uint32_t *a = ((ipfw_insn_u32 *)cmd)->d;
 
 	t = table_search_ctlv(fo->tstate, cmd->arg1);
 	bprintf(bp, " MAC table(%s", t);
-	if (cmd->len == F_INSN_SIZE(ipfw_insn_u32))
+	if (F_LEN(cmd) == F_INSN_SIZE(ipfw_insn_u32))
 		bprintf(bp, ",%u", *a);
 	bprintf(bp, ")");
 }
