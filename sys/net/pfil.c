@@ -425,7 +425,7 @@ pfil_add_hook_flags(pfil_func_flags_t func, void *arg, int flags,
 int
 pfil_add_hook(pfil_func_t func, void *arg, int flags, struct pfil_head *ph)
 {
-	return (pfil_add_hook_priv(func, arg, flags, ph, false));
+	return (pfil_add_hook_priv(func, arg, flags, ph, true));
 }
 
 static int
