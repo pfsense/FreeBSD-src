@@ -1298,6 +1298,19 @@ format_mac(struct buf_pr *bp, uint8_t *addr, uint8_t *mask)
 }
 
 static void
+print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo, ipfw_insn *cmd)
+{
+	char *t;
+	uint32_t *a = ((ipfw_insn_u32 *)cmd)->d;
+
+	t = table_search_ctlv(fo->tstate, cmd->arg1);
+	bprintf(bp, " MAC table(%s", t);
+	if (F_LEN(cmd) == F_INSN_SIZE(ipfw_insn_u32))
+		bprintf(bp, ",%u", *a);
+	bprintf(bp, ")");
+}
+
+static void
 print_mac(struct buf_pr *bp, ipfw_insn_mac *mac)
 {
 
@@ -1511,16 +1524,8 @@ print_instruction(struct buf_pr *bp, const struct format_opts *fo,
 		else
 			bprintf(bp, " %u", cmd->arg1);
 		break;
-	case O_MACADDR2_LOOKUP: {
-		char *t;
-		uint32_t *a = ((ipfw_insn_u32 *)cmd)->d;
-
-		t = table_search_ctlv(fo->tstate, cmd->arg1);
-		bprintf(bp, " MAC table(%s", t);
-		if (cmd->len == F_INSN_SIZE(ipfw_insn_u32))
-			bprintf(bp, ",%u", *a);
-		bprintf(bp, ")");
-		}
+	case O_MACADDR2_LOOKUP:
+		print_mac_lookup(bp, fo, cmd);
 		break;
 	case O_MACADDR2:
 		print_mac(bp, insntod(cmd, mac));
