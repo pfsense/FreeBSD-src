@@ -409,7 +409,7 @@ int
 pfil_add_hook_flags(pfil_func_flags_t func, void *arg, int flags,
     struct pfil_head *ph)
 {
-	return (pfil_add_hook_priv(func, arg, flags, ph, true));
+	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, true));
 }
 
 /*
@@ -430,7 +430,7 @@ int
 pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags,
     struct pfil_head *ph)
 {
-	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, true));
+	return (pfil_add_hook_priv(func, arg, name, flags, ph, true));
 }
 
 static int
