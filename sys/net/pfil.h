@@ -112,7 +112,7 @@ struct pfil_head *pfil_head_get(int, u_long);
 void	pfil_head_export_sysctl(struct pfil_head *, struct sysctl_oid_list *);
 int	pfil_add_hook_flags(pfil_func_flags_t, void *, int, struct pfil_head *);
 int	pfil_add_hook(pfil_func_t, void *, int, struct pfil_head *);
-int	pfil_add_named_hook(pfil_func_t, void *, char *, int, struct pfil_head *);
+int	pfil_add_named_hook(pfil_func_flags_t, void *, char *, int, struct pfil_head *);
 int	pfil_remove_hook_flags(pfil_func_flags_t, void *, int, struct pfil_head *);
 int	pfil_remove_hook(pfil_func_t, void *, int, struct pfil_head *);
 #define	PFIL_HOOKED(p) ((p)->ph_nhooks > 0)
