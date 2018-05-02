@@ -1190,61 +1190,6 @@ vlan_start(struct ifnet *ifp)
 		}
 
 		/*
-		 * Pad the frame to the minimum size allowed if told to.
-		 * This option is in accord with IEEE Std 802.1Q, 2003 Ed.,
-		 * paragraph C.4.4.3.b.  It can help to work around buggy
-		 * bridges that violate paragraph C.4.4.3.a from the same
-		 * document, i.e., fail to pad short frames after untagging.
-		 * E.g., a tagged frame 66 bytes long (incl. FCS) is OK, but
-		 * untagging it will produce a 62-byte frame, which is a runt
-		 * and requires padding.  There are VLAN-enabled network
-		 * devices that just discard such runts instead or mishandle
-		 * them somehow.
-		 */
-		if (V_soft_pad && p->if_type == IFT_ETHER) {
-			static char pad[8];	/* just zeros */
-			int n;
-
-			for (n = ETHERMIN + ETHER_HDR_LEN - m->m_pkthdr.len;
-			     n > 0; n -= sizeof(pad))
-				if (!m_append(m, min(n, sizeof(pad)), pad))
-					break;
-
-			if (n > 0) {
-				if_printf(ifp, "cannot pad short frame\n");
-				if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-				VLAN_RUNLOCK();
-				m_freem(m);
-				return;
-			}
-		}
-
-		/*
-		 * If underlying interface can do VLAN tag insertion itself,
-		 * just pass the packet along. However, we need some way to
-		 * tell the interface where the packet came from so that it
-		 * knows how to find the VLAN tag to use, so we attach a
-		 * packet tag that holds it.
-		 */
-		if (vlan_mtag_pcp && (mtag = m_tag_locate(m, MTAG_8021Q,
-		    MTAG_8021Q_PCP_OUT, NULL)) != NULL)
-			tag = EVL_MAKETAG(ifv->ifv_vid, *(uint8_t *)(mtag + 1), 0);
-		else
-			tag = ifv->ifv_tag;
-		if (p->if_capenable & IFCAP_VLAN_HWTAGGING) {
-			m->m_pkthdr.ether_vtag = tag;
-			m->m_flags |= M_VLANTAG;
-		} else {
-			m = ether_vlanencap(m, tag);
-			if (m == NULL) {
-				if_printf(ifp, "unable to prepend VLAN header\n");
-				if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-				VLAN_RUNLOCK();
-				return;
-			}
-		}
-
-		/*
 		 * Send it, precisely as ether_output() would have.
 		 */
 		error = (p->if_transmit)(p, m);
