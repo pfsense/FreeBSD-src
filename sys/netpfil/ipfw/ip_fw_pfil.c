@@ -504,7 +504,7 @@ static int
 ipfw_hook(int onoff, int pf)
 {
 	struct pfil_head *pfh;
-	pfil_func_t hook_func;
+	pfil_func_flags_t hook_func;
 
 	pfh = pfil_head_get(PFIL_TYPE_AF, pf);
 	if (pfh == NULL)
