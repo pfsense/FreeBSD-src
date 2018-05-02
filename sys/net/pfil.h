@@ -61,6 +61,7 @@ struct packet_filter_hook {
 	pfil_func_flags_t	 pfil_func_flags;
 	void			*pfil_arg;
 	int			 pfil_flags;
+	char			*pfil_name;
 };
 
 #define PFIL_IN		0x00000001
