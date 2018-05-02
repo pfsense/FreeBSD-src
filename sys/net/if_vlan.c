@@ -1148,8 +1148,6 @@ vlan_start(struct ifnet *ifp)
 	struct ifvlan *ifv;
 	struct ifnet *p;
 	struct mbuf *m;
-	struct m_tag *mtag;
-	uint16_t tag;
 	int error, len, mcast;
 	VLAN_LOCK_READER;
 
