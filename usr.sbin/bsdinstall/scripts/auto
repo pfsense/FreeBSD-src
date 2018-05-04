@@ -105,8 +105,9 @@ dialog_workaround()
 # Try to be smart and detect target disk when there is only one
 skip_disks=""
 for label in FreeBSD pfSense; do
-	disk=$(glabel status | grep ${label}_Install | awk '{print $3}' \
-		| sed 's/p[0-9]*//')
+	ulabel=$(echo "$label" | tr '[[:lower:]]' '[[:upper:]]')
+	disk=$(glabel status | grep -E "(${label}_Install|iso9660/${ulabel})" \
+		| awk '{print $3}' | sed 's/p[0-9]*//')
 	[ -z "$disk" ] \
 		&& continue
 	skip_disks="${skip_disks}${skip_disks:+ }${disk}"
