@@ -448,6 +448,10 @@ main(int argc, char *argv[])
 	error = 0;
 	cmdarg = "";	/* To keep gcc3 happy. */
 
+	/*
+	 * Add all default data dirs to the list first.
+	 */
+	datadir_add(DEFAULT_DATADIR);
 	while ((c = getopt(argc, argv, "d:ehi:m:nuv")) != -1) {
 		switch (c) {
 		case 'd':

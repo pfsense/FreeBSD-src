@@ -158,7 +158,7 @@ ASSYM(PCB_FULL_IRET, PCB_FULL_IRET);
 ASSYM(PCB_DBREGS, PCB_DBREGS);
 ASSYM(PCB_32BIT, PCB_32BIT);
 
-ASSYM(TSS_RSP0, offsetof(struct amd64tss, tss_rsp0));
+ASSYM(COMMON_TSS_RSP0, offsetof(struct amd64tss, tss_rsp0));
 
 ASSYM(TF_R15, offsetof(struct trapframe, tf_r15));
 ASSYM(TF_R14, offsetof(struct trapframe, tf_r14));

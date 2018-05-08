@@ -2593,8 +2593,10 @@ pmap_pinit_type(pmap_t pmap, enum pmap_type pm_type, int flags)
 		pmap->pm_cr3 = pml4phys;
 		pmap_pinit_pml4(pml4pg);
 		if (pti) {
-			pml4pgu = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL |
-			    VM_ALLOC_NOOBJ | VM_ALLOC_WIRED | VM_ALLOC_WAITOK);
+			while ((pml4pgu = vm_page_alloc(NULL, 0,
+			    VM_ALLOC_NORMAL | VM_ALLOC_NOOBJ | VM_ALLOC_WIRED))
+			    == NULL)
+			       VM_WAIT;
 			pmap->pm_pml4u = (pml4_entry_t *)PHYS_TO_DMAP(
 			    VM_PAGE_TO_PHYS(pml4pgu));
 			pmap_pinit_pml4_pti(pml4pgu);
