@@ -299,7 +299,7 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 #ifdef INET6
 	struct ip6_ext *ip6e;
 	struct ip6_hdr ip6;
-	int alloc, len, ad;
+	int ad, alloc, nxt, noff;
 #endif /* INET6 */
 
 	switch (proto) {
@@ -328,7 +328,7 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 		else
 			ip->ip_off = htons(0);
 
-		ptr = mtod(m, unsigned char *) + sizeof(struct ip);
+		ptr = mtod(m, unsigned char *);
 
 		/* IPv4 option processing */
 		for (off = sizeof(struct ip); off < skip;) {
@@ -409,7 +409,7 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 
 				/* Zeroize all other options. */
 				count = ptr[off + 1];
-				bcopy(ipseczeroes, ptr, count);
+				bcopy(ipseczeroes, ptr + off, count);
 				off += count;
 				break;
 			}
@@ -482,61 +482,44 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 		} else
 			break;
 
-		off = ip6.ip6_nxt & 0xff; /* Next header type. */
+		nxt = ip6.ip6_nxt & 0xff; /* Next header type. */
 
-		for (len = 0; len < skip - sizeof(struct ip6_hdr);)
-			switch (off) {
+		for (off = 0; off < skip - sizeof(struct ip6_hdr);)
+			switch (nxt) {
 			case IPPROTO_HOPOPTS:
 			case IPPROTO_DSTOPTS:
-				ip6e = (struct ip6_ext *) (ptr + len);
+				ip6e = (struct ip6_ext *)(ptr + off);
+				noff = off + ((ip6e->ip6e_len + 1) << 3);
+
+				/* Sanity check. */
+				if (noff > skip - sizeof(struct ip6_hdr))
+					goto error6;
 
 				/*
-				 * Process the mutable/immutable
-				 * options -- borrows heavily from the
-				 * KAME code.
+				 * Zero out mutable options.
 				 */
-				for (count = len + sizeof(struct ip6_ext);
-				     count < len + ((ip6e->ip6e_len + 1) << 3);) {
+				for (count = off + sizeof(struct ip6_ext);
+				     count < noff;) {
 					if (ptr[count] == IP6OPT_PAD1) {
 						count++;
 						continue; /* Skip padding. */
 					}
 
-					/* Sanity check. */
-					if (count > len +
-					    ((ip6e->ip6e_len + 1) << 3)) {
-						m_freem(m);
+					ad = ptr[count + 1] + 2;
+					if (count + ad > noff)
+						goto error6;
 
-						/* Free, if we allocated. */
-						if (alloc)
-							free(ptr, M_XDATA);
-						return EINVAL;
-					}
-
-					ad = ptr[count + 1];
-
-					/* If mutable option, zeroize. */
 					if (ptr[count] & IP6OPT_MUTABLE)
-						bcopy(ipseczeroes, ptr + count,
-						    ptr[count + 1]);
-
+						memset(ptr + count, 0, ad);
 					count += ad;
-
-					/* Sanity check. */
-					if (count >
-					    skip - sizeof(struct ip6_hdr)) {
-						m_freem(m);
-
-						/* Free, if we allocated. */
-						if (alloc)
-							free(ptr, M_XDATA);
-						return EINVAL;
-					}
 				}
 
+				if (count != noff)
+					goto error6;
+
 				/* Advance. */
-				len += ((ip6e->ip6e_len + 1) << 3);
-				off = ip6e->ip6e_nxt;
+				off += ((ip6e->ip6e_len + 1) << 3);
+				nxt = ip6e->ip6e_nxt;
 				break;
 
 			case IPPROTO_ROUTING:
@@ -544,14 +527,15 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 				 * Always include routing headers in
 				 * computation.
 				 */
-				ip6e = (struct ip6_ext *) (ptr + len);
-				len += ((ip6e->ip6e_len + 1) << 3);
-				off = ip6e->ip6e_nxt;
+				ip6e = (struct ip6_ext *) (ptr + off);
+				off += ((ip6e->ip6e_len + 1) << 3);
+				nxt = ip6e->ip6e_nxt;
 				break;
 
 			default:
 				DPRINTF(("%s: unexpected IPv6 header type %d",
 					__func__, off));
+error6:
 				if (alloc)
 					free(ptr, M_XDATA);
 				m_freem(m);
@@ -628,6 +612,16 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		m_freem(m);
 		return EACCES;
 	}
+	if (skip + authsize + rplen > m->m_pkthdr.len) {
+		DPRINTF(("%s: bad mbuf length %u (expecting %lu)"
+		    " for packet in SA %s/%08lx\n", __func__,
+		    m->m_pkthdr.len, (u_long) (skip + authsize + rplen),
+		    ipsec_address(&sav->sah->saidx.dst),
+		    (u_long) ntohl(sav->spi)));
+		AHSTAT_INC(ahs_badauthl);
+		m_freem(m);
+		return EACCES;
+	}
 	AHSTAT_ADD(ahs_ibytes, m->m_pkthdr.len - skip - hl);
 
 	/* Get crypto descriptors. */
@@ -671,6 +665,9 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	/* Zeroize the authenticator on the packet. */
 	m_copyback(m, skip + rplen, authsize, ipseczeroes);
 
+	/* Save ah_nxt, since ah pointer can become invalid after "massage" */
+	hl = ah->ah_nxt;
+
 	/* "Massage" the packet headers for crypto processing. */
 	error = ah_massage_headers(&m, sav->sah->saidx.dst.sa.sa_family,
 	    skip, ahx->type, 0);
@@ -694,7 +691,7 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	tc->tc_spi = sav->spi;
 	tc->tc_dst = sav->sah->saidx.dst;
 	tc->tc_proto = sav->sah->saidx.proto;
-	tc->tc_nxt = ah->ah_nxt;
+	tc->tc_nxt = hl;
 	tc->tc_protoff = protoff;
 	tc->tc_skip = skip;
 	KEY_ADDREFSA(sav);
