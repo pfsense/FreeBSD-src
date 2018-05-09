@@ -25,7 +25,7 @@ ident		uFW-netboot
 
 # MD_ROOT options
 options 	MD_ROOT
-options 	MD_ROOT_SIZE=16384
+options 	MD_ROOT_SIZE=24576
 options 	ROOTDEVNAME=\"ufs:md0.uzip\"
 options		GEOM_UZIP
 
