@@ -828,7 +828,13 @@ bind_lease(struct interface_info *ip)
 
 	opt = &ip->client->new->options[DHO_INTERFACE_MTU];
 	if (opt->len == sizeof(u_int16_t)) {
-		u_int16_t mtu = be16dec(opt->data);
+		u_int16_t mtu = 0;
+		if (ip->client->config->default_actions[DHO_INTERFACE_MTU] ==
+		    ACTION_SUPERSEDE)
+			mtu = getUShort(ip->client->config->defaults[DHO_INTERFACE_MTU].data);
+		else
+			mtu = be16dec(opt->data);
+
 		if (mtu < MIN_MTU)
 			warning("mtu size %u < %d: ignored", (unsigned)mtu, MIN_MTU);
 		else
