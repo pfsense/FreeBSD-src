@@ -183,6 +183,37 @@ if_register_send(struct interface_info *info)
  * constant offsets used in if_register_send to patch the BPF program!
  */
 struct bpf_insn dhcp_bpf_filter[] = {
+	/* Check for 802.1q-encapsulated packets */
+	BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 12),
+	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ETHERTYPE_VLAN, 0, 12),
+
+	/* We only accept packets with VID = 0 */
+	BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 14),
+	BPF_STMT(BPF_ALU + BPF_AND + BPF_K, 0xfff),
+	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0, 0, 19),
+
+	/* Make sure this is an IP packet... */
+	BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 16),
+	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ETHERTYPE_IP, 0, 17),
+
+	/* Make sure it's a UDP packet... */
+	BPF_STMT(BPF_LD + BPF_B + BPF_ABS, 27),
+	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, IPPROTO_UDP, 0, 15),
+
+	/* Make sure this isn't a fragment... */
+	BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 24),
+	BPF_JUMP(BPF_JMP + BPF_JSET + BPF_K, 0x1fff, 13, 0),
+
+	/* Get the IP header length... */
+	BPF_STMT(BPF_LDX + BPF_B + BPF_MSH, 18),
+
+	/* Load the target port and jump to port check below */
+	/* This avoids having to patch the code in two locations */
+	BPF_STMT(BPF_LD + BPF_H + BPF_IND, 20),
+	BPF_JUMP(BPF_JMP + BPF_JA, 8, 0, 0),
+
+	/* Process non-802.1q tagged packets */
+
 	/* Make sure this is an IP packet... */
 	BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 12),
 	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ETHERTYPE_IP, 0, 8),
@@ -259,7 +290,7 @@ if_register_receive(struct interface_info *info)
 	 * XXX: changes to filter program may require changes to the
 	 * insn number(s) used below!
 	 */
-	dhcp_bpf_filter[8].k = LOCAL_PORT;
+	dhcp_bpf_filter[22].k = LOCAL_PORT;
 
 	if (ioctl(info->rfdesc, BIOCSETF, &p) < 0)
 		error("Can't install packet filter program: %m");
