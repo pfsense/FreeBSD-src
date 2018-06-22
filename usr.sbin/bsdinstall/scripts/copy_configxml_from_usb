@@ -63,6 +63,8 @@ look_for_config_xml_config_msdos() {
 # Try to locate an existing config.xml file
 if look_for_config_xml_config_msdos; then
 	/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
+	# Remove rrddata if it is present
+	sed -i '' -e '/<rrddata>/,/<\/rrddata>/ d' ${recovery_dir}/config.xml
 	/sbin/umount ${recovery_mount} 2>&1
 	echo -n "[Copied config.xml file to recovery area] "
 else
