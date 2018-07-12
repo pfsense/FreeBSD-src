@@ -28,6 +28,10 @@ _radeonkmsfw=	radeonkmsfw
 . endif
 .endif
 
+# Do not build radeon modules for pfSense
+_radeonkms=
+_radeonkmsfw=
+
 SUBDIR = \
 	drm2 \
 	${_i915kms} \
