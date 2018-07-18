@@ -1655,6 +1655,37 @@ relock_DIOCCLRSTATES:
 					 * Don't send out individual
 					 * delete messages.
 					 */
+					if (psk->psk_flag & PSK_FLAG_KILLMATCH) {
+						u_int dir;
+						struct pf_state *match;
+						struct pf_state_key_cmp key;
+						int idx, more = 0;
+
+						bzero(&key, sizeof(key));
+
+						if (s->direction == PF_OUT) {
+							dir = PF_IN;
+							idx = PF_SK_STACK;
+						} else {
+							dir = PF_OUT;
+							idx = PF_SK_WIRE;
+						}
+
+						key.af = s->key[idx]->af;
+						key.proto = s->key[idx]->proto;
+						PF_ACPY(&key.addr[0], &s->key[idx]->addr[1],key.af);
+						key.port[0] = s->key[idx]->port[1];
+						PF_ACPY(&key.addr[1], &s->key[idx]->addr[0],key.af);
+						key.port[1] = s->key[idx]->port[0];
+
+						match = pf_find_state_all(&key, dir, &more);
+						if (match && !more) {
+							pf_unlink_state(match, 0);
+							killed++;
+						}
+
+					}
+
 					s->state_flags |= PFSTATE_NOSYNC;
 					pf_unlink_state(s, PF_ENTER_LOCKED);
 					killed++;
@@ -1717,6 +1748,10 @@ relock_DIOCKILLSTATES:
 				    &psk->psk_dst.addr.v.a.addr,
 				    &psk->psk_dst.addr.v.a.mask,
 				    dstaddr, sk->af) &&
+				    PF_MATCHA(psk->psk_rt_addr.neg,
+				    &psk->psk_rt_addr.addr.v.a.addr,
+				    &psk->psk_rt_addr.addr.v.a.mask,
+				    &s->rt_addr, sk->af) &&
 				    (psk->psk_src.port_op == 0 ||
 				    pf_match_port(psk->psk_src.port_op,
 				    psk->psk_src.port[0], psk->psk_src.port[1],
@@ -1732,6 +1767,36 @@ relock_DIOCKILLSTATES:
 				    (!psk->psk_ifname[0] ||
 				    !strcmp(psk->psk_ifname,
 				    s->kif->pfik_name))) {
+					if (psk->psk_flag & PSK_FLAG_KILLMATCH) {
+						u_int dir;
+						struct pf_state *match;
+						struct pf_state_key_cmp key;
+						int idx, more = 0;
+
+						bzero(&key, sizeof(key));
+
+						if (s->direction == PF_OUT) {
+							dir = PF_IN;
+							idx = PF_SK_STACK;
+						} else {
+							dir = PF_OUT;
+							idx = PF_SK_WIRE;
+						}
+
+						key.af = s->key[idx]->af;
+						key.proto = s->key[idx]->proto;
+						PF_ACPY(&key.addr[0], &s->key[idx]->addr[1],key.af);
+						key.port[0] = s->key[idx]->port[1];
+						PF_ACPY(&key.addr[1], &s->key[idx]->addr[0],key.af);
+						key.port[1] = s->key[idx]->port[0];
+
+						match = pf_find_state_all(&key, dir, &more);
+						if (match && !more) {
+							pf_unlink_state(match, 0);
+							killed++;
+						}
+
+					}
 					pf_unlink_state(s, PF_ENTER_LOCKED);
 					killed++;
 					goto relock_DIOCKILLSTATES;

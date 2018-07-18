@@ -1309,10 +1309,14 @@ struct pfioc_state_kill {
 	int			psk_proto;
 	struct pf_rule_addr	psk_src;
 	struct pf_rule_addr	psk_dst;
+	struct pf_rule_addr	psk_rt_addr;
 	char			psk_ifname[IFNAMSIZ];
 	char			psk_label[PF_RULE_LABEL_SIZE];
+	int			psk_flag;
 	u_int			psk_killed;
 };
+
+#define PSK_FLAG_KILLMATCH	0x0001
 
 struct pfioc_schedule_kill {
 	int		numberkilled;
