@@ -58,6 +58,8 @@ if [ $? -eq 0 ]; then
 		/usr/libexec/getty autologin ttyv3 &
 		EXTERNAL_VTY_STARTED=1
 	fi
+elif kenv -q smbios.system.product | grep -q "SG-5100"; then
+	TERM="vt100"
 else
 	# Serial or other console
 	echo
