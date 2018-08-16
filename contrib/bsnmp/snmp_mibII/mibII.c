@@ -564,7 +564,7 @@ mib_fetch_ifmib(struct mibif *ifp)
 	if (ioctl(mib_netsock, SIOCGIFDESCR, &irr) == -1) {
 		free(ifp->alias);
 		ifp->alias = NULL;
-		if (errno != ENOMSG)
+		if (errno != ENOMSG && errno != ENXIO)
 			syslog(LOG_WARNING, "SIOCGIFDESCR (%s): %m", ifp->name);
 	} else if (irr.ifr_buffer.buffer == NULL) {
 		free(ifp->alias);
