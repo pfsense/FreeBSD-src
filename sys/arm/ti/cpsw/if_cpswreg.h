@@ -118,6 +118,8 @@
 /* SL1 is at 0x0D80, SL2 is at 0x0DC0 */
 #define	CPSW_SL_OFFSET			0x0D80
 #define	CPSW_SL_MACCONTROL(p)		(CPSW_SL_OFFSET + (0x40 * (p)) + 0x04)
+#define	 CPSW_SL_MACTL_EXT_EN		(1 << 18) /* In Band mode */
+#define	 CPSW_SL_MACTL_GIG_FORCE	(1 << 17)
 #define	 CPSW_SL_MACTL_IFCTL_B		(1 << 16)
 #define	 CPSW_SL_MACTL_IFCTL_A		(1 << 15)
 #define	 CPSW_SL_MACTL_GIG		(1 << 7)

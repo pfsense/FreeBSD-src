@@ -1546,6 +1546,11 @@ cpswp_miibus_statchg(device_t dev)
 	case IFM_100_TX:
 		mac_control |= CPSW_SL_MACTL_IFCTL_A;
 		break;
+	/* in band mode only works in 10Mbps RGMII mode. */
+	case IFM_10_T:
+		/* In Band mode */
+		mac_control |= CPSW_SL_MACTL_EXT_EN;
+		break;
 	}
 	if (sc->mii->mii_media_active & IFM_FDX)
 		mac_control |= CPSW_SL_MACTL_FULLDUPLEX;
