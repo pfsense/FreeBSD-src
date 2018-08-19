@@ -66,10 +66,6 @@ userauth_hostbased(Authctxt *authctxt)
 	int pktype;
 	int authenticated = 0;
 
-	if (!authctxt->valid) {
-		debug2("userauth_hostbased: disabled because of invalid user");
-		return 0;
-	}
 	pkalg = packet_get_string(&alen);
 	pkblob = packet_get_string(&blen);
 	chost = packet_get_string(NULL);
@@ -112,6 +108,11 @@ userauth_hostbased(Authctxt *authctxt)
 	    options.hostbased_key_types, 0) != 1) {
 		logit("%s: key type %s not in HostbasedAcceptedKeyTypes",
 		    __func__, sshkey_type(key));
+		goto done;
+	}
+
+	if (!authctxt->valid || authctxt->user == NULL) {
+		debug2("%s: disabled because of invalid user", __func__);
 		goto done;
 	}
 

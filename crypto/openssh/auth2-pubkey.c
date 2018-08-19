@@ -79,16 +79,12 @@ userauth_pubkey(Authctxt *authctxt)
 {
 	Buffer b;
 	Key *key = NULL;
-	char *pkalg, *userstyle, *fp = NULL;
-	u_char *pkblob, *sig;
+	char *pkalg = NULL, *userstyle, *fp = NULL;
+	u_char *pkblob = NULL, *sig = NULL;
 	u_int alen, blen, slen;
 	int have_sig, pktype;
 	int authenticated = 0;
 
-	if (!authctxt->valid) {
-		debug2("%s: disabled because of invalid user", __func__);
-		return 0;
-	}
 	have_sig = packet_get_char();
 	if (datafellows & SSH_BUG_PKAUTH) {
 		debug2("%s: SSH_BUG_PKAUTH", __func__);
@@ -149,6 +145,11 @@ userauth_pubkey(Authctxt *authctxt)
 		} else {
 			buffer_put_string(&b, session_id2, session_id2_len);
 		}
+		if (!authctxt->valid || authctxt->user == NULL) {
+			debug2("%s: disabled because of invalid user",
+			    __func__);
+			goto done;
+		}
 		/* reconstruct packet */
 		buffer_put_char(&b, SSH2_MSG_USERAUTH_REQUEST);
 		xasprintf(&userstyle, "%s%s%s", authctxt->user,
@@ -184,12 +185,16 @@ userauth_pubkey(Authctxt *authctxt)
 			key = NULL; /* Don't free below */
 		}
 		buffer_free(&b);
-		free(sig);
 	} else {
 		debug("%s: test whether pkalg/pkblob are acceptable for %s %s",
 		    __func__, sshkey_type(key), fp);
 		packet_check_eom();
 
+		if (!authctxt->valid || authctxt->user == NULL) {
+			debug2("%s: disabled because of invalid user",
+			    __func__);
+			goto done;
+		}
 		/* XXX fake reply and always send PK_OK ? */
 		/*
 		 * XXX this allows testing whether a user is allowed
@@ -216,6 +221,7 @@ done:
 	free(pkalg);
 	free(pkblob);
 	free(fp);
+	free(sig);
 	return authenticated;
 }
 
