@@ -60,6 +60,16 @@ if [ -f /tmp/loader.conf.local.pfSense ]; then
 	cp /tmp/loader.conf.local.pfSense $BSDINSTALL_CHROOT/boot/loader.conf.local
 fi
 
+# Detect MBT-* and populate loader.conf.local
+product=$(/bin/kenv -q smbios.system.product 2>/dev/null)
+
+if [ "${product}" = "Minnowboard Turbot D0 PLATFORM" ]; then
+	echo "i915kms_load=YES" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
+	echo "drm.i915.enable_unsupported=1" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
+	echo "kern.vt.fb.modes.VGA-1=d" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
+	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
+fi
+
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_CHROOT/boot/loader.conf
 
 if [ -f /tmp/boot.config ]; then
