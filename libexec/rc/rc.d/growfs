@@ -82,7 +82,7 @@ growfs_start ()
 	fi
 
 	diskdev=$(growfs_get_diskdev ${search})
-	if [ -z "${diskdev" ]; then
+	if [ -z "${diskdev}" ]; then
 		diskdev=${rootdev}
 	fi
 
