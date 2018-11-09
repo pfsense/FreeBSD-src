@@ -20,8 +20,8 @@ if [ "$(uname -s)" = "FreeBSD" ]; then
 	export PATH
 fi
 
-if [ $# -ne 2 ]; then
-	echo "make-memstick.sh /path/to/directory/or/manifest /path/to/image/file"
+if [ $# -ne 2 && $# -ne 3 ]; then
+	echo "make-memstick.sh /path/to/directory /path/to/image/file [FAT32 partition]"
 	exit 1
 fi
 
@@ -41,6 +41,11 @@ fi
 if [ -e ${2} ]; then
 	echo "won't overwrite ${2}"
 	exit 1
+fi
+
+unset fat32_partition
+if [ -n "${3}" -a -f "${3}" ]; then
+	fat32_partition="-p fat32:=${3}"
 fi
 
 echo '/dev/ufs/FreeBSD_Install / ufs ro,noatime 1 1' > ${BASEBITSDIR}/etc/fstab
@@ -67,6 +72,7 @@ mkimg -s mbr \
     -b ${BASEBITSDIR}/boot/mbr \
     -p efi:=${espfilename} \
     -p freebsd:-"mkimg -s bsd -b ${BASEBITSDIR}/boot/boot -p freebsd-ufs:=${2}.part" \
+    ${fat32_partition} \
     -a 2 \
     -o ${2}
 rm ${espfilename}
