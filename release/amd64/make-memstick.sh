@@ -30,11 +30,6 @@ if [ -e ${2} ]; then
 	exit 1
 fi
 
-truncate -s 36M ${2}.fat32
-fat_disk=$(mdconfig -a -f ${2}.fat32)
-newfs_msdos -L PFSENSE -F 32 -c 1 /dev/${fat_disk}
-mdconfig -d -u ${fat_disk}
-
 echo '/dev/ufs/FreeBSD_Install / ufs ro,noatime 1 1' > ${1}/etc/fstab
 echo 'root_rw_mount="NO"' > ${1}/etc/rc.conf.local
 makefs -B little -o label=FreeBSD_Install -o version=2 ${2}.part ${1}
@@ -45,9 +40,7 @@ mkimg -s mbr \
     -b ${1}/boot/mbr \
     -p efi:=${1}/boot/boot1.efifat \
     -p freebsd:-"mkimg -s bsd -b ${1}/boot/boot -p freebsd-ufs:=${2}.part" \
-    -p fat32:=${2}.fat32 \
     -a 2 \
     -o ${2}
 rm ${2}.part
-rm ${2}.fat32
 
