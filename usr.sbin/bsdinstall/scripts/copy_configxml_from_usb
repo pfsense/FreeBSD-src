@@ -30,6 +30,8 @@ recovery_dir=/tmp/recovered_config
 mkdir -p ${recovery_mount}
 mkdir -p ${recovery_dir}
 
+CONFIG_XML_PATH=""
+
 look_for_config_xml_config_msdos() {
 	mkdir -p ${recovery_mount}
 	echo -n "Looking for config.xml on "
@@ -43,6 +45,11 @@ look_for_config_xml_config_msdos() {
 			# look for config.xml
 			if [ -r ${recovery_mount}/conf/config.xml  ]; then
 				echo -n "[config.xml on ${try_device}] "
+				CONFIG_XML_PATH="${recovery_mount}/conf/config.xml"
+				return 0
+			elif [ -r ${recovery_mount}/config.xml  ]; then
+				echo -n "[config.xml on ${try_device}] "
+				CONFIG_XML_PATH="${recovery_mount}/config.xml"
 				return 0
 			else
 				echo -n "[no config.xml on ${try_device}, unmounting] "
@@ -54,8 +61,8 @@ look_for_config_xml_config_msdos() {
 }
 
 # Try to locate an existing config.xml file
-if look_for_config_xml_config_msdos ; then
-	/bin/cp -r ${recovery_mount}/conf/config.xml ${recovery_dir}
+if look_for_config_xml_config_msdos; then
+	/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
 	/sbin/umount ${recovery_mount} 2>&1
 	echo -n "[Copied config.xml file to recovery area] "
 else
