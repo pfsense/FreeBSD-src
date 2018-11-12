@@ -15,7 +15,7 @@ set -e
 PATH=/bin:/usr/bin:/sbin:/usr/sbin
 export PATH
 
-if [ $# -ne 2 && $# -ne 3 ]; then
+if [ $# -ne 2 -a $# -ne 3 ]; then
 	echo "make-memstick.sh /path/to/directory /path/to/image/file [FAT32 partition]"
 	exit 1
 fi
