@@ -86,12 +86,9 @@ if [ -f /etc/installerconfig ]; then
 fi
 
 if [ -n "${CE_message}" ]; then
-	msg="pfSense(r) Community Edition software is distributed only for use by the community of pfSense users.\n\n"
-	msg="${msg}Copyright 2017 Rubicon Communications, LLC.  All Rights Reserved.\n\n"
-	msg="${msg}Absolutely No Commercial Distribution Is Allowed."
+	msg="pfSense is Copyright 2004-2018 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed."
 else
-	msg="This software is only for use on platforms supplied by Rubicon Communications, LLC (Netgate).\n\n"
-	msg="${msg}Copyright 2017 Rubicon Communications, LLC.  All Rights Reserved."
+	msg="This software is only for use on platforms supplied by Rubicon Communications, LLC (Netgate).\n\npfSense is Copyright 2004-2018 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed"
 fi
 
 if [ ! -f /tmp/buildroom ]; then
