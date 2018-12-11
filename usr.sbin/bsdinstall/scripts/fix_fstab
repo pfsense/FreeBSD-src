@@ -83,8 +83,8 @@ dev_label() {
 		return
 	fi
 
-	SWAPNUM=$((SWAPNUM+1))
 	echo "/dev/label/swap${SWAPNUM}"
+	SWAPNUM=$((SWAPNUM+1))
 }
 
 FSTAB=${BSDINSTALL_TMPETC}/fstab
