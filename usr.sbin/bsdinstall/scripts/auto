@@ -511,7 +511,7 @@ if [ -r /tmp/recovered_config/config.xml ] ; then
 	/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/installer_copied_config
 	# Only set the package sync flag if the restored config.xml contains active packages
 	if [ `/usr/bin/grep -c '<package>' ${BSDINSTALL_CHROOT}/cf/conf/config.xml` -gt 0 ]; then
-		/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/needs_package_sync_after_reboot
+		/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/needs_package_sync
 	fi
 	# If there is an existing configuration, then there is no need to run the wizard.
 	if [ -r ${BSDINSTALL_CHROOT}/cf/conf/trigger_initial_wizard ]; then
