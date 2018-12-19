@@ -338,6 +338,9 @@ structure from the state table.
 Remove matching entries from the state table.
 This ioctl returns the number of killed states in
 .Va psk_killed .
+The psk_flag can be set with PSK_FLAG_KILLMATCH to also look
+for and kill a matching state in the opposite direction for
+each state matching the original criteria.
 .Bd -literal
 struct pfioc_state_kill {
 	struct pf_state_cmp	psk_pfcmp;
@@ -345,8 +348,10 @@ struct pfioc_state_kill {
 	int			psk_proto;
 	struct pf_rule_addr	psk_src;
 	struct pf_rule_addr	psk_dst;
+	struct pf_rule_addr	psk_rt_addr;
 	char			psk_ifname[IFNAMSIZ];
 	char			psk_label[PF_RULE_LABEL_SIZE];
+	int			psk_flag;
 	u_int			psk_killed;
 };
 .Ed
@@ -358,8 +363,9 @@ but ignores the
 .Va psk_af ,
 .Va psk_proto ,
 .Va psk_src ,
+.Va psk_dst ,
 and
-.Va psk_dst
+.Va psk_rt_addr
 fields of the
 .Vt pfioc_state_kill
 structure.

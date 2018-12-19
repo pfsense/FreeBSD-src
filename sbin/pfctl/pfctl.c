@@ -74,6 +74,7 @@ int	 pfctl_clear_states(int, const char *, int);
 void	 pfctl_addrprefix(char *, struct pf_addr *);
 int	 pfctl_kill_src_nodes(int, const char *, int);
 int	 pfctl_net_kill_states(int, const char *, int);
+int	 pfctl_gateway_kill_states(int, const char *, int);
 int	 pfctl_label_kill_states(int, const char *, int);
 int	 pfctl_kill_schedule(int, const char *, int);
 int	 pfctl_id_kill_states(int, const char *, int);
@@ -234,13 +235,13 @@ usage(void)
 {
 	extern char *__progname;
 
-	fprintf(stderr,
-"usage: %s [-AdeghmNnOPqRrvz] [-a anchor] [-D macro=value] [-F modifier]\n"
-	"\t[-f file] [-i interface] [-K host | network]\n"
-	"\t[-k host | network | label | id] [-o level] [-p device]\n"
-	"\t[-s modifier] [-t table -T command [address ...]] [-x level]\n",
-	    __progname);
-
+	fprintf(stderr, "usage: %s [-AdeghMmNnOPqRrvz] ", __progname);
+	fprintf(stderr, "[-a anchor] [-D macro=value] [-F modifier]\n");
+	fprintf(stderr, "\t[-f file] [-i interface] [-K host | network]\n");
+	fprintf(stderr, "\t[-k host | network | label | id | gateway ] ");
+	fprintf(stderr, "[-o level] [-p device]\n");
+	fprintf(stderr, "\t[-s modifier] ");
+	fprintf(stderr, "[-t table -T command [address ...]] [-x level]\n");
 	exit(1);
 }
 
@@ -380,9 +381,14 @@ pfctl_clear_states(int dev, const char *iface, int opts)
 	struct pfioc_state_kill psk;
 
 	memset(&psk, 0, sizeof(psk));
-	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
-	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
-		errx(1, "invalid interface: %s", iface);
+	if (iface != NULL) {
+		if (strlcpy(psk.psk_ifname, iface,
+		    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname)) {
+			errx(1, "invalid interface: %s", iface);
+		} else if (opts & PF_OPT_KILLMATCH) {
+			psk.psk_flag |= PSK_FLAG_KILLMATCH;
+		}
+	}
 
 	if (ioctl(dev, DIOCCLRSTATES, &psk))
 		err(1, "DIOCCLRSTATES");
@@ -564,6 +570,10 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
 		errx(1, "invalid interface: %s", iface);
 
+	if (opts & PF_OPT_KILLMATCH) {
+		psk.psk_flag |= PSK_FLAG_KILLMATCH;
+	}
+
 	pfctl_addrprefix(state_kill[0], &psk.psk_src.addr.v.a.mask);
 
 	if ((ret_ga = getaddrinfo(state_kill[0], NULL, NULL, &res[0]))) {
@@ -651,6 +661,67 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 }
 
 int
+pfctl_gateway_kill_states(int dev, const char *iface, int opts)
+{
+	struct pfioc_state_kill psk;
+	struct addrinfo *res, *resp;
+	struct sockaddr last_src;
+	int killed;
+	int ret_ga;
+
+	killed = 0;
+
+	memset(&psk, 0, sizeof(psk));
+	memset(&psk.psk_rt_addr.addr.v.a.mask, 0xff,
+	    sizeof(psk.psk_rt_addr.addr.v.a.mask));
+	memset(&last_src, 0xff, sizeof(last_src));
+	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
+	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
+		errx(1, "invalid interface: %s", iface);
+
+	if (opts & PF_OPT_KILLMATCH) {
+		psk.psk_flag |= PSK_FLAG_KILLMATCH;
+	}
+
+	pfctl_addrprefix(state_kill[1], &psk.psk_rt_addr.addr.v.a.mask);
+
+	if ((ret_ga = getaddrinfo(state_kill[1], NULL, NULL, &res))) {
+		errx(1, "getaddrinfo: %s", gai_strerror(ret_ga));
+		/* NOTREACHED */
+	}
+	for (resp = res; resp; resp = resp->ai_next) {
+		if (resp->ai_addr == NULL)
+			continue;
+		/* We get lots of duplicates.  Catch the easy ones */
+		if (memcmp(&last_src, resp->ai_addr, sizeof(last_src)) == 0)
+			continue;
+		last_src = *(struct sockaddr *)resp->ai_addr;
+
+		psk.psk_af = resp->ai_family;
+
+		if (psk.psk_af == AF_INET)
+			psk.psk_rt_addr.addr.v.a.addr.v4 =
+			    ((struct sockaddr_in *)resp->ai_addr)->sin_addr;
+		else if (psk.psk_af == AF_INET6)
+			psk.psk_rt_addr.addr.v.a.addr.v6 =
+			    ((struct sockaddr_in6 *)resp->ai_addr)->
+			    sin6_addr;
+		else
+			errx(1, "Unknown address family %d", psk.psk_af);
+
+		if (ioctl(dev, DIOCKILLSTATES, &psk))
+			err(1, "DIOCKILLSTATES");
+		killed += psk.psk_killed;
+	}
+
+	freeaddrinfo(res);
+
+	if ((opts & PF_OPT_QUIET) == 0)
+		fprintf(stderr, "killed %d states\n", killed);
+	return (0);
+}
+
+int
 pfctl_kill_schedule(int dev, const char *sched, int opts)
 {
 	struct pfioc_schedule_kill psk;
@@ -679,6 +750,11 @@ pfctl_label_kill_states(int dev, const char *iface, int opts)
 		usage();
 	}
 	memset(&psk, 0, sizeof(psk));
+
+	if (opts & PF_OPT_KILLMATCH) {
+		psk.psk_flag |= PSK_FLAG_KILLMATCH;
+	}
+
 	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
 	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
 		errx(1, "invalid interface: %s", iface);
@@ -707,6 +783,11 @@ pfctl_id_kill_states(int dev, const char *iface, int opts)
 	}
 
 	memset(&psk, 0, sizeof(psk));
+
+	if (opts & PF_OPT_KILLMATCH) {
+		psk.psk_flag |= PSK_FLAG_KILLMATCH;
+	}
+
 	if ((sscanf(state_kill[1], "%jx/%x",
 	    &psk.psk_pfcmp.id, &psk.psk_pfcmp.creatorid)) == 2)
 		HTONL(psk.psk_pfcmp.creatorid);
@@ -2027,7 +2108,7 @@ main(int argc, char *argv[])
 		usage();
 
 	while ((ch = getopt(argc, argv,
-	    "a:AdD:eqf:F:ghi:k:K:mnNOo:Pp:rRs:t:T:vx:y:z")) != -1) {
+	    "a:AdD:eqf:F:ghi:k:K:mMnNOo:Pp:rRs:t:T:vx:y:z")) != -1) {
 		switch (ch) {
 		case 'a':
 			anchoropt = optarg;
@@ -2079,6 +2160,9 @@ main(int argc, char *argv[])
 			break;
 		case 'm':
 			opts |= PF_OPT_MERGE;
+			break;
+		case 'M':
+			opts |= PF_OPT_KILLMATCH;
 			break;
 		case 'n':
 			opts |= PF_OPT_NOACTION;
@@ -2348,6 +2432,8 @@ main(int argc, char *argv[])
 			pfctl_label_kill_states(dev, ifaceopt, opts);
 		else if (!strcmp(state_kill[0], "id"))
 			pfctl_id_kill_states(dev, ifaceopt, opts);
+		else if (!strcmp(state_kill[0], "gateway"))
+			pfctl_gateway_kill_states(dev, ifaceopt, opts);
 		else
 			pfctl_net_kill_states(dev, ifaceopt, opts);
 	}
