@@ -155,7 +155,13 @@ decode_hw_header(unsigned char *buf, int bufix, struct hardware *from)
 	from->htype = ARPHRD_ETHER;
 	from->hlen = sizeof(eh.ether_shost);
 
-	return (sizeof(eh));
+	if (ntohs(eh.ether_type) == ETHERTYPE_VLAN) {
+		/* For 802.1q-encapsulated packets, ether_type is shifted by 4 bytes */
+		memcpy(&eh.ether_type, buf + bufix + 16, 2);
+		return (sizeof(eh)) + 4;
+	} else {
+		return (sizeof(eh));
+	}
 }
 
 ssize_t
