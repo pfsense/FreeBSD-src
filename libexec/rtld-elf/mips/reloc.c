@@ -564,7 +564,7 @@ reloc_non_plt(Obj_Entry *obj, Obj_Entry *obj_rtld, int flags,
  *  Process the PLT relocations.
  */
 int
-reloc_plt(Obj_Entry *obj)
+reloc_plt(Obj_Entry *obj, int flags __unused, RtldLockState *lockstate __unused)
 {
 #if 0
 	const Elf_Rel *rellim;
