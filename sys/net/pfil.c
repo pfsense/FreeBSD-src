@@ -59,7 +59,8 @@ MTX_SYSINIT(pfil_heads_lock, &pfil_global_lock, "pfil_head_list lock",
 static struct packet_filter_hook *pfil_chain_get(int, struct pfil_head *);
 static int pfil_chain_add(pfil_chain_t *, struct packet_filter_hook *, int);
 static int pfil_chain_remove(pfil_chain_t *, void *, void *);
-static int pfil_add_hook_priv(void *, void *, int, struct pfil_head *, bool);
+static int pfil_add_hook_priv(void *, void *, char *, int, struct pfil_head *,
+     bool);
 
 LIST_HEAD(pfilheadhead, pfil_head);
 VNET_DEFINE(struct pfilheadhead, pfil_head_list);
@@ -411,7 +412,14 @@ int
 pfil_add_hook_flags(pfil_func_flags_t func, void *arg, int flags,
     struct pfil_head *ph)
 {
-	return (pfil_add_hook_priv(func, arg, flags, ph, true));
+	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, true));
+}
+
+int
+pfil_add_named_hook_flags(pfil_func_flags_t func, void *arg, char *name,
+    int flags, struct pfil_head *ph)
+{
+	return (pfil_add_hook_priv(func, arg, name, flags, ph, true));
 }
 
 /*
@@ -425,17 +433,18 @@ pfil_add_hook_flags(pfil_func_flags_t func, void *arg, int flags,
 int
 pfil_add_hook(pfil_func_t func, void *arg, int flags, struct pfil_head *ph)
 {
-	return (pfil_add_hook_priv(func, arg, flags, ph, true));
+	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, false));
 }
 
 static int
-pfil_add_hook_priv(void *func, void *arg, int flags,
+pfil_add_named_hook(void *func, void *arg, char *name, int flags,
     struct pfil_head *ph, bool hasflags)
-	return (pfil_add_named_hook(func, arg, NULL, flags, ph));
+	return (pfil_add_hook_priv(func, arg, name, flags, ph, false));
 }
 
 int
-pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags, struct pfil_head *ph)
+pfil_add_hook_priv(pfil_func_t func, void *arg, char *name, int flags,
+    struct pfil_head *ph)
 {
 	struct packet_filter_hook *pfh1 = NULL;
 	struct packet_filter_hook *pfh2 = NULL;

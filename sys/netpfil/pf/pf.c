@@ -5781,7 +5781,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		addr = (struct sockaddr *)&inaddr;
 
 		IF_ADDR_RLOCK(ifp);
-		TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			if (ifa->ifa_addr->sa_family != AF_INET)
 				continue;
 			if (ifa->ifa_netmask == 0) {
@@ -6010,7 +6010,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
                addr = (struct sockaddr *)&inaddr6;
 
                IF_ADDR_RLOCK(ifp);
-               TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+               CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
                        if (ifa->ifa_addr->sa_family != AF_INET6)
                                continue;
                        if (ifa->ifa_netmask == 0) {
