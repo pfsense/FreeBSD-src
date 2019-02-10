@@ -923,8 +923,10 @@ fetch_ssl(conn_t *conn, const struct url *URL, int verbose)
 		return (-1);
 	}
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_load_error_strings();
 	OPENSSL_config(NULL);
+#endif
 
 	conn->ssl_meth = SSLv23_client_method();
 	conn->ssl_ctx = SSL_CTX_new(conn->ssl_meth);
