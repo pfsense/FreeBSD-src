@@ -46,12 +46,11 @@ device		kue
 device		mos
 device		rsu
 device		rsufw
+device		rtwn
+device		rtwnfw
 device		run		# Ralink RT2700U/RT2800U/RT3000U USB 802.11agn
 device		runfw
 device		rue
-#device		urtwn
-#device		urtwnfw
-device		siba_bwn	# Broadcom BCM43xx IEEE 802.11b/g wireless network driver
 device		bwn		# Broadcom BCM43xx IEEE 802.11b/g wireless network driver
 device		bwi		# Broadcom BCM43xx IEEE 802.11b/g wireless network driver
 
@@ -129,7 +128,6 @@ options		NETGRAPH_DEFLATE
 options		NETGRAPH_PRED1
 
 # IPSEC
-options		IPSEC_NAT_T
 options		TCP_SIGNATURE
 device		enc
 
