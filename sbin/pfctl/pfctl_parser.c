@@ -892,7 +892,7 @@ print_rule(struct pf_rule *r, const char *anchor_call, int verbose, int numeric)
 		printf(" probability %s%%", buf);
 	}
 	opts = 0;
-	if (r->max_states || r->max_src_nodes || r->max_src_states || r->spare2)
+	if (r->max_states || r->max_src_nodes || r->max_src_states)
 		opts = 1;
 	if (r->rule_flag & PFRULE_NOSYNC)
 		opts = 1;
@@ -937,12 +937,6 @@ print_rule(struct pf_rule *r, const char *anchor_call, int verbose, int numeric)
 			if (!opts)
 				printf(", ");
 			printf("max-src-conn %u", r->max_src_conn);
-			opts = 0;
-		}
-		if (r->spare2) {
-			if (!opts)
-				printf(", ");
-			printf("max-packets %u", r->spare2);
 			opts = 0;
 		}
 		if (r->max_src_conn_rate.limit) {
