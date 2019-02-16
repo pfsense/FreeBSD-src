@@ -1453,7 +1453,6 @@ logmsg(int pri, const struct logtime *timestamp, const char *hostname,
 	size_t savedlen;
 	int fac, prilev;
 	char saved[MAXSVLINE];
-	const char *timestamp;
 
 	dprintf("logmsg: pri %o, flags %x, from %s, msg %s\n",
 	    pri, flags, hostname, msg);
