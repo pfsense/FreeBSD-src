@@ -436,15 +436,16 @@ pfil_add_hook(pfil_func_t func, void *arg, int flags, struct pfil_head *ph)
 	return (pfil_add_hook_priv(func, arg, NULL, flags, ph, false));
 }
 
-static int
-pfil_add_named_hook(void *func, void *arg, char *name, int flags,
-    struct pfil_head *ph, bool hasflags)
+int
+pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags,
+    struct pfil_head *ph)
+{
 	return (pfil_add_hook_priv(func, arg, name, flags, ph, false));
 }
 
 int
-pfil_add_hook_priv(pfil_func_t func, void *arg, char *name, int flags,
-    struct pfil_head *ph)
+pfil_add_hook_priv(void *func, void *arg, char *name, int flags,
+    struct pfil_head *ph, bool hasflags)
 {
 	struct packet_filter_hook *pfh1 = NULL;
 	struct packet_filter_hook *pfh2 = NULL;
