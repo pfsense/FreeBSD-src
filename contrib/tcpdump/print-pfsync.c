@@ -57,7 +57,6 @@ static void	print_src_dst(netdissect_options *,
 		    const struct pfsync_state_peer *, uint8_t);
 static void	print_state(netdissect_options *, struct pfsync_state *);
 
-#ifdef notyet
 u_int
 pfsync_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
     register const u_char *p)
@@ -81,7 +80,6 @@ out:
 	safeputchar(ndo, '\n');
 	return (caplen);
 }
-#endif
 
 void
 pfsync_ip_print(netdissect_options *ndo , const u_char *bp, u_int len)
