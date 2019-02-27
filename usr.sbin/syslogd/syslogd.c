@@ -157,7 +157,7 @@ static const char *PidFile = _PATH_LOGPID;
 static const char ctty[] = _PATH_CONSOLE;
 static const char include_str[] = "include";
 static const char include_ext[] = ".conf";
-static const char  ring_magic[] = "CLOG";
+static const char ring_magic[] = "CLOG";
 
 #define	dprintf		if (Debug) printf
 
