@@ -443,7 +443,7 @@ pfil_add_named_hook(pfil_func_t func, void *arg, char *name, int flags,
 	return (pfil_add_hook_priv(func, arg, name, flags, ph, false));
 }
 
-int
+static int
 pfil_add_hook_priv(void *func, void *arg, char *name, int flags,
     struct pfil_head *ph, bool hasflags)
 {
