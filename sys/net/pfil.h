@@ -61,8 +61,8 @@ struct packet_filter_hook {
 	TAILQ_ENTRY(packet_filter_hook) pfil_chain;
 	pfil_func_t		 pfil_func;
 	pfil_func_flags_t	 pfil_func_flags;
-	void			*pfil_arg;
 	int			 pfil_flags;
+	void			*pfil_arg;
 	char			*pfil_name;
 };
 
