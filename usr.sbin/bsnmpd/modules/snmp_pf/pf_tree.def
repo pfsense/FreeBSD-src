@@ -174,9 +174,9 @@
 		)
 	      )
 	      (10 pfAltq
-	        (1 pfAltqQueueNumber INTEGER32 pf_altq GET)
+	        (1 pfAltqQueueNumber INTEGER32 pf_altq_snmp GET)
 		(2 pfAltqQueueTable
-		  (1 pfAltqQueueEntry : INTEGER32 pf_altqq
+		  (1 pfAltqQueueEntry : INTEGER32 pf_altqq_snmp
 		    (1 pfAltqQueueIndex INTEGER32)
 		    (2 pfAltqQueueDescr OCTETSTRING GET)
 		    (3 pfAltqQueueParent OCTETSTRING GET)
