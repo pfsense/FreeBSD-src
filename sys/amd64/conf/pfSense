@@ -83,6 +83,9 @@ device		sbp		# SCSI over FireWire (Requires scbus and da)
 
 # pfsense addons
 
+# Required by athp
+options		ALQ
+
 device		tap
 device		gre
 device		if_bridge
