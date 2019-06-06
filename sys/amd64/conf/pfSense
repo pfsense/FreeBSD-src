@@ -102,6 +102,7 @@ options		NETGRAPH		#netgraph(4) system
 options		NETGRAPH_VLAN
 options		NETGRAPH_L2TP
 options		NETGRAPH_BPF
+options		NETGRAPH_ETF
 options		NETGRAPH_ETHER
 options		NETGRAPH_IFACE
 options		NETGRAPH_EIFACE
