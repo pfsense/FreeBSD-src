@@ -157,6 +157,7 @@ SYSCTL_DECL(_net_link);
 static SYSCTL_NODE(_net_link, IFT_STF, stf, CTLFLAG_RW, 0, "6to4 Interface");
 
 #if STF_DEBUG
+static VNET_DEFINE(int, stf_debug) = 0;
 #define	V_stf_debug	VNET(stf_debug)
 SYSCTL_INT(_net_link_stf, OID_AUTO, stf_debug, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(stf_debug), 0,
@@ -191,6 +192,7 @@ static const char stfname[] = "stf";
 
 static struct mtx stf_mtx;
 static MALLOC_DEFINE(M_STF, stfname, "6to4 Tunnel Interface");
+static VNET_DEFINE(LIST_HEAD(, stf_softc), stf_softc_list);
 #define	V_stf_softc_list	VNET(stf_softc_list)
 
 static const int ip_stf_ttl = 40;
@@ -1006,6 +1008,7 @@ stf_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct sockaddr_in sin4;
 	struct stf_softc *sc, *sc_cur;
 	struct stfv4args args;
+	struct in_addr addr;
 	struct in6_addr addr6, mask6;
 	int error, mtu;
 
