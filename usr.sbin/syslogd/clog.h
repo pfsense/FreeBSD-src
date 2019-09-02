@@ -37,7 +37,7 @@
  *  syslogd will ignore any circular log file that doesn't have this constant.
  */
 
-static const char MAGIC_CONST[4] = "CLOG";
+const char MAGIC_CONST[4] = "CLOG";
 
 
 struct clog_footer {
