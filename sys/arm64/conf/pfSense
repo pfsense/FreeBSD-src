@@ -172,3 +172,4 @@ device		ubsec		# Broadcom 5501, 5601, 58xx
 device		safe		# safe -- SafeNet crypto accelerator
 
 options 	MROUTING
+options		RADIX_MPATH

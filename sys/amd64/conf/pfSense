@@ -169,6 +169,7 @@ device		padlock
 device		speaker
 
 options		MROUTING
+options		RADIX_MPATH
 
 # Additional cards
 device		mxge		# mxge - Myricom Myri10GE 10 Gigabit Ethernet adapter driver
