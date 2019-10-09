@@ -98,6 +98,7 @@ device		if_bridge
 device		carp
 device		lagg
 device		vte
+device		vxlan
 
 # IP/IPFW
 options 	IPFIREWALL_DEFAULT_TO_ACCEPT
