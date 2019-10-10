@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "partedit.h"
 
@@ -46,9 +47,14 @@ x86_bootmethod(void)
 	int error;
 	
 	if (strlen(fw) == 0) {
-		error = sysctlbyname("machdep.bootmethod", fw, &len, NULL, -1);
-		if (error != 0)
-			return ("BIOS");
+		if (getenv("FORCE_BOOTMETHOD"))
+			strncpy(fw, getenv("FORCE_BOOTMETHOD"), 255);
+		else {
+			error = sysctlbyname("machdep.bootmethod", fw, &len,
+			    NULL, -1);
+			if (error != 0)
+				return ("BIOS");
+		}
 	}
 
 	return (fw);

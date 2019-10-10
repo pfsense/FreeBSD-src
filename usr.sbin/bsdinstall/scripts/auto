@@ -286,8 +286,17 @@ if f_interactive; then
 	esac
 fi
 
+CUR_BOOTMETHOD=$(sysctl -bq machdep.bootmethod)
+[ -z "${CUR_BOOTMETHOD}" ] \
+    && CUR_BOOTMETHOD="BIOS"
+
+[ "${CUR_BOOTMETHOD}" = "BIOS" ] \
+    && OTHER_BOOTMETHOD="UEFI" \
+    || OTHER_BOOTMETHOD="BIOS"
+
 PMODES="\
-\"Auto (UFS)\" \"Guided Disk Setup\" \
+\"Auto (UFS) ${CUR_BOOTMETHOD}\" \"Guided Disk Setup using ${CUR_BOOTMETHOD} boot method\" \
+\"Auto (UFS) ${OTHER_BOOTMETHOD}\" \"Guided Disk Setup using ${OTHER_BOOTMETHOD} boot method\" \
 Manual \"Manual Disk Setup (experts)\" \
 Shell \"Open a shell and partition by hand\""
 
@@ -308,7 +317,10 @@ PARTMODE=`echo $PMODES | xargs dialog --backtitle "pfSense Installer" \
 exec 3>&-
 
 case "$PARTMODE" in
-"Auto (UFS)")	# Guided
+"Auto (UFS)"*)	# Guided
+	if [ "$PARTMODE" = "Auto (UFS) ${OTHER_BOOTMETHOD}" ]; then
+		export FORCE_BOOTMETHOD="${OTHER_BOOTMETHOD}"
+	fi
 	if [ -e /dev/mirror/pfSenseMirror ]; then
 		bsdinstall scriptedpart mirror/pfSenseMirror || error "Partitioning error"
 	elif [ -n "${target_disk}" ]; then
