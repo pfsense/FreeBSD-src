@@ -185,6 +185,9 @@ device		mlx5en		# Mellanox ConnectX-4 and ConnectX-4 LX
 # Enable Linux Kernel Programming Interface - required by mlx[45]
 options 	COMPAT_LINUXKPI
 
+# Required by mlx5en
+options		RATELIMIT		# TX rate limiting support
+
 # Default serial speed
 options		CONSPEED=115200
 
