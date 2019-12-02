@@ -373,6 +373,8 @@ static u_int64_t	DMPDphys;	/* phys addr of direct mapped level 2 */
 static u_int64_t	DMPDPphys;	/* phys addr of direct mapped level 3 */
 static int		ndmpdpphys;	/* number of DMPDPphys pages */
 
+static vm_paddr_t	KERNend;	/* phys addr of end of bootstrap data */
+
 /*
  * pmap_mapdev support pre initialization (i.e. console)
  */
@@ -613,6 +615,13 @@ static caddr_t crashdumpmap;
 #define	PMAP_ENTER_NORECLAIM	0x1000000	/* Don't reclaim PV entries. */
 #define	PMAP_ENTER_NOREPLACE	0x2000000	/* Don't replace mappings. */
 
+/*
+ * Internal flags for pmap_mapdev_internal() and
+ * pmap_change_attr_locked().
+ */
+#define	MAPDEV_FLUSHCACHE	0x0000001	/* Flush cache after mapping. */
+#define	MAPDEV_SETATTR		0x0000002	/* Modify existing attrs. */
+
 static void	free_pv_chunk(struct pv_chunk *pc);
 static void	free_pv_entry(pmap_t pmap, pv_entry_t pv);
 static pv_entry_t get_pv_entry(pmap_t pmap, struct rwlock **lockp);
@@ -632,7 +641,8 @@ static void	pmap_pvh_free(struct md_page *pvh, pmap_t pmap, vm_offset_t va);
 static pv_entry_t pmap_pvh_remove(struct md_page *pvh, pmap_t pmap,
 		    vm_offset_t va);
 
-static int pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode);
+static int pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode,
+    int flags);
 static boolean_t pmap_demote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va);
 static boolean_t pmap_demote_pde_locked(pmap_t pmap, pd_entry_t *pde,
     vm_offset_t va, struct rwlock **lockp);
@@ -938,8 +948,9 @@ create_pagetables(vm_paddr_t *firstaddr)
 	/* Map from zero to end of allocations under 2M pages */
 	/* This replaces some of the KPTphys entries above */
 	for (i = 0; (i << PDRSHIFT) < *firstaddr; i++)
+		/* Preset PG_M and PG_A because demotion expects it. */
 		pd_p[i] = (i << PDRSHIFT) | X86_PG_RW | X86_PG_V | PG_PS |
-		    pg_g;
+		    X86_PG_M | X86_PG_A | pg_g;
 
 	/*
 	 * Because we map the physical blocks in 2M pages, adjust firstaddr
@@ -1013,7 +1024,11 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 {
 	vm_offset_t va;
 	pt_entry_t *pte;
+	u_long res;
 	int i;
+
+	KERNend = *firstaddr;
+	res = atop(KERNend - (vm_paddr_t)kernphys);
 
 	if (!pti)
 		pg_g = X86_PG_G;
@@ -1033,9 +1048,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 	vm_phys_add_seg(KPTphys, KPTphys + ptoa(nkpt));
 
 	virtual_avail = (vm_offset_t) KERNBASE + *firstaddr;
-
 	virtual_end = VM_MAX_KERNEL_ADDRESS;
-
 
 	/* XXX do %cr0 as well */
 	load_cr4(rcr4() | CR4_PGE);
@@ -1045,6 +1058,8 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 
 	/*
 	 * Initialize the kernel pmap (which is statically allocated).
+	 * Count bootstrap data as being resident in case any of this data is
+	 * later unmapped (using pmap_remove()) and freed.
 	 */
 	PMAP_LOCK_INIT(kernel_pmap);
 	kernel_pmap->pm_pml4 = (pdp_entry_t *)PHYS_TO_DMAP(KPML4phys);
@@ -1052,6 +1067,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 	kernel_pmap->pm_ucr3 = PMAP_NO_CR3;
 	CPU_FILL(&kernel_pmap->pm_active);	/* don't allow deactivation */
 	TAILQ_INIT(&kernel_pmap->pm_pvchunk);
+	kernel_pmap->pm_stats.resident_count = res;
 	kernel_pmap->pm_flags = pmap_flags;
 
  	/*
@@ -1096,8 +1112,16 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 			kernel_pmap->pm_pcids[i].pm_pcid = PMAP_PCID_KERN;
 			kernel_pmap->pm_pcids[i].pm_gen = 1;
 		}
-		__pcpu[0].pc_pcid_next = PMAP_PCID_KERN + 1;
-		__pcpu[0].pc_pcid_gen = 1;
+
+		/*
+		 * PMAP_PCID_KERN + 1 is used for initialization of
+		 * proc0 pmap.  The pmap' pcid state might be used by
+		 * EFIRT entry before first context switch, so it
+		 * needs to be valid.
+		 */
+		PCPU_SET(pcid_next, PMAP_PCID_KERN + 2);
+		PCPU_SET(pcid_gen, 1);
+
 		/*
 		 * pcpu area for APs is zeroed during AP startup.
 		 * pc_pcid_next and pc_pcid_gen are initialized by AP
@@ -1202,6 +1226,51 @@ pmap_page_init(vm_page_t m)
 	m->md.pat_mode = PAT_WRITE_BACK;
 }
 
+static int pmap_allow_2m_x_ept;
+SYSCTL_INT(_vm_pmap, OID_AUTO, allow_2m_x_ept, CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
+    &pmap_allow_2m_x_ept, 0,
+    "Allow executable superpage mappings in EPT");
+
+void
+pmap_allow_2m_x_ept_recalculate(void)
+{
+	/*
+	 * SKL002, SKL012S.  Since the EPT format is only used by
+	 * Intel CPUs, the vendor check is merely a formality.
+	 */
+	if (!(cpu_vendor_id != CPU_VENDOR_INTEL ||
+	    (cpu_ia32_arch_caps & IA32_ARCH_CAP_IF_PSCHANGE_MC_NO) != 0 ||
+	    (CPUID_TO_FAMILY(cpu_id) == 0x6 &&
+	    (CPUID_TO_MODEL(cpu_id) == 0x26 ||	/* Atoms */
+	    CPUID_TO_MODEL(cpu_id) == 0x27 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x35 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x36 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x37 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x86 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x1c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4d ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5d ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5f ||
+	    CPUID_TO_MODEL(cpu_id) == 0x6e ||
+	    CPUID_TO_MODEL(cpu_id) == 0x7a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x57 ||	/* Knights */
+	    CPUID_TO_MODEL(cpu_id) == 0x85))))
+		pmap_allow_2m_x_ept = 1;
+	TUNABLE_INT_FETCH("hw.allow_2m_x_ept", &pmap_allow_2m_x_ept);
+}
+
+static bool
+pmap_allow_2m_x_page(pmap_t pmap, bool executable)
+{
+
+	return (pmap->pm_type != PT_EPT || !executable ||
+	    !pmap_allow_2m_x_ept);
+}
+
 /*
  *	Initialize the pmap module.
  *	Called by vm_init, to initialize any structures that the pmap
@@ -1246,10 +1315,14 @@ pmap_init(void)
 		}
 	}
 
+	/* IFU */
+	pmap_allow_2m_x_ept_recalculate();
+
 	/*
 	 * Initialize the vm page array entries for the kernel pmap's
 	 * page table pages.
 	 */ 
+	PMAP_LOCK(kernel_pmap);
 	for (i = 0; i < nkpt; i++) {
 		mpte = PHYS_TO_VM_PAGE(KPTphys + (i << PAGE_SHIFT));
 		KASSERT(mpte >= vm_page_array &&
@@ -1258,7 +1331,11 @@ pmap_init(void)
 		mpte->pindex = pmap_pde_pindex(KERNBASE) + i;
 		mpte->phys_addr = KPTphys + (i << PAGE_SHIFT);
 		mpte->wire_count = 1;
+		if (i << PDRSHIFT < KERNend &&
+		    pmap_insert_pt_page(kernel_pmap, mpte))
+			panic("pmap_init: pmap_insert_pt_page failed");
 	}
+	PMAP_UNLOCK(kernel_pmap);
 	atomic_add_int(&vm_cnt.v_wire_count, nkpt);
 
 	/*
@@ -1319,7 +1396,7 @@ pmap_init(void)
 		if (ppim->va == 0)
 			continue;
 		/* Make the direct map consistent */
-		if (ppim->pa < dmaplimit && ppim->pa + ppim->sz < dmaplimit) {
+		if (ppim->pa < dmaplimit && ppim->pa + ppim->sz <= dmaplimit) {
 			(void)pmap_change_attr(PHYS_TO_DMAP(ppim->pa),
 			    ppim->sz, ppim->mode);
 		}
@@ -2234,9 +2311,7 @@ retry:
 				if (vm_page_pa_tryrelock(pmap, (pde &
 				    PG_PS_FRAME) | (va & PDRMASK), &pa))
 					goto retry;
-				m = PHYS_TO_VM_PAGE((pde & PG_PS_FRAME) |
-				    (va & PDRMASK));
-				vm_page_hold(m);
+				m = PHYS_TO_VM_PAGE(pa);
 			}
 		} else {
 			pte = *pmap_pde_to_pte(pdep, va);
@@ -2245,10 +2320,11 @@ retry:
 				if (vm_page_pa_tryrelock(pmap, pte & PG_FRAME,
 				    &pa))
 					goto retry;
-				m = PHYS_TO_VM_PAGE(pte & PG_FRAME);
-				vm_page_hold(m);
+				m = PHYS_TO_VM_PAGE(pa);
 			}
 		}
+		if (m != NULL)
+			vm_page_hold(m);
 	}
 	PA_UNLOCK_COND(pa);
 	PMAP_UNLOCK(pmap);
@@ -2561,14 +2637,10 @@ pmap_pinit0(pmap_t pmap)
 	bzero(&pmap->pm_stats, sizeof pmap->pm_stats);
 	pmap->pm_flags = pmap_flags;
 	CPU_FOREACH(i) {
-		pmap->pm_pcids[i].pm_pcid = PMAP_PCID_NONE;
-		pmap->pm_pcids[i].pm_gen = 0;
-		if (!pti)
-			__pcpu[i].pc_kcr3 = PMAP_NO_CR3;
+		pmap->pm_pcids[i].pm_pcid = PMAP_PCID_KERN + 1;
+		pmap->pm_pcids[i].pm_gen = 1;
 	}
-	PCPU_SET(curpmap, kernel_pmap);
-	pmap_activate(curthread);
-	CPU_FILL(&kernel_pmap->pm_active);
+	pmap_activate_boot(pmap);
 }
 
 void
@@ -2739,7 +2811,8 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, struct rwlock **lockp)
 			 * the kernel-mode page table active on return
 			 * to user space.
 			 */
-			*pml4 |= pg_nx;
+			if (pmap->pm_ucr3 != PMAP_NO_CR3)
+				*pml4 |= pg_nx;
 
 			pml4u = &pmap->pm_pml4u[pml4index];
 			*pml4u = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V |
@@ -3006,8 +3079,8 @@ pmap_growkernel(vm_offset_t addr)
 		return;
 
 	addr = roundup2(addr, NBPDR);
-	if (addr - 1 >= kernel_map->max_offset)
-		addr = kernel_map->max_offset;
+	if (addr - 1 >= vm_map_max(kernel_map))
+		addr = vm_map_max(kernel_map);
 	while (kernel_vm_end < addr) {
 		pdpe = pmap_pdpe(kernel_pmap, kernel_vm_end);
 		if ((*pdpe & X86_PG_V) == 0) {
@@ -3027,8 +3100,8 @@ pmap_growkernel(vm_offset_t addr)
 		pde = pmap_pdpe_to_pde(pdpe, kernel_vm_end);
 		if ((*pde & X86_PG_V) != 0) {
 			kernel_vm_end = (kernel_vm_end + NBPDR) & ~PDRMASK;
-			if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-				kernel_vm_end = kernel_map->max_offset;
+			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+				kernel_vm_end = vm_map_max(kernel_map);
 				break;                       
 			}
 			continue;
@@ -3046,8 +3119,8 @@ pmap_growkernel(vm_offset_t addr)
 		pde_store(pde, newpdir);
 
 		kernel_vm_end = (kernel_vm_end + NBPDR) & ~PDRMASK;
-		if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-			kernel_vm_end = kernel_map->max_offset;
+		if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+			kernel_vm_end = vm_map_max(kernel_map);
 			break;                       
 		}
 	}
@@ -3483,8 +3556,9 @@ reserve_pv_entries(pmap_t pmap, int needed, struct rwlock **lockp)
 {
 	struct pch new_tail;
 	struct pv_chunk *pc;
-	int avail, free;
 	vm_page_t m;
+	int avail, free;
+	bool reclaimed;
 
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 	KASSERT(lockp != NULL, ("reserve_pv_entries: lockp is NULL"));
@@ -3512,13 +3586,14 @@ retry:
 		if (avail >= needed)
 			break;
 	}
-	for (; avail < needed; avail += _NPCPV) {
+	for (reclaimed = false; avail < needed; avail += _NPCPV) {
 		m = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOOBJ |
 		    VM_ALLOC_WIRED);
 		if (m == NULL) {
 			m = reclaim_pv_chunk(pmap, lockp);
 			if (m == NULL)
 				goto retry;
+			reclaimed = true;
 		}
 		PV_STAT(atomic_add_int(&pc_chunk_count, 1));
 		PV_STAT(atomic_add_int(&pc_chunk_allocs, 1));
@@ -3531,6 +3606,14 @@ retry:
 		TAILQ_INSERT_HEAD(&pmap->pm_pvchunk, pc, pc_list);
 		TAILQ_INSERT_TAIL(&new_tail, pc, pc_lru);
 		PV_STAT(atomic_add_int(&pv_entry_spare, _NPCPV));
+
+		/*
+		 * The reclaim might have freed a chunk from the current pmap.
+		 * If that chunk contained available entries, we need to
+		 * re-count the number of available entries.
+		 */
+		if (reclaimed)
+			goto retry;
 	}
 	if (!TAILQ_EMPTY(&new_tail)) {
 		mtx_lock(&pv_chunks_mutex);
@@ -4515,6 +4598,15 @@ retry:
 }
 
 #if VM_NRESERVLEVEL > 0
+static bool
+pmap_pde_ept_executable(pmap_t pmap, pd_entry_t pde)
+{
+
+	if (pmap->pm_type != PT_EPT)
+		return (false);
+	return ((pde & EPT_PG_EXECUTE) != 0);
+}
+
 /*
  * Tries to promote the 512, contiguous 4KB page mappings that are within a
  * single page table page (PTP) to a single 2MB page mapping.  For promotion
@@ -4549,7 +4641,9 @@ pmap_promote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va,
 	firstpte = (pt_entry_t *)PHYS_TO_DMAP(*pde & PG_FRAME);
 setpde:
 	newpde = *firstpte;
-	if ((newpde & ((PG_FRAME & PDRMASK) | PG_A | PG_V)) != (PG_A | PG_V)) {
+	if ((newpde & ((PG_FRAME & PDRMASK) | PG_A | PG_V)) != (PG_A | PG_V) ||
+	    !pmap_allow_2m_x_page(pmap, pmap_pde_ept_executable(pmap,
+	    newpde))) {
 		atomic_add_long(&pmap_pde_p_failures, 1);
 		CTR2(KTR_PMAP, "pmap_promote_pde: failure for va %#lx"
 		    " in pmap %p", va, pmap);
@@ -4763,6 +4857,7 @@ retry:
 		panic("pmap_enter: invalid page directory va=%#lx", va);
 
 	origpte = *pte;
+	pv = NULL;
 
 	/*
 	 * Is the specified virtual address already mapped?
@@ -4804,6 +4899,45 @@ retry:
 				goto unchanged;
 			goto validate;
 		}
+
+		/*
+		 * The physical page has changed.  Temporarily invalidate
+		 * the mapping.  This ensures that all threads sharing the
+		 * pmap keep a consistent view of the mapping, which is
+		 * necessary for the correct handling of COW faults.  It
+		 * also permits reuse of the old mapping's PV entry,
+		 * avoiding an allocation.
+		 *
+		 * For consistency, handle unmanaged mappings the same way.
+		 */
+		origpte = pte_load_clear(pte);
+		KASSERT((origpte & PG_FRAME) == opa,
+		    ("pmap_enter: unexpected pa update for %#lx", va));
+		if ((origpte & PG_MANAGED) != 0) {
+			om = PHYS_TO_VM_PAGE(opa);
+
+			/*
+			 * The pmap lock is sufficient to synchronize with
+			 * concurrent calls to pmap_page_test_mappings() and
+			 * pmap_ts_referenced().
+			 */
+			if ((origpte & (PG_M | PG_RW)) == (PG_M | PG_RW))
+				vm_page_dirty(om);
+			if ((origpte & PG_A) != 0)
+				vm_page_aflag_set(om, PGA_REFERENCED);
+			CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, opa);
+			pv = pmap_pvh_remove(&om->md, pmap, va);
+			if ((newpte & PG_MANAGED) == 0)
+				free_pv_entry(pmap, pv);
+			if ((om->aflags & PGA_WRITEABLE) != 0 &&
+			    TAILQ_EMPTY(&om->md.pv_list) &&
+			    ((om->flags & PG_FICTITIOUS) != 0 ||
+			    TAILQ_EMPTY(&pa_to_pvh(opa)->pv_list)))
+				vm_page_aflag_clear(om, PGA_WRITEABLE);
+		}
+		if ((origpte & PG_A) != 0)
+			pmap_invalidate_page(pmap, va);
+		origpte = 0;
 	} else {
 		/*
 		 * Increment the counters.
@@ -4817,8 +4951,10 @@ retry:
 	 * Enter on the PV list if part of our managed memory.
 	 */
 	if ((newpte & PG_MANAGED) != 0) {
-		pv = get_pv_entry(pmap, &lock);
-		pv->pv_va = va;
+		if (pv == NULL) {
+			pv = get_pv_entry(pmap, &lock);
+			pv->pv_va = va;
+		}
 		CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, pa);
 		TAILQ_INSERT_TAIL(&m->md.pv_list, pv, pv_next);
 		m->md.pv_gen++;
@@ -4832,25 +4968,10 @@ retry:
 	if ((origpte & PG_V) != 0) {
 validate:
 		origpte = pte_load_store(pte, newpte);
-		opa = origpte & PG_FRAME;
-		if (opa != pa) {
-			if ((origpte & PG_MANAGED) != 0) {
-				om = PHYS_TO_VM_PAGE(opa);
-				if ((origpte & (PG_M | PG_RW)) == (PG_M |
-				    PG_RW))
-					vm_page_dirty(om);
-				if ((origpte & PG_A) != 0)
-					vm_page_aflag_set(om, PGA_REFERENCED);
-				CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, opa);
-				pmap_pvh_free(&om->md, pmap, va);
-				if ((om->aflags & PGA_WRITEABLE) != 0 &&
-				    TAILQ_EMPTY(&om->md.pv_list) &&
-				    ((om->flags & PG_FICTITIOUS) != 0 ||
-				    TAILQ_EMPTY(&pa_to_pvh(opa)->pv_list)))
-					vm_page_aflag_clear(om, PGA_WRITEABLE);
-			}
-		} else if ((newpte & PG_M) == 0 && (origpte & (PG_M |
-		    PG_RW)) == (PG_M | PG_RW)) {
+		KASSERT((origpte & PG_FRAME) == pa,
+		    ("pmap_enter: unexpected pa update for %#lx", va));
+		if ((newpte & PG_M) == 0 && (origpte & (PG_M | PG_RW)) ==
+		    (PG_M | PG_RW)) {
 			if ((origpte & PG_MANAGED) != 0)
 				vm_page_dirty(m);
 
@@ -4948,6 +5069,12 @@ pmap_enter_pde(pmap_t pmap, vm_offset_t va, pd_entry_t newpde, u_int flags,
 	PG_V = pmap_valid_bit(pmap);
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 
+	if (!pmap_allow_2m_x_page(pmap, pmap_pde_ept_executable(pmap,
+	    newpde))) {
+		CTR2(KTR_PMAP, "pmap_enter_pde: 2m x blocked for va %#lx"
+		    " in pmap %p", va, pmap);
+		return (KERN_FAILURE);
+	}
 	if ((pdpg = pmap_allocpde(pmap, va, (flags & PMAP_ENTER_NOSLEEP) != 0 ?
 	    NULL : lockp)) == NULL) {
 		CTR2(KTR_PMAP, "pmap_enter_pde: failure for va %#lx"
@@ -5077,6 +5204,7 @@ pmap_enter_object(pmap_t pmap, vm_offset_t start, vm_offset_t end,
 		va = start + ptoa(diff);
 		if ((va & PDRMASK) == 0 && va + NBPDR <= end &&
 		    m->psind == 1 && pmap_ps_enabled(pmap) &&
+		    pmap_allow_2m_x_page(pmap, (prot & VM_PROT_EXECUTE) != 0) &&
 		    pmap_enter_2mpage(pmap, va, m, prot, &lock))
 			m = &m[NBPDR / PAGE_SIZE - 1];
 		else
@@ -5116,8 +5244,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
     vm_prot_t prot, vm_page_t mpte, struct rwlock **lockp)
 {
 	struct spglist free;
-	pt_entry_t *pte, PG_V;
-	vm_paddr_t pa;
+	pt_entry_t newpte, *pte, PG_V;
 
 	KASSERT(va < kmi.clean_sva || va >= kmi.clean_eva ||
 	    (m->oflags & VPO_UNMANAGED) != 0,
@@ -5207,17 +5334,15 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	 */
 	pmap_resident_count_inc(pmap, 1);
 
-	pa = VM_PAGE_TO_PHYS(m) | pmap_cache_bits(pmap, m->md.pat_mode, 0);
+	newpte = VM_PAGE_TO_PHYS(m) | PG_V |
+	    pmap_cache_bits(pmap, m->md.pat_mode, 0);
+	if ((m->oflags & VPO_UNMANAGED) == 0)
+		newpte |= PG_MANAGED;
 	if ((prot & VM_PROT_EXECUTE) == 0)
-		pa |= pg_nx;
-
-	/*
-	 * Now validate mapping with RO protection
-	 */
-	if ((m->oflags & VPO_UNMANAGED) != 0)
-		pte_store(pte, pa | PG_V | PG_U);
-	else
-		pte_store(pte, pa | PG_V | PG_U | PG_MANAGED);
+		newpte |= pg_nx;
+	if (va < VM_MAXUSER_ADDRESS)
+		newpte |= PG_U;
+	pte_store(pte, newpte);
 	return (mpte);
 }
 
@@ -6783,8 +6908,8 @@ pmap_pde_attr(pd_entry_t *pde, int cache_bits, int mask)
  * routine is intended to be used for mapping device memory,
  * NOT real memory.
  */
-void *
-pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
+static void *
+pmap_mapdev_internal(vm_paddr_t pa, vm_size_t size, int mode, int flags)
 {
 	struct pmap_preinit_mapping *ppim;
 	vm_offset_t va, offset;
@@ -6818,16 +6943,23 @@ pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
 		for (i = 0; i < PMAP_PREINIT_MAPPING_COUNT; i++) {
 			ppim = pmap_preinit_mapping + i;
 			if (ppim->pa == pa && ppim->sz == size &&
-			    ppim->mode == mode)
+			    (ppim->mode == mode ||
+			    (flags & MAPDEV_SETATTR) == 0))
 				return ((void *)(ppim->va + offset));
 		}
 		/*
 		 * If the specified range of physical addresses fits within
 		 * the direct map window, use the direct map.
 		 */
-		if (pa < dmaplimit && pa + size < dmaplimit) {
+		if (pa < dmaplimit && pa + size <= dmaplimit) {
 			va = PHYS_TO_DMAP(pa);
-			if (!pmap_change_attr(va, size, mode))
+			if ((flags & MAPDEV_SETATTR) != 0) {
+				PMAP_LOCK(kernel_pmap);
+				i = pmap_change_attr_locked(va, size, mode, flags);
+				PMAP_UNLOCK(kernel_pmap);
+			} else
+				i = 0;
+			if (!i)
 				return ((void *)(va + offset));
 		}
 		va = kva_alloc(size);
@@ -6837,8 +6969,17 @@ pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
 	for (tmpsize = 0; tmpsize < size; tmpsize += PAGE_SIZE)
 		pmap_kenter_attr(va + tmpsize, pa + tmpsize, mode);
 	pmap_invalidate_range(kernel_pmap, va, va + tmpsize);
-	pmap_invalidate_cache_range(va, va + tmpsize, FALSE);
+	if ((flags & MAPDEV_FLUSHCACHE) != 0)
+		pmap_invalidate_cache_range(va, va + tmpsize, FALSE);
 	return ((void *)(va + offset));
+}
+
+void *
+pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
+{
+
+	return (pmap_mapdev_internal(pa, size, mode, MAPDEV_FLUSHCACHE |
+	    MAPDEV_SETATTR));
 }
 
 void *
@@ -6849,10 +6990,19 @@ pmap_mapdev(vm_paddr_t pa, vm_size_t size)
 }
 
 void *
+pmap_mapdev_pciecfg(vm_paddr_t pa, vm_size_t size)
+{
+
+	return (pmap_mapdev_internal(pa, size, PAT_UNCACHEABLE,
+	    MAPDEV_SETATTR));
+}
+
+void *
 pmap_mapbios(vm_paddr_t pa, vm_size_t size)
 {
 
-	return (pmap_mapdev_attr(pa, size, PAT_WRITE_BACK));
+	return (pmap_mapdev_internal(pa, size, PAT_WRITE_BACK,
+	    MAPDEV_FLUSHCACHE));
 }
 
 void
@@ -6991,13 +7141,13 @@ pmap_change_attr(vm_offset_t va, vm_size_t size, int mode)
 	int error;
 
 	PMAP_LOCK(kernel_pmap);
-	error = pmap_change_attr_locked(va, size, mode);
+	error = pmap_change_attr_locked(va, size, mode, MAPDEV_FLUSHCACHE);
 	PMAP_UNLOCK(kernel_pmap);
 	return (error);
 }
 
 static int
-pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
+pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode, int flags)
 {
 	vm_offset_t base, offset, tmpva;
 	vm_paddr_t pa_start, pa_end, pa_end1;
@@ -7114,7 +7264,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 					/* Run ended, update direct map. */
 					error = pmap_change_attr_locked(
 					    PHYS_TO_DMAP(pa_start),
-					    pa_end - pa_start, mode);
+					    pa_end - pa_start, mode, flags);
 					if (error != 0)
 						break;
 					/* Start physical address run. */
@@ -7144,7 +7294,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 					/* Run ended, update direct map. */
 					error = pmap_change_attr_locked(
 					    PHYS_TO_DMAP(pa_start),
-					    pa_end - pa_start, mode);
+					    pa_end - pa_start, mode, flags);
 					if (error != 0)
 						break;
 					/* Start physical address run. */
@@ -7172,7 +7322,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 					/* Run ended, update direct map. */
 					error = pmap_change_attr_locked(
 					    PHYS_TO_DMAP(pa_start),
-					    pa_end - pa_start, mode);
+					    pa_end - pa_start, mode, flags);
 					if (error != 0)
 						break;
 					/* Start physical address run. */
@@ -7187,7 +7337,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 		pa_end1 = MIN(pa_end, dmaplimit);
 		if (pa_start != pa_end1)
 			error = pmap_change_attr_locked(PHYS_TO_DMAP(pa_start),
-			    pa_end1 - pa_start, mode);
+			    pa_end1 - pa_start, mode, flags);
 	}
 
 	/*
@@ -7196,7 +7346,8 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 	 */
 	if (changed) {
 		pmap_invalidate_range(kernel_pmap, base, tmpva);
-		pmap_invalidate_cache_range(base, tmpva, FALSE);
+		if ((flags & MAPDEV_FLUSHCACHE) != 0)
+			pmap_invalidate_cache_range(base, tmpva, FALSE);
 	}
 	return (error);
 }
@@ -7340,9 +7491,10 @@ pmap_activate_sw(struct thread *td)
 {
 	pmap_t oldpmap, pmap;
 	struct invpcid_descr d;
-	uint64_t cached, cr3, kcr3, kern_pti_cached, ucr3;
+	uint64_t cached, cr3, kcr3, kern_pti_cached, rsp0, ucr3;
 	register_t rflags;
 	u_int cpuid;
+	struct amd64tss *tssp;
 
 	oldpmap = PCPU_GET(curpmap);
 	pmap = vmspace_pmap(td->td_proc->p_vmspace);
@@ -7357,8 +7509,7 @@ pmap_activate_sw(struct thread *td)
 	cr3 = rcr3();
 	if (pmap_pcid_enabled) {
 		cached = pmap_pcid_alloc(pmap, cpuid);
-		KASSERT(pmap->pm_pcids[cpuid].pm_pcid >= 0 &&
-		    pmap->pm_pcids[cpuid].pm_pcid < PMAP_PCID_OVERMAX,
+		KASSERT(pmap->pm_pcids[cpuid].pm_pcid < PMAP_PCID_OVERMAX,
 		    ("pmap %p cpu %d pcid %#x", pmap, cpuid,
 		    pmap->pm_pcids[cpuid].pm_pcid));
 		KASSERT(pmap->pm_pcids[cpuid].pm_pcid != PMAP_PCID_KERN ||
@@ -7381,7 +7532,7 @@ pmap_activate_sw(struct thread *td)
 		 * pmap_activate_sw(), from the context switch, is
 		 * immune to this race, because interrupts are
 		 * disabled (while the thread lock is owned), and IPI
-		 * happends after curpmap is updated.  Protect other
+		 * happens after curpmap is updated.  Protect other
 		 * callers in a similar way, by disabling interrupts
 		 * around the %cr3 register reload and curpmap
 		 * assignment.
@@ -7425,13 +7576,19 @@ pmap_activate_sw(struct thread *td)
 			intr_restore(rflags);
 		if (cached)
 			PCPU_INC(pm_save_cnt);
-	} else if (cr3 != pmap->pm_cr3) {
+	} else {
 		load_cr3(pmap->pm_cr3);
 		PCPU_SET(curpmap, pmap);
 		if (pti) {
 			PCPU_SET(kcr3, pmap->pm_cr3);
 			PCPU_SET(ucr3, pmap->pm_ucr3);
 		}
+	}
+	if (pmap->pm_ucr3 != PMAP_NO_CR3) {
+		rsp0 = ((vm_offset_t)PCPU_PTR(pti_stack) +
+		    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful;
+		tssp = PCPU_GET(tssp);
+		tssp->tss_rsp0 = rsp0;
 	}
 #ifdef SMP
 	CPU_CLR_ATOMIC(cpuid, &oldpmap->pm_active);
@@ -7447,6 +7604,36 @@ pmap_activate(struct thread *td)
 	critical_enter();
 	pmap_activate_sw(td);
 	critical_exit();
+}
+
+void
+pmap_activate_boot(pmap_t pmap)
+{
+	uint64_t kcr3;
+	u_int cpuid;
+
+	/*
+	 * kernel_pmap must be never deactivated, and we ensure that
+	 * by never activating it at all.
+	 */
+	MPASS(pmap != kernel_pmap);
+
+	cpuid = PCPU_GET(cpuid);
+#ifdef SMP
+	CPU_SET_ATOMIC(cpuid, &pmap->pm_active);
+#else
+	CPU_SET(cpuid, &pmap->pm_active);
+#endif
+	PCPU_SET(curpmap, pmap);
+	if (pti) {
+		kcr3 = pmap->pm_cr3;
+		if (pmap_pcid_enabled)
+			kcr3 |= pmap->pm_pcids[cpuid].pm_pcid | CR3_PCID_SAVE;
+	} else {
+		kcr3 = PMAP_NO_CR3;
+	}
+	PCPU_SET(kcr3, kcr3);
+	PCPU_SET(ucr3, PMAP_NO_CR3);
 }
 
 void

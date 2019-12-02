@@ -60,6 +60,9 @@ __FBSDID("$FreeBSD$");
 #include <cam/cam_ccb.h>
 #include <cam/cam_periph.h>
 #include <cam/cam_xpt_periph.h>
+#ifdef _KERNEL
+#include <cam/cam_xpt_internal.h>
+#endif /* _KERNEL */
 #include <cam/cam_sim.h>
 #include <cam/cam_iosched.h>
 
@@ -125,7 +128,8 @@ typedef enum {
 	DA_Q_NO_UNMAP		= 0x20,
 	DA_Q_RETRY_BUSY		= 0x40,
 	DA_Q_SMR_DM		= 0x80,
-	DA_Q_STRICT_UNMAP	= 0x100
+	DA_Q_STRICT_UNMAP	= 0x100,
+	DA_Q_128KB		= 0x200
 } da_quirks;
 
 #define DA_Q_BIT_STRING		\
@@ -138,7 +142,8 @@ typedef enum {
 	"\006NO_UNMAP"		\
 	"\007RETRY_BUSY"	\
 	"\010SMR_DM"		\
-	"\011STRICT_UNMAP"
+	"\011STRICT_UNMAP"	\
+	"\012128KB"
 
 typedef enum {
 	DA_CCB_PROBE_RC		= 0x01,
@@ -836,7 +841,21 @@ static struct da_quirk_entry da_quirk_table[] =
 		{T_DIRECT, SIP_MEDIA_REMOVABLE, "I-O DATA", "USB Flash Disk*",
 		 "*"}, /*quirks*/ DA_Q_NO_RC16
 	},
+	{
+		/*
+		 * SLC CHIPFANCIER USB drives
+		 * PR: usb/234503 (RC10 right, RC16 wrong)
+		 * 16GB, 32GB and 128GB confirmed to have same issue
+		 */
+		{T_DIRECT, SIP_MEDIA_REMOVABLE, "*SLC", "CHIPFANCIER",
+		 "*"}, /*quirks*/ DA_Q_NO_RC16
+       },
 	/* ATA/SATA devices over SAS/USB/... */
+	{
+		/* Sandisk X400 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "ATA", "SanDisk SD8SB8U1*", "*" },
+		/*quirks*/DA_Q_128KB
+	},
 	{
 		/* Hitachi Advanced Format (4k) drives */
 		{ T_DIRECT, SIP_MEDIA_FIXED, "Hitachi", "H??????????E3*", "*" },
@@ -1056,6 +1075,30 @@ static struct da_quirk_entry da_quirk_table[] =
 		/* WDC Scorpio Blue Advanced Format (4k) drives */
 		{ T_DIRECT, SIP_MEDIA_FIXED, "WDC WD??", "???PVT*", "*" },
 		/*quirks*/DA_Q_4K
+	},
+	{
+		/*
+		 * Olympus digital cameras (C-3040ZOOM, C-2040ZOOM, C-1)
+		 * PR: usb/97472
+		 */
+		{ T_DIRECT, SIP_MEDIA_REMOVABLE, "OLYMPUS", "C*", "*"},
+		/*quirks*/ DA_Q_NO_6_BYTE | DA_Q_NO_SYNC_CACHE
+	},
+	{
+		/*
+		 * Olympus digital cameras (D-370)
+		 * PR: usb/97472
+		 */
+		{ T_DIRECT, SIP_MEDIA_REMOVABLE, "OLYMPUS", "D*", "*"},
+		/*quirks*/ DA_Q_NO_6_BYTE
+	},
+	{
+		/*
+		 * Olympus digital cameras (E-100RS, E-10).
+		 * PR: usb/97472
+		 */
+		{ T_DIRECT, SIP_MEDIA_REMOVABLE, "OLYMPUS", "E*", "*"},
+		/*quirks*/ DA_Q_NO_6_BYTE | DA_Q_NO_SYNC_CACHE
 	},
 	{
 		/*
@@ -1420,6 +1463,7 @@ static int da_retry_count = DA_DEFAULT_RETRY;
 static int da_default_timeout = DA_DEFAULT_TIMEOUT;
 static sbintime_t da_default_softtimeout = DA_DEFAULT_SOFTTIMEOUT;
 static int da_send_ordered = DA_DEFAULT_SEND_ORDERED;
+static int da_disable_wp_detection = 0;
 
 static SYSCTL_NODE(_kern_cam, OID_AUTO, da, CTLFLAG_RD, 0,
             "CAM Direct Access Disk driver");
@@ -1431,6 +1475,9 @@ SYSCTL_INT(_kern_cam_da, OID_AUTO, default_timeout, CTLFLAG_RWTUN,
            &da_default_timeout, 0, "Normal I/O timeout (in seconds)");
 SYSCTL_INT(_kern_cam_da, OID_AUTO, send_ordered, CTLFLAG_RWTUN,
            &da_send_ordered, 0, "Send Ordered Tags");
+SYSCTL_INT(_kern_cam_da, OID_AUTO, disable_wp_detection, CTLFLAG_RWTUN,
+           &da_disable_wp_detection, 0,
+	   "Disable detection of write-protected disks");
 
 SYSCTL_PROC(_kern_cam_da, OID_AUTO, default_softtimeout,
     CTLTYPE_UINT | CTLFLAG_RW, NULL, 0, dasysctlsofttimeout, "I",
@@ -2263,6 +2310,11 @@ daprobedone(struct cam_periph *periph, union ccb *ccb)
 		printf("%s%d: %s\n", periph->periph_name,
 		    periph->unit_number, buf);
 	}
+	if ((softc->disk->d_flags & DISKFLAG_WRITE_PROTECT) != 0 &&
+	    (softc->flags & DA_FLAG_ANNOUNCED) == 0) {
+		printf("%s%d: Write Protected\n", periph->periph_name,
+		    periph->unit_number);
+	}
 
 	/*
 	 * Since our peripheral may be invalidated by an error
@@ -2468,10 +2520,7 @@ daregister(struct cam_periph *periph, void *arg)
 		softc->quirks = DA_Q_NONE;
 
 	/* Check if the SIM does not want 6 byte commands */
-	bzero(&cpi, sizeof(cpi));
-	xpt_setup_ccb(&cpi.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, periph->path);
 	if (cpi.ccb_h.status == CAM_REQ_CMP && (cpi.hba_misc & PIM_NO_6_BYTE))
 		softc->quirks |= DA_Q_NO_6_BYTE;
 
@@ -2570,6 +2619,8 @@ daregister(struct cam_periph *periph, void *arg)
 		softc->maxio = MAXPHYS;		/* for safety */
 	else
 		softc->maxio = cpi.maxio;
+	if (softc->quirks & DA_Q_128KB)
+		softc->maxio = min(softc->maxio, 128 * 1024);
 	softc->disk->d_maxsize = softc->maxio;
 	softc->disk->d_unit = periph->unit_number;
 	softc->disk->d_flags = DISKFLAG_DIRECT_COMPLETION | DISKFLAG_CANZONE;
@@ -3045,14 +3096,12 @@ more:
 			/*
 			 * BIO_FLUSH doesn't currently communicate
 			 * range data, so we synchronize the cache
-			 * over the whole disk.  We also force
-			 * ordered tag semantics the flush applies
-			 * to all previously queued I/O.
+			 * over the whole disk.
 			 */
 			scsi_synchronize_cache(&start_ccb->csio,
 					       /*retries*/1,
 					       /*cbfcnp*/dadone,
-					       MSG_ORDERED_Q_TAG,
+					       /*tag_action*/tag_code,
 					       /*begin_lba*/0,
 					       /*lb_count*/0,
 					       SSD_FULL_SIZE,
@@ -3112,12 +3161,22 @@ out:
 		void  *mode_buf;
 		int    mode_buf_len;
 
+		if (da_disable_wp_detection) {
+			if ((softc->flags & DA_FLAG_CAN_RC16) != 0)
+				softc->state = DA_STATE_PROBE_RC16;
+			else
+				softc->state = DA_STATE_PROBE_RC;
+			goto skipstate;
+		}
 		mode_buf_len = 192;
 		mode_buf = malloc(mode_buf_len, M_SCSIDA, M_NOWAIT);
 		if (mode_buf == NULL) {
 			xpt_print(periph->path, "Unable to send mode sense - "
 			    "malloc failure\n");
-			softc->state = DA_STATE_PROBE_RC;
+			if ((softc->flags & DA_FLAG_CAN_RC16) != 0)
+				softc->state = DA_STATE_PROBE_RC16;
+			else
+				softc->state = DA_STATE_PROBE_RC;
 			goto skipstate;
 		}
 		scsi_mode_sense_len(&start_ccb->csio,
@@ -3317,15 +3376,7 @@ out:
 			break;
 		}
 
-		ata_params = (struct ata_params*)
-			malloc(sizeof(*ata_params), M_SCSIDA,M_NOWAIT|M_ZERO);
-
-		if (ata_params == NULL) {
-			xpt_print(periph->path, "Couldn't malloc ata_params "
-			    "data\n");
-			/* da_free_periph??? */
-			break;
-		}
+		ata_params = &periph->path->device->ident_data;
 
 		scsi_ata_identify(&start_ccb->csio,
 				  /*retries*/da_retry_count,
@@ -4905,7 +4956,6 @@ dadone(struct cam_periph *periph, union ccb *done_ccb)
 			}
 		}
 
-		free(ata_params, M_SCSIDA);
 		if ((softc->zone_mode == DA_ZONE_HOST_AWARE)
 		 || (softc->zone_mode == DA_ZONE_HOST_MANAGED)) {
 			/*
@@ -5354,6 +5404,9 @@ dadone(struct cam_periph *periph, union ccb *done_ccb)
 				}
 			}
 		}
+
+		free(csio->data_ptr, M_SCSIDA);
+
 		daprobedone(periph, done_ccb);
 		return;
 	}

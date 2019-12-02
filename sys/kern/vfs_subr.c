@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/bio.h>
 #include <sys/buf.h>
+#include <sys/capsicum.h>
 #include <sys/condvar.h>
 #include <sys/conf.h>
 #include <sys/counter.h>
@@ -116,6 +117,22 @@ static void	vfs_knl_assert_unlocked(void *arg);
 static void	destroy_vpollinfo(struct vpollinfo *vi);
 
 /*
+ * These fences are intended for cases where some synchronization is
+ * needed between access of v_iflags and lockless vnode refcount (v_holdcnt
+ * and v_usecount) updates.  Access to v_iflags is generally synchronized
+ * by the interlock, but we have some internal assertions that check vnode
+ * flags * without acquiring the lock.  Thus, these fences are INVARIANTS-only
+ * for now.
+ */
+#ifdef INVARIANTS
+#define	VNODE_REFCOUNT_FENCE_ACQ()	atomic_thread_fence_acq()
+#define	VNODE_REFCOUNT_FENCE_REL()	atomic_thread_fence_rel()
+#else
+#define	VNODE_REFCOUNT_FENCE_ACQ()
+#define	VNODE_REFCOUNT_FENCE_REL()
+#endif
+
+/*
  * Number of vnodes in existence.  Increased whenever getnewvnode()
  * allocates a new vnode, decreased in vdropl() for VI_DOOMED vnode.
  */
@@ -134,7 +151,7 @@ SYSCTL_COUNTER_U64(_vfs, OID_AUTO, vnodes_created, CTLFLAG_RD, &vnodes_created,
  */
 enum vtype iftovt_tab[16] = {
 	VNON, VFIFO, VCHR, VNON, VDIR, VNON, VBLK, VNON,
-	VREG, VNON, VLNK, VNON, VSOCK, VNON, VNON, VBAD,
+	VREG, VNON, VLNK, VNON, VSOCK, VNON, VNON, VNON
 };
 int vttoif_tab[10] = {
 	0, S_IFREG, S_IFDIR, S_IFBLK, S_IFCHR, S_IFLNK,
@@ -315,6 +332,95 @@ SYSCTL_ULONG(_kern, OID_AUTO, minvnodes, CTLFLAG_RW,
 static int vnlru_nowhere;
 SYSCTL_INT(_debug, OID_AUTO, vnlru_nowhere, CTLFLAG_RW,
     &vnlru_nowhere, 0, "Number of times the vnlru process ran without success");
+
+static int
+sysctl_try_reclaim_vnode(SYSCTL_HANDLER_ARGS)
+{
+	struct vnode *vp;
+	struct nameidata nd;
+	char *buf;
+	unsigned long ndflags;
+	int error;
+
+	if (req->newptr == NULL)
+		return (EINVAL);
+	if (req->newlen > PATH_MAX)
+		return (E2BIG);
+
+	buf = malloc(PATH_MAX + 1, M_TEMP, M_WAITOK);
+	error = SYSCTL_IN(req, buf, req->newlen);
+	if (error != 0)
+		goto out;
+
+	buf[req->newlen] = '\0';
+
+	ndflags = LOCKLEAF | NOFOLLOW | AUDITVNODE1 | NOCACHE | SAVENAME;
+	NDINIT(&nd, LOOKUP, ndflags, UIO_SYSSPACE, buf, curthread);
+	if ((error = namei(&nd)) != 0)
+		goto out;
+	vp = nd.ni_vp;
+
+	if ((vp->v_iflag & VI_DOOMED) != 0) {
+		/*
+		 * This vnode is being recycled.  Return != 0 to let the caller
+		 * know that the sysctl had no effect.  Return EAGAIN because a
+		 * subsequent call will likely succeed (since namei will create
+		 * a new vnode if necessary)
+		 */
+		error = EAGAIN;
+		goto putvnode;
+	}
+
+	counter_u64_add(recycles_count, 1);
+	vgone(vp);
+putvnode:
+	NDFREE(&nd, 0);
+out:
+	free(buf, M_TEMP);
+	return (error);
+}
+
+static int
+sysctl_ftry_reclaim_vnode(SYSCTL_HANDLER_ARGS)
+{
+	struct thread *td = curthread;
+	struct vnode *vp;
+	struct file *fp;
+	cap_rights_t rights;
+	int error;
+	int fd;
+
+	if (req->newptr == NULL)
+		return (EBADF);
+
+	error = sysctl_handle_int(oidp, &fd, 0, req);
+	if (error != 0)
+		return (error);
+	cap_rights_init(&rights, CAP_FCNTL);
+	error = getvnode(curthread, fd, &rights, &fp);
+	if (error != 0)
+		return (error);
+	vp = fp->f_vnode;
+
+	error = vn_lock(vp, LK_EXCLUSIVE);
+	if (error != 0)
+		goto drop;
+
+	counter_u64_add(recycles_count, 1);
+	vgone(vp);
+	VOP_UNLOCK(vp, 0);
+drop:
+	fdrop(fp, td);
+	return (error);
+}
+
+SYSCTL_PROC(_debug, OID_AUTO, try_reclaim_vnode,
+    CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_WR, NULL, 0,
+    sysctl_try_reclaim_vnode, "A", "Try to reclaim a vnode by its pathname");
+SYSCTL_PROC(_debug, OID_AUTO, ftry_reclaim_vnode,
+    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_WR, NULL, 0,
+    sysctl_ftry_reclaim_vnode, "I",
+    "Try to reclaim a vnode by its file descriptor");
 
 /* Shift count for (uintptr_t)vp to initialize vp->v_hash. */
 static int vnsz2log;
@@ -1006,6 +1112,7 @@ vnlru_free_locked(int count, struct vfsops *mnt_op)
 		 */
 		freevnodes--;
 		vp->v_iflag &= ~VI_FREE;
+		VNODE_REFCOUNT_FENCE_REL();
 		refcount_acquire(&vp->v_holdcnt);
 
 		mtx_unlock(&vnode_free_list_mtx);
@@ -1061,7 +1168,7 @@ vnlru_proc(void)
 {
 	struct mount *mp, *nmp;
 	unsigned long ofreevnodes, onumvnodes;
-	int done, force, reclaim_nc_src, trigger, usevnodes;
+	int done, force, reclaim_nc_src, trigger, usevnodes, vsp;
 
 	EVENTHANDLER_REGISTER(shutdown_pre_sync, kproc_shutdown, vnlruproc,
 	    SHUTDOWN_PRI_FIRST);
@@ -1089,7 +1196,8 @@ vnlru_proc(void)
 			force = 1;
 			vstir = 0;
 		}
-		if (vspace() >= vlowat && force == 0) {
+		vsp = vspace();
+		if (vsp >= vlowat && force == 0) {
 			vnlruproc_sig = 0;
 			wakeup(&vnlruproc_sig);
 			msleep(vnlruproc, &vnode_free_list_mtx,
@@ -1157,7 +1265,8 @@ vnlru_proc(void)
 		 * After becoming active to expand above low water, keep
 		 * active until above high water.
 		 */
-		force = vspace() < vhiwat;
+		vsp = vspace();
+		force = vsp < vhiwat;
 	}
 }
 
@@ -1234,8 +1343,10 @@ vtryrecycle(struct vnode *vp)
 static void
 vcheckspace(void)
 {
+	int vsp;
 
-	if (vspace() < vlowat && vnlruproc_sig == 0) {
+	vsp = vspace();
+	if (vsp < vlowat && vnlruproc_sig == 0) {
 		vnlruproc_sig = 1;
 		wakeup(vnlruproc);
 	}
@@ -1756,7 +1867,7 @@ again:
 		 * reused.  Dirty buffers will have the hint applied once
 		 * they've been written.
 		 */
-		if (bp->b_vp->v_object != NULL)
+		if ((bp->b_flags & B_VMIO) != 0)
 			bp->b_flags |= B_NOREUSE;
 		brelse(bp);
 		BO_RLOCK(bo);
@@ -1770,15 +1881,15 @@ again:
  * sync activity.
  */
 int
-vtruncbuf(struct vnode *vp, struct ucred *cred, off_t length, int blksize)
+vtruncbuf(struct vnode *vp, off_t length, int blksize)
 {
 	struct buf *bp, *nbp;
 	int anyfreed;
-	int trunclbn;
+	daddr_t trunclbn;
 	struct bufobj *bo;
 
-	CTR5(KTR_VFS, "%s: vp %p with cred %p and block %d:%ju", __func__,
-	    vp, cred, blksize, (uintmax_t)length);
+	CTR4(KTR_VFS, "%s: vp %p with block %d:%ju", __func__,
+	    vp, blksize, (uintmax_t)length);
 
 	/*
 	 * Round up to the *next* lbn.
@@ -2429,6 +2540,7 @@ v_incr_usecount(struct vnode *vp)
 
 	if (vp->v_type != VCHR &&
 	    refcount_acquire_if_not_zero(&vp->v_usecount)) {
+		VNODE_REFCOUNT_FENCE_ACQ();
 		VNASSERT((vp->v_iflag & VI_OWEINACT) == 0, vp,
 		    ("vnode with usecount and VI_OWEINACT set"));
 	} else {
@@ -2527,6 +2639,7 @@ vget(struct vnode *vp, int flags, struct thread *td)
 		} else {
 			oweinact = 1;
 			vp->v_iflag &= ~VI_OWEINACT;
+			VNODE_REFCOUNT_FENCE_REL();
 		}
 		refcount_acquire(&vp->v_usecount);
 		v_incr_devcount(vp);
@@ -2740,6 +2853,7 @@ _vhold(struct vnode *vp, bool locked)
 	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
 	if (!locked) {
 		if (refcount_acquire_if_not_zero(&vp->v_holdcnt)) {
+			VNODE_REFCOUNT_FENCE_ACQ();
 			VNASSERT((vp->v_iflag & VI_FREE) == 0, vp,
 			    ("_vhold: vnode with holdcnt is free"));
 			return;

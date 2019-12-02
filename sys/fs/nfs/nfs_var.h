@@ -95,7 +95,9 @@ int nfsrv_getclient(nfsquad_t, int, struct nfsclient **, struct nfsdsession *,
     nfsquad_t, uint32_t, struct nfsrv_descript *, NFSPROC_T *);
 int nfsrv_destroyclient(nfsquad_t, NFSPROC_T *);
 int nfsrv_destroysession(struct nfsrv_descript *, uint8_t *);
+int nfsrv_bindconnsess(struct nfsrv_descript *, uint8_t *, int *);
 int nfsrv_freestateid(struct nfsrv_descript *, nfsv4stateid_t *, NFSPROC_T *);
+int nfsrv_teststateid(struct nfsrv_descript *, nfsv4stateid_t *, NFSPROC_T *);
 int nfsrv_adminrevoke(struct nfsd_clid *, NFSPROC_T *);
 void nfsrv_dumpclients(struct nfsd_dumpclients *, int);
 void nfsrv_dumplocks(vnode_t, struct nfsd_dumplocks *, int, NFSPROC_T *);
@@ -128,12 +130,12 @@ int nfsrv_checksetattr(vnode_t, struct nfsrv_descript *,
     NFSPROC_T *);
 int nfsrv_checkgetattr(struct nfsrv_descript *, vnode_t,
     struct nfsvattr *, nfsattrbit_t *, struct ucred *, NFSPROC_T *);
-int nfsrv_nfsuserdport(u_short, NFSPROC_T *);
+int nfsrv_nfsuserdport(struct nfsuserd_args *, NFSPROC_T *);
 void nfsrv_nfsuserddelport(void);
 void nfsrv_throwawayallstate(NFSPROC_T *);
 int nfsrv_checksequence(struct nfsrv_descript *, uint32_t, uint32_t *,
     uint32_t *, int, uint32_t *, NFSPROC_T *);
-int nfsrv_checkreclaimcomplete(struct nfsrv_descript *);
+int nfsrv_checkreclaimcomplete(struct nfsrv_descript *, int);
 void nfsrv_cache_session(uint8_t *, uint32_t, int, struct mbuf **);
 void nfsrv_freeallbackchannel_xprts(void);
 
@@ -230,9 +232,13 @@ int nfsrvd_reclaimcomplete(struct nfsrv_descript *, int,
     vnode_t, NFSPROC_T *, struct nfsexstuff *);
 int nfsrvd_destroyclientid(struct nfsrv_descript *, int,
     vnode_t, NFSPROC_T *, struct nfsexstuff *);
+int nfsrvd_bindconnsess(struct nfsrv_descript *, int,
+    vnode_t, NFSPROC_T *, struct nfsexstuff *);
 int nfsrvd_destroysession(struct nfsrv_descript *, int,
     vnode_t, NFSPROC_T *, struct nfsexstuff *);
 int nfsrvd_freestateid(struct nfsrv_descript *, int,
+    vnode_t, NFSPROC_T *, struct nfsexstuff *);
+int nfsrvd_teststateid(struct nfsrv_descript *, int,
     vnode_t, NFSPROC_T *, struct nfsexstuff *);
 int nfsrvd_notsupp(struct nfsrv_descript *, int,
     vnode_t, NFSPROC_T *, struct nfsexstuff *);

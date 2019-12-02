@@ -222,7 +222,7 @@ fill_fpregs(struct thread *td, struct fpreg *regs)
 		regs->fp_sr = pcb->pcb_fpsr;
 	} else
 #endif
-		memset(regs->fp_q, 0, sizeof(regs->fp_q));
+		memset(regs, 0, sizeof(*regs));
 	return (0);
 }
 
@@ -590,6 +590,7 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	fp = (struct sigframe *)STACKALIGN(fp);
 
 	/* Fill in the frame to copy out */
+	bzero(&frame, sizeof(frame));
 	get_mcontext(td, &frame.sf_uc.uc_mcontext, 0);
 	get_fpcontext(td, &frame.sf_uc.uc_mcontext);
 	frame.sf_si = ksi->ksi_info;

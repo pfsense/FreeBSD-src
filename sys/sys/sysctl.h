@@ -211,6 +211,8 @@ int sysctl_handle_counter_u64_array(SYSCTL_HANDLER_ARGS);
 int sysctl_handle_uma_zone_max(SYSCTL_HANDLER_ARGS);
 int sysctl_handle_uma_zone_cur(SYSCTL_HANDLER_ARGS);
 
+int sysctl_sec_to_timeval(SYSCTL_HANDLER_ARGS);
+
 int sysctl_dpcpu_int(SYSCTL_HANDLER_ARGS);
 int sysctl_dpcpu_long(SYSCTL_HANDLER_ARGS);
 int sysctl_dpcpu_quad(SYSCTL_HANDLER_ARGS);
@@ -331,6 +333,24 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_STRING);	\
 	sysctl_add_oid(ctx, parent, nbr, name, CTLTYPE_STRING|(access),	\
 	    __arg, len, sysctl_handle_string, "A", __DESCR(descr));	\
+})
+
+/* Oid for a constant '\0' terminated string. */
+#define	SYSCTL_CONST_STRING(parent, nbr, name, access, arg, descr)	\
+	SYSCTL_OID(parent, nbr, name, CTLTYPE_STRING|(access),		\
+	    __DECONST(char *, arg), 0, sysctl_handle_string, "A", descr); \
+	CTASSERT(!(access & CTLFLAG_WR));				\
+	CTASSERT(((access) & CTLTYPE) == 0 ||				\
+	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_STRING)
+
+#define	SYSCTL_ADD_CONST_STRING(ctx, parent, nbr, name, access, arg, descr) \
+({									\
+	char *__arg = __DECONST(char *, arg);				\
+	CTASSERT(!(access & CTLFLAG_WR));				\
+	CTASSERT(((access) & CTLTYPE) == 0 ||				\
+	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_STRING);	\
+	sysctl_add_oid(ctx, parent, nbr, name, CTLTYPE_STRING|(access),	\
+	    __arg, 0, sysctl_handle_string, "A", __DESCR(descr));	\
 })
 
 /* Oid for a bool.  If ptr is NULL, val is returned. */
@@ -774,6 +794,24 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 	    __ptr, 0, sysctl_handle_uma_zone_cur, "I", __DESCR(descr));	\
 })
 
+/* OID expressing a struct timeval as seconds */
+#define	SYSCTL_TIMEVAL_SEC(parent, nbr, name, access, ptr, descr)	\
+	SYSCTL_OID(parent, nbr, name,					\
+	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    (ptr), 0, sysctl_sec_to_timeval, "I", descr);		\
+	CTASSERT(((access) & CTLTYPE) == 0 ||				\
+	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_INT)
+#define	SYSCTL_ADD_TIMEVAL_SEC(ctx, parent, nbr, name, access, ptr, descr) \
+({									\
+	struct timeval *__ptr = (ptr);					\
+	CTASSERT(((access) & CTLTYPE) == 0 ||				\
+	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_INT);		\
+	sysctl_add_oid(ctx, parent, nbr, name,				\
+	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    __ptr, 0, sysctl_sec_to_timeval, "I", __DESCR(descr),	\
+	    NULL);							\
+})
+
 /*
  * A macro to generate a read-only sysctl to indicate the presence of optional
  * kernel features.
@@ -980,6 +1018,7 @@ SYSCTL_DECL(_hw_bus);
 SYSCTL_DECL(_hw_bus_devices);
 SYSCTL_DECL(_hw_bus_info);
 SYSCTL_DECL(_machdep);
+SYSCTL_DECL(_machdep_mitigations);
 SYSCTL_DECL(_user);
 SYSCTL_DECL(_compat);
 SYSCTL_DECL(_regression);

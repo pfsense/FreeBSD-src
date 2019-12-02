@@ -161,17 +161,19 @@ DATA_SET(linux_ioctl_handler_set, video2_handler);
 DATA_SET(linux_ioctl_handler_set, fbsd_usb);
 DATA_SET(linux_ioctl_handler_set, evdev_handler);
 
-struct handler_element
-{
-	TAILQ_ENTRY(handler_element) list;
-	int	(*func)(struct thread *, struct linux_ioctl_args *);
-	int	low, high, span;
-};
-
-static TAILQ_HEAD(, handler_element) handlers =
-    TAILQ_HEAD_INITIALIZER(handlers);
+#ifdef __i386__
+static TAILQ_HEAD(, linux_ioctl_handler_element) linux_ioctl_handlers =
+    TAILQ_HEAD_INITIALIZER(linux_ioctl_handlers);
 static struct sx linux_ioctl_sx;
-SX_SYSINIT(linux_ioctl, &linux_ioctl_sx, "linux ioctl handlers");
+SX_SYSINIT(linux_ioctl, &linux_ioctl_sx, "Linux ioctl handlers");
+#else
+extern TAILQ_HEAD(, linux_ioctl_handler_element) linux_ioctl_handlers;
+extern struct sx linux_ioctl_sx;
+#endif
+#ifdef COMPAT_LINUX32
+static TAILQ_HEAD(, linux_ioctl_handler_element) linux32_ioctl_handlers =
+    TAILQ_HEAD_INITIALIZER(linux32_ioctl_handlers);
+#endif
 
 /*
  * hdio related ioctls for VMWare support
@@ -239,7 +241,7 @@ linux_ioctl_hdio(struct thread *td, struct linux_ioctl_args *args)
 #if defined(DEBUG)
 		linux_msg(td, "HDIO_GET_GEO: mediasize %jd, c/h/s %d/%d/%d, "
 			  "bpc %jd",
-			  (intmax_t)mediasize, fwcylinders, fwheads, fwsectors, 
+			  (intmax_t)mediasize, fwcylinders, fwheads, fwsectors,
 			  (intmax_t)bytespercyl);
 #endif
 		if ((args->cmd & 0xffff) == LINUX_HDIO_GET_GEO) {
@@ -386,7 +388,7 @@ linux_to_bsd_speed(int code, struct speedtab *table)
 	for ( ; table->sp_code != -1; table++)
 		if (table->sp_code == code)
 			return (table->sp_speed);
-	return -1;
+	return (-1);
 }
 
 static int
@@ -395,7 +397,7 @@ bsd_to_linux_speed(int speed, struct speedtab *table)
 	for ( ; table->sp_speed != -1; table++)
 		if (table->sp_speed == speed)
 			return (table->sp_code);
-	return -1;
+	return (-1);
 }
 
 static void
@@ -686,6 +688,7 @@ bsd_to_linux_termio(struct termios *bios, struct linux_termio *lio)
 {
 	struct linux_termios lios;
 
+	memset(lio, 0, sizeof(*lio));
 	bsd_to_linux_termios(bios, &lios);
 	lio->c_iflag = lios.c_iflag;
 	lio->c_oflag = lios.c_oflag;
@@ -1049,7 +1052,7 @@ linux_ioctl_termio(struct thread *td, struct linux_ioctl_args *args)
 		break;
 	case LINUX_TIOCGPTN: {
 		int nb;
-		
+
 		error = fo_ioctl(fp, TIOCGPTN, (caddr_t)&nb, td->td_ucred, td);
 		if (!error)
 			error = copyout(&nb, (void *)args->arg,
@@ -1341,7 +1344,7 @@ bsd_to_linux_dvd_struct(struct dvd_struct *bp, l_dvd_struct *lp)
 		lp->manufact.len = bp->length;
 		memcpy(lp->manufact.value, bp->data,
 		    sizeof(lp->manufact.value));
-		/* lp->manufact.layer_num is unused in linux (redhat 7.0) */
+		/* lp->manufact.layer_num is unused in Linux (redhat 7.0). */
 		break;
 	default:
 		return (EINVAL);
@@ -2328,7 +2331,7 @@ again:
 		goto again;
 	}
 
-	ifc.ifc_len = valid_len; 
+	ifc.ifc_len = valid_len;
 	sbuf_finish(sb);
 	error = copyout(sbuf_data(sb), PTRIN(ifc.ifc_buf), ifc.ifc_len);
 	if (error == 0)
@@ -2402,12 +2405,12 @@ bsd_to_linux_ifreq(struct ifreq *arg)
 	struct ifreq ifr;
 	size_t ifr_len = sizeof(struct ifreq);
 	int error;
-	
+
 	if ((error = copyin(arg, &ifr, ifr_len)))
 		return (error);
-	
+
 	*(u_short *)&ifr.ifr_addr = ifr.ifr_addr.sa_family;
-	
+
 	error = copyout(&ifr, arg, ifr_len);
 
 	return (error);
@@ -2680,7 +2683,7 @@ static int
 linux_ioctl_drm(struct thread *td, struct linux_ioctl_args *args)
 {
 	args->cmd = SETDIR(args->cmd);
-	return sys_ioctl(td, (struct ioctl_args *)args);
+	return (sys_ioctl(td, (struct ioctl_args *)args));
 }
 
 #ifdef COMPAT_LINUX32
@@ -2859,6 +2862,8 @@ linux_to_bsd_v4l_window(struct l_video_window *lvw, struct video_window *vw)
 static int
 bsd_to_linux_v4l_window(struct video_window *vw, struct l_video_window *lvw)
 {
+	memset(lvw, 0, sizeof(*lvw));
+
 	lvw->x = vw->x;
 	lvw->y = vw->y;
 	lvw->width = vw->width;
@@ -2914,7 +2919,7 @@ linux_v4l_clip_copy(void *lvc, struct video_clip **ppvc)
 	linux_to_bsd_v4l_clip(&l_vclip, &vclip);
 	/* XXX: If there can be no concurrency: s/M_NOWAIT/M_WAITOK/ */
 	if ((*ppvc = malloc(sizeof(**ppvc), M_LINUX, M_NOWAIT)) == NULL)
-		return (ENOMEM);    /* XXX: linux has no ENOMEM here */
+		return (ENOMEM);    /* XXX: Linux has no ENOMEM here. */
 	memcpy(*ppvc, &vclip, sizeof(vclip));
 	(*ppvc)->next = NULL;
 	return (0);
@@ -2990,7 +2995,7 @@ linux_v4l_cliplist_copy(struct l_video_window *lvw, struct video_window *vw)
 				}
 			}
 			ppvc = &((*ppvc)->next);
-		        plvc = PTRIN(((struct l_video_clip *) plvc)->next);
+			plvc = PTRIN(((struct l_video_clip *) plvc)->next);
 		}
 	} else {
 		/*
@@ -3287,9 +3292,9 @@ linux_to_bsd_v4l2_format(struct l_v4l2_format *lvf, struct v4l2_format *vf)
 		 * XXX TODO - needs 32 -> 64 bit conversion:
 		 * (unused by webcams?)
 		 */
-		return EINVAL;
+		return (EINVAL);
 	memcpy(&vf->fmt, &lvf->fmt, sizeof(vf->fmt));
-	return 0;
+	return (0);
 }
 
 static int
@@ -3305,9 +3310,9 @@ bsd_to_linux_v4l2_format(struct v4l2_format *vf, struct l_v4l2_format *lvf)
 		 * XXX TODO - needs 32 -> 64 bit conversion:
 		 * (unused by webcams?)
 		 */
-		return EINVAL;
+		return (EINVAL);
 	memcpy(&lvf->fmt, &vf->fmt, sizeof(vf->fmt));
-	return 0;
+	return (0);
 }
 static int
 linux_ioctl_v4l2(struct thread *td, struct linux_ioctl_args *args)
@@ -3327,7 +3332,7 @@ linux_ioctl_v4l2(struct thread *td, struct linux_ioctl_args *args)
 	case LINUX_VIDIOC_RESERVED:
 	case LINUX_VIDIOC_LOG_STATUS:
 		if ((args->cmd & IOC_DIRMASK) != LINUX_IOC_VOID)
-			return ENOIOCTL;
+			return (ENOIOCTL);
 		args->cmd = (args->cmd & 0xffff) | IOC_VOID;
 		break;
 
@@ -3706,7 +3711,7 @@ linux_ioctl(struct thread *td, struct linux_ioctl_args *args)
 {
 	cap_rights_t rights;
 	struct file *fp;
-	struct handler_element *he;
+	struct linux_ioctl_handler_element *he;
 	int error, cmd;
 
 #ifdef DEBUG
@@ -3727,7 +3732,20 @@ linux_ioctl(struct thread *td, struct linux_ioctl_args *args)
 	cmd = args->cmd & 0xffff;
 	sx_slock(&linux_ioctl_sx);
 	mtx_lock(&Giant);
-	TAILQ_FOREACH(he, &handlers, list) {
+#ifdef COMPAT_LINUX32
+	TAILQ_FOREACH(he, &linux32_ioctl_handlers, list) {
+		if (cmd >= he->low && cmd <= he->high) {
+			error = (*he->func)(td, args);
+			if (error != ENOIOCTL) {
+				mtx_unlock(&Giant);
+				sx_sunlock(&linux_ioctl_sx);
+				fdrop(fp, td);
+				return (error);
+			}
+		}
+	}
+#endif
+	TAILQ_FOREACH(he, &linux_ioctl_handlers, list) {
 		if (cmd >= he->low && cmd <= he->high) {
 			error = (*he->func)(td, args);
 			if (error != ENOIOCTL) {
@@ -3759,7 +3777,7 @@ linux_ioctl(struct thread *td, struct linux_ioctl_args *args)
 int
 linux_ioctl_register_handler(struct linux_ioctl_handler *h)
 {
-	struct handler_element *he, *cur;
+	struct linux_ioctl_handler_element *he, *cur;
 
 	if (h == NULL || h->func == NULL)
 		return (EINVAL);
@@ -3769,7 +3787,7 @@ linux_ioctl_register_handler(struct linux_ioctl_handler *h)
 	 * create a new element.
 	 */
 	sx_xlock(&linux_ioctl_sx);
-	TAILQ_FOREACH(he, &handlers, list) {
+	TAILQ_FOREACH(he, &linux_ioctl_handlers, list) {
 		if (he->func == h->func)
 			break;
 	}
@@ -3778,7 +3796,7 @@ linux_ioctl_register_handler(struct linux_ioctl_handler *h)
 		    M_LINUX, M_WAITOK);
 		he->func = h->func;
 	} else
-		TAILQ_REMOVE(&handlers, he, list);
+		TAILQ_REMOVE(&linux_ioctl_handlers, he, list);
 
 	/* Initialize range information. */
 	he->low = h->low;
@@ -3786,14 +3804,14 @@ linux_ioctl_register_handler(struct linux_ioctl_handler *h)
 	he->span = h->high - h->low + 1;
 
 	/* Add the element to the list, sorted on span. */
-	TAILQ_FOREACH(cur, &handlers, list) {
+	TAILQ_FOREACH(cur, &linux_ioctl_handlers, list) {
 		if (cur->span > he->span) {
 			TAILQ_INSERT_BEFORE(cur, he, list);
 			sx_xunlock(&linux_ioctl_sx);
 			return (0);
 		}
 	}
-	TAILQ_INSERT_TAIL(&handlers, he, list);
+	TAILQ_INSERT_TAIL(&linux_ioctl_handlers, he, list);
 	sx_xunlock(&linux_ioctl_sx);
 
 	return (0);
@@ -3802,15 +3820,15 @@ linux_ioctl_register_handler(struct linux_ioctl_handler *h)
 int
 linux_ioctl_unregister_handler(struct linux_ioctl_handler *h)
 {
-	struct handler_element *he;
+	struct linux_ioctl_handler_element *he;
 
 	if (h == NULL || h->func == NULL)
 		return (EINVAL);
 
 	sx_xlock(&linux_ioctl_sx);
-	TAILQ_FOREACH(he, &handlers, list) {
+	TAILQ_FOREACH(he, &linux_ioctl_handlers, list) {
 		if (he->func == h->func) {
-			TAILQ_REMOVE(&handlers, he, list);
+			TAILQ_REMOVE(&linux_ioctl_handlers, he, list);
 			sx_xunlock(&linux_ioctl_sx);
 			free(he, M_LINUX);
 			return (0);
@@ -3820,3 +3838,69 @@ linux_ioctl_unregister_handler(struct linux_ioctl_handler *h)
 
 	return (EINVAL);
 }
+
+#ifdef COMPAT_LINUX32
+int
+linux32_ioctl_register_handler(struct linux_ioctl_handler *h)
+{
+	struct linux_ioctl_handler_element *he, *cur;
+
+	if (h == NULL || h->func == NULL)
+		return (EINVAL);
+
+	/*
+	 * Reuse the element if the handler is already on the list, otherwise
+	 * create a new element.
+	 */
+	sx_xlock(&linux_ioctl_sx);
+	TAILQ_FOREACH(he, &linux32_ioctl_handlers, list) {
+		if (he->func == h->func)
+			break;
+	}
+	if (he == NULL) {
+		he = malloc(sizeof(*he), M_LINUX, M_WAITOK);
+		he->func = h->func;
+	} else
+		TAILQ_REMOVE(&linux32_ioctl_handlers, he, list);
+
+	/* Initialize range information. */
+	he->low = h->low;
+	he->high = h->high;
+	he->span = h->high - h->low + 1;
+
+	/* Add the element to the list, sorted on span. */
+	TAILQ_FOREACH(cur, &linux32_ioctl_handlers, list) {
+		if (cur->span > he->span) {
+			TAILQ_INSERT_BEFORE(cur, he, list);
+			sx_xunlock(&linux_ioctl_sx);
+			return (0);
+		}
+	}
+	TAILQ_INSERT_TAIL(&linux32_ioctl_handlers, he, list);
+	sx_xunlock(&linux_ioctl_sx);
+
+	return (0);
+}
+
+int
+linux32_ioctl_unregister_handler(struct linux_ioctl_handler *h)
+{
+	struct linux_ioctl_handler_element *he;
+
+	if (h == NULL || h->func == NULL)
+		return (EINVAL);
+
+	sx_xlock(&linux_ioctl_sx);
+	TAILQ_FOREACH(he, &linux32_ioctl_handlers, list) {
+		if (he->func == h->func) {
+			TAILQ_REMOVE(&linux32_ioctl_handlers, he, list);
+			sx_xunlock(&linux_ioctl_sx);
+			free(he, M_LINUX);
+			return (0);
+		}
+	}
+	sx_xunlock(&linux_ioctl_sx);
+
+	return (EINVAL);
+}
+#endif

@@ -8,10 +8,10 @@
 
 #include "utils/includes.h"
 #ifdef CONFIG_TESTING_OPTIONS
-#include <net/ethernet.h>
 #include <netinet/ip.h>
 #endif /* CONFIG_TESTING_OPTIONS */
 
+#include <net/ethernet.h>
 #include "utils/common.h"
 #include "utils/eloop.h"
 #include "utils/uuid.h"
@@ -3129,6 +3129,49 @@ static int wpa_supplicant_ctrl_iface_mesh_peer_add(
 	return wpas_mesh_peer_add(wpa_s, addr, duration);
 }
 
+
+static int wpa_supplicant_ctrl_iface_mesh_link_probe(
+	struct wpa_supplicant *wpa_s, char *cmd)
+{
+	struct ether_header *eth;
+	u8 addr[ETH_ALEN];
+	u8 *buf;
+	char *pos;
+	size_t payload_len = 0, len;
+	int ret = -1;
+
+	if (hwaddr_aton(cmd, addr))
+		return -1;
+
+	pos = os_strstr(cmd, " payload=");
+	if (pos) {
+		pos = pos + 9;
+		payload_len = os_strlen(pos);
+		if (payload_len & 1)
+			return -1;
+
+		payload_len /= 2;
+	}
+
+	len = ETH_HLEN + payload_len;
+	buf = os_malloc(len);
+	if (!buf)
+		return -1;
+
+	eth = (struct ether_header *) buf;
+	os_memcpy(eth->ether_dhost, addr, ETH_ALEN);
+	os_memcpy(eth->ether_shost, wpa_s->own_addr, ETH_ALEN);
+	eth->ether_type = htons(ETH_P_802_3);
+
+	if (payload_len && hexstr2bin(pos, buf + ETH_HLEN, payload_len) < 0)
+		goto fail;
+
+	ret = wpa_drv_mesh_link_probe(wpa_s, addr, buf, len);
+fail:
+	os_free(buf);
+	return -ret;
+}
+
 #endif /* CONFIG_MESH */
 
 
@@ -5548,17 +5591,17 @@ static int parse_freq(int chwidth, int freq2)
 	if (freq2 < 0)
 		return -1;
 	if (freq2)
-		return VHT_CHANWIDTH_80P80MHZ;
+		return CHANWIDTH_80P80MHZ;
 
 	switch (chwidth) {
 	case 0:
 	case 20:
 	case 40:
-		return VHT_CHANWIDTH_USE_HT;
+		return CHANWIDTH_USE_HT;
 	case 80:
-		return VHT_CHANWIDTH_80MHZ;
+		return CHANWIDTH_80MHZ;
 	case 160:
-		return VHT_CHANWIDTH_160MHZ;
+		return CHANWIDTH_160MHZ;
 	default:
 		wpa_printf(MSG_DEBUG, "Unknown max oper bandwidth: %d",
 			   chwidth);
@@ -6454,6 +6497,47 @@ static int p2p_ctrl_group_member(struct wpa_supplicant *wpa_s, const char *cmd,
 				 char *buf, size_t buflen)
 {
 	u8 dev_addr[ETH_ALEN];
+	struct wpa_ssid *ssid;
+	int res;
+	const u8 *iaddr;
+
+	ssid = wpa_s->current_ssid;
+	if (!wpa_s->global->p2p || !ssid || ssid->mode != WPAS_MODE_P2P_GO ||
+	    hwaddr_aton(cmd, dev_addr))
+		return -1;
+
+	iaddr = p2p_group_get_client_interface_addr(wpa_s->p2p_group, dev_addr);
+	if (!iaddr)
+		return -1;
+	res = os_snprintf(buf, buflen, MACSTR, MAC2STR(iaddr));
+	if (os_snprintf_error(buflen, res))
+		return -1;
+	return res;
+}
+
+
+static int wpas_find_p2p_dev_addr_bss(struct wpa_global *global,
+				      const u8 *p2p_dev_addr)
+{
+	struct wpa_supplicant *wpa_s;
+
+	for (wpa_s = global->ifaces; wpa_s; wpa_s = wpa_s->next) {
+		if (wpa_bss_get_p2p_dev_addr(wpa_s, p2p_dev_addr))
+			return 1;
+	}
+
+	return 0;
+}
+
+
+static int p2p_ctrl_group_member(struct wpa_supplicant *wpa_s, const char *cmd,
+				 char *buf, size_t buflen)
+{
+	u8 addr[ETH_ALEN], *addr_ptr, group_capab;
+	int next, res;
+	const struct p2p_peer_info *info;
+	char *pos, *end;
+	char devtype[WPS_DEV_TYPE_BUFSIZE];
 	struct wpa_ssid *ssid;
 	int res;
 	const u8 *iaddr;
@@ -9583,60 +9667,276 @@ static int wpas_ctrl_iface_mac_rand_scan(struct wpa_supplicant *wpa_s,
 		return -1;
 	}
 
-	if (!enable) {
-		wpas_mac_addr_rand_scan_clear(wpa_s, type);
-		if (wpa_s->pno) {
-			if (type & MAC_ADDR_RAND_PNO) {
-				wpas_stop_pno(wpa_s);
-				wpas_start_pno(wpa_s);
-			}
-		} else if (wpa_s->sched_scanning &&
-			   (type & MAC_ADDR_RAND_SCHED_SCAN)) {
-			wpas_scan_restart_sched_scan(wpa_s);
-		}
-		return 0;
-	}
+	if (!enable)
+		return wpas_disable_mac_addr_randomization(wpa_s, type);
 
-	if ((addr && !mask) || (!addr && mask)) {
-		wpa_printf(MSG_INFO,
-			   "CTRL: MAC_RAND_SCAN invalid addr/mask combination");
-		return -1;
-	}
-
-	if (addr && mask && (!(mask[0] & 0x01) || (addr[0] & 0x01))) {
-		wpa_printf(MSG_INFO,
-			   "CTRL: MAC_RAND_SCAN cannot allow multicast address");
-		return -1;
-	}
-
-	if (type & MAC_ADDR_RAND_SCAN) {
-		if (wpas_mac_addr_rand_scan_set(wpa_s, MAC_ADDR_RAND_SCAN,
-					    addr, mask))
-			return -1;
-	}
-
-	if (type & MAC_ADDR_RAND_SCHED_SCAN) {
-		if (wpas_mac_addr_rand_scan_set(wpa_s, MAC_ADDR_RAND_SCHED_SCAN,
-					    addr, mask))
-			return -1;
-
-		if (wpa_s->sched_scanning && !wpa_s->pno)
-			wpas_scan_restart_sched_scan(wpa_s);
-	}
-
-	if (type & MAC_ADDR_RAND_PNO) {
-		if (wpas_mac_addr_rand_scan_set(wpa_s, MAC_ADDR_RAND_PNO,
-					    addr, mask))
-			return -1;
-
-		if (wpa_s->pno) {
-			wpas_stop_pno(wpa_s);
-			wpas_start_pno(wpa_s);
-		}
-	}
-
-	return 0;
+	return wpas_enable_mac_addr_randomization(wpa_s, type, addr, mask);
 }
+
+
+static int wpas_ctrl_iface_pmksa(struct wpa_supplicant *wpa_s,
+				 char *buf, size_t buflen)
+{
+	size_t reply_len;
+
+	reply_len = wpa_sm_pmksa_cache_list(wpa_s->wpa, buf, buflen);
+#ifdef CONFIG_AP
+	reply_len += wpas_ap_pmksa_cache_list(wpa_s, &buf[reply_len],
+					      buflen - reply_len);
+#endif /* CONFIG_AP */
+	return reply_len;
+}
+
+
+static void wpas_ctrl_iface_pmksa_flush(struct wpa_supplicant *wpa_s)
+{
+	wpa_sm_pmksa_cache_flush(wpa_s->wpa, NULL);
+#ifdef CONFIG_AP
+	wpas_ap_pmksa_cache_flush(wpa_s);
+#endif /* CONFIG_AP */
+}
+
+
+#ifdef CONFIG_PMKSA_CACHE_EXTERNAL
+
+static int wpas_ctrl_iface_pmksa_get(struct wpa_supplicant *wpa_s,
+				     const char *cmd, char *buf, size_t buflen)
+{
+	struct rsn_pmksa_cache_entry *entry;
+	struct wpa_ssid *ssid;
+	char *pos, *pos2, *end;
+	int ret;
+	struct os_reltime now;
+
+	ssid = wpa_config_get_network(wpa_s->conf, atoi(cmd));
+	if (!ssid)
+		return -1;
+
+	pos = buf;
+	end = buf + buflen;
+
+	os_get_reltime(&now);
+
+	/*
+	 * Entry format:
+	 * <BSSID> <PMKID> <PMK> <reauth_time in seconds>
+	 * <expiration in seconds> <akmp> <opportunistic>
+	 * [FILS Cache Identifier]
+	 */
+
+	for (entry = wpa_sm_pmksa_cache_head(wpa_s->wpa); entry;
+	     entry = entry->next) {
+		if (entry->network_ctx != ssid)
+			continue;
+
+		pos2 = pos;
+		ret = os_snprintf(pos2, end - pos2, MACSTR " ",
+				  MAC2STR(entry->aa));
+		if (os_snprintf_error(end - pos2, ret))
+			break;
+		pos2 += ret;
+
+		pos2 += wpa_snprintf_hex(pos2, end - pos2, entry->pmkid,
+					 PMKID_LEN);
+
+		ret = os_snprintf(pos2, end - pos2, " ");
+		if (os_snprintf_error(end - pos2, ret))
+			break;
+		pos2 += ret;
+
+		pos2 += wpa_snprintf_hex(pos2, end - pos2, entry->pmk,
+					 entry->pmk_len);
+
+		ret = os_snprintf(pos2, end - pos2, " %d %d %d %d",
+				  (int) (entry->reauth_time - now.sec),
+				  (int) (entry->expiration - now.sec),
+				  entry->akmp,
+				  entry->opportunistic);
+		if (os_snprintf_error(end - pos2, ret))
+			break;
+		pos2 += ret;
+
+		if (entry->fils_cache_id_set) {
+			ret = os_snprintf(pos2, end - pos2, " %02x%02x",
+					  entry->fils_cache_id[0],
+					  entry->fils_cache_id[1]);
+			if (os_snprintf_error(end - pos2, ret))
+				break;
+			pos2 += ret;
+		}
+
+		ret = os_snprintf(pos2, end - pos2, "\n");
+		if (os_snprintf_error(end - pos2, ret))
+			break;
+		pos2 += ret;
+
+		pos = pos2;
+	}
+
+	return pos - buf;
+}
+
+
+static int wpas_ctrl_iface_pmksa_add(struct wpa_supplicant *wpa_s,
+				     char *cmd)
+{
+	struct rsn_pmksa_cache_entry *entry;
+	struct wpa_ssid *ssid;
+	char *pos, *pos2;
+	int ret = -1;
+	struct os_reltime now;
+	int reauth_time = 0, expiration = 0, i;
+
+	/*
+	 * Entry format:
+	 * <network_id> <BSSID> <PMKID> <PMK> <reauth_time in seconds>
+	 * <expiration in seconds> <akmp> <opportunistic>
+	 * [FILS Cache Identifier]
+	 */
+
+	ssid = wpa_config_get_network(wpa_s->conf, atoi(cmd));
+	if (!ssid)
+		return -1;
+
+	pos = os_strchr(cmd, ' ');
+	if (!pos)
+		return -1;
+	pos++;
+
+	entry = os_zalloc(sizeof(*entry));
+	if (!entry)
+		return -1;
+
+	if (hwaddr_aton(pos, entry->aa))
+		goto fail;
+
+	pos = os_strchr(pos, ' ');
+	if (!pos)
+		goto fail;
+	pos++;
+
+	if (hexstr2bin(pos, entry->pmkid, PMKID_LEN) < 0)
+		goto fail;
+
+	pos = os_strchr(pos, ' ');
+	if (!pos)
+		goto fail;
+	pos++;
+
+	pos2 = os_strchr(pos, ' ');
+	if (!pos2)
+		goto fail;
+	entry->pmk_len = (pos2 - pos) / 2;
+	if (entry->pmk_len < PMK_LEN || entry->pmk_len > PMK_LEN_MAX ||
+	    hexstr2bin(pos, entry->pmk, entry->pmk_len) < 0)
+		goto fail;
+
+	pos = os_strchr(pos, ' ');
+	if (!pos)
+		goto fail;
+	pos++;
+
+	if (sscanf(pos, "%d %d %d %d", &reauth_time, &expiration,
+		   &entry->akmp, &entry->opportunistic) != 4)
+		goto fail;
+	for (i = 0; i < 4; i++) {
+		pos = os_strchr(pos, ' ');
+		if (!pos) {
+			if (i < 3)
+				goto fail;
+			break;
+		}
+		pos++;
+	}
+	if (pos) {
+		if (hexstr2bin(pos, entry->fils_cache_id,
+			       FILS_CACHE_ID_LEN) < 0)
+			goto fail;
+		entry->fils_cache_id_set = 1;
+	}
+	os_get_reltime(&now);
+	entry->expiration = now.sec + expiration;
+	entry->reauth_time = now.sec + reauth_time;
+
+	entry->network_ctx = ssid;
+
+	wpa_sm_pmksa_cache_add_entry(wpa_s->wpa, entry);
+	entry = NULL;
+	ret = 0;
+fail:
+	os_free(entry);
+	return ret;
+}
+
+
+#ifdef CONFIG_MESH
+
+static int wpas_ctrl_iface_mesh_pmksa_get(struct wpa_supplicant *wpa_s,
+					  const char *cmd, char *buf,
+					  size_t buflen)
+{
+	u8 spa[ETH_ALEN];
+
+	if (!wpa_s->ifmsh)
+		return -1;
+
+	if (os_strcasecmp(cmd, "any") == 0)
+		return wpas_ap_pmksa_cache_list_mesh(wpa_s, NULL, buf, buflen);
+
+	if (hwaddr_aton(cmd, spa))
+		return -1;
+
+	return wpas_ap_pmksa_cache_list_mesh(wpa_s, spa, buf, buflen);
+}
+
+
+static int wpas_ctrl_iface_mesh_pmksa_add(struct wpa_supplicant *wpa_s,
+					  char *cmd)
+{
+	/*
+	 * We do not check mesh interface existance because PMKSA should be
+	 * stored before wpa_s->ifmsh creation to suppress commit message
+	 * creation.
+	 */
+	return wpas_ap_pmksa_cache_add_external(wpa_s, cmd);
+}
+
+#endif /* CONFIG_MESH */
+#endif /* CONFIG_PMKSA_CACHE_EXTERNAL */
+
+
+#ifdef CONFIG_FILS
+static int wpas_ctrl_iface_fils_hlp_req_add(struct wpa_supplicant *wpa_s,
+					    const char *cmd)
+{
+	struct fils_hlp_req *req;
+	const char *pos;
+
+	/* format: <dst> <packet starting from ethertype> */
+
+	req = os_zalloc(sizeof(*req));
+	if (!req)
+		return -1;
+
+	if (hwaddr_aton(cmd, req->dst))
+		goto fail;
+
+	pos = os_strchr(cmd, ' ');
+	if (!pos)
+		goto fail;
+	pos++;
+	req->pkt = wpabuf_parse_bin(pos);
+	if (!req->pkt)
+		goto fail;
+
+	dl_list_add_tail(&wpa_s->fils_hlp_req, &req->list);
+	return 0;
+fail:
+	wpabuf_free(req->pkt);
+	os_free(req);
+	return -1;
+}
+#endif /* CONFIG_FILS */
 
 
 static int wpas_ctrl_iface_pmksa(struct wpa_supplicant *wpa_s,
@@ -10170,6 +10470,9 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 			reply_len = -1;
 	} else if (os_strncmp(buf, "MESH_PEER_ADD ", 14) == 0) {
 		if (wpa_supplicant_ctrl_iface_mesh_peer_add(wpa_s, buf + 14))
+			reply_len = -1;
+	} else if (os_strncmp(buf, "MESH_LINK_PROBE ", 16) == 0) {
+		if (wpa_supplicant_ctrl_iface_mesh_link_probe(wpa_s, buf + 16))
 			reply_len = -1;
 #endif /* CONFIG_MESH */
 #ifdef CONFIG_P2P
@@ -10745,6 +11048,16 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 	} else if (os_strncmp(buf, "DPP_PKEX_REMOVE ", 16) == 0) {
 		if (wpas_dpp_pkex_remove(wpa_s, buf + 16) < 0)
 			reply_len = -1;
+#ifdef CONFIG_DPP2
+	} else if (os_strncmp(buf, "DPP_CONTROLLER_START ", 21) == 0) {
+		if (wpas_dpp_controller_start(wpa_s, buf + 20) < 0)
+			reply_len = -1;
+	} else if (os_strcmp(buf, "DPP_CONTROLLER_START") == 0) {
+		if (wpas_dpp_controller_start(wpa_s, NULL) < 0)
+			reply_len = -1;
+	} else if (os_strcmp(buf, "DPP_CONTROLLER_STOP") == 0) {
+		dpp_controller_stop(wpa_s->dpp);
+#endif /* CONFIG_DPP2 */
 #endif /* CONFIG_DPP */
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);

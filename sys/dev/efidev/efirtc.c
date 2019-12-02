@@ -74,7 +74,8 @@ efirtc_probe(device_t dev)
 	 */
 	if ((error = efi_get_time(&tm)) != 0) {
 		if (bootverbose)
-			device_printf(dev, "cannot read EFI realtime clock\n");
+			device_printf(dev, "cannot read EFI realtime clock, "
+			    "error %d\n", error);
 		return (error);
 	}
 	device_set_desc(dev, "EFI Realtime Clock");
@@ -202,3 +203,5 @@ static driver_t efirtc_driver = {
 };
 
 DRIVER_MODULE(efirtc, nexus, efirtc_driver, efirtc_devclass, 0, 0);
+MODULE_VERSION(efirtc, 1);
+MODULE_DEPEND(efirtc, efirt, 1, 1, 1);

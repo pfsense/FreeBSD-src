@@ -498,8 +498,10 @@ dsl_pool_close(dsl_pool_t *dp)
 	rrw_destroy(&dp->dp_config_rwlock);
 	mutex_destroy(&dp->dp_lock);
 	taskq_destroy(dp->dp_vnrele_taskq);
-	if (dp->dp_blkstats != NULL)
+	if (dp->dp_blkstats != NULL) {
+		mutex_destroy(&dp->dp_blkstats->zab_lock);
 		kmem_free(dp->dp_blkstats, sizeof (zfs_all_blkstats_t));
+	}
 	kmem_free(dp, sizeof (dsl_pool_t));
 }
 
@@ -1243,8 +1245,7 @@ int
 dsl_pool_user_release(dsl_pool_t *dp, uint64_t dsobj, const char *tag,
     dmu_tx_t *tx)
 {
-	return (dsl_pool_user_hold_rele_impl(dp, dsobj, tag, 0,
-	    tx, B_FALSE));
+	return (dsl_pool_user_hold_rele_impl(dp, dsobj, tag, 0, tx, B_FALSE));
 }
 
 /*

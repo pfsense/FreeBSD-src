@@ -57,6 +57,7 @@ MAN=	accept_filter.9 \
 	byteorder.9 \
 	casuword.9 \
 	cd.9 \
+	cnv.9 \
 	condvar.9 \
 	config_intrhook.9 \
 	contigmalloc.9 \
@@ -277,6 +278,7 @@ MAN=	accept_filter.9 \
 	stack.9 \
 	store.9 \
 	style.9 \
+	style.lua.9 \
 	swi.9 \
 	sx.9 \
 	SYSCALL_MODULE.9 \
@@ -374,6 +376,7 @@ MAN=	accept_filter.9 \
 	VOP_ADVLOCK.9 \
 	VOP_ALLOCATE.9 \
 	VOP_ATTRIB.9 \
+	VOP_BMAP.9 \
 	VOP_BWRITE.9 \
 	VOP_CREATE.9 \
 	VOP_FSYNC.9 \
@@ -433,6 +436,7 @@ MLINKS+=altq.9 ALTQ.9
 MLINKS+=atomic.9 atomic_add.9 \
 	atomic.9 atomic_clear.9 \
 	atomic.9 atomic_cmpset.9 \
+	atomic.9 atomic_fcmpset.9 \
 	atomic.9 atomic_fetchadd.9 \
 	atomic.9 atomic_load.9 \
 	atomic.9 atomic_readandclear.9 \
@@ -618,6 +622,41 @@ MLINKS+=byteorder.9 be16dec.9 \
 	byteorder.9 le64dec.9 \
 	byteorder.9 le64enc.9 \
 	byteorder.9 le64toh.9
+MLINKS+=cnv.9 cnvlist.9 \
+	cnv.9 cnvlist_free_binary.9 \
+	cnv.9 cnvlist_free_bool.9 \
+	cnv.9 cnvlist_free_bool_array.9 \
+	cnv.9 cnvlist_free_descriptor.9 \
+	cnv.9 cnvlist_free_descriptor_array.9 \
+	cnv.9 cnvlist_free_null.9 \
+	cnv.9 cnvlist_free_number.9 \
+	cnv.9 cnvlist_free_number_array.9 \
+	cnv.9 cnvlist_free_nvlist.9 \
+	cnv.9 cnvlist_free_nvlist_array.9 \
+	cnv.9 cnvlist_free_string.9 \
+	cnv.9 cnvlist_free_string_array.9 \
+	cnv.9 cnvlist_get_binary.9 \
+	cnv.9 cnvlist_get_bool.9 \
+	cnv.9 cnvlist_get_bool_array.9 \
+	cnv.9 cnvlist_get_descriptor.9 \
+	cnv.9 cnvlist_get_descriptor_array.9 \
+	cnv.9 cnvlist_get_number.9 \
+	cnv.9 cnvlist_get_number_array.9 \
+	cnv.9 cnvlist_get_nvlist.9 \
+	cnv.9 cnvlist_get_nvlist_array.9 \
+	cnv.9 cnvlist_get_string.9 \
+	cnv.9 cnvlist_get_string_array.9 \
+	cnv.9 cnvlist_take_binary.9 \
+	cnv.9 cnvlist_take_bool.9 \
+	cnv.9 cnvlist_take_bool_array.9 \
+	cnv.9 cnvlist_take_descriptor.9 \
+	cnv.9 cnvlist_take_descriptor_array.9 \
+	cnv.9 cnvlist_take_number.9 \
+	cnv.9 cnvlist_take_number_array.9 \
+	cnv.9 cnvlist_take_nvlist.9 \
+	cnv.9 cnvlist_take_nvlist_array.9 \
+	cnv.9 cnvlist_take_string.9 \
+	cnv.9 cnvlist_take_string_array.9
 MLINKS+=condvar.9 cv_broadcast.9 \
 	condvar.9 cv_broadcastpri.9 \
 	condvar.9 cv_destroy.9 \
@@ -1555,6 +1594,7 @@ MLINKS+=sglist.9 sglist_alloc.9 \
 	sglist.9 sglist_append_bio.9 \
 	sglist.9 sglist_append_mbuf.9 \
 	sglist.9 sglist_append_phys.9 \
+	sglist.9 sglist_append_sglist.9 \
 	sglist.9 sglist_append_uio.9 \
 	sglist.9 sglist_append_user.9 \
 	sglist.9 sglist_append_vmpages.9 \
@@ -1608,7 +1648,8 @@ MLINKS+=sleep.9 msleep.9 \
 	sleep.9 tsleep.9 \
 	sleep.9 tsleep_sbt.9 \
 	sleep.9 wakeup.9 \
-	sleep.9 wakeup_one.9
+	sleep.9 wakeup_one.9 \
+	sleep.9 wakeup_any.9
 MLINKS+=sleepqueue.9 init_sleepqueues.9 \
 	sleepqueue.9 sleepq_abort.9 \
 	sleepqueue.9 sleepq_add.9 \
@@ -1718,6 +1759,7 @@ MLINKS+=sysctl.9 SYSCTL_DECL.9 \
 	sysctl.9 SYSCTL_ADD_S64.9 \
 	sysctl.9 SYSCTL_ADD_STRING.9 \
 	sysctl.9 SYSCTL_ADD_STRUCT.9 \
+	sysctl.9 SYSCTL_ADD_TIMEVAL_SEC.9 \
 	sysctl.9 SYSCTL_ADD_U8.9 \
 	sysctl.9 SYSCTL_ADD_U16.9 \
 	sysctl.9 SYSCTL_ADD_U32.9 \
@@ -1732,6 +1774,7 @@ MLINKS+=sysctl.9 SYSCTL_DECL.9 \
 	sysctl.9 SYSCTL_PARENT.9 \
 	sysctl.9 SYSCTL_INT.9 \
 	sysctl.9 SYSCTL_LONG.9 \
+	sysctl.9 sysctl_msec_to_ticks.9 \
 	sysctl.9 SYSCTL_NODE.9 \
 	sysctl.9 SYSCTL_OPAQUE.9 \
 	sysctl.9 SYSCTL_PROC.9 \
@@ -1743,6 +1786,7 @@ MLINKS+=sysctl.9 SYSCTL_DECL.9 \
 	sysctl.9 SYSCTL_S64.9 \
 	sysctl.9 SYSCTL_STRING.9 \
 	sysctl.9 SYSCTL_STRUCT.9 \
+	sysctl.9 SYSCTL_TIMEVAL_SEC.9 \
 	sysctl.9 SYSCTL_U8.9 \
 	sysctl.9 SYSCTL_U16.9 \
 	sysctl.9 SYSCTL_U32.9 \
@@ -1777,6 +1821,7 @@ MLINKS+=taskqueue.9 TASK_INIT.9 \
 	taskqueue.9 TASKQUEUE_FAST_DEFINE_THREAD.9 \
 	taskqueue.9 taskqueue_free.9 \
 	taskqueue.9 taskqueue_member.9 \
+	taskqueue.9 taskqueue_quiesce.9 \
 	taskqueue.9 taskqueue_run.9 \
 	taskqueue.9 taskqueue_set_callback.9 \
 	taskqueue.9 taskqueue_start_threads.9 \
@@ -1814,8 +1859,7 @@ MLINKS+=timeout.9 callout.9 \
 	timeout.9 callout_stop.9 \
 	timeout.9 callout_when.9 \
 	timeout.9 untimeout.9
-MLINKS+=ucred.9 cred_update_thread.9 \
-	ucred.9 crcopy.9 \
+MLINKS+=ucred.9 crcopy.9 \
 	ucred.9 crcopysafe.9 \
 	ucred.9 crdup.9 \
 	ucred.9 crfree.9 \
@@ -1958,6 +2002,7 @@ MLINKS+=VOP_ATTRIB.9 VOP_GETATTR.9 \
 MLINKS+=VOP_CREATE.9 VOP_MKDIR.9 \
 	VOP_CREATE.9 VOP_MKNOD.9 \
 	VOP_CREATE.9 VOP_SYMLINK.9
+MLINKS+=VOP_FSYNC.9 VOP_FDATASYNC.9
 MLINKS+=VOP_GETPAGES.9 VOP_PUTPAGES.9
 MLINKS+=VOP_INACTIVE.9 VOP_RECLAIM.9
 MLINKS+=VOP_LOCK.9 vn_lock.9 \

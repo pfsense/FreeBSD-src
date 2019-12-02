@@ -379,24 +379,40 @@
 #define	CPUID_STDEXT2_UMIP	0x00000004
 #define	CPUID_STDEXT2_PKU	0x00000008
 #define	CPUID_STDEXT2_OSPKE	0x00000010
+#define	CPUID_STDEXT2_WAITPKG	0x00000020
+#define	CPUID_STDEXT2_GFNI	0x00000100
 #define	CPUID_STDEXT2_RDPID	0x00400000
+#define	CPUID_STDEXT2_CLDEMOTE	0x02000000
+#define	CPUID_STDEXT2_MOVDIRI	0x08000000
+#define	CPUID_STDEXT2_MOVDIRI64B	0x10000000
 #define	CPUID_STDEXT2_SGXLC	0x40000000
 
 /*
  * CPUID instruction 7 Structured Extended Features, leaf 0 edx info
  */
 #define	CPUID_STDEXT3_MD_CLEAR	0x00000400
+#define	CPUID_STDEXT3_TSXFA	0x00002000
 #define	CPUID_STDEXT3_IBPB	0x04000000
 #define	CPUID_STDEXT3_STIBP	0x08000000
 #define	CPUID_STDEXT3_L1D_FLUSH	0x10000000
 #define	CPUID_STDEXT3_ARCH_CAP	0x20000000
+#define	CPUID_STDEXT3_CORE_CAP	0x40000000
 #define	CPUID_STDEXT3_SSBD	0x80000000
 
 /* MSR IA32_ARCH_CAP(ABILITIES) bits */
 #define	IA32_ARCH_CAP_RDCL_NO	0x00000001
 #define	IA32_ARCH_CAP_IBRS_ALL	0x00000002
-#define	IA32_ARCH_CAP_SSBD_NO	0x00000004
+#define	IA32_ARCH_CAP_RSBA	0x00000004
+#define	IA32_ARCH_CAP_SKIP_L1DFL_VMENTRY	0x00000008
+#define	IA32_ARCH_CAP_SSB_NO	0x00000010
 #define	IA32_ARCH_CAP_MDS_NO	0x00000020
+#define	IA32_ARCH_CAP_IF_PSCHANGE_MC_NO	0x00000040
+#define	IA32_ARCH_CAP_TSX_CTRL	0x00000080
+#define	IA32_ARCH_CAP_TAA_NO	0x00000100
+
+/* MSR IA32_TSX_CTRL bits */
+#define	IA32_TSX_CTRL_RTM_DISABLE	0x00000001
+#define	IA32_TSX_CTRL_TSX_CPUID_CLEAR	0x00000002
 
 /*
  * CPUID manufacturers identifiers
@@ -442,12 +458,14 @@
 #define	MSR_MTRRcap		0x0fe
 #define	MSR_IA32_ARCH_CAP	0x10a
 #define	MSR_IA32_FLUSH_CMD	0x10b
+#define	MSR_TSX_FORCE_ABORT	0x10f
 #define	MSR_BBL_CR_ADDR		0x116
 #define	MSR_BBL_CR_DECC		0x118
 #define	MSR_BBL_CR_CTL		0x119
 #define	MSR_BBL_CR_TRIG		0x11a
 #define	MSR_BBL_CR_BUSY		0x11b
 #define	MSR_BBL_CR_CTL3		0x11e
+#define	MSR_IA32_TSX_CTRL	0x122
 #define	MSR_SYSENTER_CS_MSR	0x174
 #define	MSR_SYSENTER_ESP_MSR	0x175
 #define	MSR_SYSENTER_EIP_MSR	0x176
@@ -868,6 +886,7 @@
 #define	MSR_FSBASE	0xc0000100	/* base address of the %fs "segment" */
 #define	MSR_GSBASE	0xc0000101	/* base address of the %gs "segment" */
 #define	MSR_KGSBASE	0xc0000102	/* base address of the kernel %gs */
+#define	MSR_TSC_AUX	0xc0000103
 #define	MSR_PERFEVSEL0	0xc0010000
 #define	MSR_PERFEVSEL1	0xc0010001
 #define	MSR_PERFEVSEL2	0xc0010002
@@ -885,18 +904,20 @@
 #define	MSR_TOP_MEM	0xc001001a	/* boundary for ram below 4G */
 #define	MSR_TOP_MEM2	0xc001001d	/* boundary for ram above 4G */
 #define	MSR_NB_CFG1	0xc001001f	/* NB configuration 1 */
+#define	MSR_K8_UCODE_UPDATE 0xc0010020	/* update microcode */
+#define	MSR_MC0_CTL_MASK 0xc0010044
 #define	MSR_P_STATE_LIMIT 0xc0010061	/* P-state Current Limit Register */
 #define	MSR_P_STATE_CONTROL 0xc0010062	/* P-state Control Register */
 #define	MSR_P_STATE_STATUS 0xc0010063	/* P-state Status Register */
 #define	MSR_P_STATE_CONFIG(n) (0xc0010064 + (n)) /* P-state Config */
 #define	MSR_SMM_ADDR	0xc0010112	/* SMM TSEG base address */
 #define	MSR_SMM_MASK	0xc0010113	/* SMM TSEG address mask */
+#define	MSR_VM_CR	0xc0010114	/* SVM: feature control */
+#define	MSR_VM_HSAVE_PA 0xc0010117	/* SVM: host save area address */
+#define	MSR_AMD_CPUID07	0xc0011002	/* CPUID 07 %ebx override */
 #define	MSR_EXTFEATURES	0xc0011005	/* Extended CPUID Features override */
+#define	MSR_LS_CFG	0xc0011020
 #define	MSR_IC_CFG	0xc0011021	/* Instruction Cache Configuration */
-#define	MSR_K8_UCODE_UPDATE	0xc0010020	/* update microcode */
-#define	MSR_MC0_CTL_MASK	0xc0010044
-#define	MSR_VM_CR		0xc0010114 /* SVM: feature control */
-#define	MSR_VM_HSAVE_PA		0xc0010117 /* SVM: host save area address */
 
 /* MSR_VM_CR related */
 #define	VM_CR_SVMDIS		0x10	/* SVM: disabled by BIOS */

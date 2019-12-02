@@ -651,7 +651,6 @@ do_rx_iscsi_ddp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	tp->t_rcvtime = ticks;
 
 	/* update rx credits */
-	toep->rx_credits += pdu_len;
 	t4_rcvd(&toep->td->tod, tp);	/* XXX: sc->tom_softc.tod */
 
 	so = inp->inp_socket;
@@ -969,7 +968,7 @@ start_worker_threads(void)
 			    i + 1, worker_thread_count, rc);
 			mtx_destroy(&cwt->cwt_lock);
 			cv_destroy(&cwt->cwt_cv);
-			bzero(&cwt, sizeof(*cwt));
+			bzero(cwt, sizeof(*cwt));
 			if (i == 0) {
 				free(cwt_softc, M_CXGBE);
 				worker_thread_count = 0;

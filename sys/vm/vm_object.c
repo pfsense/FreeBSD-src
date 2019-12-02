@@ -1777,8 +1777,8 @@ vm_object_collapse(vm_object_t object)
 		VM_OBJECT_WLOCK(backing_object);
 		if (backing_object->handle != NULL ||
 		    (backing_object->type != OBJT_DEFAULT &&
-		     backing_object->type != OBJT_SWAP) ||
-		    (backing_object->flags & OBJ_DEAD) ||
+		    backing_object->type != OBJT_SWAP) ||
+		    (backing_object->flags & (OBJ_DEAD | OBJ_NOSPLIT)) != 0 ||
 		    object->handle != NULL ||
 		    (object->type != OBJT_DEFAULT &&
 		     object->type != OBJT_SWAP) ||
@@ -2153,7 +2153,7 @@ vm_object_coalesce(vm_object_t prev_object, vm_ooffset_t prev_offset,
 	VM_OBJECT_WLOCK(prev_object);
 	if ((prev_object->type != OBJT_DEFAULT &&
 	    prev_object->type != OBJT_SWAP) ||
-	    (prev_object->flags & OBJ_TMPFS_NODE) != 0) {
+	    (prev_object->flags & OBJ_NOSPLIT) != 0) {
 		VM_OBJECT_WUNLOCK(prev_object);
 		return (FALSE);
 	}

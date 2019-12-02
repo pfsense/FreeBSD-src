@@ -156,6 +156,9 @@ SUBDIR_DEPEND_libtacplus= libmd
 SUBDIR_DEPEND_libulog= libmd
 SUBDIR_DEPEND_libunbound= ${_libldns}
 SUBDIR_DEPEND_liblzma= ${_libthr}
+.if ${MK_OFED} != "no"
+SUBDIR_DEPEND_libpcap= ofed
+.endif
 
 # NB: keep these sorted by MK_* knobs
 
@@ -231,7 +234,8 @@ _libclang_rt=	libclang_rt
 
 .if ${MK_LIBCPLUSPLUS} != "no"
 _libcxxrt=	libcxxrt
-_libcplusplus=	libc++
+_libcplusplus=	libc++ libc++experimental
+_libcplusplus+=	libc++fs
 .endif
 
 .if ${MK_EFI} != "no"
@@ -285,6 +289,10 @@ _libdl=		libdl
 _libproc=	libproc
 _librtld_db=	librtld_db
 .endif
+SUBDIR.${MK_OFED}+=	ofed
+SUBDIR.${MK_ZFS}+=	libbe
+
+SUBDIR.${MK_OPENMP}+=	libomp
 
 .if ${MK_OPENSSL} != "no"
 _libmp=		libmp

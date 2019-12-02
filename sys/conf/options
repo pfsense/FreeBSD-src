@@ -422,7 +422,6 @@ IPFIREWALL		opt_ipfw.h
 IPFIREWALL_DEFAULT_TO_ACCEPT	opt_ipfw.h
 IPFIREWALL_NAT		opt_ipfw.h
 IPFIREWALL_NAT64	opt_ipfw.h
-IPFIREWALL_NAT64_DIRECT_OUTPUT	opt_ipfw.h
 IPFIREWALL_NPTV6	opt_ipfw.h
 IPFIREWALL_VERBOSE	opt_ipfw.h
 IPFIREWALL_VERBOSE_LIMIT	opt_ipfw.h
@@ -688,7 +687,7 @@ INIT_PATH
 
 ROOTDEVNAME
 
-FDC_DEBUG		opt_fdc.h
+FDC_DEBUG 		opt_fdc.h
 PCFCLOCK_VERBOSE	opt_pcfclock.h
 PCFCLOCK_MAX_RETRIES	opt_pcfclock.h
 
@@ -801,6 +800,8 @@ TERMINAL_NORM_ATTR	opt_teken.h
 
 # options for printf
 PRINTF_BUFR_SIZE	opt_printf.h
+BOOT_TAG		opt_printf.h
+BOOT_TAG_SZ		opt_printf.h
 
 # kbd options
 KBD_DISABLE_KEYMAP_LOAD	opt_kbd.h
@@ -989,11 +990,17 @@ RANDOM_ENABLE_UMA	opt_global.h
 # Intel em(4) driver
 EM_MULTIQUEUE	opt_em.h
 
+# This options turns TPM into entropy source.
+TPM_HARVEST	opt_tpm.h
+
 # BHND(4) driver
 BHND_LOGLEVEL	opt_global.h
 
 # GPIO and child devices
 GPIO_SPI_DEBUG	opt_gpio.h
+
+# SPI devices
+SPIGEN_LEGACY_CDEVNAME	opt_spi.h
 
 # etherswitch(4) driver
 RTL8366_SOFT_RESET opt_etherswitch.h

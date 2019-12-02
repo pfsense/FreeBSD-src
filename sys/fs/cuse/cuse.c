@@ -53,6 +53,7 @@
 #include <sys/vnode.h>
 #include <sys/selinfo.h>
 #include <sys/ptrace.h>
+#include <sys/sysent.h>
 
 #include <machine/bus.h>
 
@@ -538,7 +539,10 @@ cuse_client_send_command_locked(struct cuse_client_command *pccmd,
 
 	if (ioflag & IO_NDELAY)
 		cuse_fflags |= CUSE_FFLAG_NONBLOCK;
-
+#if defined(__LP64__)
+	if (SV_CURPROC_FLAG(SV_ILP32))
+		cuse_fflags |= CUSE_FFLAG_COMPAT32;
+#endif
 	pccmd->sub.fflags = cuse_fflags;
 	pccmd->sub.data_pointer = data_ptr;
 	pccmd->sub.argument = arg;
@@ -669,14 +673,14 @@ cuse_server_unref(struct cuse_server *pcs)
 
 	TAILQ_REMOVE(&cuse_server_head, pcs, entry);
 
-	cuse_free_unit_by_id_locked(pcs, -1);
-
 	while ((pcsd = TAILQ_FIRST(&pcs->hdev)) != NULL) {
 		TAILQ_REMOVE(&pcs->hdev, pcsd, entry);
 		cuse_unlock();
 		cuse_server_free_dev(pcsd);
 		cuse_lock();
 	}
+
+	cuse_free_unit_by_id_locked(pcs, -1);
 
 	while ((mem = TAILQ_FIRST(&pcs->hmem)) != NULL) {
 		TAILQ_REMOVE(&pcs->hmem, mem, entry);
@@ -697,12 +701,38 @@ cuse_server_unref(struct cuse_server *pcs)
 	free(pcs, M_CUSE);
 }
 
+static int
+cuse_server_do_close(struct cuse_server *pcs)
+{
+	int retval;
+
+	cuse_lock();
+	cuse_server_is_closing(pcs);
+	/* final client wakeup, if any */
+	cuse_server_wakeup_all_client_locked(pcs);
+
+	knlist_clear(&pcs->selinfo.si_note, 1);
+
+	retval = pcs->refs;
+	cuse_unlock();
+
+	return (retval);
+}
+
 static void
 cuse_server_free(void *arg)
 {
 	struct cuse_server *pcs = arg;
 
-	/* drop refcount */
+	/*
+	 * The final server unref should be done by the server thread
+	 * to prevent deadlock in the client cdevpriv destructor,
+	 * which cannot destroy itself.
+	 */
+	while (cuse_server_do_close(pcs) != 1)
+		pause("W", hz);
+
+	/* drop final refcount */
 	cuse_server_unref(pcs);
 }
 
@@ -744,21 +774,10 @@ static int
 cuse_server_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 {
 	struct cuse_server *pcs;
-	int error;
 
-	error = cuse_server_get(&pcs);
-	if (error != 0)
-		goto done;
+	if (cuse_server_get(&pcs) == 0)
+		cuse_server_do_close(pcs);
 
-	cuse_lock();
-	cuse_server_is_closing(pcs);
-	/* final client wakeup, if any */
-	cuse_server_wakeup_all_client_locked(pcs);
-
-	knlist_clear(&pcs->selinfo.si_note, 1);
-	cuse_unlock();
-
-done:
 	return (0);
 }
 

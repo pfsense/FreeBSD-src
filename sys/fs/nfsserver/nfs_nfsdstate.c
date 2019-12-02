@@ -28,6 +28,8 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_inet.h"
+#include "opt_inet6.h"
 #ifndef APPLEKEXT
 #include <fs/nfs/nfsport.h>
 
@@ -41,6 +43,7 @@ extern struct nfsstatsv1 nfsstatsv1;
 extern int nfsrv_lease;
 extern struct timeval nfsboottime;
 extern u_int32_t newnfs_true, newnfs_false;
+extern int nfsd_debuglevel;
 NFSV4ROOTLOCKMUTEX;
 NFSSTATESPINLOCK;
 
@@ -134,6 +137,7 @@ static int nfsrv_cbcallargs(struct nfsrv_descript *nd, struct nfsclient *clp,
 static u_int32_t nfsrv_nextclientindex(void);
 static u_int32_t nfsrv_nextstateindex(struct nfsclient *clp);
 static void nfsrv_markstable(struct nfsclient *clp);
+static void nfsrv_markreclaim(struct nfsclient *clp);
 static int nfsrv_checkstable(struct nfsclient *clp);
 static int nfsrv_clientconflict(struct nfsclient *clp, int *haslockp, struct 
     vnode *vp, NFSPROC_T *p);
@@ -178,9 +182,15 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
     nfsquad_t *clientidp, nfsquad_t *confirmp, NFSPROC_T *p)
 {
 	struct nfsclient *clp = NULL, *new_clp = *new_clpp;
-	int i, error = 0;
+	int i, error = 0, ret;
 	struct nfsstate *stp, *tstp;
-	struct sockaddr_in *sad, *rad;
+#ifdef INET
+	struct sockaddr_in *sin, *rin;
+#endif
+#ifdef INET6
+	struct sockaddr_in6 *sin6, *rin6;
+#endif
+	struct nfsdsession *sep, *nsep;
 	int zapit = 0, gotit, hasstate = 0, igotlock;
 	static u_int64_t confirm_index = 0;
 
@@ -331,10 +341,24 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 		 * If the uid doesn't match, return NFSERR_CLIDINUSE after
 		 * filling out the correct ipaddr and portnum.
 		 */
-		sad = NFSSOCKADDR(new_clp->lc_req.nr_nam, struct sockaddr_in *);
-		rad = NFSSOCKADDR(clp->lc_req.nr_nam, struct sockaddr_in *);
-		sad->sin_addr.s_addr = rad->sin_addr.s_addr;
-		sad->sin_port = rad->sin_port;
+		switch (clp->lc_req.nr_nam->sa_family) {
+#ifdef INET
+		case AF_INET:
+			sin = (struct sockaddr_in *)new_clp->lc_req.nr_nam;
+			rin = (struct sockaddr_in *)clp->lc_req.nr_nam;
+			sin->sin_addr.s_addr = rin->sin_addr.s_addr;
+			sin->sin_port = rin->sin_port;
+			break;
+#endif
+#ifdef INET6
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *)new_clp->lc_req.nr_nam;
+			rin6 = (struct sockaddr_in6 *)clp->lc_req.nr_nam;
+			sin6->sin6_addr = rin6->sin6_addr;
+			sin6->sin6_port = rin6->sin6_port;
+			break;
+#endif
+		}
 		NFSLOCKV4ROOTMUTEX();
 		nfsv4_unlock(&nfsv4rootfs_lock, 1);
 		NFSUNLOCKV4ROOTMUTEX();
@@ -350,6 +374,15 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 		 * can be thrown away once the SETCLIENTID_CONFIRM occurs.
 		 */
 		LIST_REMOVE(clp, lc_hash);
+
+		/* Get rid of all sessions on this clientid. */
+		LIST_FOREACH_SAFE(sep, &clp->lc_session, sess_list, nsep) {
+			ret = nfsrv_freesession(sep, NULL);
+			if (ret != 0)
+				printf("nfsrv_setclient: verifier changed free"
+				    " session failed=%d\n", ret);
+		}
+
 		new_clp->lc_flags |= LCL_NEEDSCONFIRM;
 		if ((nd->nd_flag & ND_NFSV41) != 0)
 			new_clp->lc_confirm.lval[0] = confirmp->lval[0] =
@@ -385,6 +418,7 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 			LIST_FOREACH(tstp, &new_clp->lc_stateid[i], ls_hash)
 				tstp->ls_clp = new_clp;
 		}
+		LIST_INIT(&new_clp->lc_session);
 		LIST_INSERT_HEAD(NFSCLIENTHASH(new_clp->lc_clientid), new_clp,
 		    lc_hash);
 		nfsstatsv1.srvclients++;
@@ -449,6 +483,7 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 			LIST_FOREACH(tstp, &new_clp->lc_stateid[i], ls_hash)
 				tstp->ls_clp = new_clp;
 		}
+		LIST_INIT(&new_clp->lc_session);
 		LIST_INSERT_HEAD(NFSCLIENTHASH(new_clp->lc_clientid), new_clp,
 		    lc_hash);
 		nfsstatsv1.srvclients++;
@@ -615,10 +650,11 @@ nfsrv_getclient(nfsquad_t clientid, int opflags, struct nfsclient **clpp,
 		    if (nsep != NULL) {
 			/* Hold a reference on the xprt for a backchannel. */
 			if ((nsep->sess_crflags & NFSV4CRSESS_CONNBACKCHAN)
-			    != 0 && clp->lc_req.nr_client == NULL) {
-			    clp->lc_req.nr_client = (struct __rpc_client *)
-				clnt_bck_create(nd->nd_xprt->xp_socket,
-				cbprogram, NFSV4_CBVERS);
+			    != 0) {
+			    if (clp->lc_req.nr_client == NULL)
+				clp->lc_req.nr_client = (struct __rpc_client *)
+				    clnt_bck_create(nd->nd_xprt->xp_socket,
+				    cbprogram, NFSV4_CBVERS);
 			    if (clp->lc_req.nr_client != NULL) {
 				SVC_ACQUIRE(nd->nd_xprt);
 				nd->nd_xprt->xp_p2 =
@@ -869,9 +905,13 @@ nfsrv_dumpaclient(struct nfsclient *clp, struct nfsd_dumpclients *dumpp)
 {
 	struct nfsstate *stp, *openstp, *lckownstp;
 	struct nfslock *lop;
-	struct sockaddr *sad;
-	struct sockaddr_in *rad;
-	struct sockaddr_in6 *rad6;
+	sa_family_t af;
+#ifdef INET
+	struct sockaddr_in *rin;
+#endif
+#ifdef INET6
+	struct sockaddr_in6 *rin6;
+#endif
 
 	dumpp->ndcl_nopenowners = dumpp->ndcl_nlockowners = 0;
 	dumpp->ndcl_nopens = dumpp->ndcl_nlocks = 0;
@@ -879,14 +919,21 @@ nfsrv_dumpaclient(struct nfsclient *clp, struct nfsd_dumpclients *dumpp)
 	dumpp->ndcl_flags = clp->lc_flags;
 	dumpp->ndcl_clid.nclid_idlen = clp->lc_idlen;
 	NFSBCOPY(clp->lc_id, dumpp->ndcl_clid.nclid_id, clp->lc_idlen);
-	sad = NFSSOCKADDR(clp->lc_req.nr_nam, struct sockaddr *);
-	dumpp->ndcl_addrfam = sad->sa_family;
-	if (sad->sa_family == AF_INET) {
-		rad = (struct sockaddr_in *)sad;
-		dumpp->ndcl_cbaddr.sin_addr = rad->sin_addr;
-	} else {
-		rad6 = (struct sockaddr_in6 *)sad;
-		dumpp->ndcl_cbaddr.sin6_addr = rad6->sin6_addr;
+	af = clp->lc_req.nr_nam->sa_family;
+	dumpp->ndcl_addrfam = af;
+	switch (af) {
+#ifdef INET
+	case AF_INET:
+		rin = (struct sockaddr_in *)clp->lc_req.nr_nam;
+		dumpp->ndcl_cbaddr.sin_addr = rin->sin_addr;
+		break;
+#endif
+#ifdef INET6
+	case AF_INET6:
+		rin6 = (struct sockaddr_in6 *)clp->lc_req.nr_nam;
+		dumpp->ndcl_cbaddr.sin6_addr = rin6->sin6_addr;
+		break;
+#endif
 	}
 
 	/*
@@ -927,9 +974,13 @@ nfsrv_dumplocks(vnode_t vp, struct nfsd_dumplocks *ldumpp, int maxcnt,
 	struct nfslock *lop;
 	int cnt = 0;
 	struct nfslockfile *lfp;
-	struct sockaddr *sad;
-	struct sockaddr_in *rad;
-	struct sockaddr_in6 *rad6;
+	sa_family_t af;
+#ifdef INET
+	struct sockaddr_in *rin;
+#endif
+#ifdef INET6
+	struct sockaddr_in6 *rin6;
+#endif
 	int ret;
 	fhandle_t nfh;
 
@@ -971,14 +1022,22 @@ nfsrv_dumplocks(vnode_t vp, struct nfsd_dumplocks *ldumpp, int maxcnt,
 		ldumpp[cnt].ndlck_clid.nclid_idlen = stp->ls_clp->lc_idlen;
 		NFSBCOPY(stp->ls_clp->lc_id, ldumpp[cnt].ndlck_clid.nclid_id,
 		    stp->ls_clp->lc_idlen);
-		sad=NFSSOCKADDR(stp->ls_clp->lc_req.nr_nam, struct sockaddr *);
-		ldumpp[cnt].ndlck_addrfam = sad->sa_family;
-		if (sad->sa_family == AF_INET) {
-			rad = (struct sockaddr_in *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin_addr = rad->sin_addr;
-		} else {
-			rad6 = (struct sockaddr_in6 *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rad6->sin6_addr;
+		af = stp->ls_clp->lc_req.nr_nam->sa_family;
+		ldumpp[cnt].ndlck_addrfam = af;
+		switch (af) {
+#ifdef INET
+		case AF_INET:
+			rin = (struct sockaddr_in *)stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin_addr = rin->sin_addr;
+			break;
+#endif
+#ifdef INET6
+		case AF_INET6:
+			rin6 = (struct sockaddr_in6 *)
+			    stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rin6->sin6_addr;
+			break;
+#endif
 		}
 		stp = LIST_NEXT(stp, ls_file);
 		cnt++;
@@ -1003,14 +1062,22 @@ nfsrv_dumplocks(vnode_t vp, struct nfsd_dumplocks *ldumpp, int maxcnt,
 		ldumpp[cnt].ndlck_clid.nclid_idlen = stp->ls_clp->lc_idlen;
 		NFSBCOPY(stp->ls_clp->lc_id, ldumpp[cnt].ndlck_clid.nclid_id,
 		    stp->ls_clp->lc_idlen);
-		sad=NFSSOCKADDR(stp->ls_clp->lc_req.nr_nam, struct sockaddr *);
-		ldumpp[cnt].ndlck_addrfam = sad->sa_family;
-		if (sad->sa_family == AF_INET) {
-			rad = (struct sockaddr_in *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin_addr = rad->sin_addr;
-		} else {
-			rad6 = (struct sockaddr_in6 *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rad6->sin6_addr;
+		af = stp->ls_clp->lc_req.nr_nam->sa_family;
+		ldumpp[cnt].ndlck_addrfam = af;
+		switch (af) {
+#ifdef INET
+		case AF_INET:
+			rin = (struct sockaddr_in *)stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin_addr = rin->sin_addr;
+			break;
+#endif
+#ifdef INET6
+		case AF_INET6:
+			rin6 = (struct sockaddr_in6 *)
+			    stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rin6->sin6_addr;
+			break;
+#endif
 		}
 		lop = LIST_NEXT(lop, lo_lckfile);
 		cnt++;
@@ -1030,14 +1097,22 @@ nfsrv_dumplocks(vnode_t vp, struct nfsd_dumplocks *ldumpp, int maxcnt,
 		ldumpp[cnt].ndlck_clid.nclid_idlen = stp->ls_clp->lc_idlen;
 		NFSBCOPY(stp->ls_clp->lc_id, ldumpp[cnt].ndlck_clid.nclid_id,
 		    stp->ls_clp->lc_idlen);
-		sad=NFSSOCKADDR(stp->ls_clp->lc_req.nr_nam, struct sockaddr *);
-		ldumpp[cnt].ndlck_addrfam = sad->sa_family;
-		if (sad->sa_family == AF_INET) {
-			rad = (struct sockaddr_in *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin_addr = rad->sin_addr;
-		} else {
-			rad6 = (struct sockaddr_in6 *)sad;
-			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rad6->sin6_addr;
+		af = stp->ls_clp->lc_req.nr_nam->sa_family;
+		ldumpp[cnt].ndlck_addrfam = af;
+		switch (af) {
+#ifdef INET
+		case AF_INET:
+			rin = (struct sockaddr_in *)stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin_addr = rin->sin_addr;
+			break;
+#endif
+#ifdef INET6
+		case AF_INET6:
+			rin6 = (struct sockaddr_in6 *)
+			    stp->ls_clp->lc_req.nr_nam;
+			ldumpp[cnt].ndlck_cbaddr.sin6_addr = rin6->sin6_addr;
+			break;
+#endif
 		}
 		stp = LIST_NEXT(stp, ls_file);
 		cnt++;
@@ -3010,7 +3085,13 @@ tryagain:
 		    /*
 		     * This is where we can choose to issue a delegation.
 		     */
-		    if (delegate == 0 || writedeleg == 0 ||
+		    if ((new_stp->ls_flags & NFSLCK_WANTNODELEG) != 0)
+			*rflagsp |= NFSV4OPEN_WDNOTWANTED;
+		    else if (nfsrv_issuedelegs == 0)
+			*rflagsp |= NFSV4OPEN_WDSUPPFTYPE;
+		    else if (NFSRV_V4DELEGLIMIT(nfsrv_delegatecnt))
+			*rflagsp |= NFSV4OPEN_WDRESOURCE;
+		    else if (delegate == 0 || writedeleg == 0 ||
 			NFSVNO_EXRDONLY(exp) || (readonly != 0 &&
 			nfsrv_writedelegifpos == 0) ||
 			!NFSVNO_DELEGOK(vp) ||
@@ -3018,11 +3099,6 @@ tryagain:
 			(clp->lc_flags & (LCL_CALLBACKSON | LCL_CBDOWN)) !=
 			 LCL_CALLBACKSON)
 			*rflagsp |= NFSV4OPEN_WDCONTENTION;
-		    else if (nfsrv_issuedelegs == 0 ||
-			NFSRV_V4DELEGLIMIT(nfsrv_delegatecnt))
-			*rflagsp |= NFSV4OPEN_WDRESOURCE;
-		    else if ((new_stp->ls_flags & NFSLCK_WANTNODELEG) != 0)
-			*rflagsp |= NFSV4OPEN_WDNOTWANTED;
 		    else {
 			new_deleg->ls_stateid.seqid = delegstateidp->seqid = 1;
 			new_deleg->ls_stateid.other[0] = delegstateidp->other[0]
@@ -3073,16 +3149,17 @@ tryagain:
 		    /*
 		     * This is where we can choose to issue a delegation.
 		     */
-		    if (delegate == 0 || (writedeleg == 0 && readonly == 0) ||
-			!NFSVNO_DELEGOK(vp) ||
+		    if ((new_stp->ls_flags & NFSLCK_WANTNODELEG) != 0)
+			*rflagsp |= NFSV4OPEN_WDNOTWANTED;
+		    else if (nfsrv_issuedelegs == 0)
+			*rflagsp |= NFSV4OPEN_WDSUPPFTYPE;
+		    else if (NFSRV_V4DELEGLIMIT(nfsrv_delegatecnt))
+			*rflagsp |= NFSV4OPEN_WDRESOURCE;
+		    else if (delegate == 0 || (writedeleg == 0 &&
+			readonly == 0) || !NFSVNO_DELEGOK(vp) ||
 			(clp->lc_flags & (LCL_CALLBACKSON | LCL_CBDOWN)) !=
 			 LCL_CALLBACKSON)
 			*rflagsp |= NFSV4OPEN_WDCONTENTION;
-		    else if (nfsrv_issuedelegs == 0 ||
-			NFSRV_V4DELEGLIMIT(nfsrv_delegatecnt))
-			*rflagsp |= NFSV4OPEN_WDRESOURCE;
-		    else if ((new_stp->ls_flags & NFSLCK_WANTNODELEG) != 0)
-			*rflagsp |= NFSV4OPEN_WDNOTWANTED;
 		    else {
 			new_deleg->ls_stateid.seqid = delegstateidp->seqid = 1;
 			new_deleg->ls_stateid.other[0] = delegstateidp->other[0]
@@ -3893,9 +3970,15 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 {
 	u_int32_t *tl;
 	u_char *cp, *cp2;
-	int i, j;
-	struct sockaddr_in *rad, *sad;
-	u_char protocol[5], addr[24];
+	int i, j, maxalen = 0, minalen = 0;
+	sa_family_t af;
+#ifdef INET
+	struct sockaddr_in *rin, *sin;
+#endif
+#ifdef INET6
+	struct sockaddr_in6 *rin6, *sin6;
+#endif
+	u_char *addr;
 	int error = 0, cantparse = 0;
 	union {
 		in_addr_t ival;
@@ -3906,27 +3989,44 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 		u_char cval[2];
 	} port;
 
-	rad = NFSSOCKADDR(clp->lc_req.nr_nam, struct sockaddr_in *);
-	rad->sin_family = AF_INET;
-	rad->sin_len = sizeof (struct sockaddr_in);
-	rad->sin_addr.s_addr = 0;
-	rad->sin_port = 0;
+	/* 8 is the maximum length of the port# string. */
+	addr = malloc(INET6_ADDRSTRLEN + 8, M_TEMP, M_WAITOK);
 	clp->lc_req.nr_client = NULL;
 	clp->lc_req.nr_lock = 0;
+	af = AF_UNSPEC;
 	NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 	i = fxdr_unsigned(int, *tl);
 	if (i >= 3 && i <= 4) {
-		error = nfsrv_mtostr(nd, protocol, i);
+		error = nfsrv_mtostr(nd, addr, i);
 		if (error)
 			goto nfsmout;
-		if (!strcmp(protocol, "tcp")) {
+#ifdef INET
+		if (!strcmp(addr, "tcp")) {
 			clp->lc_flags |= LCL_TCPCALLBACK;
 			clp->lc_req.nr_sotype = SOCK_STREAM;
 			clp->lc_req.nr_soproto = IPPROTO_TCP;
-		} else if (!strcmp(protocol, "udp")) {
+			af = AF_INET;
+		} else if (!strcmp(addr, "udp")) {
 			clp->lc_req.nr_sotype = SOCK_DGRAM;
 			clp->lc_req.nr_soproto = IPPROTO_UDP;
-		} else {
+			af = AF_INET;
+		}
+#endif
+#ifdef INET6
+		if (af == AF_UNSPEC) {
+			if (!strcmp(addr, "tcp6")) {
+				clp->lc_flags |= LCL_TCPCALLBACK;
+				clp->lc_req.nr_sotype = SOCK_STREAM;
+				clp->lc_req.nr_soproto = IPPROTO_TCP;
+				af = AF_INET6;
+			} else if (!strcmp(addr, "udp6")) {
+				clp->lc_req.nr_sotype = SOCK_DGRAM;
+				clp->lc_req.nr_soproto = IPPROTO_UDP;
+				af = AF_INET6;
+			}
+		}
+#endif
+		if (af == AF_UNSPEC) {
 			cantparse = 1;
 		}
 	} else {
@@ -3937,6 +4037,36 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 				goto nfsmout;
 		}
 	}
+	/*
+	 * The caller has allocated clp->lc_req.nr_nam to be large enough
+	 * for either AF_INET or AF_INET6 and zeroed out the contents.
+	 * maxalen is set to the maximum length of the host IP address string
+	 * plus 8 for the maximum length of the port#.
+	 * minalen is set to the minimum length of the host IP address string
+	 * plus 4 for the minimum length of the port#.
+	 * These lengths do not include NULL termination,
+	 * so INET[6]_ADDRSTRLEN - 1 is used in the calculations.
+	 */
+	switch (af) {
+#ifdef INET
+	case AF_INET:
+		rin = (struct sockaddr_in *)clp->lc_req.nr_nam;
+		rin->sin_family = AF_INET;
+		rin->sin_len = sizeof(struct sockaddr_in);
+		maxalen = INET_ADDRSTRLEN - 1 + 8;
+		minalen = 7 + 4;
+		break;
+#endif
+#ifdef INET6
+	case AF_INET6:
+		rin6 = (struct sockaddr_in6 *)clp->lc_req.nr_nam;
+		rin6->sin6_family = AF_INET6;
+		rin6->sin6_len = sizeof(struct sockaddr_in6);
+		maxalen = INET6_ADDRSTRLEN - 1 + 8;
+		minalen = 3 + 4;
+		break;
+#endif
+	}
 	NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 	i = fxdr_unsigned(int, *tl);
 	if (i < 0) {
@@ -3944,18 +4074,43 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 		goto nfsmout;
 	} else if (i == 0) {
 		cantparse = 1;
-	} else if (!cantparse && i <= 23 && i >= 11) {
+	} else if (!cantparse && i <= maxalen && i >= minalen) {
 		error = nfsrv_mtostr(nd, addr, i);
 		if (error)
 			goto nfsmout;
 
 		/*
 		 * Parse out the address fields. We expect 6 decimal numbers
-		 * separated by '.'s.
+		 * separated by '.'s for AF_INET and two decimal numbers
+		 * preceeded by '.'s for AF_INET6.
 		 */
-		cp = addr;
-		i = 0;
-		while (*cp && i < 6) {
+		cp = NULL;
+		switch (af) {
+#ifdef INET6
+		/*
+		 * For AF_INET6, first parse the host address.
+		 */
+		case AF_INET6:
+			cp = strchr(addr, '.');
+			if (cp != NULL) {
+				*cp++ = '\0';
+				if (inet_pton(af, addr, &rin6->sin6_addr) == 1)
+					i = 4;
+				else {
+					cp = NULL;
+					cantparse = 1;
+				}
+			}
+			break;
+#endif
+#ifdef INET
+		case AF_INET:
+			cp = addr;
+			i = 0;
+			break;
+#endif
+		}
+		while (cp != NULL && *cp && i < 6) {
 			cp2 = cp;
 			while (*cp2 && *cp2 != '.')
 				cp2++;
@@ -3979,11 +4134,30 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 			i++;
 		}
 		if (!cantparse) {
-			if (ip.ival != 0x0) {
-				rad->sin_addr.s_addr = htonl(ip.ival);
-				rad->sin_port = htons(port.sval);
-			} else {
-				cantparse = 1;
+			/*
+			 * The host address INADDR_ANY is (mis)used to indicate
+			 * "there is no valid callback address".
+			 */
+			switch (af) {
+#ifdef INET6
+			case AF_INET6:
+				if (!IN6_ARE_ADDR_EQUAL(&rin6->sin6_addr,
+				    &in6addr_any))
+					rin6->sin6_port = htons(port.sval);
+				else
+					cantparse = 1;
+				break;
+#endif
+#ifdef INET
+			case AF_INET:
+				if (ip.ival != INADDR_ANY) {
+					rin->sin_addr.s_addr = htonl(ip.ival);
+					rin->sin_port = htons(port.sval);
+				} else {
+					cantparse = 1;
+				}
+				break;
+#endif
 			}
 		}
 	} else {
@@ -3995,14 +4169,32 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 		}
 	}
 	if (cantparse) {
-		sad = NFSSOCKADDR(nd->nd_nam, struct sockaddr_in *);
-		if (sad->sin_family == AF_INET) {
-			rad->sin_addr.s_addr = sad->sin_addr.s_addr;
-			rad->sin_port = 0x0;
+		switch (nd->nd_nam->sa_family) {
+#ifdef INET
+		case AF_INET:
+			sin = (struct sockaddr_in *)nd->nd_nam;
+			rin = (struct sockaddr_in *)clp->lc_req.nr_nam;
+			rin->sin_family = AF_INET;
+			rin->sin_len = sizeof(struct sockaddr_in);
+			rin->sin_addr.s_addr = sin->sin_addr.s_addr;
+			rin->sin_port = 0x0;
+			break;
+#endif
+#ifdef INET6
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *)nd->nd_nam;
+			rin6 = (struct sockaddr_in6 *)clp->lc_req.nr_nam;
+			rin6->sin6_family = AF_INET6;
+			rin6->sin6_len = sizeof(struct sockaddr_in6);
+			rin6->sin6_addr = sin6->sin6_addr;
+			rin6->sin6_port = 0x0;
+			break;
+#endif
 		}
 		clp->lc_program = 0;
 	}
 nfsmout:
+	free(addr, M_TEMP);
 	NFSEXITCODE2(error, nd);
 	return (error);
 }
@@ -4078,7 +4270,26 @@ static int
 nfsrv_checkgrace(struct nfsrv_descript *nd, struct nfsclient *clp,
     u_int32_t flags)
 {
-	int error = 0;
+	int error = 0, notreclaimed;
+	struct nfsrv_stable *sp;
+
+	if ((nfsrv_stablefirst.nsf_flags & (NFSNSF_UPDATEDONE |
+	     NFSNSF_GRACEOVER)) == 0) {
+		/*
+		 * First, check to see if all of the clients have done a
+		 * ReclaimComplete.  If so, grace can end now.
+		 */
+		notreclaimed = 0;
+		LIST_FOREACH(sp, &nfsrv_stablefirst.nsf_head, nst_list) {
+			if ((sp->nst_flag & NFSNST_RECLAIMED) == 0) {
+				notreclaimed = 1;
+				break;
+			}
+		}
+		if (notreclaimed == 0)
+			nfsrv_stablefirst.nsf_flags |= (NFSNSF_GRACEOVER |
+			    NFSNSF_NEEDLOCK);
+	}
 
 	if ((nfsrv_stablefirst.nsf_flags & NFSNSF_GRACEOVER) != 0) {
 		if (flags & NFSLCK_RECLAIM) {
@@ -4222,9 +4433,10 @@ nfsrv_docallback(struct nfsclient *clp, int procnum,
 	 */
 	(void) newnfs_sndlock(&clp->lc_req.nr_lock);
 	if (clp->lc_req.nr_client == NULL) {
-		if ((clp->lc_flags & LCL_NFSV41) != 0)
+		if ((clp->lc_flags & LCL_NFSV41) != 0) {
 			error = ECONNREFUSED;
-		else if (nd->nd_procnum == NFSV4PROC_CBNULL)
+			nfsrv_freesession(sep, NULL);
+		} else if (nd->nd_procnum == NFSV4PROC_CBNULL)
 			error = newnfs_connect(NULL, &clp->lc_req, cred,
 			    NULL, 1);
 		else
@@ -4733,6 +4945,32 @@ nfsrv_markstable(struct nfsclient *clp)
 	 */
 	sp->nst_flag |= NFSNST_GOTSTATE;
 	sp->nst_clp = clp;
+}
+
+/*
+ * This function is called when a NFSv4.1 client does a ReclaimComplete.
+ * Very similar to nfsrv_markstable(), except for the flag being set.
+ */
+static void
+nfsrv_markreclaim(struct nfsclient *clp)
+{
+	struct nfsrv_stable *sp;
+
+	/*
+	 * First find the client structure.
+	 */
+	LIST_FOREACH(sp, &nfsrv_stablefirst.nsf_head, nst_list) {
+		if (sp->nst_len == clp->lc_idlen &&
+		    !NFSBCMP(sp->nst_client, clp->lc_id, sp->nst_len))
+			break;
+	}
+	if (sp == LIST_END(&nfsrv_stablefirst.nsf_head))
+		return;
+
+	/*
+	 * Now, just set the flag.
+	 */
+	sp->nst_flag |= NFSNST_RECLAIMED;
 }
 
 /*
@@ -5842,9 +6080,18 @@ nfsrv_checksequence(struct nfsrv_descript *nd, uint32_t sequenceid,
 	/*
 	 * If this session handles the backchannel, save the nd_xprt for this
 	 * RPC, since this is the one being used.
+	 * RFC-5661 specifies that the fore channel will be implicitly
+	 * bound by a Sequence operation.  However, since some NFSv4.1 clients
+	 * erroneously assumed that the back channel would be implicitly
+	 * bound as well, do the implicit binding unless a
+	 * BindConnectiontoSession has already been done on the session.
 	 */
 	if (sep->sess_clp->lc_req.nr_client != NULL &&
-	    (sep->sess_crflags & NFSV4CRSESS_CONNBACKCHAN) != 0) {
+	    sep->sess_cbsess.nfsess_xprt != nd->nd_xprt &&
+	    (sep->sess_crflags & NFSV4CRSESS_CONNBACKCHAN) != 0 &&
+	    (sep->sess_clp->lc_flags & LCL_DONEBINDCONN) == 0) {
+		NFSD_DEBUG(2,
+		    "nfsrv_checksequence: implicit back channel bind\n");
 		savxprt = sep->sess_cbsess.nfsess_xprt;
 		SVC_ACQUIRE(nd->nd_xprt);
 		nd->nd_xprt->xp_p2 =
@@ -5874,7 +6121,7 @@ nfsrv_checksequence(struct nfsrv_descript *nd, uint32_t sequenceid,
  * Check/set reclaim complete for this session/clientid.
  */
 int
-nfsrv_checkreclaimcomplete(struct nfsrv_descript *nd)
+nfsrv_checkreclaimcomplete(struct nfsrv_descript *nd, int onefs)
 {
 	struct nfsdsession *sep;
 	struct nfssessionhash *shp;
@@ -5890,11 +6137,15 @@ nfsrv_checkreclaimcomplete(struct nfsrv_descript *nd)
 		return (NFSERR_BADSESSION);
 	}
 
-	/* Check to see if reclaim complete has already happened. */
-	if ((sep->sess_clp->lc_flags & LCL_RECLAIMCOMPLETE) != 0)
+	if (onefs != 0)
+		sep->sess_clp->lc_flags |= LCL_RECLAIMONEFS;
+		/* Check to see if reclaim complete has already happened. */
+	else if ((sep->sess_clp->lc_flags & LCL_RECLAIMCOMPLETE) != 0)
 		error = NFSERR_COMPLETEALREADY;
-	else
+	else {
 		sep->sess_clp->lc_flags |= LCL_RECLAIMCOMPLETE;
+		nfsrv_markreclaim(sep->sess_clp);
+	}
 	NFSUNLOCKSESSION(shp);
 	NFSUNLOCKSTATE();
 	return (error);
@@ -5946,17 +6197,106 @@ nfsrv_findsession(uint8_t *sessionid)
 int
 nfsrv_destroysession(struct nfsrv_descript *nd, uint8_t *sessionid)
 {
-	int error, samesess;
+	int error, igotlock, samesess;
 
 	samesess = 0;
-	if (!NFSBCMP(sessionid, nd->nd_sessionid, NFSX_V4SESSIONID)) {
+	if (!NFSBCMP(sessionid, nd->nd_sessionid, NFSX_V4SESSIONID) &&
+	    (nd->nd_flag & ND_HASSEQUENCE) != 0) {
 		samesess = 1;
 		if ((nd->nd_flag & ND_LASTOP) == 0)
 			return (NFSERR_BADSESSION);
 	}
+
+	/* Lock out other nfsd threads */
+	NFSLOCKV4ROOTMUTEX();
+	nfsv4_relref(&nfsv4rootfs_lock);
+	do {
+		igotlock = nfsv4_lock(&nfsv4rootfs_lock, 1, NULL,
+		    NFSV4ROOTLOCKMUTEXPTR, NULL);
+	} while (igotlock == 0);
+	NFSUNLOCKV4ROOTMUTEX();
+
 	error = nfsrv_freesession(NULL, sessionid);
 	if (error == 0 && samesess != 0)
 		nd->nd_flag &= ~ND_HASSEQUENCE;
+
+	NFSLOCKV4ROOTMUTEX();
+	nfsv4_unlock(&nfsv4rootfs_lock, 1);
+	NFSUNLOCKV4ROOTMUTEX();
+	return (error);
+}
+
+/*
+ * Bind a connection to a session.
+ * For now, only certain variants are supported, since the current session
+ * structure can only handle a single backchannel entry, which will be
+ * applied to all connections if it is set.
+ */
+int
+nfsrv_bindconnsess(struct nfsrv_descript *nd, uint8_t *sessionid, int *foreaftp)
+{
+	struct nfssessionhash *shp;
+	struct nfsdsession *sep;
+	struct nfsclient *clp;
+	SVCXPRT *savxprt;
+	int error;
+
+	error = 0;
+	shp = NFSSESSIONHASH(sessionid);
+	NFSLOCKSTATE();
+	NFSLOCKSESSION(shp);
+	sep = nfsrv_findsession(sessionid);
+	if (sep != NULL) {
+		clp = sep->sess_clp;
+		if (*foreaftp == NFSCDFC4_BACK ||
+		    *foreaftp == NFSCDFC4_BACK_OR_BOTH ||
+		    *foreaftp == NFSCDFC4_FORE_OR_BOTH) {
+			/* Try to set up a backchannel. */
+			if (clp->lc_req.nr_client == NULL) {
+				NFSD_DEBUG(2, "nfsrv_bindconnsess: acquire "
+				    "backchannel\n");
+				clp->lc_req.nr_client = (struct __rpc_client *)
+				    clnt_bck_create(nd->nd_xprt->xp_socket,
+				    sep->sess_cbprogram, NFSV4_CBVERS);
+			}
+			if (clp->lc_req.nr_client != NULL) {
+				NFSD_DEBUG(2, "nfsrv_bindconnsess: set up "
+				    "backchannel\n");
+				savxprt = sep->sess_cbsess.nfsess_xprt;
+				SVC_ACQUIRE(nd->nd_xprt);
+				nd->nd_xprt->xp_p2 =
+				    clp->lc_req.nr_client->cl_private;
+				/* Disable idle timeout. */
+				nd->nd_xprt->xp_idletimeout = 0;
+				sep->sess_cbsess.nfsess_xprt = nd->nd_xprt;
+				if (savxprt != NULL)
+					SVC_RELEASE(savxprt);
+				sep->sess_crflags |= NFSV4CRSESS_CONNBACKCHAN;
+				clp->lc_flags |= LCL_DONEBINDCONN;
+				if (*foreaftp == NFSCDFS4_BACK)
+					*foreaftp = NFSCDFS4_BACK;
+				else
+					*foreaftp = NFSCDFS4_BOTH;
+			} else if (*foreaftp != NFSCDFC4_BACK) {
+				NFSD_DEBUG(2, "nfsrv_bindconnsess: can't set "
+				    "up backchannel\n");
+				sep->sess_crflags &= ~NFSV4CRSESS_CONNBACKCHAN;
+				clp->lc_flags |= LCL_DONEBINDCONN;
+				*foreaftp = NFSCDFS4_FORE;
+			} else {
+				error = NFSERR_NOTSUPP;
+				printf("nfsrv_bindconnsess: Can't add "
+				    "backchannel\n");
+			}
+		} else {
+			NFSD_DEBUG(2, "nfsrv_bindconnsess: Set forechannel\n");
+			clp->lc_flags |= LCL_DONEBINDCONN;
+			*foreaftp = NFSCDFS4_FORE;
+		}
+	} else
+		error = NFSERR_BADSESSION;
+	NFSUNLOCKSESSION(shp);
+	NFSUNLOCKSTATE();
 	return (error);
 }
 
@@ -5983,7 +6323,7 @@ nfsrv_freesession(struct nfsdsession *sep, uint8_t *sessionid)
 		if (sep->sess_refcnt > 0) {
 			NFSUNLOCKSESSION(shp);
 			NFSUNLOCKSTATE();
-			return (0);
+			return (NFSERR_BACKCHANBUSY);
 		}
 		LIST_REMOVE(sep, sess_hash);
 		LIST_REMOVE(sep, sess_list);
@@ -6046,6 +6386,32 @@ nfsrv_freestateid(struct nfsrv_descript *nd, nfsv4stateid_t *stateidp,
 		error = NFSERR_LOCKSHELD;
 	if (error == 0)
 		nfsrv_freelockowner(stp, NULL, 0, p);
+	NFSUNLOCKSTATE();
+	return (error);
+}
+
+/*
+ * Test a stateid.
+ */
+int
+nfsrv_teststateid(struct nfsrv_descript *nd, nfsv4stateid_t *stateidp,
+    NFSPROC_T *p)
+{
+	struct nfsclient *clp;
+	struct nfsstate *stp;
+	int error;
+
+	NFSLOCKSTATE();
+	/*
+	 * Look up the stateid
+	 */
+	error = nfsrv_getclient((nfsquad_t)((u_quad_t)0), CLOPS_RENEW, &clp,
+	    NULL, (nfsquad_t)((u_quad_t)0), 0, nd, p);
+	if (error == 0)
+		error = nfsrv_getstate(clp, stateidp, 0, &stp);
+	if (error == 0 && stateidp->seqid != 0 &&
+	    SEQ_LT(stateidp->seqid, stp->ls_stateid.seqid))
+		error = NFSERR_OLDSTATEID;
 	NFSUNLOCKSTATE();
 	return (error);
 }

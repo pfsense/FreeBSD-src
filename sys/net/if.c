@@ -254,7 +254,6 @@ static int	if_setflag(struct ifnet *, int, int, int *, int);
 static int	if_transmit(struct ifnet *ifp, struct mbuf *m);
 static void	if_unroute(struct ifnet *, int flag, int fam);
 static void	link_rtrequest(int, struct rtentry *, struct rt_addrinfo *);
-static int	ifhwioctl(u_long, struct ifnet *, caddr_t, struct thread *);
 static int	if_delmulti_locked(struct ifnet *, struct ifmultiaddr *, int);
 static void	do_link_state_change(void *, int);
 static int	if_getgroup(struct ifgroupreq *, struct ifnet *);
@@ -1031,6 +1030,8 @@ if_detach_internal(struct ifnet *ifp, int vmove, struct if_clone **ifcp)
 	TAILQ_FOREACH(iter, &V_ifnet, if_link)
 		if (iter == ifp) {
 			TAILQ_REMOVE(&V_ifnet, ifp, if_link);
+			if (!vmove)
+				ifp->if_flags |= IFF_DYING;
 			found = 1;
 			break;
 		}
@@ -1085,6 +1086,9 @@ if_detach_internal(struct ifnet *ifp, int vmove, struct if_clone **ifcp)
 	 * the work top-down for us.
 	 */
 	if (shutdown) {
+		/* Give interface users the chance to clean up. */
+		EVENTHANDLER_INVOKE(ifnet_departure_event, ifp);
+
 		/*
 		 * In case of a vmove we are done here without error.
 		 * If we would signal an error it would lead to the same
@@ -2479,7 +2483,7 @@ ifr_data_get_ptr(void *ifrp)
 /*
  * Hardware specific interface ioctls.
  */
-static int
+int
 ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 {
 	struct ifreq *ifr;
@@ -2668,6 +2672,8 @@ ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 			if (strlen(new_name) == IFNAMSIZ-1)
 				return (EINVAL);
 		}
+		if (strcmp(new_name, ifp->if_xname) == 0)
+			break;
 		if (ifunit(new_name) != NULL)
 			return (EEXIST);
 
@@ -2838,6 +2844,7 @@ ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 	case SIOCGIFGENERIC:
 	case SIOCGIFRSSKEY:
 	case SIOCGIFRSSHASH:
+	case SIOCGIFDOWNREASON:
 		if (ifp->if_ioctl == NULL)
 			return (EOPNOTSUPP);
 		error = (*ifp->if_ioctl)(ifp, cmd, data);

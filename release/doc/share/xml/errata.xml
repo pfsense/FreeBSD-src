@@ -20,73 +20,39 @@
     <tbody>
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-17:07.vnet.asc">FreeBSD-EN-17:07.vnet</link></entry>
-	<entry>10&nbsp;August&nbsp;2017</entry>
-	<entry><para>VNET kernel panic with asynchronous
-	    I/O</para></entry>
+	    xlink:href="&security.url;/FreeBSD-EN-19:13.mds.asc">FreeBSD-EN-19:13.mds</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>System crash from Intel CPU vulnerability
+	    mitigation</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-17:08.pf.asc">FreeBSD-EN-17:08.pf</link></entry>
-	<entry>10&nbsp;August&nbsp;2017</entry>
-	<entry><para>&man.pf.4; housekeeping thread causes kernel
-	    panic</para></entry>
+	    xlink:href="&security.url;/FreeBSD-EN-19:15.libunwind.asc">FreeBSD-EN-19:15.libunwind</link></entry>
+	<entry>6&nbsp;August&nbsp;2019</entry>
+	<entry><para>Incorrect exception handling</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-17:09.tzdata.asc">FreeBSD-EN-17:09.tzdata</link></entry>
-	<entry>2&nbsp;November&nbsp;2017</entry>
+	    xlink:href="&security.url;/FreeBSD-EN-19:16.bhyve.asc">FreeBSD-EN-19:16.bhyve</link></entry>
+	<entry>20&nbsp;August&nbsp;2019</entry>
+	<entry><para>Instruction emulation improvements</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-EN-19:17.ipfw.asc">FreeBSD-EN-19:17.ipfw</link></entry>
+	<entry>20&nbsp;August&nbsp;2019</entry>
+	<entry><para>&quot;jail&quot; keyword fix</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-EN-19:18.tzdata.asc">FreeBSD-EN-19:18.tzdata</link></entry>
+	<entry>23&nbsp;October&nbsp;2019</entry>
 	<entry><para>Timezone database information
 	    update</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:01.tzdata.asc">FreeBSD-EN-18:01.tzdata</link></entry>
-	<entry>07&nbsp;March&nbsp;2018</entry>
-	<entry><para>Timezone database information
-	    update</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:02.file.asc">FreeBSD-EN-18:02.file</link></entry>
-	<entry>07&nbsp;March&nbsp;2018</entry>
-	<entry><para>Stack-based buffer overflow</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:03.tzdata.asc">FreeBSD-EN-18:03.tzdata</link></entry>
-	<entry>04&nbsp;April&nbsp;2018</entry>
-	<entry><para>Update timezone database
-	    information</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:04.mem.asc">FreeBSD-EN-18:04.mem</link></entry>
-	<entry>04&nbsp;April&nbsp;2018</entry>
-	<entry><para>Multiple small kernel memory
-	    disclosures</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:05.mem.asc">FreeBSD-EN-18:05.mem</link></entry>
-	<entry>08&nbsp;May&nbsp;2018</entry>
-	<entry><para>Multiple small kernel memory
-	    disclosures</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-EN-18:06.tzdata.asc">FreeBSD-EN-18:06.tzdata</link></entry>
-	<entry>08&nbsp;May&nbsp;2018</entry>
-	<entry><para>Update timezone database
-	    information</para></entry>
       </row>
     </tbody>
   </tgroup>

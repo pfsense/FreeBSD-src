@@ -114,6 +114,13 @@ clflushopt(u_long addr)
 }
 
 static __inline void
+clwb(u_long addr)
+{
+
+	__asm __volatile("clwb %0" : : "m" (*(char *)addr));
+}
+
+static __inline void
 clts(void)
 {
 
@@ -717,6 +724,15 @@ static __inline void
 lldt(u_short sel)
 {
 	__asm __volatile("lldt %0" : : "r" (sel));
+}
+
+static __inline u_short
+sldt(void)
+{
+	u_short sel;
+
+	__asm __volatile("sldt %0" : "=r" (sel));
+	return (sel);
 }
 
 static __inline void

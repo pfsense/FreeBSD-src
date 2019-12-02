@@ -121,7 +121,7 @@ static int do_execve(struct thread *td, struct image_args *args,
 
 /* XXX This should be vm_size_t. */
 SYSCTL_PROC(_kern, KERN_PS_STRINGS, ps_strings, CTLTYPE_ULONG|CTLFLAG_RD|
-    CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_ps_strings, "LU", "");
+    CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_ps_strings, "LU", "");
 
 /* XXX This should be vm_size_t. */
 SYSCTL_PROC(_kern, KERN_USRSTACK, usrstack, CTLTYPE_ULONG|CTLFLAG_RD|
@@ -361,7 +361,6 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 	struct ucred *oldcred;
 	struct uidinfo *euip = NULL;
 	register_t *stack_base;
-	int error, i;
 	struct image_params image_params, *imgp;
 	struct vattr attr;
 	int (*img_first)(struct image_params *);
@@ -382,6 +381,7 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 #ifdef HWPMC_HOOKS
 	struct pmckern_procexec pe;
 #endif
+	int error, i, orig_osrel;
 	static const char fexecv_proc_title[] = "(fexecv)";
 
 	imgp = &image_params;
@@ -407,6 +407,7 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 	imgp->attr = &attr;
 	imgp->args = args;
 	oldcred = p->p_ucred;
+	orig_osrel = p->p_osrel;
 
 #ifdef MAC
 	error = mac_execve_enter(imgp, mac_p);
@@ -652,7 +653,7 @@ interpret:
 		free(imgp->freepath, M_TEMP);
 		imgp->freepath = NULL;
 		/* set new name to that of the interpreter */
-		NDINIT(&nd, LOOKUP, LOCKLEAF | FOLLOW | SAVENAME,
+		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | FOLLOW | SAVENAME,
 		    UIO_SYSSPACE, imgp->interpreter_name, td);
 		args->fname = imgp->interpreter_name;
 		goto interpret;
@@ -762,6 +763,8 @@ interpret:
 	p->p_flag |= P_EXEC;
 	if ((p->p_flag2 & P2_NOTRACE_EXEC) == 0)
 		p->p_flag2 &= ~P2_NOTRACE;
+	if ((p->p_flag2 & P2_STKGAP_DISABLE_EXEC) == 0)
+		p->p_flag2 &= ~P2_STKGAP_DISABLE;
 	if (p->p_flag & P_PPWAIT) {
 		p->p_flag &= ~(P_PPWAIT | P_PPTRACE);
 		cv_broadcast(&p->p_pwait);
@@ -890,6 +893,10 @@ interpret:
 	SDT_PROBE1(proc, , , exec__success, args->fname);
 
 exec_fail_dealloc:
+	if (error != 0) {
+		p->p_osrel = orig_osrel;
+	}
+
 	if (imgp->firstpage != NULL)
 		exec_unmap_first_page(imgp);
 
@@ -1507,6 +1514,7 @@ exec_copyout_strings(struct image_params *imgp)
 	 */
 	if (execpath_len != 0) {
 		destp -= execpath_len;
+		destp = rounddown2(destp, sizeof(void *));
 		imgp->execpathp = destp;
 		copyout(imgp->execpath, (void *)destp, execpath_len);
 	}
@@ -1532,33 +1540,21 @@ exec_copyout_strings(struct image_params *imgp)
 	destp -= ARG_MAX - imgp->args->stringspace;
 	destp = rounddown2(destp, sizeof(void *));
 
-	/*
-	 * If we have a valid auxargs ptr, prepare some room
-	 * on the stack.
-	 */
+	vectp = (char **)destp;
 	if (imgp->auxargs) {
 		/*
-		 * 'AT_COUNT*2' is size for the ELF Auxargs data. This is for
-		 * lower compatibility.
+		 * Allocate room on the stack for the ELF auxargs
+		 * array.  It has up to AT_COUNT entries.
 		 */
-		imgp->auxarg_size = (imgp->auxarg_size) ? imgp->auxarg_size :
-		    (AT_COUNT * 2);
-		/*
-		 * The '+ 2' is for the null pointers at the end of each of
-		 * the arg and env vector sets,and imgp->auxarg_size is room
-		 * for argument of Runtime loader.
-		 */
-		vectp = (char **)(destp - (imgp->args->argc +
-		    imgp->args->envc + 2 + imgp->auxarg_size)
-		    * sizeof(char *));
-	} else {
-		/*
-		 * The '+ 2' is for the null pointers at the end of each of
-		 * the arg and env vector sets
-		 */
-		vectp = (char **)(destp - (imgp->args->argc + imgp->args->envc
-		    + 2) * sizeof(char *));
+		vectp -= howmany(AT_COUNT * sizeof(Elf_Auxinfo),
+		    sizeof(*vectp));
 	}
+
+	/*
+	 * Allocate room for the argv[] and env vectors including the
+	 * terminating NULL pointers.
+	 */
+	vectp -= imgp->args->argc + 1 + imgp->args->envc + 1;
 
 	/*
 	 * vectp also becomes our initial stack base

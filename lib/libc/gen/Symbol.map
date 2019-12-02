@@ -365,6 +365,7 @@ FBSD_1.2 {
 	getutxid;
 	getutxline;
 	getutxuser;
+	pthread_getthreadid_np;
 	pututxline;
 	sem_close;
 	sem_destroy;
@@ -420,6 +421,7 @@ FBSD_1.4 {
 
 FBSD_1.5 {
 	sem_clockwait_np;
+	setproctitle_fast;
 };
 
 FBSDprivate_1.0 {
@@ -544,6 +546,7 @@ FBSDprivate_1.0 {
 	__libc_tcdrain;
 
 	__elf_aux_vector;
+	__pthread_distribute_static_tls;
 	__pthread_map_stacks_exec;
 	__fillcontextx;
 	__fillcontextx2;

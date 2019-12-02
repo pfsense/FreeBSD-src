@@ -377,7 +377,7 @@ static struct op_table_entry scsi_op_codes[] = {
 	{ 0x40,	D | T | L | P | W | R | O | M | S | C, "CHANGE DEFINITION" },
 	/* 41  O               WRITE SAME(10) */
 	{ 0x41,	D, "WRITE SAME(10)" },
-	/* 42       O          UNMAP */
+	/* 42  O               UNMAP */
 	{ 0x42,	D, "UNMAP" },
 	/* 42       O          READ SUB-CHANNEL */
 	{ 0x42,	R, "READ SUB-CHANNEL" },
@@ -392,7 +392,8 @@ static struct op_table_entry scsi_op_codes[] = {
 	{ 0x46,	R, "GET CONFIGURATION" },
 	/* 47       O          PLAY AUDIO MSF */
 	{ 0x47,	R, "PLAY AUDIO MSF" },
-	/* 48 */
+	/* 48  O               SANITIZE */
+	{ 0x48,	D, "SANITIZE" },
 	/* 49 */
 	/* 4A       M          GET EVENT STATUS NOTIFICATION */
 	{ 0x4A,	R, "GET EVENT STATUS NOTIFICATION" },
@@ -1160,7 +1161,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x04, 0x1A, SS_RDEF,	/* XXX TBD */
 	    "Logical unit not ready, START/STOP UNIT command in progress") },
 	/* D         B    */
-	{ SST(0x04, 0x1B, SS_RDEF,	/* XXX TBD */
+	{ SST(0x04, 0x1B, SS_WAIT | EBUSY,
 	    "Logical unit not ready, sanitize in progress") },
 	/* DT     MAEB    */
 	{ SST(0x04, 0x1C, SS_RDEF,	/* XXX TBD */
@@ -1451,7 +1452,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x11, 0x14, SS_RDEF,	/* XXX TBD */
 	    "Read error - LBA marked bad by application client") },
 	/* D              */
-	{ SST(0x11, 0x15, SS_RDEF,	/* XXX TBD */
+	{ SST(0x11, 0x15, SS_FATAL | EIO,
 	    "Write after sanitize required") },
 	/* D   W O   BK   */
 	{ SST(0x12, 0x00, SS_RDEF,
@@ -2053,7 +2054,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x30, 0x13, SS_RDEF,	/* XXX TBD */
 	    "Cleaning volume expired") },
 	/* DT  WRO   BK   */
-	{ SST(0x31, 0x00, SS_RDEF,
+	{ SST(0x31, 0x00, SS_FATAL | ENXIO,
 	    "Medium format corrupted") },
 	/* D L  RO   B    */
 	{ SST(0x31, 0x01, SS_RDEF,
@@ -2062,7 +2063,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x31, 0x02, SS_RDEF,	/* XXX TBD */
 	    "Zoned formatting failed due to spare linking") },
 	/* D         B    */
-	{ SST(0x31, 0x03, SS_RDEF,	/* XXX TBD */
+	{ SST(0x31, 0x03, SS_FATAL | EIO,
 	    "SANITIZE command failed") },
 	/* D   W O   BK   */
 	{ SST(0x32, 0x00, SS_RDEF,
@@ -2327,7 +2328,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x43, 0x00, SS_RDEF,
 	    "Message error") },
 	/* DTLPWROMAEBKVF */
-	{ SST(0x44, 0x00, SS_RDEF,
+	{ SST(0x44, 0x00, SS_FATAL | EIO,
 	    "Internal target failure") },
 	/* DT P   MAEBKVF */
 	{ SST(0x44, 0x01, SS_RDEF,	/* XXX TBD */
@@ -3941,7 +3942,7 @@ scsi_set_sense_data_fixed_va(struct scsi_sense_data *sense_data,
 			}
 			if (len > sizeof(sense->cmd_spec_info)) {
 				data += len - sizeof(sense->cmd_spec_info);
-				len -= len - sizeof(sense->cmd_spec_info);
+				len = sizeof(sense->cmd_spec_info);
 			}
 			bcopy(data, &sense->cmd_spec_info[
 			    sizeof(sense->cmd_spec_info) - len], len);
@@ -4059,6 +4060,10 @@ scsi_get_sense_info(struct scsi_sense_data *sense_data, u_int sense_len,
 			struct scsi_sense_info *info_desc;
 
 			info_desc = (struct scsi_sense_info *)desc;
+
+			if ((info_desc->byte2 & SSD_INFO_VALID) == 0)
+				goto bailout;
+
 			*info = scsi_8btou64(info_desc->info);
 			if (signed_info != NULL)
 				*signed_info = *info;
@@ -4078,6 +4083,9 @@ scsi_get_sense_info(struct scsi_sense_data *sense_data, u_int sense_len,
 			struct scsi_sense_fru *fru_desc;
 
 			fru_desc = (struct scsi_sense_fru *)desc;
+
+			if (fru_desc->fru == 0)
+				goto bailout;
 
 			*info = fru_desc->fru;
 			if (signed_info != NULL)
@@ -4179,10 +4187,9 @@ scsi_get_sks(struct scsi_sense_data *sense_data, u_int sense_len, uint8_t *sks)
 		if (desc == NULL)
 			goto bailout;
 
-		/*
-		 * No need to check the SKS valid bit for descriptor sense.
-		 * If the descriptor is present, it is valid.
-		 */
+		if ((desc->sense_key_spec[0] & SSD_SKS_VALID) == 0)
+			goto bailout;
+
 		bcopy(desc->sense_key_spec, sks, sizeof(desc->sense_key_spec));
 		break;
 	}
@@ -4259,9 +4266,6 @@ scsi_get_block_info(struct scsi_sense_data *sense_data, u_int sense_len,
 		if (SSD_FIXED_IS_PRESENT(sense, sense_len, flags) == 0)
 			goto bailout;
 
-		if ((sense->flags & SSD_ILI) == 0)
-			goto bailout;
-
 		*block_bits = sense->flags & SSD_ILI;
 		break;
 	}
@@ -4315,9 +4319,6 @@ scsi_get_stream_info(struct scsi_sense_data *sense_data, u_int sense_len,
 		if (SSD_FIXED_IS_PRESENT(sense, sense_len, flags) == 0)
 			goto bailout;
 
-		if ((sense->flags & (SSD_ILI|SSD_EOM|SSD_FILEMARK)) == 0)
-			goto bailout;
-
 		*stream_bits = sense->flags & (SSD_ILI|SSD_EOM|SSD_FILEMARK);
 		break;
 	}
@@ -4359,8 +4360,6 @@ scsi_progress_sbuf(struct sbuf *sb, uint16_t progress)
 int
 scsi_sks_sbuf(struct sbuf *sb, int sense_key, uint8_t *sks)
 {
-	if ((sks[0] & SSD_SKS_VALID) == 0)
-		return (1);
 
 	switch (sense_key) {
 	case SSD_KEY_ILLEGAL_REQUEST: {
@@ -4457,7 +4456,7 @@ scsi_fru_sbuf(struct sbuf *sb, uint64_t fru)
 }
 
 void
-scsi_stream_sbuf(struct sbuf *sb, uint8_t stream_bits, uint64_t info)
+scsi_stream_sbuf(struct sbuf *sb, uint8_t stream_bits)
 {
 	int need_comma;
 
@@ -4465,6 +4464,7 @@ scsi_stream_sbuf(struct sbuf *sb, uint8_t stream_bits, uint64_t info)
 	/*
 	 * XXX KDM this needs more descriptive decoding.
 	 */
+	sbuf_printf(sb, "Stream Command Sense Data: ");
 	if (stream_bits & SSD_DESC_STREAM_FM) {
 		sbuf_printf(sb, "Filemark");
 		need_comma = 1;
@@ -4477,15 +4477,15 @@ scsi_stream_sbuf(struct sbuf *sb, uint8_t stream_bits, uint64_t info)
 
 	if (stream_bits & SSD_DESC_STREAM_ILI)
 		sbuf_printf(sb, "%sILI", (need_comma) ? "," : "");
-
-	sbuf_printf(sb, ": Info: %#jx", (uintmax_t) info);
 }
 
 void
-scsi_block_sbuf(struct sbuf *sb, uint8_t block_bits, uint64_t info)
+scsi_block_sbuf(struct sbuf *sb, uint8_t block_bits)
 {
+
+	sbuf_printf(sb, "Block Command Sense Data: ");
 	if (block_bits & SSD_DESC_BLOCK_ILI)
-		sbuf_printf(sb, "ILI: residue %#jx", (uintmax_t) info);
+		sbuf_printf(sb, "ILI");
 }
 
 void
@@ -4497,6 +4497,9 @@ scsi_sense_info_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 	struct scsi_sense_info *info;
 
 	info = (struct scsi_sense_info *)header;
+
+	if ((info->byte2 & SSD_INFO_VALID) == 0)
+		return;
 
 	scsi_info_sbuf(sb, cdb, cdb_len, inq_data, scsi_8btou64(info->info));
 }
@@ -4526,6 +4529,9 @@ scsi_sense_sks_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 
 	sks = (struct scsi_sense_sks *)header;
 
+	if ((sks->sense_key_spec[0] & SSD_SKS_VALID) == 0)
+		return;
+
 	scsi_extract_sense_len(sense, sense_len, &error_code, &sense_key,
 			       &asc, &ascq, /*show_errors*/ 1);
 
@@ -4542,6 +4548,9 @@ scsi_sense_fru_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 
 	fru = (struct scsi_sense_fru *)header;
 
+	if (fru->fru == 0)
+		return;
+
 	scsi_fru_sbuf(sb, (uint64_t)fru->fru);
 }
 
@@ -4552,14 +4561,9 @@ scsi_sense_stream_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 		       struct scsi_sense_desc_header *header)
 {
 	struct scsi_sense_stream *stream;
-	uint64_t info;
 
 	stream = (struct scsi_sense_stream *)header;
-	info = 0;
-
-	scsi_get_sense_info(sense, sense_len, SSD_DESC_INFO, &info, NULL);
-
-	scsi_stream_sbuf(sb, stream->byte3, info);
+	scsi_stream_sbuf(sb, stream->byte3);
 }
 
 void
@@ -4569,14 +4573,9 @@ scsi_sense_block_sbuf(struct sbuf *sb, struct scsi_sense_data *sense,
 		      struct scsi_sense_desc_header *header)
 {
 	struct scsi_sense_block *block;
-	uint64_t info;
 
 	block = (struct scsi_sense_block *)header;
-	info = 0;
-
-	scsi_get_sense_info(sense, sense_len, SSD_DESC_INFO, &info, NULL);
-
-	scsi_block_sbuf(sb, block->byte3, info);
+	scsi_block_sbuf(sb, block->byte3);
 }
 
 void
@@ -4861,7 +4860,7 @@ scsi_sense_only_sbuf(struct scsi_sense_data *sense, u_int sense_len,
 		const char *asc_desc;
 		uint8_t sks[3];
 		uint64_t val;
-		int info_valid;
+		uint8_t bits;
 
 		/*
 		 * Get descriptions for the sense key, ASC, and ASCQ.  If
@@ -4880,42 +4879,28 @@ scsi_sense_only_sbuf(struct scsi_sense_data *sense, u_int sense_len,
 		sbuf_printf(sb, " asc:%x,%x (%s)\n", asc, ascq, asc_desc);
 
 		/*
-		 * Get the info field if it is valid.
+		 * Print any block or stream device-specific information.
+		 */
+		if (scsi_get_block_info(sense, sense_len, inq_data,
+		    &bits) == 0 && bits != 0) {
+			sbuf_cat(sb, path_str);
+			scsi_block_sbuf(sb, bits);
+			sbuf_printf(sb, "\n");
+		} else if (scsi_get_stream_info(sense, sense_len, inq_data,
+		    &bits) == 0 && bits != 0) {
+			sbuf_cat(sb, path_str);
+			scsi_stream_sbuf(sb, bits);
+			sbuf_printf(sb, "\n");
+		}
+
+		/*
+		 * Print the info field.
 		 */
 		if (scsi_get_sense_info(sense, sense_len, SSD_DESC_INFO,
-					&val, NULL) == 0)
-			info_valid = 1;
-		else
-			info_valid = 0;
-
-		if (info_valid != 0) {
-			uint8_t bits;
-
-			/*
-			 * Determine whether we have any block or stream
-			 * device-specific information.
-			 */
-			if (scsi_get_block_info(sense, sense_len, inq_data,
-						&bits) == 0) {
-				sbuf_cat(sb, path_str);
-				scsi_block_sbuf(sb, bits, val);
-				sbuf_printf(sb, "\n");
-			} else if (scsi_get_stream_info(sense, sense_len,
-							inq_data, &bits) == 0) {
-				sbuf_cat(sb, path_str);
-				scsi_stream_sbuf(sb, bits, val);
-				sbuf_printf(sb, "\n");
-			} else if (val != 0) {
-				/*
-				 * The information field can be valid but 0.
-				 * If the block or stream bits aren't set,
-				 * and this is 0, it isn't terribly useful
-				 * to print it out.
-				 */
-				sbuf_cat(sb, path_str);
-				scsi_info_sbuf(sb, cdb, cdb_len, inq_data, val);
-				sbuf_printf(sb, "\n");
-			}
+					&val, NULL) == 0) {
+			sbuf_cat(sb, path_str);
+			scsi_info_sbuf(sb, cdb, cdb_len, inq_data, val);
+			sbuf_printf(sb, "\n");
 		}
 
 		/* 
@@ -5575,6 +5560,7 @@ scsi_devid_is_naa_ieee_reg(uint8_t *bufp)
 {
 	struct scsi_vpd_id_descriptor *descr;
 	struct scsi_vpd_id_naa_basic *naa;
+	int n;
 
 	descr = (struct scsi_vpd_id_descriptor *)bufp;
 	naa = (struct scsi_vpd_id_naa_basic *)descr->identifier;
@@ -5582,7 +5568,8 @@ scsi_devid_is_naa_ieee_reg(uint8_t *bufp)
 		return 0;
 	if (descr->length < sizeof(struct scsi_vpd_id_naa_ieee_reg))
 		return 0;
-	if ((naa->naa >> SVPD_ID_NAA_NAA_SHIFT) != SVPD_ID_NAA_IEEE_REG)
+	n = naa->naa >> SVPD_ID_NAA_NAA_SHIFT;
+	if (n != SVPD_ID_NAA_LOCAL_REG && n != SVPD_ID_NAA_IEEE_REG)
 		return 0;
 	return 1;
 }
@@ -8279,10 +8266,10 @@ scsi_ata_identify(struct ccb_scsiio *csio, u_int32_t retries,
 		      tag_action,
 		      /*protocol*/AP_PROTO_PIO_IN,
 		      /*ata_flags*/AP_FLAG_TDIR_FROM_DEV |
-				   AP_FLAG_BYT_BLOK_BYTES |
+				   AP_FLAG_BYT_BLOK_BLOCKS |
 				   AP_FLAG_TLEN_SECT_CNT,
 		      /*features*/0,
-		      /*sector_count*/dxfer_len,
+		      /*sector_count*/dxfer_len / 512,
 		      /*lba*/0,
 		      /*command*/ATA_ATA_IDENTIFY,
 		      /*device*/ 0,

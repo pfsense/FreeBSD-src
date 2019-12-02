@@ -55,6 +55,7 @@ MAN=	aac.4 \
 	${_apic.4} \
 	arcmsr.4 \
 	${_asmc.4} \
+	at45d.4 \
 	ata.4 \
 	ath.4 \
 	ath_ahb.4 \
@@ -101,6 +102,7 @@ MAN=	aac.4 \
 	cc_newreno.4 \
 	cc_vegas.4 \
 	${_ccd.4} \
+	ccr.4 \
 	cd.4 \
 	cdce.4 \
 	cfi.4 \
@@ -313,6 +315,7 @@ MAN=	aac.4 \
 	mvs.4 \
 	mwl.4 \
 	mwlfw.4 \
+	mx25l.4 \
 	mxge.4 \
 	my.4 \
 	nand.4 \
@@ -521,6 +524,7 @@ MAN=	aac.4 \
 	snd_vibes.4 \
 	snp.4 \
 	spic.4 \
+	spigen.4 \
 	${_spkr.4} \
 	splash.4 \
 	sppp.4 \
@@ -841,6 +845,13 @@ _nvd.4=		nvd.4
 _nvme.4=	nvme.4
 _nvram.4=	nvram.4
 _nxge.4=	nxge.4
+_padlock.4=	padlock.4
+_rr232x.4=	rr232x.4
+_speaker.4=	speaker.4
+_spkr.4=	spkr.4
+_tpm.4=		tpm.4
+_urtw.4=	urtw.4
+_viawd.4=	viawd.4
 _virtio.4=	virtio.4
 _virtio_balloon.4=virtio_balloon.4
 _virtio_blk.4=	virtio_blk.4
@@ -850,13 +861,6 @@ _virtio_scsi.4= virtio_scsi.4
 _vmx.4=		vmx.4
 _vtnet.4=	vtnet.4
 _vxge.4=	vxge.4
-_padlock.4=	padlock.4
-_rr232x.4=	rr232x.4
-_speaker.4=	speaker.4
-_spkr.4=	spkr.4
-_tpm.4=		tpm.4
-_urtw.4=	urtw.4
-_viawd.4=	viawd.4
 _wbwd.4=	wbwd.4
 _wpi.4=		wpi.4
 _xen.4=		xen.4

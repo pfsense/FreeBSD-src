@@ -186,6 +186,7 @@ static const STRUCT_USB_HOST_ID urtwn_devs[] = {
 	URTWN_RTL8188E_DEV(DLINK,	DWA123D1),
 	URTWN_RTL8188E_DEV(DLINK,	DWA125D1),
 	URTWN_RTL8188E_DEV(ELECOM,	WDC150SU2M),
+	URTWN_RTL8188E_DEV(TPLINK,	WN722NV2),
 	URTWN_RTL8188E_DEV(REALTEK,	RTL8188ETV),
 	URTWN_RTL8188E_DEV(REALTEK,	RTL8188EU),
 #undef URTWN_RTL8188E_DEV
@@ -465,9 +466,6 @@ static const struct wme_to_queue {
 	{ R92C_EDCA_VI_PARAM, URTWN_BULK_TX_VI},
 	{ R92C_EDCA_VO_PARAM, URTWN_BULK_TX_VO}
 };
-
-static const uint8_t urtwn_chan_2ghz[] =
-	{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
 
 static int
 urtwn_match(device_t self)
@@ -3038,10 +3036,17 @@ urtwn_tx_data(struct urtwn_softc *sc, struct ieee80211_node *ni,
 				    R92C_TXDW4_HWRTSEN);
 			}
 
-			/* XXX TODO: rtsrate is configurable? 24mbit may
-			 * be a bit high for RTS rate? */
-			txd->txdw4 |= htole32(SM(R92C_TXDW4_RTSRATE,
-			    URTWN_RIDX_OFDM24));
+			if (!(sc->chip & URTWN_CHIP_88E)) {
+				/* XXX other rates will not work without
+				 * urtwn_ra_init() */
+				txd->txdw4 |= htole32(SM(R92C_TXDW4_RTSRATE,
+				    URTWN_RIDX_CCK1));
+			} else {
+				/* XXX TODO: rtsrate is configurable? 24mbit
+				 * may be a bit high for RTS rate? */
+				txd->txdw4 |= htole32(SM(R92C_TXDW4_RTSRATE,
+				    URTWN_RIDX_OFDM24));
+			}
 
 			txd->txdw5 |= htole32(0x0001ff00);
 		} else	/* IEEE80211_FC0_TYPE_MGT */
@@ -4820,8 +4825,7 @@ urtwn_getradiocaps(struct ieee80211com *ic,
 	setbit(bands, IEEE80211_MODE_11G);
 	if (urtwn_enable_11n)
 		setbit(bands, IEEE80211_MODE_11NG);
-	ieee80211_add_channel_list_2ghz(chans, maxchans, nchans,
-	    urtwn_chan_2ghz, nitems(urtwn_chan_2ghz), bands, 0);
+	ieee80211_add_channels_default_2ghz(chans, maxchans, nchans, bands, 0);
 }
 
 static void
@@ -4837,10 +4841,6 @@ urtwn_set_channel(struct ieee80211com *ic)
 		urtwn_set_led(sc, URTWN_LED_LINK, !sc->ledlink);
 	}
 	urtwn_set_chan(sc, c, NULL);
-	sc->sc_rxtap.wr_chan_freq = htole16(c->ic_freq);
-	sc->sc_rxtap.wr_chan_flags = htole16(c->ic_flags);
-	sc->sc_txtap.wt_chan_freq = htole16(c->ic_freq);
-	sc->sc_txtap.wt_chan_flags = htole16(c->ic_flags);
 	URTWN_UNLOCK(sc);
 }
 
@@ -5501,6 +5501,9 @@ urtwn_init(struct urtwn_softc *sc)
 		urtwn_write_1(sc, R88E_TX_RPT_CTRL,
 		    urtwn_read_1(sc, R88E_TX_RPT_CTRL) | R88E_TX_RPT1_ENA);
 	}
+
+	if (!(sc->chip & URTWN_CHIP_88E))
+		urtwn_write_4(sc, R92C_POWER_STATUS, 0x5);
 
 	/* Perform LO and IQ calibrations. */
 	urtwn_iq_calib(sc);

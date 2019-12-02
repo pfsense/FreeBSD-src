@@ -232,9 +232,6 @@ MODULE_DEPEND(rtwn, pci,  1, 1, 1);
 MODULE_DEPEND(rtwn, wlan, 1, 1, 1);
 MODULE_DEPEND(rtwn, firmware, 1, 1, 1);
 
-static const uint8_t rtwn_chan_2ghz[] =
-	{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
-
 static int
 rtwn_probe(device_t dev)
 {
@@ -1543,8 +1540,6 @@ rtwn_rx_frame(struct rtwn_softc *sc, struct r92c_rx_desc *rx_desc,
 			tap->wr_rate = 0x80 | (rate - 12);
 		}
 		tap->wr_dbm_antsignal = rssi;
-		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
 	}
 
 	RTWN_UNLOCK(sc);
@@ -1737,8 +1732,6 @@ rtwn_tx(struct rtwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 		struct rtwn_tx_radiotap_header *tap = &sc->sc_txtap;
 
 		tap->wt_flags = 0;
-		tap->wt_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wt_chan_flags = htole16(ic->ic_curchan->ic_flags);
 
 		ieee80211_radiotap_tx(vap, m);
 	}
@@ -2748,8 +2741,7 @@ rtwn_getradiocaps(struct ieee80211com *ic,
 	memset(bands, 0, sizeof(bands));
 	setbit(bands, IEEE80211_MODE_11B);
 	setbit(bands, IEEE80211_MODE_11G);
-	ieee80211_add_channel_list_2ghz(chans, maxchans, nchans,
-	    rtwn_chan_2ghz, nitems(rtwn_chan_2ghz), bands, 0);
+	ieee80211_add_channels_default_2ghz(chans, maxchans, nchans, bands, 0);
 }
 
 static void

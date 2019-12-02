@@ -131,8 +131,8 @@ static const struct iwn_ident iwn_ident_table[] = {
 
 static int	iwn_probe(device_t);
 static int	iwn_attach(device_t);
-static int	iwn4965_attach(struct iwn_softc *, uint16_t);
-static int	iwn5000_attach(struct iwn_softc *, uint16_t);
+static void	iwn4965_attach(struct iwn_softc *, uint16_t);
+static void	iwn5000_attach(struct iwn_softc *, uint16_t);
 static int	iwn_config_specific(struct iwn_softc *, uint16_t);
 static void	iwn_radiotap_attach(struct iwn_softc *);
 static void	iwn_sysctlattach(struct iwn_softc *);
@@ -486,14 +486,9 @@ iwn_attach(device_t dev)
 	 * Let's set those up first.
 	 */
 	if (sc->hw_type == IWN_HW_REV_TYPE_4965)
-		error = iwn4965_attach(sc, pci_get_device(dev));
+		iwn4965_attach(sc, pci_get_device(dev));
 	else
-		error = iwn5000_attach(sc, pci_get_device(dev));
-	if (error != 0) {
-		device_printf(dev, "could not attach device, error %d\n",
-		    error);
-		goto fail;
-	}
+		iwn5000_attach(sc, pci_get_device(dev));
 
 	/*
 	 * Next, let's setup the various parameters of each NIC.
@@ -860,6 +855,7 @@ iwn_config_specific(struct iwn_softc *sc, uint16_t pid)
 			case IWN_SDID_6035_2:
 			case IWN_SDID_6035_3:
 			case IWN_SDID_6035_4:
+			case IWN_SDID_6035_5:
 				sc->fwname = "iwn6000g2bfw";
 				sc->limits = &iwn6235_sensitivity_limits;
 				sc->base_params = &iwn_6235_base_params;
@@ -1214,12 +1210,13 @@ iwn_config_specific(struct iwn_softc *sc, uint16_t pid)
 	return 0;
 }
 
-static int
+static void
 iwn4965_attach(struct iwn_softc *sc, uint16_t pid)
 {
 	struct iwn_ops *ops = &sc->ops;
 
 	DPRINTF(sc, IWN_DEBUG_TRACE, "->%s begin\n", __func__);
+
 	ops->load_firmware = iwn4965_load_firmware;
 	ops->read_eeprom = iwn4965_read_eeprom;
 	ops->post_alive = iwn4965_post_alive;
@@ -1253,11 +1250,9 @@ iwn4965_attach(struct iwn_softc *sc, uint16_t pid)
 	sc->sc_flags |= IWN_FLAG_BTCOEX;
 
 	DPRINTF(sc, IWN_DEBUG_TRACE, "%s: end\n",__func__);
-
-	return 0;
 }
 
-static int
+static void
 iwn5000_attach(struct iwn_softc *sc, uint16_t pid)
 {
 	struct iwn_ops *ops = &sc->ops;
@@ -1291,7 +1286,7 @@ iwn5000_attach(struct iwn_softc *sc, uint16_t pid)
 	sc->reset_noise_gain = IWN5000_PHY_CALIB_RESET_NOISE_GAIN;
 	sc->noise_gain = IWN5000_PHY_CALIB_NOISE_GAIN;
 
-	return 0;
+	DPRINTF(sc, IWN_DEBUG_TRACE, "%s: end\n",__func__);
 }
 
 /*
@@ -3806,6 +3801,7 @@ iwn_notif_intr(struct iwn_softc *sc)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 	uint16_t hw;
+	int is_stopped;
 
 	bus_dmamap_sync(sc->rxq.stat_dma.tag, sc->rxq.stat_dma.map,
 	    BUS_DMASYNC_POSTREAD);
@@ -3837,6 +3833,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 		case IWN_MPDU_RX_DONE:
 			/* An 802.11 frame has been received. */
 			iwn_rx_done(sc, desc, data);
+
+			is_stopped = (sc->sc_flags & IWN_FLAG_RUNNING) == 0;
+			if (__predict_false(is_stopped))
+				return;
+
 			break;
 
 		case IWN_RX_COMPRESSED_BA:
@@ -3879,6 +3880,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 					IWN_UNLOCK(sc);
 					ieee80211_beacon_miss(ic);
 					IWN_LOCK(sc);
+
+					is_stopped = (sc->sc_flags &
+					    IWN_FLAG_RUNNING) == 0;
+					if (__predict_false(is_stopped))
+						return;
 				}
 			}
 			break;
@@ -3955,6 +3961,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 			IWN_UNLOCK(sc);
 			ieee80211_scan_next(vap);
 			IWN_LOCK(sc);
+
+			is_stopped = (sc->sc_flags & IWN_FLAG_RUNNING) == 0;
+			if (__predict_false(is_stopped))  
+				return;
+
 			break;
 		}
 		case IWN5000_CALIBRATION_RESULT:
@@ -8881,18 +8892,12 @@ iwn_scan_end(struct ieee80211com *ic)
 static void
 iwn_set_channel(struct ieee80211com *ic)
 {
-	const struct ieee80211_channel *c = ic->ic_curchan;
 	struct iwn_softc *sc = ic->ic_softc;
 	int error;
 
 	DPRINTF(sc, IWN_DEBUG_TRACE, "->Doing %s\n", __func__);
 
 	IWN_LOCK(sc);
-	sc->sc_rxtap.wr_chan_freq = htole16(c->ic_freq);
-	sc->sc_rxtap.wr_chan_flags = htole16(c->ic_flags);
-	sc->sc_txtap.wt_chan_freq = htole16(c->ic_freq);
-	sc->sc_txtap.wt_chan_flags = htole16(c->ic_flags);
-
 	/*
 	 * Only need to set the channel in Monitor mode. AP scanning and auth
 	 * are already taken care of by their respective firmware commands.

@@ -576,6 +576,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 	int optlen = 0;
 #ifdef INET
 	int len;
+	uint8_t ipttl;
 #endif
 	int tlen = 0, off;
 	int drop_hdrlen;
@@ -697,6 +698,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 			 * Checksum extended TCP header and data.
 			 */
 			len = off0 + tlen;
+			ipttl = ip->ip_ttl;
 			bzero(ipov->ih_x1, sizeof(ipov->ih_x1));
 			ipov->ih_len = htons(tlen);
 			th->th_sum = in_cksum(m, len);
@@ -705,6 +707,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 			/* Reset TOS bits */
 			ip->ip_tos = iptos;
 			/* Re-initialization for later version check */
+			ip->ip_ttl = ipttl;
 			ip->ip_v = IPVERSION;
 			ip->ip_hl = off0 >> 2;
 		}
@@ -1080,6 +1083,8 @@ relocked:
 #ifdef INET6
 		if (isipv6) {
 			inc.inc_flags |= INC_ISIPV6;
+			if (inp->inp_inc.inc_flags & INC_IPV6MINMTU)
+				inc.inc_flags |= INC_IPV6MINMTU;
 			inc.inc6_faddr = ip6->ip6_src;
 			inc.inc6_laddr = ip6->ip6_dst;
 		} else
@@ -1176,6 +1181,7 @@ new_tfo_socket:
 			 * contains.  tcp_do_segment() consumes
 			 * the mbuf chain and unlocks the inpcb.
 			 */
+			TCP_PROBE5(receive, NULL, tp, m, tp, th);
 			tp->t_fb->tfb_tcp_do_segment(m, th, so, tp, drop_hdrlen, tlen,
 			    iptos, ti_locked);
 			INP_INFO_UNLOCK_ASSERT(&V_tcbinfo);
@@ -1758,7 +1764,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	    tp->snd_nxt == tp->snd_max &&
 	    tiwin && tiwin == tp->snd_wnd && 
 	    ((tp->t_flags & (TF_NEEDSYN|TF_NEEDFIN)) == 0) &&
-	    LIST_EMPTY(&tp->t_segq) &&
+	    SEGQ_EMPTY(tp) &&
 	    ((to.to_flags & TOF_TS) == 0 ||
 	     TSTMP_GEQ(to.to_tsval, tp->ts_recent)) ) {
 
@@ -2471,7 +2477,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 * later; if not, do so now to pass queued data to user.
 		 */
 		if (tlen == 0 && (thflags & TH_FIN) == 0)
-			(void) tcp_reass(tp, (struct tcphdr *)0, 0,
+			(void) tcp_reass(tp, (struct tcphdr *)0, NULL, 0,
 			    (struct mbuf *)0);
 		tp->snd_wl1 = th->th_seq - 1;
 		/* FALLTHROUGH */
@@ -3042,7 +3048,7 @@ dodata:							/* XXX */
 		 * fast retransmit can work).
 		 */
 		if (th->th_seq == tp->rcv_nxt &&
-		    LIST_EMPTY(&tp->t_segq) &&
+		    SEGQ_EMPTY(tp) &&
 		    (TCPS_HAVEESTABLISHED(tp->t_state) ||
 		     tfo_syn)) {
 			if (DELAY_ACK(tp, tlen) || tfo_syn)
@@ -3067,7 +3073,7 @@ dodata:							/* XXX */
 			 * m_adj() doesn't actually frees any mbufs
 			 * when trimming from the head.
 			 */
-			thflags = tcp_reass(tp, th, &tlen, m);
+			thflags = tcp_reass(tp, th, &save_start, &tlen, m);
 			tp->t_flags |= TF_ACKNOW;
 		}
 		if (tlen > 0 && (tp->t_flags & TF_SACK_PERMIT))

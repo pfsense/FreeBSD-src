@@ -42,10 +42,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/firmware.h>
 #include <sys/kdb.h>
 
-#include <machine/bus.h>
-#include <machine/resource.h>
-#include <sys/rman.h>
-
 #include <net/bpf.h>
 #include <net/if.h>
 #include <net/if_var.h>
@@ -435,6 +431,7 @@ static void	run_usb_timeout_cb(void *);
 static void	run_reset_livelock(struct run_softc *);
 static void	run_enable_tsf_sync(struct run_softc *);
 static void	run_enable_tsf(struct run_softc *);
+static void	run_disable_tsf(struct run_softc *);
 static void	run_get_tsf(struct run_softc *, uint64_t *);
 static void	run_enable_mrr(struct run_softc *);
 static void	run_set_txpreamble(struct run_softc *);
@@ -1986,7 +1983,8 @@ run_read_eeprom(struct run_softc *sc)
 static struct ieee80211_node *
 run_node_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN])
 {
-	return malloc(sizeof (struct run_node), M_DEVBUF, M_NOWAIT | M_ZERO);
+	return malloc(sizeof (struct run_node), M_80211_NODE,
+	    M_NOWAIT | M_ZERO);
 }
 
 static int
@@ -2045,7 +2043,6 @@ run_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	struct run_vap *rvp = RUN_VAP(vap);
 	enum ieee80211_state ostate;
 	uint32_t sta[3];
-	uint32_t tmp;
 	uint8_t ratectl;
 	uint8_t restart_ratectl = 0;
 	uint8_t bid = 1 << rvp->rvp_id;
@@ -2078,12 +2075,8 @@ run_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		sc->runbmap &= ~bid;
 
 		/* abort TSF synchronization if there is no vap running */
-		if (--sc->running == 0) {
-			run_read(sc, RT2860_BCN_TIME_CFG, &tmp);
-			run_write(sc, RT2860_BCN_TIME_CFG,
-			    tmp & ~(RT2860_BCN_TX_EN | RT2860_TSF_TIMER_EN |
-			    RT2860_TBTT_TIMER_EN));
-		}
+		if (--sc->running == 0)
+			run_disable_tsf(sc);
 		break;
 
 	case IEEE80211_S_RUN:
@@ -2759,38 +2752,34 @@ run_rx_frame(struct run_softc *sc, struct mbuf *m, uint32_t dmalen)
 	uint8_t ant, rssi;
 	int8_t nf;
 
-	rxwi = mtod(m, struct rt2860_rxwi *);
-	len = le16toh(rxwi->len) & 0xfff;
 	rxwisize = sizeof(struct rt2860_rxwi);
 	if (sc->mac_ver == 0x5592)
 		rxwisize += sizeof(uint64_t);
 	else if (sc->mac_ver == 0x3593)
 		rxwisize += sizeof(uint32_t);
-	if (__predict_false(len > dmalen)) {
-		m_freem(m);
-		counter_u64_add(ic->ic_ierrors, 1);
-		DPRINTF("bad RXWI length %u > %u\n", len, dmalen);
-		return;
+
+	if (__predict_false(dmalen <
+	    rxwisize + sizeof(struct ieee80211_frame_ack))) {
+		DPRINTF("payload is too short: dma length %u < %zu\n",
+		    dmalen, rxwisize + sizeof(struct ieee80211_frame_ack));
+		goto fail;
 	}
+
+	rxwi = mtod(m, struct rt2860_rxwi *);
+	len = le16toh(rxwi->len) & 0xfff;
+
+	if (__predict_false(len > dmalen - rxwisize)) {
+		DPRINTF("bad RXWI length %u > %u\n", len, dmalen);
+		goto fail;
+	}
+
 	/* Rx descriptor is located at the end */
 	rxd = (struct rt2870_rxd *)(mtod(m, caddr_t) + dmalen);
 	flags = le32toh(rxd->flags);
 
 	if (__predict_false(flags & (RT2860_RX_CRCERR | RT2860_RX_ICVERR))) {
-		m_freem(m);
-		counter_u64_add(ic->ic_ierrors, 1);
 		DPRINTF("%s error.\n", (flags & RT2860_RX_CRCERR)?"CRC":"ICV");
-		return;
-	}
-
-	m->m_data += rxwisize;
-	m->m_pkthdr.len = m->m_len -= rxwisize;
-
-	wh = mtod(m, struct ieee80211_frame *);
-
-	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
-		wh->i_fc[1] &= ~IEEE80211_FC1_PROTECTED;
-		m->m_flags |= M_WEP;
+		goto fail;
 	}
 
 	if (flags & RT2860_RX_L2PAD) {
@@ -2798,33 +2787,43 @@ run_rx_frame(struct run_softc *sc, struct mbuf *m, uint32_t dmalen)
 		len += 2;
 	}
 
-	ni = ieee80211_find_rxnode(ic,
-	    mtod(m, struct ieee80211_frame_min *));
+	m->m_data += rxwisize;
+	m->m_pkthdr.len = m->m_len = len;
+
+	wh = mtod(m, struct ieee80211_frame *);
+
+	if ((wh->i_fc[1] & IEEE80211_FC1_PROTECTED) != 0 &&
+	    (flags & RT2860_RX_DEC) != 0) {
+		wh->i_fc[1] &= ~IEEE80211_FC1_PROTECTED;
+		m->m_flags |= M_WEP;
+	}
+
+	if (len >= sizeof(struct ieee80211_frame_min)) {
+		ni = ieee80211_find_rxnode(ic,
+		    mtod(m, struct ieee80211_frame_min *));
+	} else
+		ni = NULL;
 
 	if (__predict_false(flags & RT2860_RX_MICERR)) {
 		/* report MIC failures to net80211 for TKIP */
 		if (ni != NULL)
 			ieee80211_notify_michael_failure(ni->ni_vap, wh,
 			    rxwi->keyidx);
-		m_freem(m);
-		counter_u64_add(ic->ic_ierrors, 1);
 		DPRINTF("MIC error. Someone is lying.\n");
-		return;
+		goto fail;
 	}
 
 	ant = run_maxrssi_chain(sc, rxwi);
 	rssi = rxwi->rssi[ant];
 	nf = run_rssi2dbm(sc, rssi, ant);
 
-	m->m_pkthdr.len = m->m_len = len;
-
 	if (__predict_false(ieee80211_radiotap_active(ic))) {
 		struct run_rx_radiotap_header *tap = &sc->sc_rxtap;
 		uint16_t phy;
 
 		tap->wr_flags = 0;
-		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
+		if (flags & RT2860_RX_L2PAD)
+			tap->wr_flags |= IEEE80211_RADIOTAP_F_DATAPAD;
 		tap->wr_antsignal = rssi;
 		tap->wr_antenna = ant;
 		tap->wr_dbm_antsignal = run_rssi2dbm(sc, rssi, ant);
@@ -2865,6 +2864,12 @@ run_rx_frame(struct run_softc *sc, struct mbuf *m, uint32_t dmalen)
 	} else {
 		(void)ieee80211_input_all(ic, m, rssi, nf);
 	}
+
+	return;
+
+fail:
+	m_freem(m);
+	counter_u64_add(ic->ic_ierrors, 1);
 }
 
 static void
@@ -2874,7 +2879,7 @@ run_bulk_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mbuf *m = NULL;
 	struct mbuf *m0;
-	uint32_t dmalen;
+	uint32_t dmalen, mbuf_len;
 	uint16_t rxwisize;
 	int xferlen;
 
@@ -2975,6 +2980,13 @@ tr_setup:
 			break;
 		}
 
+		mbuf_len = dmalen + sizeof(struct rt2870_rxd);
+		if (__predict_false(mbuf_len > MCLBYTES)) {
+			DPRINTF("payload is too big: mbuf_len %u\n", mbuf_len);
+			counter_u64_add(ic->ic_ierrors, 1);
+			break;
+		}
+
 		/* copy aggregated frames to another mbuf */
 		m0 = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
 		if (__predict_false(m0 == NULL)) {
@@ -2983,14 +2995,13 @@ tr_setup:
 			break;
 		}
 		m_copydata(m, 4 /* skip 32-bit DMA-len header */,
-		    dmalen + sizeof(struct rt2870_rxd), mtod(m0, caddr_t));
-		m0->m_pkthdr.len = m0->m_len =
-		    dmalen + sizeof(struct rt2870_rxd);
+		    mbuf_len, mtod(m0, caddr_t));
+		m0->m_pkthdr.len = m0->m_len = mbuf_len;
 		run_rx_frame(sc, m0, dmalen);
 
 		/* update data ptr */
-		m->m_data += dmalen + 8;
-		m->m_pkthdr.len = m->m_len -= dmalen + 8;
+		m->m_data += mbuf_len + 4;
+		m->m_pkthdr.len = m->m_len -= mbuf_len + 4;
 	}
 
 	/* make sure we free the source buffer, if any */
@@ -3072,17 +3083,23 @@ tr_setup:
 
 		vap = data->ni->ni_vap;
 		if (ieee80211_radiotap_active_vap(vap)) {
+			const struct ieee80211_frame *wh;
 			struct run_tx_radiotap_header *tap = &sc->sc_txtap;
 			struct rt2860_txwi *txwi = 
 			    (struct rt2860_txwi *)(&data->desc + sizeof(struct rt2870_txd));
+			int has_l2pad;
+
+			wh = mtod(m, struct ieee80211_frame *);
+			has_l2pad = IEEE80211_HAS_ADDR4(wh) !=
+			    IEEE80211_QOS_HAS_SEQ(wh);
+
 			tap->wt_flags = 0;
 			tap->wt_rate = rt2860_rates[data->ridx].rate;
-			run_get_tsf(sc, &tap->wt_tsf);
-			tap->wt_chan_freq = htole16(ic->ic_curchan->ic_freq);
-			tap->wt_chan_flags = htole16(ic->ic_curchan->ic_flags);
 			tap->wt_hwqueue = index;
 			if (le16toh(txwi->phy) & RT2860_PHY_SHPRE)
 				tap->wt_flags |= IEEE80211_RADIOTAP_F_SHORTPRE;
+			if (has_l2pad)
+				tap->wt_flags |= IEEE80211_RADIOTAP_F_DATAPAD;
 
 			ieee80211_radiotap_tx(vap, m);
 		}
@@ -3273,11 +3290,7 @@ run_tx(struct run_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	if ((hasqos = IEEE80211_QOS_HAS_SEQ(wh))) {
 		uint8_t *frm;
 
-		if(IEEE80211_HAS_ADDR4(wh))
-			frm = ((struct ieee80211_qosframe_addr4 *)wh)->i_qos;
-		else
-			frm =((struct ieee80211_qosframe *)wh)->i_qos;
-
+		frm = ieee80211_getqos(wh);
 		qos = le16toh(*(const uint16_t *)frm);
 		tid = qos & IEEE80211_QOS_TID;
 		qid = TID_TO_WME_AC(tid);
@@ -4791,8 +4804,7 @@ run_getradiocaps(struct ieee80211com *ic,
 	memset(bands, 0, sizeof(bands));
 	setbit(bands, IEEE80211_MODE_11B);
 	setbit(bands, IEEE80211_MODE_11G);
-	ieee80211_add_channel_list_2ghz(chans, maxchans, nchans,
-	    run_chan_2ghz, nitems(run_chan_2ghz), bands, 0);
+	ieee80211_add_channels_default_2ghz(chans, maxchans, nchans, bands, 0);
 
 	if (sc->rf_rev == RT2860_RF_2750 || sc->rf_rev == RT2860_RF_2850 ||
 	    sc->rf_rev == RT3070_RF_3052 || sc->rf_rev == RT3593_RF_3053 ||
@@ -4807,15 +4819,11 @@ static void
 run_scan_start(struct ieee80211com *ic)
 {
 	struct run_softc *sc = ic->ic_softc;
-	uint32_t tmp;
 
 	RUN_LOCK(sc);
 
 	/* abort TSF synchronization */
-	run_read(sc, RT2860_BCN_TIME_CFG, &tmp);
-	run_write(sc, RT2860_BCN_TIME_CFG,
-	    tmp & ~(RT2860_BCN_TX_EN | RT2860_TSF_TIMER_EN |
-	    RT2860_TBTT_TIMER_EN));
+	run_disable_tsf(sc);
 	run_set_bssid(sc, ieee80211broadcastaddr);
 
 	RUN_UNLOCK(sc);
@@ -5093,6 +5101,18 @@ run_enable_tsf(struct run_softc *sc)
 	if (run_read(sc, RT2860_BCN_TIME_CFG, &tmp) == 0) {
 		tmp &= ~(RT2860_BCN_TX_EN | RT2860_TBTT_TIMER_EN);
 		tmp |= RT2860_TSF_TIMER_EN;
+		run_write(sc, RT2860_BCN_TIME_CFG, tmp);
+	}
+}
+
+static void
+run_disable_tsf(struct run_softc *sc)
+{
+	uint32_t tmp;
+
+	if (run_read(sc, RT2860_BCN_TIME_CFG, &tmp) == 0) {
+		tmp &= ~(RT2860_BCN_TX_EN | RT2860_TSF_TIMER_EN |
+		    RT2860_TBTT_TIMER_EN);
 		run_write(sc, RT2860_BCN_TIME_CFG, tmp);
 	}
 }
@@ -6048,10 +6068,7 @@ run_init_locked(struct run_softc *sc)
 	}
 
 	/* abort TSF synchronization */
-	run_read(sc, RT2860_BCN_TIME_CFG, &tmp);
-	tmp &= ~(RT2860_BCN_TX_EN | RT2860_TSF_TIMER_EN |
-	    RT2860_TBTT_TIMER_EN);
-	run_write(sc, RT2860_BCN_TIME_CFG, tmp);
+	run_disable_tsf(sc);
 
 	/* clear RX WCID search table */
 	run_set_region_4(sc, RT2860_WCID_ENTRY(0), 0, 512);

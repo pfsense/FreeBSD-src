@@ -35,6 +35,7 @@ SUBDIR=	\
 	ale \
 	alq \
 	${_amd_ecc_inject} \
+	${_amdgpio} \
 	${_amdsbwd} \
 	${_amdsmn} \
 	${_amdtemp} \
@@ -245,6 +246,7 @@ SUBDIR=	\
 	mfi \
 	mii \
 	mlx \
+	mlxfw \
 	${_mlx4} \
 	${_mlx4ib} \
 	${_mlx4en} \
@@ -428,6 +430,7 @@ SUBDIR=	\
 	${_x86bios} \
 	${_xe} \
 	xl \
+	xz \
 	zlib
 
 .if ${MK_AUTOFS} != "no" || defined(ALL_MODULES)
@@ -496,6 +499,10 @@ _ipfilter=	ipfilter
 SUBDIR+=	cfiscsi
 SUBDIR+=	iscsi
 SUBDIR+=	iscsi_initiator
+.endif
+
+.if !empty(OPT_FDT)
+SUBDIR+=	fdt
 .endif
 
 .if ${MK_NAND} != "no" || defined(ALL_MODULES)
@@ -632,7 +639,9 @@ _aac=		aac
 _aacraid=	aacraid
 _acpi=		acpi
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
+.if ${COMPILER_TYPE} != "gcc" || ${COMPILER_VERSION} > 40201
 _aesni=		aesni
+.endif
 .endif
 _amd_ecc_inject=amd_ecc_inject
 _amdsbwd=	amdsbwd
@@ -713,6 +722,7 @@ _x86bios=	x86bios
 .endif
 
 .if ${MACHINE_CPUARCH} == "amd64"
+_amdgpio=	amdgpio
 _efirt=		efirt
 _ioat=		ioat
 _ixl=		ixl

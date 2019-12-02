@@ -80,6 +80,14 @@ nvme_ns_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int flag,
 		pt = (struct nvme_pt_command *)arg;
 		return (nvme_ctrlr_passthrough_cmd(ctrlr, pt, ns->id, 
 		    1 /* is_user_buffer */, 0 /* is_admin_cmd */));
+	case NVME_GET_NSID:
+	{
+		struct nvme_get_nsid *gnsid = (struct nvme_get_nsid *)arg;
+		strncpy(gnsid->cdev, device_get_nameunit(ctrlr->dev),
+		    sizeof(gnsid->cdev));
+		gnsid->nsid = ns->id;
+		break;
+	}
 	case DIOCGMEDIASIZE:
 		*(off_t *)arg = (off_t)nvme_ns_get_size(ns);
 		break;
@@ -346,10 +354,8 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 	caddr_t		data;
 	uint32_t	rem_bcount;
 	int		i;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 	struct vm_page	**ma;
 	uint32_t	ma_offset;
-#endif
 
 	*num_bios = nvme_get_num_segments(bp->bio_offset, bp->bio_bcount,
 	    alignment);
@@ -362,10 +368,8 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 	cur_offset = bp->bio_offset;
 	rem_bcount = bp->bio_bcount;
 	data = bp->bio_data;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 	ma_offset = bp->bio_ma_offset;
 	ma = bp->bio_ma;
-#endif
 
 	for (i = 0; i < *num_bios; i++) {
 		child = child_bios[i];
@@ -375,7 +379,6 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 		child->bio_bcount = min(rem_bcount,
 		    alignment - (cur_offset & (alignment - 1)));
 		child->bio_flags = bp->bio_flags;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 		if (bp->bio_flags & BIO_UNMAPPED) {
 			child->bio_ma_offset = ma_offset;
 			child->bio_ma = ma;
@@ -387,9 +390,7 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 			ma += child->bio_ma_n;
 			if (ma_offset != 0)
 				ma -= 1;
-		} else
-#endif
-		{
+		} else {
 			child->bio_data = data;
 			data += child->bio_bcount;
 		}
@@ -476,10 +477,19 @@ nvme_ns_bio_process(struct nvme_namespace *ns, struct bio *bp,
 }
 
 int
+nvme_ns_ioctl_process(struct nvme_namespace *ns, u_long cmd, caddr_t arg,
+    int flag, struct thread *td)
+{
+	return (nvme_ns_ioctl(ns->cdev, cmd, arg, flag, td));
+}
+
+int
 nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
     struct nvme_controller *ctrlr)
 {
+	struct make_dev_args                    md_args;
 	struct nvme_completion_poll_status	status;
+	int                                     res;
 	int					unit;
 
 	ns->ctrlr = ctrlr;
@@ -495,6 +505,7 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	case 0x09538086:		/* Intel DC PC3500 */
 	case 0x0a538086:		/* Intel DC PC3520 */
 	case 0x0a548086:		/* Intel DC PC4500 */
+	case 0x0a558086:		/* Dell Intel P4600 */
 		if (ctrlr->cdata.vs[3] != 0)
 			ns->stripesize =
 			    (1 << ctrlr->cdata.vs[3]) * ctrlr->min_page_size;
@@ -514,11 +525,11 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	if (!mtx_initialized(&ns->lock))
 		mtx_init(&ns->lock, "nvme ns lock", NULL, MTX_DEF);
 
-	status.done = FALSE;
+	status.done = 0;
 	nvme_ctrlr_cmd_identify_namespace(ctrlr, id, &ns->data,
 	    nvme_completion_poll_cb, &status);
-	while (status.done == FALSE)
-		DELAY(5);
+	while (!atomic_load_acq_int(&status.done))
+		pause("nvme", 1);
 	if (nvme_completion_is_error(&status.cpl)) {
 		nvme_printf(ctrlr, "nvme_identify_namespace failed\n");
 		return (ENXIO);
@@ -562,27 +573,17 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	 */
 	unit = device_get_unit(ctrlr->dev) * NVME_MAX_NAMESPACES + ns->id - 1;
 
-/*
- * MAKEDEV_ETERNAL was added in r210923, for cdevs that will never
- *  be destroyed.  This avoids refcounting on the cdev object.
- *  That should be OK case here, as long as we're not supporting PCIe
- *  surprise removal nor namespace deletion.
- */
-#ifdef MAKEDEV_ETERNAL_KLD
-	ns->cdev = make_dev_credf(MAKEDEV_ETERNAL_KLD, &nvme_ns_cdevsw, unit,
-	    NULL, UID_ROOT, GID_WHEEL, 0600, "nvme%dns%d",
+	make_dev_args_init(&md_args);
+	md_args.mda_devsw = &nvme_ns_cdevsw;
+	md_args.mda_unit = unit;
+	md_args.mda_mode = 0600;
+	md_args.mda_si_drv1 = ns;
+	res = make_dev_s(&md_args, &ns->cdev, "nvme%dns%d",
 	    device_get_unit(ctrlr->dev), ns->id);
-#else
-	ns->cdev = make_dev_credf(0, &nvme_ns_cdevsw, unit,
-	    NULL, UID_ROOT, GID_WHEEL, 0600, "nvme%dns%d",
-	    device_get_unit(ctrlr->dev), ns->id);
-#endif
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
-	ns->cdev->si_flags |= SI_UNMAPPED;
-#endif
+	if (res != 0)
+		return (ENXIO);
 
-	if (ns->cdev != NULL)
-		ns->cdev->si_drv1 = ns;
+	ns->cdev->si_flags |= SI_UNMAPPED;
 
 	return (0);
 }

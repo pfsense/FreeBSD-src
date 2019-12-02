@@ -83,19 +83,19 @@ struct vmctx {
 static int
 vm_device_open(const char *name)
 {
-        int fd, len;
-        char *vmfile;
+	int fd, len;
+	char *vmfile;
 
 	len = strlen("/dev/vmm/") + strlen(name) + 1;
 	vmfile = malloc(len);
 	assert(vmfile != NULL);
 	snprintf(vmfile, len, "/dev/vmm/%s", name);
 
-        /* Open the device file */
-        fd = open(vmfile, O_RDWR, 0);
+	/* Open the device file */
+	fd = open(vmfile, O_RDWR, 0);
 
 	free(vmfile);
-        return (fd);
+	return (fd);
 }
 
 int
@@ -360,7 +360,7 @@ vm_setup_memory(struct vmctx *ctx, size_t memsize, enum vm_mmap_style vms)
 	size_t objsize, len;
 	vm_paddr_t gpa;
 	char *baseaddr, *ptr;
-	int error, flags;
+	int error;
 
 	assert(vms == VM_MMAP_ALL);
 
@@ -387,8 +387,7 @@ vm_setup_memory(struct vmctx *ctx, size_t memsize, enum vm_mmap_style vms)
 	 * and the adjoining guard regions.
 	 */
 	len = VM_MMAP_GUARD_SIZE + objsize + VM_MMAP_GUARD_SIZE;
-	flags = MAP_PRIVATE | MAP_ANON | MAP_NOCORE | MAP_ALIGNED_SUPER;
-	ptr = mmap(NULL, len, PROT_NONE, flags, -1, 0);
+	ptr = mmap(NULL, len, PROT_NONE, MAP_GUARD | MAP_ALIGNED_SUPER, -1, 0);
 	if (ptr == MAP_FAILED)
 		return (-1);
 
@@ -490,8 +489,8 @@ vm_create_devmem(struct vmctx *ctx, int segid, const char *name, size_t len)
 	 * adjoining guard regions.
 	 */
 	len2 = VM_MMAP_GUARD_SIZE + len + VM_MMAP_GUARD_SIZE;
-	flags = MAP_PRIVATE | MAP_ANON | MAP_NOCORE | MAP_ALIGNED_SUPER;
-	base = mmap(NULL, len2, PROT_NONE, flags, -1, 0);
+	base = mmap(NULL, len2, PROT_NONE, MAP_GUARD | MAP_ALIGNED_SUPER, -1,
+	    0);
 	if (base == MAP_FAILED)
 		goto done;
 
@@ -840,7 +839,7 @@ vm_set_capability(struct vmctx *ctx, int vcpu, enum vm_cap_type cap, int val)
 	vmcap.cpuid = vcpu;
 	vmcap.captype = cap;
 	vmcap.capval = val;
-	
+
 	return (ioctl(ctx->fd, VM_SET_CAPABILITY, &vmcap));
 }
 
@@ -1418,6 +1417,38 @@ vm_restart_instruction(void *arg, int vcpu)
 }
 
 int
+vm_set_topology(struct vmctx *ctx,
+    uint16_t sockets, uint16_t cores, uint16_t threads, uint16_t maxcpus)
+{
+	struct vm_cpu_topology topology;
+
+	bzero(&topology, sizeof (struct vm_cpu_topology));
+	topology.sockets = sockets;
+	topology.cores = cores;
+	topology.threads = threads;
+	topology.maxcpus = maxcpus;
+	return (ioctl(ctx->fd, VM_SET_TOPOLOGY, &topology));
+}
+
+int
+vm_get_topology(struct vmctx *ctx,
+    uint16_t *sockets, uint16_t *cores, uint16_t *threads, uint16_t *maxcpus)
+{
+	struct vm_cpu_topology topology;
+	int error;
+
+	bzero(&topology, sizeof (struct vm_cpu_topology));
+	error = ioctl(ctx->fd, VM_GET_TOPOLOGY, &topology);
+	if (error == 0) {
+		*sockets = topology.sockets;
+		*cores = topology.cores;
+		*threads = topology.threads;
+		*maxcpus = topology.maxcpus;
+	}
+	return (error);
+}
+
+int
 vm_get_device_fd(struct vmctx *ctx)
 {
 
@@ -1444,7 +1475,7 @@ vm_get_ioctls(size_t *len)
 	    VM_GET_HPET_CAPABILITIES, VM_GET_GPA_PMAP, VM_GLA2GPA,
 	    VM_ACTIVATE_CPU, VM_GET_CPUS, VM_SET_INTINFO, VM_GET_INTINFO,
 	    VM_RTC_WRITE, VM_RTC_READ, VM_RTC_SETTIME, VM_RTC_GETTIME,
-	    VM_RESTART_INSTRUCTION };
+	    VM_RESTART_INSTRUCTION, VM_SET_TOPOLOGY, VM_GET_TOPOLOGY };
 
 	if (len == NULL) {
 		cmds = malloc(sizeof(vm_ioctl_cmds));
@@ -1457,4 +1488,3 @@ vm_get_ioctls(size_t *len)
 	*len = nitems(vm_ioctl_cmds);
 	return (NULL);
 }
-

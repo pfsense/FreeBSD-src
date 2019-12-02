@@ -500,7 +500,11 @@ static int tls1_get_curvelist(SSL *s, int sess,
             } else
 # endif
             {
-                if (!s->server || s->cert->ecdh_tmp_auto) {
+                if (!s->server
+# ifndef OPENSSL_NO_ECDH
+                        || s->cert->ecdh_tmp_auto
+# endif
+                    ) {
                     *pcurves = eccurves_auto;
                     pcurveslen = sizeof(eccurves_auto);
                 } else {
@@ -2408,8 +2412,7 @@ static int ssl_scan_clienthello_tlsext(SSL *s, unsigned char **p,
                 goto err;
             if (!tls1_save_sigalgs(s, data, dsize))
                 goto err;
-        } else if (type == TLSEXT_TYPE_status_request) {
-
+        } else if (type == TLSEXT_TYPE_status_request && !s->hit) {
             if (size < 5)
                 goto err;
 
@@ -3166,7 +3169,7 @@ int tls1_set_server_sigalgs(SSL *s)
         if (!s->cert->shared_sigalgs) {
             SSLerr(SSL_F_TLS1_SET_SERVER_SIGALGS,
                    SSL_R_NO_SHARED_SIGATURE_ALGORITHMS);
-            al = SSL_AD_ILLEGAL_PARAMETER;
+            al = SSL_AD_HANDSHAKE_FAILURE;
             goto err;
         }
     } else
@@ -3694,6 +3697,12 @@ int tls12_get_sigid(const EVP_PKEY *pk)
                          sizeof(tls12_sig) / sizeof(tls12_lookup));
 }
 
+static int tls12_get_hash_nid(unsigned char hash_alg)
+{
+    return tls12_find_nid(hash_alg, tls12_md,
+                          sizeof(tls12_md) / sizeof(tls12_lookup));
+}
+
 const EVP_MD *tls12_get_hash(unsigned char hash_alg)
 {
     switch (hash_alg) {
@@ -3884,6 +3893,8 @@ int tls1_process_sigalgs(SSL *s)
     const EVP_MD *md;
     CERT *c = s->cert;
     TLS_SIGALGS *sigptr;
+    int mandatory_mdnid;
+
     if (!tls1_set_shared_sigalgs(s))
         return 0;
 
@@ -3915,6 +3926,18 @@ int tls1_process_sigalgs(SSL *s)
     for (i = 0, sigptr = c->shared_sigalgs;
          i < c->shared_sigalgslen; i++, sigptr++) {
         idx = tls12_get_pkey_idx(sigptr->rsign);
+        if (s->cert->pkeys[idx].privatekey) {
+            ERR_set_mark();
+            if (EVP_PKEY_get_default_digest_nid(s->cert->pkeys[idx].privatekey,
+                                                &mandatory_mdnid) == 2 &&
+                mandatory_mdnid != tls12_get_hash_nid(sigptr->rhash))
+                continue;
+            /*
+             * If EVP_PKEY_get_default_digest_nid() failed, don't pollute
+             * the error stack.
+             */
+            ERR_pop_to_mark();
+        }
         if (idx > 0 && c->pkeys[idx].digest == NULL) {
             md = tls12_get_hash(sigptr->rhash);
             c->pkeys[idx].digest = md;

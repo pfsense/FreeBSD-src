@@ -52,6 +52,7 @@
 #include <sys/systm.h>
 #include <sys/buf.h>
 #include <sys/mount.h>
+#include <sys/vmmeter.h>
 #include <sys/vnode.h>
 
 #include <fs/msdosfs/bpb.h>
@@ -386,10 +387,11 @@ usemap_alloc(struct msdosfsmount *pmp, u_long cn)
 	    pmp->pm_maxcluster));
 	KASSERT((pmp->pm_flags & MSDOSFSMNT_RONLY) == 0,
 	    ("usemap_alloc on ro msdosfs mount"));
-	KASSERT((pmp->pm_inusemap[cn / N_INUSEBITS] & (1 << (cn % N_INUSEBITS)))
-	    == 0, ("Allocating used sector %ld %ld %x", cn, cn % N_INUSEBITS,
-		(unsigned)pmp->pm_inusemap[cn / N_INUSEBITS]));
-	pmp->pm_inusemap[cn / N_INUSEBITS] |= 1 << (cn % N_INUSEBITS);
+	KASSERT((pmp->pm_inusemap[cn / N_INUSEBITS] &
+	    (1U << (cn % N_INUSEBITS))) == 0,
+	    ("Allocating used sector %ld %ld %x", cn, cn % N_INUSEBITS,
+	    (unsigned)pmp->pm_inusemap[cn / N_INUSEBITS]));
+	pmp->pm_inusemap[cn / N_INUSEBITS] |= 1U << (cn % N_INUSEBITS);
 	KASSERT(pmp->pm_freeclustercount > 0, ("usemap_alloc: too little"));
 	pmp->pm_freeclustercount--;
 	pmp->pm_flags |= MSDOSFS_FSIMOD;
@@ -407,10 +409,11 @@ usemap_free(struct msdosfsmount *pmp, u_long cn)
 	    ("usemap_free on ro msdosfs mount"));
 	pmp->pm_freeclustercount++;
 	pmp->pm_flags |= MSDOSFS_FSIMOD;
-	KASSERT((pmp->pm_inusemap[cn / N_INUSEBITS] & (1 << (cn % N_INUSEBITS)))
-	    != 0, ("Freeing unused sector %ld %ld %x", cn, cn % N_INUSEBITS,
-		(unsigned)pmp->pm_inusemap[cn / N_INUSEBITS]));
-	pmp->pm_inusemap[cn / N_INUSEBITS] &= ~(1 << (cn % N_INUSEBITS));
+	KASSERT((pmp->pm_inusemap[cn / N_INUSEBITS] &
+	    (1U << (cn % N_INUSEBITS))) != 0,
+	    ("Freeing unused sector %ld %ld %x", cn, cn % N_INUSEBITS,
+	    (unsigned)pmp->pm_inusemap[cn / N_INUSEBITS]));
+	pmp->pm_inusemap[cn / N_INUSEBITS] &= ~(1U << (cn % N_INUSEBITS));
 }
 
 int
@@ -648,7 +651,7 @@ chainlength(struct msdosfsmount *pmp, u_long start, u_long count)
 	idx = start / N_INUSEBITS;
 	start %= N_INUSEBITS;
 	map = pmp->pm_inusemap[idx];
-	map &= ~((1 << start) - 1);
+	map &= ~((1U << start) - 1);
 	if (map) {
 		len = ffs(map) - 1 - start;
 		len = MIN(len, count);
@@ -773,7 +776,7 @@ clusteralloc1(struct msdosfsmount *pmp, u_long start, u_long count,
 	for (cn = newst; cn <= pmp->pm_maxcluster;) {
 		idx = cn / N_INUSEBITS;
 		map = pmp->pm_inusemap[idx];
-		map |= (1 << (cn % N_INUSEBITS)) - 1;
+		map |= (1U << (cn % N_INUSEBITS)) - 1;
 		if (map != FULL_RUN) {
 			cn = idx * N_INUSEBITS + ffs(map ^ FULL_RUN) - 1;
 			if ((l = chainlength(pmp, cn, count)) >= count)
@@ -790,7 +793,7 @@ clusteralloc1(struct msdosfsmount *pmp, u_long start, u_long count,
 	for (cn = 0; cn < newst;) {
 		idx = cn / N_INUSEBITS;
 		map = pmp->pm_inusemap[idx];
-		map |= (1 << (cn % N_INUSEBITS)) - 1;
+		map |= (1U << (cn % N_INUSEBITS)) - 1;
 		if (map != FULL_RUN) {
 			cn = idx * N_INUSEBITS + ffs(map ^ FULL_RUN) - 1;
 			if ((l = chainlength(pmp, cn, count)) >= count)
@@ -948,7 +951,7 @@ fillinusemap(struct msdosfsmount *pmp)
 
 	for (cn = pmp->pm_maxcluster + 1; cn < (pmp->pm_maxcluster +
 	    N_INUSEBITS) / N_INUSEBITS; cn++)
-		pmp->pm_inusemap[cn / N_INUSEBITS] |= 1 << (cn % N_INUSEBITS);
+		pmp->pm_inusemap[cn / N_INUSEBITS] |= 1U << (cn % N_INUSEBITS);
 
 	return (0);
 }
@@ -977,6 +980,7 @@ extendfile(struct denode *dep, u_long count, struct buf **bpp, u_long *ncp,
 	u_long cn, got;
 	struct msdosfsmount *pmp = dep->de_pmp;
 	struct buf *bp;
+	struct vop_fsync_args fsync_ap;
 	daddr_t blkno;
 
 	/*
@@ -1086,8 +1090,16 @@ extendfile(struct denode *dep, u_long count, struct buf **bpp, u_long *ncp,
 				if (bpp) {
 					*bpp = bp;
 					bpp = NULL;
-				} else
+				} else {
 					bdwrite(bp);
+				}
+				if (vm_page_count_severe() ||
+				    buf_dirty_count_severe()) {
+					fsync_ap.a_vp = DETOV(dep);
+					fsync_ap.a_waitfor = MNT_WAIT;
+					fsync_ap.a_td = curthread;
+					vop_stdfsync(&fsync_ap);
+				}
 			}
 		}
 	}

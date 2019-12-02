@@ -480,6 +480,13 @@ vop_stdpathconf(ap)
 		case _PC_PATH_MAX:
 			*ap->a_retval = PATH_MAX;
 			return (0);
+		case _PC_ACL_EXTENDED:
+		case _PC_ACL_NFS4:
+		case _PC_CAP_PRESENT:
+		case _PC_INF_PRESENT:
+		case _PC_MAC_PRESENT:
+			*ap->a_retval = 0;
+			return (0);
 		default:
 			return (EINVAL);
 	}
@@ -597,7 +604,13 @@ vop_stdgetwritemount(ap)
 	return (0);
 }
 
-/* XXX Needs good comment and VOP_BMAP(9) manpage */
+/*
+ * If the file system doesn't implement VOP_BMAP, then return sensible defaults:
+ * - Return the vnode's bufobj instead of any underlying device's bufobj
+ * - Calculate the physical block number as if there were equal size
+ *   consecutive blocks, but
+ * - Report no contiguous runs of blocks.
+ */
 int
 vop_stdbmap(ap)
 	struct vop_bmap_args /* {

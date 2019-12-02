@@ -154,7 +154,7 @@ struct vlan_mc_entry {
 	SLIST_ENTRY(vlan_mc_entry)	mc_entries;
 };
 
-struct	ifvlan {
+struct ifvlan {
 	struct	ifvlantrunk *ifv_trunk;
 	struct	ifnet *ifv_ifp;
 #define	TRUNK(ifv)	((ifv)->ifv_trunk)
@@ -162,28 +162,19 @@ struct	ifvlan {
 	void	*ifv_cookie;
 	int	ifv_pflags;	/* special flags we have set on parent */
 	int	ifv_capenable;
-	struct	ifv_linkmib {
-		int	ifvm_encaplen;	/* encapsulation length */
-		int	ifvm_mtufudge;	/* MTU fudged by this much */
-		int	ifvm_mintu;	/* min transmission unit */
-		uint16_t ifvm_proto;	/* encapsulation ethertype */
-		uint16_t ifvm_tag;	/* tag to apply on packets leaving if */
-              	uint16_t ifvm_vid;	/* VLAN ID */
-		uint8_t	ifvm_pcp;	/* Priority Code Point (PCP). */
-	}	ifv_mib;
+	int	ifv_encaplen;	/* encapsulation length */
+	int	ifv_mtufudge;	/* MTU fudged by this much */
+	int	ifv_mintu;	/* min transmission unit */
+	uint16_t ifv_proto;	/* encapsulation ethertype */
+	uint16_t ifv_tag;	/* tag to apply on packets leaving if */
+	uint16_t ifv_vid;	/* VLAN ID */
+	uint8_t	ifv_pcp;	/* Priority Code Point (PCP). */
 	struct task lladdr_task;
 	SLIST_HEAD(, vlan_mc_entry) vlan_mc_listhead;
 #ifndef VLAN_ARRAY
 	LIST_ENTRY(ifvlan) ifv_list;
 #endif
 };
-#define	ifv_proto	ifv_mib.ifvm_proto
-#define	ifv_tag		ifv_mib.ifvm_tag
-#define	ifv_vid 	ifv_mib.ifvm_vid
-#define	ifv_pcp		ifv_mib.ifvm_pcp
-#define	ifv_encaplen	ifv_mib.ifvm_encaplen
-#define	ifv_mtufudge	ifv_mib.ifvm_mtufudge
-#define	ifv_mintu	ifv_mib.ifvm_mintu
 
 /* Special flags we should propagate to parent. */
 static struct {
@@ -1066,10 +1057,6 @@ vlan_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	strlcpy(ifp->if_xname, name, IFNAMSIZ);
 	ifp->if_dname = vlanname;
 	ifp->if_dunit = unit;
-	/* NB: flags are not set here */
-	ifp->if_linkmib = &ifv->ifv_mib;
-	ifp->if_linkmiblen = sizeof(ifv->ifv_mib);
-	/* NB: mtu is not set here */
 
 	ifp->if_init = vlan_init;
 	ifp->if_start = vlan_start;
@@ -1314,8 +1301,13 @@ vlan_lladdr_fn(void *arg, int pending __unused)
 
 	ifv = (struct ifvlan *)arg;
 	ifp = ifv->ifv_ifp;
+
+	CURVNET_SET(ifp->if_vnet);
+
 	/* The ifv_ifp already has the lladdr copied in. */
 	if_setlladdr(ifp, IF_LLADDR(ifp), ifp->if_addrlen);
+
+	CURVNET_RESTORE();
 }
 
 static int
@@ -1428,17 +1420,25 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid)
 	 * Set up our interface address to reflect the underlying
 	 * physical interface's.
 	 */
-	bcopy(IF_LLADDR(p), IF_LLADDR(ifp), p->if_addrlen);
+	TASK_INIT(&ifv->lladdr_task, 0, vlan_lladdr_fn, ifv);
 	((struct sockaddr_dl *)ifp->if_addr->ifa_addr)->sdl_alen =
 	    p->if_addrlen;
+
+	/*
+	 * Do not schedule link address update if it was the same
+	 * as previous parent's. This helps avoid updating for each
+	 * associated llentry.
+	 */
+	if (memcmp(IF_LLADDR(p), IF_LLADDR(ifp), p->if_addrlen) != 0) {
+		bcopy(IF_LLADDR(p), IF_LLADDR(ifp), p->if_addrlen);
+		taskqueue_enqueue(taskqueue_thread, &ifv->lladdr_task);
+	}
 
 	/*
 	 * Configure multicast addresses that may already be
 	 * joined on the vlan device.
 	 */
 	(void)vlan_setmulti(ifp);
-
-	TASK_INIT(&ifv->lladdr_task, 0, vlan_lladdr_fn, ifv);
 
 	/* We are ready for operation now. */
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;

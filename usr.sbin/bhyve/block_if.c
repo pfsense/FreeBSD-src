@@ -62,7 +62,7 @@ __FBSDID("$FreeBSD$");
 #define BLOCKIF_SIG	0xb109b109
 
 #define BLOCKIF_NUMTHR	8
-#define BLOCKIF_MAXREQ	(64 + BLOCKIF_NUMTHR)
+#define BLOCKIF_MAXREQ	(BLOCKIF_RING_MAX + BLOCKIF_NUMTHR)
 
 enum blockop {
 	BOP_READ,
@@ -101,8 +101,8 @@ struct blockif_ctxt {
 	int			bc_psectoff;
 	int			bc_closing;
 	pthread_t		bc_btid[BLOCKIF_NUMTHR];
-        pthread_mutex_t		bc_mtx;
-        pthread_cond_t		bc_cond;
+	pthread_mutex_t		bc_mtx;
+	pthread_cond_t		bc_cond;
 
 	/* Request elements and free/pending/busy queues */
 	TAILQ_HEAD(, blockif_elem) bc_freeq;       

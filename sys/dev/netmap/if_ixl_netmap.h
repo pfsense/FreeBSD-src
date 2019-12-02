@@ -59,7 +59,7 @@ extern int ixl_rx_miss, ixl_rx_miss_bufs, ixl_crcstrip;
 /*
  * device-specific sysctl variables:
  *
- * ixl_crcstrip: 0: keep CRC in rx frames (default), 1: strip it.
+ * ixl_crcstrip: 0: NIC keeps CRC in rx frames, 1: NIC strips it (default).
  *	During regular operations the CRC is stripped, but on some
  *	hardware reception of frames not multiple of 64 is slower,
  *	so using crcstrip=0 helps in benchmarks.
@@ -67,14 +67,14 @@ extern int ixl_rx_miss, ixl_rx_miss_bufs, ixl_crcstrip;
  * ixl_rx_miss, ixl_rx_miss_bufs:
  *	count packets that might be missed due to lost interrupts.
  */
+int ixl_rx_miss, ixl_rx_miss_bufs, ixl_crcstrip = 1;
 SYSCTL_DECL(_dev_netmap);
 /*
  * The xl driver by default strips CRCs and we do not override it.
  */
-int ixl_rx_miss, ixl_rx_miss_bufs, ixl_crcstrip = 1;
 #if 0
 SYSCTL_INT(_dev_netmap, OID_AUTO, ixl_crcstrip,
-    CTLFLAG_RW, &ixl_crcstrip, 1, "strip CRC on rx frames");
+    CTLFLAG_RW, &ixl_crcstrip, 1, "NIC strips CRC on rx frames");
 #endif
 SYSCTL_INT(_dev_netmap, OID_AUTO, ixl_rx_miss,
     CTLFLAG_RW, &ixl_rx_miss, 0, "potentially missed rx intr");
@@ -129,12 +129,8 @@ ixl_netmap_attach(struct ixl_vsi *vsi)
 
 	na.ifp = vsi->ifp;
 	na.na_flags = NAF_BDG_MAYSLEEP;
-	// XXX check that queues is set.
-	printf("queues is %p\n", vsi->queues);
-	if (vsi->queues) {
-		na.num_tx_desc = vsi->queues[0].num_desc;
-		na.num_rx_desc = vsi->queues[0].num_desc;
-	}
+	na.num_tx_desc = vsi->num_tx_desc;
+	na.num_rx_desc = vsi->num_rx_desc;
 	na.nm_txsync = ixl_netmap_txsync;
 	na.nm_rxsync = ixl_netmap_rxsync;
 	na.nm_register = ixl_netmap_reg;
@@ -266,8 +262,10 @@ ixl_netmap_txsync(struct netmap_kring *kring, int flags)
 	/*
 	 * Second part: reclaim buffers for completed transmissions.
 	 */
-	nic_i = LE32_TO_CPU(*(volatile __le32 *)&txr->base[que->num_desc]);
-	if (nic_i != txr->next_to_clean) {
+	nic_i = LE32_TO_CPU(*(volatile __le32 *)&txr->base[que->num_tx_desc]);
+	if (unlikely(nic_i >= que->num_tx_desc)) {
+		nm_prerr("error: invalid value of hw head index %u", nic_i);
+	} else if (nic_i != txr->next_to_clean) {
 		/* some tx completed, increment avail */
 		txr->next_to_clean = nic_i;
 		kring->nr_hwtail = nm_prev(netmap_idx_n2k(kring, nic_i), lim);
@@ -332,7 +330,6 @@ ixl_netmap_rxsync(struct netmap_kring *kring, int flags)
 	 */
 	if (netmap_no_pendintr || force_update) {
 		int crclen = ixl_crcstrip ? 0 : 4;
-		uint16_t slot_flags = kring->nkr_slot_flags;
 
 		nic_i = rxr->next_check; // or also k2n(kring->nr_hwtail)
 		nm_i = netmap_idx_n2k(kring, nic_i);
@@ -347,7 +344,7 @@ ixl_netmap_rxsync(struct netmap_kring *kring, int flags)
 				break;
 			ring->slot[nm_i].len = ((qword & I40E_RXD_QW1_LENGTH_PBUF_MASK)
 			    >> I40E_RXD_QW1_LENGTH_PBUF_SHIFT) - crclen;
-			ring->slot[nm_i].flags = slot_flags;
+			ring->slot[nm_i].flags = 0;
 			bus_dmamap_sync(rxr->ptag,
 			    rxr->buffers[nic_i].pmap, BUS_DMASYNC_POSTREAD);
 			nm_i = nm_next(nm_i, lim);

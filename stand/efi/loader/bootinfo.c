@@ -32,8 +32,8 @@ __FBSDID("$FreeBSD$");
 #include <stand.h>
 #include <string.h>
 #include <sys/param.h>
-#include <sys/reboot.h>
 #include <sys/linker.h>
+#include <sys/reboot.h>
 #include <sys/boot.h>
 #include <machine/cpufunc.h>
 #include <machine/elf.h>
@@ -56,31 +56,25 @@ __FBSDID("$FreeBSD$");
 #include <fdt_platform.h>
 #endif
 
+#ifdef LOADER_GELI_SUPPORT
+#include "geliboot.h"
+#endif
+
 int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp);
 
 extern EFI_SYSTEM_TABLE	*ST;
 
-static const char howto_switches[] = "aCdrgDmphsv";
-static int howto_masks[] = {
-	RB_ASKNAME, RB_CDROM, RB_KDB, RB_DFLTROOT, RB_GDB, RB_MULTIPLE,
-	RB_MUTE, RB_PAUSE, RB_SERIAL, RB_SINGLE, RB_VERBOSE
-};
-
 static int
 bi_getboothowto(char *kargs)
 {
-	const char *sw;
+	const char *sw, *tmp;
 	char *opts;
 	char *console;
-	int howto, i;
+	int howto, speed, port;
+	char buf[50];
 
-	howto = 0;
-
-	/* Get the boot options from the environment first. */
-	for (i = 0; howto_names[i].ev != NULL; i++) {
-		if (getenv(howto_names[i].ev) != NULL)
-			howto |= howto_names[i].mask;
-	}
+	howto = boot_parse_cmdline(kargs);
+	howto |= boot_env_to_howto();
 
 	console = getenv("console");
 	if (console != NULL) {
@@ -88,21 +82,45 @@ bi_getboothowto(char *kargs)
 			howto |= RB_SERIAL;
 		if (strcmp(console, "nullconsole") == 0)
 			howto |= RB_MUTE;
-	}
-
-	/* Parse kargs */
-	if (kargs == NULL)
-		return (howto);
-
-	opts = strchr(kargs, '-');
-	while (opts != NULL) {
-		while (*(++opts) != '\0') {
-			sw = strchr(howto_switches, *opts);
-			if (sw == NULL)
-				break;
-			howto |= howto_masks[sw - howto_switches];
+#if defined(__i386__) || defined(__amd64__)
+		if (strcmp(console, "efi") == 0 &&
+		    getenv("efi_8250_uid") != NULL &&
+		    getenv("hw.uart.console") == NULL) {
+			/*
+			 * If we found a 8250 com port and com speed, we need to
+			 * tell the kernel where the serial port is, and how
+			 * fast. Ideally, we'd get the port from ACPI, but that
+			 * isn't running in the loader. Do the next best thing
+			 * by allowing it to be set by a loader.conf variable,
+			 * either a EFI specific one, or the compatible
+			 * comconsole_port if not. PCI support is needed, but
+			 * for that we'd ideally refactor the
+			 * libi386/comconsole.c code to have identical behavior.
+			 * We only try to set the port for cases where we saw
+			 * the Serial(x) node when parsing, otherwise
+			 * specialized hardware that has Uart nodes will have a
+			 * bogus address set.
+			 * But if someone specifically setup hw.uart.console,
+			 * don't override that.
+			 */
+			speed = -1;
+			port = -1;
+			tmp = getenv("efi_com_speed");
+			if (tmp != NULL)
+				speed = strtol(tmp, NULL, 0);
+			tmp = getenv("efi_com_port");
+			if (tmp == NULL)
+				tmp = getenv("comconsole_port");
+			if (tmp != NULL)
+				port = strtol(tmp, NULL, 0);
+			if (speed != -1 && port != -1) {
+				snprintf(buf, sizeof(buf), "io:%d,br:%d", port,
+				    speed);
+				env_setenv("hw.uart.console", EV_VOLATILE, buf,
+				    NULL, NULL);
+			}
 		}
-		opts = strchr(opts, '-');
+#endif
 	}
 
 	return (howto);
@@ -269,12 +287,12 @@ static int
 bi_load_efi_data(struct preloaded_file *kfp)
 {
 	EFI_MEMORY_DESCRIPTOR *mm;
-	EFI_PHYSICAL_ADDRESS addr;
+	EFI_PHYSICAL_ADDRESS addr = 0;
 	EFI_STATUS status;
 	const char *efi_novmap;
 	size_t efisz;
 	UINTN efi_mapkey;
-	UINTN mmsz, pages, retry, sz;
+	UINTN dsz, pages, retry, sz;
 	UINT32 mmver;
 	struct efi_map_header *efihdr;
 	bool do_vmap;
@@ -305,76 +323,94 @@ bi_load_efi_data(struct preloaded_file *kfp)
 	efisz = (sizeof(struct efi_map_header) + 0xf) & ~0xf;
 
 	/*
-	 * Assgin size of EFI_MEMORY_DESCRIPTOR to keep compatible with
+	 * Assign size of EFI_MEMORY_DESCRIPTOR to keep compatible with
 	 * u-boot which doesn't fill this value when buffer for memory
 	 * descriptors is too small (eg. 0 to obtain memory map size)
 	 */
-	mmsz = sizeof(EFI_MEMORY_DESCRIPTOR);
+	dsz = sizeof(EFI_MEMORY_DESCRIPTOR);
 
 	/*
-	 * It is possible that the first call to ExitBootServices may change
-	 * the map key. Fetch a new map key and retry ExitBootServices in that
-	 * case.
+	 * Allocate enough pages to hold the bootinfo block and the
+	 * memory map EFI will return to us. The memory map has an
+	 * unknown size, so we have to determine that first. Note that
+	 * the AllocatePages call can itself modify the memory map, so
+	 * we have to take that into account as well. The changes to
+	 * the memory map are caused by splitting a range of free
+	 * memory into two, so that one is marked as being loader
+	 * data.
+	 */
+
+	sz = 0;
+
+	/*
+	 * Matthew Garrett has observed at least one system changing the
+	 * memory map when calling ExitBootServices, causing it to return an
+	 * error, probably because callbacks are allocating memory.
+	 * So we need to retry calling it at least once.
 	 */
 	for (retry = 2; retry > 0; retry--) {
-		/*
-		 * Allocate enough pages to hold the bootinfo block and the
-		 * memory map EFI will return to us. The memory map has an
-		 * unknown size, so we have to determine that first. Note that
-		 * the AllocatePages call can itself modify the memory map, so
-		 * we have to take that into account as well. The changes to
-		 * the memory map are caused by splitting a range of free
-		 * memory into two (AFAICT), so that one is marked as being
-		 * loader data.
-		 */
-		sz = 0;
-		BS->GetMemoryMap(&sz, NULL, &efi_mapkey, &mmsz, &mmver);
-		sz += mmsz;
-		sz = (sz + 0xf) & ~0xf;
-		pages = EFI_SIZE_TO_PAGES(sz + efisz);
-		status = BS->AllocatePages(AllocateAnyPages, EfiLoaderData,
-		     pages, &addr);
-		if (EFI_ERROR(status)) {
-			printf("%s: AllocatePages error %lu\n", __func__,
-			    EFI_ERROR_CODE(status));
-			return (ENOMEM);
-		}
+		for (;;) {
+			status = BS->GetMemoryMap(&sz, mm, &efi_mapkey, &dsz, &mmver);
+			if (!EFI_ERROR(status))
+				break;
 
-		/*
-		 * Read the memory map and stash it after bootinfo. Align the
-		 * memory map on a 16-byte boundary (the bootinfo block is page
-		 * aligned).
-		 */
-		efihdr = (struct efi_map_header *)addr;
-		mm = (void *)((uint8_t *)efihdr + efisz);
-		sz = (EFI_PAGE_SIZE * pages) - efisz;
+			if (status != EFI_BUFFER_TOO_SMALL) {
+				printf("%s: GetMemoryMap error %lu\n", __func__,
+	                           EFI_ERROR_CODE(status));
+				return (EINVAL);
+			}
 
-		status = BS->GetMemoryMap(&sz, mm, &efi_mapkey, &mmsz, &mmver);
-		if (EFI_ERROR(status)) {
-			printf("%s: GetMemoryMap error %lu\n", __func__,
-			    EFI_ERROR_CODE(status));
-			return (EINVAL);
-		}
-		status = BS->ExitBootServices(IH, efi_mapkey);
-		if (EFI_ERROR(status) == 0) {
+			if (addr != 0)
+				BS->FreePages(addr, pages);
+
+			/* Add 10 descriptors to the size to allow for
+			 * fragmentation caused by calling AllocatePages */
+			sz += (10 * dsz);
+			pages = EFI_SIZE_TO_PAGES(sz + efisz);
+			status = BS->AllocatePages(AllocateAnyPages, EfiLoaderData,
+					pages, &addr);
+			if (EFI_ERROR(status)) {
+				printf("%s: AllocatePages error %lu\n", __func__,
+				    EFI_ERROR_CODE(status));
+				return (ENOMEM);
+			}
+
 			/*
-			 * This may be disabled by setting efi_disable_vmap in
-			 * loader.conf(5). By default we will setup the virtual
-			 * map entries.
+			 * Read the memory map and stash it after bootinfo. Align the
+			 * memory map on a 16-byte boundary (the bootinfo block is page
+			 * aligned).
 			 */
-			if (do_vmap)
-				efi_do_vmap(mm, sz, mmsz, mmver);
-			efihdr->memory_size = sz;
-			efihdr->descriptor_size = mmsz;
-			efihdr->descriptor_version = mmver;
-			file_addmetadata(kfp, MODINFOMD_EFI_MAP, efisz + sz,
-			    efihdr);
-			return (0);
+			efihdr = (struct efi_map_header *)(uintptr_t)addr;
+			mm = (void *)((uint8_t *)efihdr + efisz);
+			sz = (EFI_PAGE_SIZE * pages) - efisz;
 		}
-		BS->FreePages(addr, pages);
+
+		status = BS->ExitBootServices(IH, efi_mapkey);
+		if (!EFI_ERROR(status))
+			break;
 	}
-	printf("ExitBootServices error %lu\n", EFI_ERROR_CODE(status));
-	return (EINVAL);
+
+	if (retry == 0) {
+		BS->FreePages(addr, pages);
+		printf("ExitBootServices error %lu\n", EFI_ERROR_CODE(status));
+		return (EINVAL);
+	}
+
+	/*
+	 * This may be disabled by setting efi_disable_vmap in
+	 * loader.conf(5). By default we will setup the virtual
+	 * map entries.
+	 */
+
+	if (do_vmap)
+		efi_do_vmap(mm, sz, dsz, mmver);
+	efihdr->memory_size = sz;
+	efihdr->descriptor_size = dsz;
+	efihdr->descriptor_version = mmver;
+	file_addmetadata(kfp, MODINFOMD_EFI_MAP, efisz + sz,
+	    efihdr);
+
+	return (0);
 }
 
 /*
@@ -478,7 +514,9 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp)
 #endif
 	file_addmetadata(kfp, MODINFOMD_KERNEND, sizeof kernend, &kernend);
 	file_addmetadata(kfp, MODINFOMD_FW_HANDLE, sizeof ST, &ST);
-
+#ifdef LOADER_GELI_SUPPORT
+	geli_export_key_metadata(kfp);
+#endif
 	bi_load_efi_data(kfp);
 
 	/* Figure out the size and location of the metadata. */

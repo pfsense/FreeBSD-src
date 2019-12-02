@@ -90,6 +90,8 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <stddef.h>		/* NB: for offsetof */
+#include <locale.h>
+#include <langinfo.h>
 
 #include "ifconfig.h"
 
@@ -1459,9 +1461,6 @@ getmodeflags(const char *val)
 	return flags;
 }
 
-#define	IEEE80211_CHAN_HTA	(IEEE80211_CHAN_HT|IEEE80211_CHAN_5GHZ)
-#define	IEEE80211_CHAN_HTG	(IEEE80211_CHAN_HT|IEEE80211_CHAN_2GHZ)
-
 #define	_APPLY(_flags, _base, _param, _v) do {				\
     if (_flags & IEEE80211_CHAN_HT) {					\
 	    if ((_flags & (IEEE80211_CHAN_5GHZ|IEEE80211_CHAN_2GHZ)) == 0) {\
@@ -1651,8 +1650,6 @@ DECL_CMD_FUNC(set80211maxretry, val, d)
 }
 #undef _APPLY_RATE
 #undef _APPLY
-#undef IEEE80211_CHAN_HTA
-#undef IEEE80211_CHAN_HTG
 
 static
 DECL_CMD_FUNC(set80211fragthreshold, val, d)
@@ -3949,6 +3946,21 @@ list_roam(int s)
 	}
 }
 
+/* XXX TODO: rate-to-string method... */
+static const char*
+get_mcs_mbs_rate_str(uint8_t rate)
+{
+	return (rate & IEEE80211_RATE_MCS) ? "MCS " : "Mb/s";
+}
+
+static uint8_t
+get_rate_value(uint8_t rate)
+{
+	if (rate & IEEE80211_RATE_MCS)
+		return (rate &~ IEEE80211_RATE_MCS);
+	return (rate / 2);
+}
+
 static void
 list_txparams(int s)
 {
@@ -3962,19 +3974,23 @@ list_txparams(int s)
 			continue;
 		if (mode == IEEE80211_MODE_11NA || mode == IEEE80211_MODE_11NG) {
 			if (tp->ucastrate == IEEE80211_FIXED_RATE_NONE)
-				LINE_CHECK("%-7.7s ucast NONE    mgmt %2u MCS  "
-				    "mcast %2u MCS  maxretry %u",
+				LINE_CHECK("%-7.7s ucast NONE    mgmt %2u %s "
+				    "mcast %2u %s maxretry %u",
 				    modename[mode],
-				    tp->mgmtrate &~ IEEE80211_RATE_MCS,
-				    tp->mcastrate &~ IEEE80211_RATE_MCS,
+				    get_rate_value(tp->mgmtrate),
+				    get_mcs_mbs_rate_str(tp->mgmtrate),
+				    get_rate_value(tp->mcastrate),
+				    get_mcs_mbs_rate_str(tp->mcastrate),
 				    tp->maxretry);
 			else
-				LINE_CHECK("%-7.7s ucast %2u MCS  mgmt %2u MCS  "
-				    "mcast %2u MCS  maxretry %u",
+				LINE_CHECK("%-7.7s ucast %2u MCS  mgmt %2u %s "
+				    "mcast %2u %s maxretry %u",
 				    modename[mode],
 				    tp->ucastrate &~ IEEE80211_RATE_MCS,
-				    tp->mgmtrate &~ IEEE80211_RATE_MCS,
-				    tp->mcastrate &~ IEEE80211_RATE_MCS,
+				    get_rate_value(tp->mgmtrate),
+				    get_mcs_mbs_rate_str(tp->mgmtrate),
+				    get_rate_value(tp->mcastrate),
+				    get_mcs_mbs_rate_str(tp->mcastrate),
 				    tp->maxretry);
 		} else {
 			if (tp->ucastrate == IEEE80211_FIXED_RATE_NONE)
@@ -4683,7 +4699,9 @@ end:
 				LINE_CHECK("roam:rssi %u.5", rp->rssi/2);
 			else
 				LINE_CHECK("roam:rssi %u", rp->rssi/2);
-			LINE_CHECK("roam:rate %u", rp->rate/2);
+			LINE_CHECK("roam:rate %s%u",
+			    (rp->rate & IEEE80211_RATE_MCS) ? "MCS " : "",
+			    get_rate_value(rp->rate));
 		} else {
 			LINE_BREAK();
 			list_roam(s);
@@ -5131,16 +5149,21 @@ print_string(const u_int8_t *buf, int len)
 {
 	int i;
 	int hasspc;
+	int utf8;
 
 	i = 0;
 	hasspc = 0;
+
+	setlocale(LC_CTYPE, "");
+	utf8 = strncmp("UTF-8", nl_langinfo(CODESET), 5) == 0;
+
 	for (; i < len; i++) {
-		if (!isprint(buf[i]) && buf[i] != '\0')
+		if (!isprint(buf[i]) && buf[i] != '\0' && !utf8)
 			break;
 		if (isspace(buf[i]))
 			hasspc++;
 	}
-	if (i == len) {
+	if (i == len || utf8) {
 		if (hasspc || len == 0 || buf[0] == '\0')
 			printf("\"%.*s\"", len, buf);
 		else

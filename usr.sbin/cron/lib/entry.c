@@ -35,7 +35,8 @@ static const char rcsid[] =
 
 typedef	enum ecode {
 	e_none, e_minute, e_hour, e_dom, e_month, e_dow,
-	e_cmd, e_timespec, e_username, e_group, e_mem
+	e_cmd, e_timespec, e_username, e_group, e_option,
+	e_mem
 #ifdef LOGIN_CAP
 	, e_class
 #endif
@@ -58,6 +59,7 @@ static char *ecodes[] =
 		"bad time specifier",
 		"bad username",
 		"bad group name",
+		"bad option",
 		"out of memory",
 #ifdef LOGIN_CAP
 		"bad class name",
@@ -132,6 +134,9 @@ load_entry(file, error_func, pw, envp)
 	}
 
 	if (ch == '@') {
+		long interval;
+		char *endptr;
+
 		/* all of these should be flagged and load-limited; i.e.,
 		 * instead of @hourly meaning "0 * * * *" it should mean
 		 * "close to the front of every hour but not 'til the
@@ -209,6 +214,13 @@ load_entry(file, error_func, pw, envp)
 			bit_nset(e->dom, 0, (LAST_DOM-FIRST_DOM+1));
 			bit_nset(e->month, 0, (LAST_MONTH-FIRST_MONTH+1));
 			bit_nset(e->dow, 0, (LAST_DOW-FIRST_DOW+1));
+		} else if (*cmd != '\0' &&
+		    (interval = strtol(cmd, &endptr, 10)) > 0 &&
+		    *endptr == '\0') {
+			Debug(DPARS, ("load_entry()... %ld seconds "
+			    "since last run\n", interval))
+			e->interval = interval;
+			e->flags = INTERVAL;
 		} else {
 			ecode = e_timespec;
 			goto eof;
@@ -418,6 +430,53 @@ load_entry(file, error_func, pw, envp)
 		goto eof;
 	}
 #endif
+
+	Debug(DPARS, ("load_entry()...checking for command options\n"))
+
+	ch = get_char(file);
+
+	while (ch == '-') {
+		Debug(DPARS|DEXT, ("load_entry()...expecting option\n"))
+		switch (ch = get_char(file)) {
+		case 'n':
+			Debug(DPARS|DEXT, ("load_entry()...got MAIL_WHEN_ERR ('n') option\n"))
+			/* only allow the user to set the option once */
+			if ((e->flags & MAIL_WHEN_ERR) == MAIL_WHEN_ERR) {
+				Debug(DPARS|DEXT, ("load_entry()...duplicate MAIL_WHEN_ERR ('n') option\n"))
+				ecode = e_option;
+				goto eof;
+			}
+			e->flags |= MAIL_WHEN_ERR;
+			break;
+		case 'q':
+			Debug(DPARS|DEXT, ("load_entry()...got DONT_LOG ('q') option\n"))
+			/* only allow the user to set the option once */
+			if ((e->flags & DONT_LOG) == DONT_LOG) {
+				Debug(DPARS|DEXT, ("load_entry()...duplicate DONT_LOG ('q') option\n"))
+				ecode = e_option;
+				goto eof;
+			}
+			e->flags |= DONT_LOG;
+			break;
+		default:
+			Debug(DPARS|DEXT, ("load_entry()...invalid option '%c'\n", ch))
+			ecode = e_option;
+			goto eof;
+		}
+		ch = get_char(file);
+		if (ch!='\t' && ch!=' ') {
+			ecode = e_option;
+			goto eof;
+		}
+
+		Skip_Blanks(ch, file)
+		if (ch == EOF || ch == '\n') {
+			ecode = e_cmd;
+			goto eof;
+		}
+	}
+
+	unget_char(ch, file);
 
 	Debug(DPARS, ("load_entry()...about to parse command\n"))
 

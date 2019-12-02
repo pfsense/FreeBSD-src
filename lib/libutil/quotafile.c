@@ -101,7 +101,7 @@ hasquota(struct fstab *fs, int type, char *qfnamep, int qfbufsize)
 		return (0);
 	}
 	if (cp) {
-		strncpy(qfnamep, cp, qfbufsize);
+		strlcpy(qfnamep, cp, qfbufsize);
 	} else {
 		(void)snprintf(qfnamep, qfbufsize, "%s/%s.%s", fs->fs_file,
 		    QUOTAFILENAME, qfextension[type]);
@@ -116,10 +116,9 @@ quota_open(struct fstab *fs, int quotatype, int openflags)
 	struct dqhdr64 dqh;
 	struct group *grp;
 	struct stat st;
-	int qcmd, serrno;
+	int qcmd, serrno = 0;
+	int ufs;
 
-	if (strcmp(fs->fs_vfstype, "ufs"))
-		return (NULL);
 	if ((qf = calloc(1, sizeof(*qf))) == NULL)
 		return (NULL);
 	qf->fd = -1;
@@ -128,11 +127,22 @@ quota_open(struct fstab *fs, int quotatype, int openflags)
 	if (stat(qf->fsname, &st) != 0)
 		goto error;
 	qf->dev = st.st_dev;
-	serrno = hasquota(fs, quotatype, qf->qfname, sizeof(qf->qfname));
 	qcmd = QCMD(Q_GETQUOTASIZE, quotatype);
+	ufs = strcmp(fs->fs_vfstype, "ufs") == 0;
+	/*
+	 * On UFS, hasquota() fills in qf->qfname. But we only care about
+	 * this for UFS.  So we need to call hasquota() for UFS, first.
+	 */
+	if (ufs) {
+		serrno = hasquota(fs, quotatype, qf->qfname,
+		    sizeof(qf->qfname));
+	}
 	if (quotactl(qf->fsname, qcmd, 0, &qf->wordsize) == 0)
 		return (qf);
-	if (serrno == 0) {
+	if (!ufs) {
+		errno = 0;
+		goto error;
+	} else if (serrno == 0) {
 		errno = EOPNOTSUPP;
 		goto error;
 	}

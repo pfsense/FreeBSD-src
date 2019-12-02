@@ -346,6 +346,29 @@ static int calc_send_wqe(struct ib_qp_init_attr *attr)
 		return ALIGN(max_t(int, inl_size, size), MLX5_SEND_WQE_BB);
 }
 
+static int get_send_sge(struct ib_qp_init_attr *attr, int wqe_size)
+{
+	int max_sge;
+
+	if (attr->qp_type == IB_QPT_RC)
+		max_sge = (min_t(int, wqe_size, 512) -
+			   sizeof(struct mlx5_wqe_ctrl_seg) -
+			   sizeof(struct mlx5_wqe_raddr_seg)) /
+			sizeof(struct mlx5_wqe_data_seg);
+	else if (attr->qp_type == IB_QPT_XRC_INI)
+		max_sge = (min_t(int, wqe_size, 512) -
+			   sizeof(struct mlx5_wqe_ctrl_seg) -
+			   sizeof(struct mlx5_wqe_xrc_seg) -
+			   sizeof(struct mlx5_wqe_raddr_seg)) /
+			sizeof(struct mlx5_wqe_data_seg);
+	else
+		max_sge = (wqe_size - sq_overhead(attr)) /
+			sizeof(struct mlx5_wqe_data_seg);
+
+	return min_t(int, max_sge, wqe_size - sq_overhead(attr) /
+		     sizeof(struct mlx5_wqe_data_seg));
+}
+
 static int calc_sq_size(struct mlx5_ib_dev *dev, struct ib_qp_init_attr *attr,
 			struct mlx5_ib_qp *qp)
 {
@@ -382,7 +405,11 @@ static int calc_sq_size(struct mlx5_ib_dev *dev, struct ib_qp_init_attr *attr,
 		return -ENOMEM;
 	}
 	qp->sq.wqe_shift = ilog2(MLX5_SEND_WQE_BB);
-	qp->sq.max_gs = attr->cap.max_send_sge;
+	qp->sq.max_gs = get_send_sge(attr, wqe_size);
+	if (qp->sq.max_gs < attr->cap.max_send_sge)
+		return -ENOMEM;
+
+	attr->cap.max_send_sge = qp->sq.max_gs;
 	qp->sq.max_post = wq_size / wqe_size;
 	attr->cap.max_send_wr = qp->sq.max_post;
 
@@ -2125,7 +2152,7 @@ static int ib_rate_to_mlx5(struct mlx5_ib_dev *dev, u8 rate)
 {
 	if (rate == IB_RATE_PORT_CURRENT) {
 		return 0;
-	} else if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_300_GBPS) {
+	} else if (rate < IB_RATE_2_5_GBPS || rate > IB_RATE_600_GBPS) {
 		return -EINVAL;
 	} else {
 		while (rate != IB_RATE_2_5_GBPS &&
@@ -2195,6 +2222,7 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 {
 	enum rdma_link_layer ll = rdma_port_get_link_layer(&dev->ib_dev, port);
 	int err;
+	enum ib_gid_type gid_type;
 
 	if (attr_mask & IB_QP_PKEY_INDEX)
 		path->pkey_index = cpu_to_be16(alt ? attr->alt_pkey_index :
@@ -2213,10 +2241,16 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 	if (ll == IB_LINK_LAYER_ETHERNET) {
 		if (!(ah->ah_flags & IB_AH_GRH))
 			return -EINVAL;
+		err = mlx5_get_roce_gid_type(dev, port, ah->grh.sgid_index,
+					     &gid_type);
+		if (err)
+			return err;
 		memcpy(path->rmac, ah->dmac, sizeof(ah->dmac));
 		path->udp_sport = mlx5_get_roce_udp_sport(dev, port,
 							  ah->grh.sgid_index);
 		path->dci_cfi_prio_sl = (ah->sl & 0x7) << 4;
+		if (gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP)
+			path->ecn_dscp = (ah->grh.traffic_class >> 2) & 0x3f;
 	} else {
 		path->fl_free_ar = (path_flags & MLX5_PATH_FLAG_FL) ? 0x80 : 0;
 		path->fl_free_ar |=

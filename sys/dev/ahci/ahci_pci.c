@@ -69,7 +69,8 @@ static const struct {
 	/* Not sure SB8x0/SB9x0 needs this quirk. Be conservative though */
 	{0x43951002, 0x00, "AMD SB8x0/SB9x0",	AHCI_Q_ATI_PMP_BUG},
 	{0x43b61022, 0x00, "AMD X399",		0},
-	{0x43b71022, 0x00, "AMD 300 Series",	0},
+	{0x43b51022, 0x00, "AMD 300 Series",	0}, /* X370 */
+	{0x43b71022, 0x00, "AMD 300 Series",	0}, /* B350 */
 	{0x78001022, 0x00, "AMD Hudson-2",	0},
 	{0x78011022, 0x00, "AMD Hudson-2",	0},
 	{0x78021022, 0x00, "AMD Hudson-2",	0},
@@ -231,6 +232,8 @@ static const struct {
 	{0xa2828086, 0x00, "Intel Union Point",	0},
 	{0xa2868086, 0x00, "Intel Union Point (RAID)",	0},
 	{0xa28e8086, 0x00, "Intel Union Point (RAID)",	0},
+	{0xa3528086, 0x00, "Intel Cannon Lake",	0},
+	{0xa3538086, 0x00, "Intel Cannon Lake",	0},
 	{0x23238086, 0x00, "Intel DH89xxCC",	0},
 	{0x2360197b, 0x00, "JMicron JMB360",	0},
 	{0x2361197b, 0x00, "JMicron JMB361",	AHCI_Q_NOFORCE | AHCI_Q_1CH},

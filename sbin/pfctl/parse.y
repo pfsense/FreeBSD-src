@@ -79,6 +79,7 @@ static u_int16_t	 returnicmpdefault =
 static u_int16_t	 returnicmp6default =
 			    (ICMP6_DST_UNREACH << 8) | ICMP6_DST_UNREACH_NOPORT;
 static int		 blockpolicy = PFRULE_DROP;
+static int		 failpolicy = PFRULE_DROP;
 static int		 require_order = 1;
 static int		 default_statelock;
 
@@ -464,8 +465,8 @@ int	parseport(char *, struct range *r, int);
 %token	MINTTL ERROR ALLOWOPTS FASTROUTE FILENAME ROUTETO DUPTO REPLYTO NO LABEL SCHEDULE
 %token	NOROUTE URPFFAILED FRAGMENT USER GROUP MAXMSS MAXIMUM TTL TOS DSCP DROP TABLE TRACKER
 %token	REASSEMBLE FRAGDROP FRAGCROP ANCHOR NATANCHOR RDRANCHOR BINATANCHOR
-%token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE BLOCKPOLICY RANDOMID
-%token	REQUIREORDER SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
+%token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE BLOCKPOLICY FAILPOLICY
+%token	RANDOMID REQUIREORDER SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
 %token	ANTISPOOF FOR INCLUDE
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN STATICPORT PROBABILITY
 %token	ALTQ CBQ CODEL PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME
@@ -649,6 +650,20 @@ option		: SET OPTIMIZATION STRING		{
 			if (check_rulestate(PFCTL_STATE_OPTION))
 				YYERROR;
 			blockpolicy = PFRULE_RETURN;
+		}
+		| SET FAILPOLICY DROP	{
+			if (pf->opts & PF_OPT_VERBOSE)
+				printf("set fail-policy drop\n");
+			if (check_rulestate(PFCTL_STATE_OPTION))
+				YYERROR;
+			failpolicy = PFRULE_DROP;
+		}
+		| SET FAILPOLICY RETURN {
+			if (pf->opts & PF_OPT_VERBOSE)
+				printf("set fail-policy return\n");
+			if (check_rulestate(PFCTL_STATE_OPTION))
+				YYERROR;
+			failpolicy = PFRULE_RETURN;
 		}
 		| SET REQUIREORDER yesno {
 			if (pf->opts & PF_OPT_VERBOSE)
@@ -2716,8 +2731,18 @@ probability	: STRING				{
 		;
 
 
-action		: PASS			{ $$.b1 = PF_PASS; $$.b2 = $$.w = 0; }
-		| MATCH			{ $$.b1 = PF_MATCH; $$.b2 = $$.w = 0; }
+action		: PASS 			{
+			$$.b1 = PF_PASS;
+			$$.b2 = failpolicy;
+			$$.w = returnicmpdefault;
+			$$.w2 = returnicmp6default;
+		}
+		| MATCH			{
+			$$.b1 = PF_MATCH;
+			$$.b2 = failpolicy;
+			$$.w = returnicmpdefault;
+			$$.w2 = returnicmp6default;
+		}
 		| BLOCK blockspec	{ $$ = $2; $$.b1 = PF_DROP; }
 		;
 
@@ -4514,7 +4539,7 @@ route_host	: STRING			{
 			$$ = calloc(1, sizeof(struct node_host));
 			if ($$ == NULL)
 				err(1, "route_host: calloc");
-			$$->ifname = $1;
+			$$->ifname = strdup($1);
 			set_ipmask($$, 128);
 			$$->next = NULL;
 			$$->tail = $$;
@@ -4524,7 +4549,7 @@ route_host	: STRING			{
 
 			$$ = $3;
 			for (n = $3; n != NULL; n = n->next)
-				n->ifname = $2;
+				n->ifname = strdup($2);
 		}
 		;
 
@@ -4849,6 +4874,8 @@ process_tabledef(char *name, struct table_opts *opts)
 {
 	struct pfr_buffer	 ab;
 	struct node_tinit	*ti;
+	unsigned long		 maxcount;
+	size_t			 s = sizeof(maxcount);
 
 	bzero(&ab, sizeof(ab));
 	ab.pfrb_type = PFRB_ADDRS;
@@ -4876,8 +4903,19 @@ process_tabledef(char *name, struct table_opts *opts)
 	if (!(pf->opts & PF_OPT_NOACTION) &&
 	    pfctl_define_table(name, opts->flags, opts->init_addr,
 	    pf->anchor->name, &ab, pf->anchor->ruleset.tticket)) {
-		yyerror("cannot define table %s: %s", name,
-		    pfr_strerror(errno));
+
+		if (sysctlbyname("net.pf.request_maxcount", &maxcount, &s,
+		    NULL, 0) == -1)
+			maxcount = 65535;
+
+		if (ab.pfrb_size > maxcount)
+			yyerror("cannot define table %s: too many elements.\n"
+			    "Consider increasing net.pf.request_maxcount.",
+			    name);
+		else
+			yyerror("cannot define table %s: %s", name,
+			    pfr_strerror(errno));
+
 		goto _error;
 	}
 	pf->tdirty = 1;
@@ -5618,6 +5656,7 @@ lookup(char *s)
 		{ "drop-ovl",		FRAGDROP},
 		{ "dscp",		DSCP},
 		{ "dup-to",		DUPTO},
+		{ "fail-policy",	FAILPOLICY},
 		{ "fairq",		FAIRQ},
 		{ "fastroute",		FASTROUTE},
 		{ "file",		FILENAME},
@@ -5892,8 +5931,10 @@ top:
 					return (0);
 				if (next == quotec || c == ' ' || c == '\t')
 					c = next;
-				else if (next == '\n')
+				else if (next == '\n') {
+					file->lineno++;
 					continue;
+				}
 				else
 					lungetc(next);
 			} else if (c == quotec) {
@@ -6085,6 +6126,7 @@ parse_config(char *filename, struct pfctl *xpf)
 	returnicmp6default =
 	    (ICMP6_DST_UNREACH << 8) | ICMP6_DST_UNREACH_NOPORT;
 	blockpolicy = PFRULE_DROP;
+	failpolicy = PFRULE_DROP;
 	require_order = 1;
 
 	if ((file = pushfile(filename, 0)) == NULL) {

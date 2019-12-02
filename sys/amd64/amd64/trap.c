@@ -111,41 +111,41 @@ void dblfault_handler(struct trapframe *frame);
 static int trap_pfault(struct trapframe *, int);
 static void trap_fatal(struct trapframe *, vm_offset_t);
 
-#define MAX_TRAP_MSG		32
-static char *trap_msg[] = {
-	"",					/*  0 unused */
-	"privileged instruction fault",		/*  1 T_PRIVINFLT */
-	"",					/*  2 unused */
-	"breakpoint instruction fault",		/*  3 T_BPTFLT */
-	"",					/*  4 unused */
-	"",					/*  5 unused */
-	"arithmetic trap",			/*  6 T_ARITHTRAP */
-	"",					/*  7 unused */
-	"",					/*  8 unused */
-	"general protection fault",		/*  9 T_PROTFLT */
-	"trace trap",				/* 10 T_TRCTRAP */
-	"",					/* 11 unused */
-	"page fault",				/* 12 T_PAGEFLT */
-	"",					/* 13 unused */
-	"alignment fault",			/* 14 T_ALIGNFLT */
-	"",					/* 15 unused */
-	"",					/* 16 unused */
-	"",					/* 17 unused */
-	"integer divide fault",			/* 18 T_DIVIDE */
-	"non-maskable interrupt trap",		/* 19 T_NMI */
-	"overflow trap",			/* 20 T_OFLOW */
-	"FPU bounds check fault",		/* 21 T_BOUND */
-	"FPU device not available",		/* 22 T_DNA */
-	"double fault",				/* 23 T_DOUBLEFLT */
-	"FPU operand fetch fault",		/* 24 T_FPOPFLT */
-	"invalid TSS fault",			/* 25 T_TSSFLT */
-	"segment not present fault",		/* 26 T_SEGNPFLT */
-	"stack fault",				/* 27 T_STKFLT */
-	"machine check trap",			/* 28 T_MCHK */
-	"SIMD floating-point exception",	/* 29 T_XMMFLT */
-	"reserved (unknown) fault",		/* 30 T_RESERVED */
-	"",					/* 31 unused (reserved) */
-	"DTrace pid return trap",		/* 32 T_DTRACE_RET */
+static const char UNKNOWN[] = "unknown";
+static const char *const trap_msg[] = {
+	[0] =			UNKNOWN,			/* unused */
+	[T_PRIVINFLT] =		"privileged instruction fault",
+	[2] =			UNKNOWN,			/* unused */
+	[T_BPTFLT] =		"breakpoint instruction fault",
+	[4] =			UNKNOWN,			/* unused */
+	[5] =			UNKNOWN,			/* unused */
+	[T_ARITHTRAP] =		"arithmetic trap",
+	[7] =			UNKNOWN,			/* unused */
+	[8] =			UNKNOWN,			/* unused */
+	[T_PROTFLT] =		"general protection fault",
+	[T_TRCTRAP] =		"debug exception",
+	[11] =			UNKNOWN,			/* unused */
+	[T_PAGEFLT] =		"page fault",
+	[13] =			UNKNOWN,			/* unused */
+	[T_ALIGNFLT] =		"alignment fault",
+	[15] =			UNKNOWN,			/* unused */
+	[16] =			UNKNOWN,			/* unused */
+	[17] =			UNKNOWN,			/* unused */
+	[T_DIVIDE] =		"integer divide fault",
+	[T_NMI] =		"non-maskable interrupt trap",
+	[T_OFLOW] =		"overflow trap",
+	[T_BOUND] =		"FPU bounds check fault",
+	[T_DNA] =		"FPU device not available",
+	[T_DOUBLEFLT] =		"double fault",
+	[T_FPOPFLT] =		"FPU operand fetch fault",
+	[T_TSSFLT] =		"invalid TSS fault",
+	[T_SEGNPFLT] =		"segment not present fault",
+	[T_STKFLT] =		"stack fault",
+	[T_MCHK] =		"machine check trap",
+	[T_XMMFLT] =		"SIMD floating-point exception",
+	[T_RESERVED] =		"reserved (unknown) fault",
+	[31] =			UNKNOWN,			/* reserved */
+	[T_DTRACE_RET] =	"DTrace pid return trap",
 };
 
 static int prot_fault_translation;
@@ -156,6 +156,20 @@ static int uprintf_signal;
 SYSCTL_INT(_machdep, OID_AUTO, uprintf_signal, CTLFLAG_RWTUN,
     &uprintf_signal, 0,
     "Print debugging information on trap signal to ctty");
+
+/*
+ * Control L1D flush on return from NMI.
+ *
+ * Tunable  can be set to the following values:
+ * 0 - only enable flush on return from NMI if required by vmm.ko (default)
+ * >1 - always flush on return from NMI.
+ *
+ * Post-boot, the sysctl indicates if flushing is currently enabled.
+ */
+int nmi_flush_l1d_sw;
+SYSCTL_INT(_machdep, OID_AUTO, nmi_flush_l1d_sw, CTLFLAG_RWTUN,
+    &nmi_flush_l1d_sw, 0,
+    "Flush L1 Data Cache on NMI exit, software bhyve L1TF mitigation assist");
 
 /*
  * Exception, fault, and trap interface to the FreeBSD kernel.
@@ -170,10 +184,7 @@ trap(struct trapframe *frame)
 	ksiginfo_t ksi;
 	struct thread *td;
 	struct proc *p;
-	register_t addr;
-#ifdef KDB
-	register_t dr6;
-#endif
+	register_t addr, dr6;
 	int signo, ucode;
 	u_int type;
 
@@ -182,6 +193,7 @@ trap(struct trapframe *frame)
 	signo = 0;
 	ucode = 0;
 	addr = 0;
+	dr6 = 0;
 
 	PCPU_INC(cnt.v_trap);
 	type = frame->tf_trapno;
@@ -269,18 +281,29 @@ trap(struct trapframe *frame)
 			break;
 
 		case T_BPTFLT:		/* bpt instruction fault */
-		case T_TRCTRAP:		/* trace trap */
 			enable_intr();
 #ifdef KDTRACE_HOOKS
-			if (type == T_BPTFLT) {
-				if (dtrace_pid_probe_ptr != NULL &&
-				    dtrace_pid_probe_ptr(frame) == 0)
-					return;
-			}
+			if (dtrace_pid_probe_ptr != NULL &&
+			    dtrace_pid_probe_ptr(frame) == 0)
+				return;
 #endif
-			frame->tf_rflags &= ~PSL_T;
 			signo = SIGTRAP;
-			ucode = (type == T_TRCTRAP ? TRAP_TRACE : TRAP_BRKPT);
+			ucode = TRAP_BRKPT;
+			break;
+
+		case T_TRCTRAP:		/* debug exception */
+			enable_intr();
+			signo = SIGTRAP;
+			ucode = TRAP_TRACE;
+			dr6 = rdr6();
+			if ((dr6 & DBREG_DR6_BS) != 0) {
+				PROC_LOCK(td->td_proc);
+				if ((td->td_dbgflags & TDB_STEP) != 0) {
+					td->td_frame->tf_rflags &= ~PSL_T;
+					td->td_dbgflags &= ~TDB_STEP;
+				}
+				PROC_UNLOCK(td->td_proc);
+			}
 			break;
 
 		case T_ARITHTRAP:	/* arithmetic trap */
@@ -463,11 +486,13 @@ trap(struct trapframe *frame)
 			 */
 			if (frame->tf_rip == (long)doreti_iret) {
 				frame->tf_rip = (long)doreti_iret_fault;
-				if (pti && frame->tf_rsp == (uintptr_t)PCPU_PTR(
-				    pti_stack) + (PC_PTI_STACK_SZ - 5) *
-				    sizeof(register_t))
+				if ((PCPU_GET(curpmap)->pm_ucr3 !=
+				    PMAP_NO_CR3) &&
+				    (frame->tf_rsp == (uintptr_t)PCPU_GET(
+				    pti_rsp0) - 5 * sizeof(register_t))) {
 					frame->tf_rsp = PCPU_GET(rsp0) - 5 *
 					    sizeof(register_t);
+				}
 				return;
 			}
 			if (frame->tf_rip == (long)ld_ds) {
@@ -516,9 +541,13 @@ trap(struct trapframe *frame)
 			}
 			break;
 
-		case T_TRCTRAP:	 /* trace trap */
+		case T_TRCTRAP:	 /* debug exception */
+			/* Clear any pending debug events. */
+			dr6 = rdr6();
+			load_dr6(0);
+
 			/*
-			 * Ignore debug register trace traps due to
+			 * Ignore debug register exceptions due to
 			 * accesses in the user's address space, which
 			 * can happen under several conditions such as
 			 * if a user sets a watchpoint on a buffer and
@@ -527,14 +556,8 @@ trap(struct trapframe *frame)
 			 * in kernel space because that is useful when
 			 * debugging the kernel.
 			 */
-			if (user_dbreg_trap()) {
-				/*
-				 * Reset breakpoint bits because the
-				 * processor doesn't
-				 */
-				load_dr6(rdr6() & ~0xf);
+			if (user_dbreg_trap(dr6))
 				return;
-			}
 
 			/*
 			 * Malicious user code can configure a debug
@@ -590,9 +613,6 @@ trap(struct trapframe *frame)
 			 * Otherwise, debugger traps "can't happen".
 			 */
 #ifdef KDB
-			/* XXX %dr6 is not quite reentrant. */
-			dr6 = rdr6();
-			load_dr6(dr6 & ~0x4000);
 			if (kdb_trap(type, dr6, frame))
 				return;
 #endif
@@ -635,6 +655,7 @@ trap(struct trapframe *frame)
 	}
 	KASSERT((read_rflags() & PSL_I) != 0, ("interrupts disabled"));
 	trapsignal(td, &ksi);
+
 userret:
 	userret(td, frame);
 	KASSERT(PCB_USER_FPU(td->td_pcb),
@@ -655,6 +676,17 @@ trap_check(struct trapframe *frame)
 		return;
 #endif
 	trap(frame);
+}
+
+static bool
+trap_is_pti(struct trapframe *frame)
+{
+
+	return (PCPU_GET(curpmap)->pm_ucr3 != PMAP_NO_CR3 &&
+	    pg_nx != 0 && (frame->tf_err & (PGEX_P | PGEX_W |
+	    PGEX_U | PGEX_I)) == (PGEX_P | PGEX_U | PGEX_I) &&
+	    (curpcb->pcb_saved_ucr3 & ~CR3_PCID_MASK) ==
+	    (PCPU_GET(curpmap)->pm_cr3 & ~CR3_PCID_MASK));
 }
 
 static int
@@ -754,11 +786,8 @@ trap_pfault(struct trapframe *frame, int usermode)
 	 * If nx protection of the usermode portion of kernel page
 	 * tables caused trap, panic.
 	 */
-	if (pti && usermode && pg_nx != 0 && (frame->tf_err & (PGEX_P | PGEX_W |
-	    PGEX_U | PGEX_I)) == (PGEX_P | PGEX_U | PGEX_I) &&
-	    (curpcb->pcb_saved_ucr3 & ~CR3_PCID_MASK)==
-	    (PCPU_GET(curpmap)->pm_cr3 & ~CR3_PCID_MASK))
-		panic("PTI: pid %d comm %s tf_err %#lx\n", p->p_pid,
+	if (usermode && trap_is_pti(frame))
+		panic("PTI: pid %d comm %s tf_err %#lx", p->p_pid,
 		    p->p_comm, frame->tf_err);
 
 	/*
@@ -808,7 +837,6 @@ trap_fatal(frame, eva)
 	int code, ss;
 	u_int type;
 	struct soft_segment_descriptor softseg;
-	char *msg;
 #ifdef KDB
 	bool handled;
 #endif
@@ -818,11 +846,8 @@ trap_fatal(frame, eva)
 	sdtossd(&gdt[NGDT * PCPU_GET(cpuid) + IDXSEL(frame->tf_cs & 0xffff)],
 	    &softseg);
 
-	if (type <= MAX_TRAP_MSG)
-		msg = trap_msg[type];
-	else
-		msg = "UNKNOWN";
-	printf("\n\nFatal trap %d: %s while in %s mode\n", type, msg,
+	printf("\n\nFatal trap %d: %s while in %s mode\n", type,
+	    type < nitems(trap_msg) ? trap_msg[type] : UNKNOWN,
 	    TRAPF_USERMODE(frame) ? "user" : "kernel");
 #ifdef SMP
 	/* two separate prints in case of a trap on an unmapped page */
@@ -862,7 +887,7 @@ trap_fatal(frame, eva)
 	    curproc->p_pid, curthread->td_name);
 
 #ifdef KDB
-	if (debugger_on_panic) {
+	if (debugger_on_trap) {
 		kdb_why = KDB_WHY_TRAP;
 		handled = kdb_trap(type, 0, frame);
 		kdb_why = KDB_WHY_UNSET;
@@ -871,10 +896,8 @@ trap_fatal(frame, eva)
 	}
 #endif
 	printf("trap number		= %d\n", type);
-	if (type <= MAX_TRAP_MSG)
-		panic("%s", trap_msg[type]);
-	else
-		panic("unknown/reserved trap");
+	panic("%s", type < nitems(trap_msg) ? trap_msg[type] :
+	    "unknown/reserved trap");
 }
 
 /*

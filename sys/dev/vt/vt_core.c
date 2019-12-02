@@ -316,7 +316,7 @@ static void
 vt_switch_timer(void *arg)
 {
 
-	vt_late_window_switch((struct vt_window *)arg);
+	(void)vt_late_window_switch((struct vt_window *)arg);
 }
 
 static int
@@ -438,13 +438,22 @@ vt_window_postswitch(struct vt_window *vw)
 static int
 vt_late_window_switch(struct vt_window *vw)
 {
+	struct vt_window *curvw;
 	int ret;
 
 	callout_stop(&vw->vw_proc_dead_timer);
 
 	ret = vt_window_switch(vw);
-	if (ret)
+	if (ret != 0) {
+		/*
+		 * If the switch hasn't happened, then return the VT
+		 * to the current owner, if any.
+		 */
+		curvw = vw->vw_device->vd_curwindow;
+		if (curvw->vw_smode.mode == VT_PROCESS)
+			(void)vt_window_postswitch(curvw);
 		return (ret);
+	}
 
 	/* Notify owner process about terminal availability. */
 	if (vw->vw_smode.mode == VT_PROCESS) {
@@ -489,6 +498,19 @@ vt_proc_window_switch(struct vt_window *vw)
 		DPRINTF(30, "%s: Cannot switch: vw == curvw.", __func__);
 		return (0);	/* success */
 	}
+
+	/*
+	 * Early check for an attempt to switch to a non-functional VT.
+	 * The same check is done in vt_window_switch(), but it's better
+	 * to fail as early as possible to avoid needless pre-switch
+	 * actions.
+	 */
+	VT_LOCK(vd);
+	if ((vw->vw_flags & (VWF_OPENED|VWF_CONSOLE)) == 0) {
+		VT_UNLOCK(vd);
+		return (EINVAL);
+	}
+	VT_UNLOCK(vd);
 
 	/* Ask current process permission to switch away. */
 	if (curvw->vw_smode.mode == VT_PROCESS) {
@@ -937,9 +959,21 @@ vt_kbdevent(keyboard_t *kbd, int event, void *arg)
 static int
 vt_allocate_keyboard(struct vt_device *vd)
 {
-	int		 idx0, idx;
+	int		 grabbed, i, idx0, idx;
 	keyboard_t	*k0, *k;
 	keyboard_info_t	 ki;
+
+	/*
+	 * If vt_upgrade() happens while the console is grabbed, we are
+	 * potentially going to switch keyboard devices while the keyboard is in
+	 * use. Unwind the grabbing of the current keyboard first, then we will
+	 * re-grab the new keyboard below, before we return.
+	 */
+	if (vd->vd_curwindow == &vt_conswindow) {
+		grabbed = vd->vd_curwindow->vw_grabbed;
+		for (i = 0; i < grabbed; ++i)
+			vtterm_cnungrab(vd->vd_curwindow->vw_terminal);
+	}
 
 	idx0 = kbd_allocate("kbdmux", -1, vd, vt_kbdevent, vd);
 	if (idx0 >= 0) {
@@ -971,6 +1005,11 @@ vt_allocate_keyboard(struct vt_device *vd)
 	}
 	vd->vd_keyboard = idx0;
 	DPRINTF(20, "%s: vd_keyboard = %d\n", __func__, vd->vd_keyboard);
+
+	if (vd->vd_curwindow == &vt_conswindow) {
+		for (i = 0; i < grabbed; ++i)
+			vtterm_cngrab(vd->vd_curwindow->vw_terminal);
+	}
 
 	return (idx0);
 }
@@ -1701,7 +1740,7 @@ finish_vt_rel(struct vt_window *vw, int release, int *s)
 		vw->vw_flags &= ~VWF_SWWAIT_REL;
 		if (release) {
 			callout_drain(&vw->vw_proc_dead_timer);
-			vt_late_window_switch(vw->vw_switch_to);
+			(void)vt_late_window_switch(vw->vw_switch_to);
 		}
 		return (0);
 	}

@@ -86,7 +86,7 @@ static int eli_backup_create(struct gctl_req *req, const char *prov,
  *
  * init [-bdgPTv] [-a aalgo] [-B backupfile] [-e ealgo] [-i iterations] [-l keylen] [-J newpassfile] [-K newkeyfile] [-s sectorsize] [-V version] prov
  * label - alias for 'init'
- * attach [-dprv] [-j passfile] [-k keyfile] prov
+ * attach [-Cdprv] [-n keyno] [-j passfile] [-k keyfile] prov
  * detach [-fl] prov ...
  * stop - alias for 'detach'
  * onetime [-d] [-a aalgo] [-e ealgo] [-l keylen] prov
@@ -145,14 +145,16 @@ struct g_command class_commands[] = {
 	},
 	{ "attach", G_FLAG_VERBOSE | G_FLAG_LOADKLD, eli_main,
 	    {
+		{ 'C', "dryrun", NULL, G_TYPE_BOOL },
 		{ 'd', "detach", NULL, G_TYPE_BOOL },
 		{ 'j', "passfile", G_VAL_OPTIONAL, G_TYPE_STRING | G_TYPE_MULTI },
 		{ 'k', "keyfile", G_VAL_OPTIONAL, G_TYPE_STRING | G_TYPE_MULTI },
+		{ 'n', "keyno", "-1", G_TYPE_NUMBER },
 		{ 'p', "nopassphrase", NULL, G_TYPE_BOOL },
 		{ 'r', "readonly", NULL, G_TYPE_BOOL },
 		G_OPT_SENTINEL
 	    },
-	    "[-dprv] [-j passfile] [-k keyfile] prov"
+	    "[-Cdprv] [-n keyno] [-j passfile] [-k keyfile] prov"
 	},
 	{ "detach", 0, NULL,
 	    {
@@ -779,6 +781,22 @@ eli_init(struct gctl_req *req)
 			return;
 		}
 	}
+	if (md.md_flags & G_ELI_FLAG_AUTH) {
+		switch (md.md_aalgo) {
+		case CRYPTO_MD5_HMAC:
+			gctl_error(req,
+			    "The %s authentication algorithm is deprecated.",
+			    g_eli_algo2str(md.md_aalgo));
+			return;
+		}
+	}
+	switch (md.md_ealgo) {
+	case CRYPTO_3DES_CBC:
+	case CRYPTO_BLF_CBC:
+		gctl_error(req, "The %s encryption algorithm is deprecated.",
+		    g_eli_algo2str(md.md_ealgo));
+		return;
+	}
 	val = gctl_get_intmax(req, "keylen");
 	md.md_keylen = val;
 	md.md_keylen = g_eli_keylen(md.md_ealgo, md.md_keylen);
@@ -1128,7 +1146,7 @@ eli_setkey_detached(struct gctl_req *req, const char *prov,
 	}
 
 	/* Decrypt Master Key. */
-	error = g_eli_mkey_decrypt(md, key, mkey, &nkey);
+	error = g_eli_mkey_decrypt_any(md, key, mkey, &nkey);
 	bzero(key, sizeof(key));
 	if (error != 0) {
 		bzero(md, sizeof(*md));

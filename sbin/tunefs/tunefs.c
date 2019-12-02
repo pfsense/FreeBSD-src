@@ -184,10 +184,12 @@ main(int argc, char *argv[])
 			name = "volume label";
 			Lvalue = optarg;
 			i = -1;
-			while (isalnum(Lvalue[++i]));
+			while (isalnum(Lvalue[++i]) || Lvalue[i] == '_' ||
+			    Lvalue[i] == '-')
+				;
 			if (Lvalue[i] != '\0') {
-				errx(10,
-				"bad %s. Valid characters are alphanumerics.",
+				errx(10, "bad %s. Valid characters are "
+				    "alphanumerics, dashes, and underscores.",
 				    name);
 			}
 			if (strlen(Lvalue) >= MAXVOLLEN) {
@@ -974,9 +976,9 @@ journal_alloc(int64_t size)
 		if (size / sblock.fs_fsize > sblock.fs_fpg)
 			size = sblock.fs_fpg * sblock.fs_fsize;
 		size = MAX(SUJ_MIN, size);
-		/* fsck does not support fragments in journal files. */
-		size = roundup(size, sblock.fs_bsize);
 	}
+	/* fsck does not support fragments in journal files. */
+	size = roundup(size, sblock.fs_bsize);
 	resid = blocks = size / sblock.fs_bsize;
 	if (sblock.fs_cstotal.cs_nbfree < blocks) {
 		warn("Insufficient free space for %jd byte journal", size);

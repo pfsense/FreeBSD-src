@@ -44,7 +44,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/eventhandler.h>
 #include <sys/lock.h>
 #include <sys/mbuf.h>
-#include <sys/rwlock.h>
 #include <sys/socket.h>
 
 #include <net/if.h>
@@ -164,8 +163,10 @@ pfi_cleanup_vnet(void)
 		RB_REMOVE(pfi_ifhead, &V_pfi_ifs, kif);
 		if (kif->pfik_group)
 			kif->pfik_group->ifg_pf_kif = NULL;
-		if (kif->pfik_ifp)
+		if (kif->pfik_ifp) {
+			if_rele(kif->pfik_ifp);
 			kif->pfik_ifp->if_pf_kif = NULL;
+		}
 		free(kif, PFI_MTYPE);
 	}
 
@@ -315,6 +316,8 @@ pfi_attach_ifnet(struct ifnet *ifp)
 	PF_RULES_WLOCK();
 	V_pfi_update++;
 	kif = pfi_kif_attach(kif, ifp->if_xname);
+
+	if_ref(ifp);
 
 	kif->pfik_ifp = ifp;
 	ifp->if_pf_kif = kif;
@@ -734,6 +737,7 @@ pfi_get_ifaces(const char *name, struct pfi_kif *buf, int *size)
 static int
 pfi_skip_if(const char *filter, struct pfi_kif *p)
 {
+	struct ifg_list *i;
 	int	n;
 
 	if (filter == NULL || !*filter)
@@ -744,10 +748,19 @@ pfi_skip_if(const char *filter, struct pfi_kif *p)
 	if (n < 1 || n >= IFNAMSIZ)
 		return (1);	/* sanity check */
 	if (filter[n-1] >= '0' && filter[n-1] <= '9')
-		return (1);	/* only do exact match in that case */
-	if (strncmp(p->pfik_name, filter, n))
-		return (1);	/* prefix doesn't match */
-	return (p->pfik_name[n] < '0' || p->pfik_name[n] > '9');
+		return (1);	/* group names may not end in a digit */
+	if (p->pfik_ifp != NULL) {
+		IF_ADDR_RLOCK(p->pfik_ifp);
+		TAILQ_FOREACH(i, &p->pfik_ifp->if_groups, ifgl_next) {
+			if (!strncmp(i->ifgl_group->ifg_group, filter,
+			      IFNAMSIZ)) {
+				IF_ADDR_RUNLOCK(p->pfik_ifp);
+				return (0); /* iface is in group "filter" */
+			}
+		}
+		IF_ADDR_RUNLOCK(p->pfik_ifp);
+	}
+	return (1);
 }
 
 int
@@ -820,6 +833,9 @@ pfi_detach_ifnet_event(void *arg __unused, struct ifnet *ifp)
 {
 	struct pfi_kif *kif = (struct pfi_kif *)ifp->if_pf_kif;
 
+	if (pfsync_detach_ifnet_ptr)
+		pfsync_detach_ifnet_ptr(ifp);
+
 	if (kif == NULL)
 		return;
 
@@ -829,9 +845,13 @@ pfi_detach_ifnet_event(void *arg __unused, struct ifnet *ifp)
 		CURVNET_RESTORE();
 		return;
 	}
+
 	PF_RULES_WLOCK();
 	V_pfi_update++;
 	pfi_kif_update(kif);
+
+	if (kif->pfik_ifp)
+		if_rele(kif->pfik_ifp);
 
 	kif->pfik_ifp = NULL;
 	ifp->if_pf_kif = NULL;

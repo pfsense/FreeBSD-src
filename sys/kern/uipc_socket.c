@@ -1969,7 +1969,7 @@ soreceive_stream(struct socket *so, struct sockaddr **psa, struct uio *uio,
 	/* Prevent other readers from entering the socket. */
 	error = sblock(sb, SBLOCKWAIT(flags));
 	if (error)
-		goto out;
+		return (error);
 	SOCKBUF_LOCK(sb);
 
 	/* Easy one, no space to copyout anything. */
@@ -2696,6 +2696,18 @@ sosetopt(struct socket *so, struct sockopt *sopt)
 #endif
 			break;
 
+		case SO_TS_CLOCK:
+			error = sooptcopyin(sopt, &optval, sizeof optval,
+			    sizeof optval);
+			if (error)
+				goto bad;
+			if (optval < 0 || optval > SO_TS_CLOCK_MAX) {
+				error = EINVAL;
+				goto bad;
+			}
+			so->so_ts_clock = optval;
+			break;
+
 		default:
 			if (V_socket_hhh[HHOOK_SOCKET_OPT]->hhh_nhooks > 0)
 				error = hhook_run_socket(so, sopt,
@@ -2881,6 +2893,10 @@ integer:
 
 		case SO_LISTENINCQLEN:
 			optval = so->so_incqlen;
+			goto integer;
+
+		case SO_TS_CLOCK:
+			optval = so->so_ts_clock;
 			goto integer;
 
 		default:
@@ -3581,6 +3597,7 @@ void
 sotoxsocket(struct socket *so, struct xsocket *xso)
 {
 
+	bzero(xso, sizeof(*xso));
 	xso->xso_len = sizeof *xso;
 	xso->xso_so = so;
 	xso->so_type = so->so_type;

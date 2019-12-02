@@ -1606,6 +1606,7 @@ vm_fault_copy_entry(vm_map_t dst_map, vm_map_t src_map,
 		dst_object->flags |= OBJ_COLORED;
 		dst_object->pg_color = atop(dst_entry->start);
 #endif
+		dst_object->charge = dst_entry->end - dst_entry->start;
 	}
 
 	VM_OBJECT_WLOCK(dst_object);
@@ -1614,7 +1615,6 @@ vm_fault_copy_entry(vm_map_t dst_map, vm_map_t src_map,
 	if (src_object != dst_object) {
 		dst_entry->object.vm_object = dst_object;
 		dst_entry->offset = 0;
-		dst_object->charge = dst_entry->end - dst_entry->start;
 	}
 	if (fork_charge != NULL) {
 		KASSERT(dst_entry->cred == NULL,
@@ -1622,7 +1622,9 @@ vm_fault_copy_entry(vm_map_t dst_map, vm_map_t src_map,
 		dst_object->cred = curthread->td_ucred;
 		crhold(dst_object->cred);
 		*fork_charge += dst_object->charge;
-	} else if (dst_object->cred == NULL) {
+	} else if ((dst_object->type == OBJT_DEFAULT ||
+	    dst_object->type == OBJT_SWAP) &&
+	    dst_object->cred == NULL) {
 		KASSERT(dst_entry->cred != NULL, ("no cred for entry %p",
 		    dst_entry));
 		dst_object->cred = dst_entry->cred;
@@ -1647,7 +1649,7 @@ vm_fault_copy_entry(vm_map_t dst_map, vm_map_t src_map,
 	 * range, copying each page from the source object to the
 	 * destination object.  Since the source is wired, those pages
 	 * must exist.  In contrast, the destination is pageable.
-	 * Since the destination object does share any backing storage
+	 * Since the destination object doesn't share any backing storage
 	 * with the source object, all of its pages must be dirtied,
 	 * regardless of whether they can be written.
 	 */
@@ -1703,15 +1705,19 @@ again:
 			}
 			pmap_copy_page(src_m, dst_m);
 			VM_OBJECT_RUNLOCK(object);
-			dst_m->valid = VM_PAGE_BITS_ALL;
-			dst_m->dirty = VM_PAGE_BITS_ALL;
+			dst_m->dirty = dst_m->valid = src_m->valid;
 		} else {
 			dst_m = src_m;
 			if (vm_page_sleep_if_busy(dst_m, "fltupg"))
 				goto again;
+			if (dst_m->pindex >= dst_object->size)
+				/*
+				 * We are upgrading.  Index can occur
+				 * out of bounds if the object type is
+				 * vnode and the file was truncated.
+				 */
+				break;
 			vm_page_xbusy(dst_m);
-			KASSERT(dst_m->valid == VM_PAGE_BITS_ALL,
-			    ("invalid dst page %p", dst_m));
 		}
 		VM_OBJECT_WUNLOCK(dst_object);
 
@@ -1719,9 +1725,18 @@ again:
 		 * Enter it in the pmap. If a wired, copy-on-write
 		 * mapping is being replaced by a write-enabled
 		 * mapping, then wire that new mapping.
+		 *
+		 * The page can be invalid if the user called
+		 * msync(MS_INVALIDATE) or truncated the backing vnode
+		 * or shared memory object.  In this case, do not
+		 * insert it into pmap, but still do the copy so that
+		 * all copies of the wired map entry have similar
+		 * backing pages.
 		 */
-		pmap_enter(dst_map->pmap, vaddr, dst_m, prot,
-		    access | (upgrade ? PMAP_ENTER_WIRED : 0), 0);
+		if (dst_m->valid == VM_PAGE_BITS_ALL) {
+			pmap_enter(dst_map->pmap, vaddr, dst_m, prot,
+			    access | (upgrade ? PMAP_ENTER_WIRED : 0), 0);
+		}
 
 		/*
 		 * Mark it no longer busy, and put it on the active list.

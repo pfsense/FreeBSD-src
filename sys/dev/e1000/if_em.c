@@ -1429,10 +1429,8 @@ em_init_locked(struct adapter *adapter)
 	*/
 	if (adapter->hw.mac.max_frame_size <= 2048)
 		adapter->rx_mbuf_sz = MCLBYTES;
-	else if (adapter->hw.mac.max_frame_size <= 4096)
-		adapter->rx_mbuf_sz = MJUMPAGESIZE;
-	else
-		adapter->rx_mbuf_sz = MJUM9BYTES;
+       else
+               adapter->rx_mbuf_sz = MJUMPAGESIZE;
 
 	/* Prepare receive descriptors and buffers */
 	if (em_setup_receive_structures(adapter)) {
@@ -1762,6 +1760,7 @@ static void
 em_handle_link(void *context, int pending)
 {
 	struct adapter	*adapter = context;
+	struct e1000_hw *hw = &adapter->hw;
 	struct tx_ring	*txr = adapter->tx_rings;
 	if_t ifp = adapter->ifp;
 
@@ -1772,8 +1771,8 @@ em_handle_link(void *context, int pending)
 	callout_stop(&adapter->timer);
 	em_update_link_status(adapter);
 	callout_reset(&adapter->timer, hz, em_local_timer, adapter);
-	E1000_WRITE_REG(&adapter->hw, E1000_IMS,
-	    EM_MSIX_LINK | E1000_IMS_LSC);
+	if (hw->mac.type == e1000_82574 && adapter->msix_mem != NULL)
+		E1000_WRITE_REG(hw, E1000_IMS, EM_MSIX_LINK | E1000_IMS_LSC);
 	if (adapter->link_active) {
 		for (int i = 0; i < adapter->num_queues; i++, txr++) {
 			EM_TX_LOCK(txr);
@@ -3639,7 +3638,7 @@ em_setup_transmit_ring(struct tx_ring *txr)
 		}
 #ifdef DEV_NETMAP
 		if (slot) {
-			int si = netmap_idx_n2k(&na->tx_rings[txr->me], i);
+			int si = netmap_idx_n2k(na->tx_rings[txr->me], i);
 			uint64_t paddr;
 			void *addr;
 
@@ -4431,7 +4430,7 @@ em_setup_receive_ring(struct rx_ring *rxr)
 		rxbuf = &rxr->rx_buffers[j];
 #ifdef DEV_NETMAP
 		if (slot) {
-			int si = netmap_idx_n2k(&na->rx_rings[rxr->me], j);
+			int si = netmap_idx_n2k(na->rx_rings[rxr->me], j);
 			uint64_t paddr;
 			void *addr;
 
@@ -4736,7 +4735,7 @@ em_initialize_receive_unit(struct adapter *adapter)
 		 */
 		if (if_getcapenable(ifp) & IFCAP_NETMAP) {
 			struct netmap_adapter *na = netmap_getna(adapter->ifp);
-			rdt -= nm_kr_rxspace(&na->rx_rings[i]);
+			rdt -= nm_kr_rxspace(na->rx_rings[i]);
 		}
 #endif /* DEV_NETMAP */
 		E1000_WRITE_REG(hw, E1000_RDT(i), rdt);

@@ -828,9 +828,14 @@ mmc_set_power_class(struct mmc_softc *sc, struct mmc_ivars *ivar)
 	const uint8_t *ext_csd;
 	uint32_t clock;
 	uint8_t value;
+	enum mmc_bus_timing timing;
+	enum mmc_bus_width bus_width;
 
 	dev = sc->dev;
-	if (mmcbr_get_mode(dev) != mode_mmc || ivar->csd.spec_vers < 4)
+	timing = mmcbr_get_timing(dev);
+	bus_width = ivar->bus_width;
+	if (mmcbr_get_mode(dev) != mode_mmc || ivar->csd.spec_vers < 4 ||
+	    timing == bus_timing_normal || bus_width == bus_width_1)
 		return (MMC_ERR_NONE);
 
 	value = 0;
@@ -841,8 +846,8 @@ mmc_set_power_class(struct mmc_softc *sc, struct mmc_ivars *ivar)
 		if (clock <= MMC_TYPE_HS_26_MAX)
 			value = ext_csd[EXT_CSD_PWR_CL_26_195];
 		else if (clock <= MMC_TYPE_HS_52_MAX) {
-			if (mmcbr_get_timing(dev) >= bus_timing_mmc_ddr52 &&
-			    ivar->bus_width >= bus_width_4)
+			if (timing >= bus_timing_mmc_ddr52 &&
+			    bus_width >= bus_width_4)
 				value = ext_csd[EXT_CSD_PWR_CL_52_195_DDR];
 			else
 				value = ext_csd[EXT_CSD_PWR_CL_52_195];
@@ -861,13 +866,13 @@ mmc_set_power_class(struct mmc_softc *sc, struct mmc_ivars *ivar)
 		if (clock <= MMC_TYPE_HS_26_MAX)
 			value = ext_csd[EXT_CSD_PWR_CL_26_360];
 		else if (clock <= MMC_TYPE_HS_52_MAX) {
-			if (mmcbr_get_timing(dev) == bus_timing_mmc_ddr52 &&
-			    ivar->bus_width >= bus_width_4)
+			if (timing == bus_timing_mmc_ddr52 &&
+			    bus_width >= bus_width_4)
 				value = ext_csd[EXT_CSD_PWR_CL_52_360_DDR];
 			else
 				value = ext_csd[EXT_CSD_PWR_CL_52_360];
 		} else if (clock <= MMC_TYPE_HS200_HS400ES_MAX) {
-			if (ivar->bus_width == bus_width_8)
+			if (bus_width == bus_width_8)
 				value = ext_csd[EXT_CSD_PWR_CL_200_360_DDR];
 			else
 				value = ext_csd[EXT_CSD_PWR_CL_200_360];
@@ -879,7 +884,7 @@ mmc_set_power_class(struct mmc_softc *sc, struct mmc_ivars *ivar)
 		return (MMC_ERR_INVALID);
 	}
 
-	if (ivar->bus_width == bus_width_8)
+	if (bus_width == bus_width_8)
 		value = (value & EXT_CSD_POWER_CLASS_8BIT_MASK) >>
 		    EXT_CSD_POWER_CLASS_8BIT_SHIFT;
 	else
@@ -1587,10 +1592,13 @@ mmc_discover_cards(struct mmc_softc *sc)
 	uint32_t raw_cid[4];
 	struct mmc_ivars *ivar = NULL;
 	const struct mmc_quirk *quirk;
+	const uint8_t *ext_csd;
 	device_t child;
 	int err, host_caps, i, newcard;
 	uint32_t resp, sec_count, status;
 	uint16_t rca = 2;
+	int16_t rev;
+	uint8_t card_type;
 
 	host_caps = mmcbr_get_caps(sc->dev);
 	if (bootverbose || mmc_debug)
@@ -1778,6 +1786,7 @@ mmc_discover_cards(struct mmc_softc *sc)
 			goto free_ivar;
 		}
 
+		rev = -1;
 		/* Only MMC >= 4.x devices support EXT_CSD. */
 		if (ivar->csd.spec_vers >= 4) {
 			err = mmc_send_ext_csd(sc->dev, sc->dev,
@@ -1787,11 +1796,10 @@ mmc_discover_cards(struct mmc_softc *sc)
 				    "Error reading EXT_CSD %d\n", err);
 				goto free_ivar;
 			}
+			ext_csd = ivar->raw_ext_csd;
+			rev = ext_csd[EXT_CSD_REV];
 			/* Handle extended capacity from EXT_CSD */
-			sec_count = ivar->raw_ext_csd[EXT_CSD_SEC_CNT] +
-			    (ivar->raw_ext_csd[EXT_CSD_SEC_CNT + 1] << 8) +
-			    (ivar->raw_ext_csd[EXT_CSD_SEC_CNT + 2] << 16) +
-			    (ivar->raw_ext_csd[EXT_CSD_SEC_CNT + 3] << 24);
+			sec_count = le32dec(&ext_csd[EXT_CSD_SEC_CNT]);
 			if (sec_count != 0) {
 				ivar->sec_count = sec_count;
 				ivar->high_cap = 1;
@@ -1799,65 +1807,56 @@ mmc_discover_cards(struct mmc_softc *sc)
 			/* Find maximum supported bus width. */
 			ivar->bus_width = mmc_test_bus_width(sc);
 			/* Get device speeds beyond normal mode. */
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS_52) != 0) {
+			card_type = ext_csd[EXT_CSD_CARD_TYPE];
+			if ((card_type & EXT_CSD_CARD_TYPE_HS_52) != 0) {
 				setbit(&ivar->timings, bus_timing_hs);
 				ivar->hs_tran_speed = MMC_TYPE_HS_52_MAX;
-			} else if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS_26) != 0) {
+			} else if ((card_type & EXT_CSD_CARD_TYPE_HS_26) != 0) {
 				setbit(&ivar->timings, bus_timing_hs);
 				ivar->hs_tran_speed = MMC_TYPE_HS_26_MAX;
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_DDR_52_1_2V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_DDR_52_1_2V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_120) != 0) {
 				setbit(&ivar->timings, bus_timing_mmc_ddr52);
 				setbit(&ivar->vccq_120, bus_timing_mmc_ddr52);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_DDR_52_1_8V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_DDR_52_1_8V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_180) != 0) {
 				setbit(&ivar->timings, bus_timing_mmc_ddr52);
 				setbit(&ivar->vccq_180, bus_timing_mmc_ddr52);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS200_1_2V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_HS200_1_2V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_120) != 0) {
 				setbit(&ivar->timings, bus_timing_mmc_hs200);
 				setbit(&ivar->vccq_120, bus_timing_mmc_hs200);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS200_1_8V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_HS200_1_8V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_180) != 0) {
 				setbit(&ivar->timings, bus_timing_mmc_hs200);
 				setbit(&ivar->vccq_180, bus_timing_mmc_hs200);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS400_1_2V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_HS400_1_2V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_120) != 0 &&
 			    ivar->bus_width == bus_width_8) {
 				setbit(&ivar->timings, bus_timing_mmc_hs400);
 				setbit(&ivar->vccq_120, bus_timing_mmc_hs400);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS400_1_8V) != 0 &&
+			if ((card_type & EXT_CSD_CARD_TYPE_HS400_1_8V) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_180) != 0 &&
 			    ivar->bus_width == bus_width_8) {
 				setbit(&ivar->timings, bus_timing_mmc_hs400);
 				setbit(&ivar->vccq_180, bus_timing_mmc_hs400);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS400_1_2V) != 0 &&
-			    (ivar->raw_ext_csd[EXT_CSD_STROBE_SUPPORT] &
+			if ((card_type & EXT_CSD_CARD_TYPE_HS400_1_2V) != 0 &&
+			    (ext_csd[EXT_CSD_STROBE_SUPPORT] &
 			    EXT_CSD_STROBE_SUPPORT_EN) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_120) != 0 &&
 			    ivar->bus_width == bus_width_8) {
 				setbit(&ivar->timings, bus_timing_mmc_hs400es);
 				setbit(&ivar->vccq_120, bus_timing_mmc_hs400es);
 			}
-			if ((ivar->raw_ext_csd[EXT_CSD_CARD_TYPE] &
-			    EXT_CSD_CARD_TYPE_HS400_1_8V) != 0 &&
-			    (ivar->raw_ext_csd[EXT_CSD_STROBE_SUPPORT] &
+			if ((card_type & EXT_CSD_CARD_TYPE_HS400_1_8V) != 0 &&
+			    (ext_csd[EXT_CSD_STROBE_SUPPORT] &
 			    EXT_CSD_STROBE_SUPPORT_EN) != 0 &&
 			    (host_caps & MMC_CAP_SIGNALING_180) != 0 &&
 			    ivar->bus_width == bus_width_8) {
@@ -1869,13 +1868,13 @@ mmc_discover_cards(struct mmc_softc *sc)
 			 * units of 10 ms), defaulting to 500 ms.
 			 */
 			ivar->cmd6_time = 500 * 1000;
-			if (ivar->raw_ext_csd[EXT_CSD_REV] >= 6)
+			if (rev >= 6)
 				ivar->cmd6_time = 10 *
-				    ivar->raw_ext_csd[EXT_CSD_GEN_CMD6_TIME];
+				    ext_csd[EXT_CSD_GEN_CMD6_TIME];
 			/* Handle HC erase sector size. */
-			if (ivar->raw_ext_csd[EXT_CSD_ERASE_GRP_SIZE] != 0) {
+			if (ext_csd[EXT_CSD_ERASE_GRP_SIZE] != 0) {
 				ivar->erase_sector = 1024 *
-				    ivar->raw_ext_csd[EXT_CSD_ERASE_GRP_SIZE];
+				    ext_csd[EXT_CSD_ERASE_GRP_SIZE];
 				err = mmc_switch(sc->dev, sc->dev, ivar->rca,
 				    EXT_CSD_CMD_SET_NORMAL,
 				    EXT_CSD_ERASE_GRP_DEF,
@@ -1890,8 +1889,7 @@ mmc_discover_cards(struct mmc_softc *sc)
 			}
 		}
 
-		mmc_decode_cid_mmc(ivar->raw_cid, &ivar->cid,
-		    ivar->raw_ext_csd[EXT_CSD_REV] >= 5);
+		mmc_decode_cid_mmc(ivar->raw_cid, &ivar->cid, rev >= 5);
 
 child_common:
 		for (quirk = &mmc_quirks[0]; quirk->mid != 0x0; quirk++) {
@@ -2172,7 +2170,7 @@ mmc_calculate_clock(struct mmc_softc *sc)
 	for (i = 0; i < sc->child_count; i++) {
 		ivar = device_get_ivars(sc->child_list[i]);
 		if ((ivar->timings & ~(1 << bus_timing_normal)) == 0)
-			continue;
+			goto clock;
 
 		rca = ivar->rca;
 		if (mmc_select_card(sc, rca) != MMC_ERR_NONE) {
@@ -2238,6 +2236,7 @@ mmc_calculate_clock(struct mmc_softc *sc)
 			}
 		}
 
+clock:
 		/* Set clock (must be done before initial tuning). */
 		mmcbr_set_clock(dev, max_dtr);
 		mmcbr_update_ios(dev);

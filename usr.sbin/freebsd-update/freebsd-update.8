@@ -25,9 +25,9 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd June 14, 2017
+.Dd September 24, 2019
 .Dt FREEBSD-UPDATE 8
-.Os FreeBSD
+.Os
 .Sh NAME
 .Nm freebsd-update
 .Nd fetch and install binary updates to FreeBSD
@@ -47,22 +47,25 @@
 The
 .Nm
 tool is used to fetch, install, and rollback binary
-updates to the FreeBSD base system.
+updates to the
+.Fx
+base system.
 Note that updates are only available if they are being built for the
-FreeBSD release and architecture being used; in particular, the
+.Fx
+release and architecture being used; in particular, the
 .Fx
 Security Team only builds updates for releases shipped in binary form
 by the
 .Fx
 Release Engineering Team, e.g.,
 .Fx
-10.3-RELEASE and
+11.2-RELEASE and
 .Fx
-11.0-RELEASE, but not
+12.0-RELEASE, but not
 .Fx
-10.3-STABLE or
+11.2-STABLE or
 .Fx
-12-CURRENT.
+13.0-CURRENT.
 .Sh OPTIONS
 The following options are supported:
 .Bl -tag -width "-r newrelease"
@@ -86,13 +89,13 @@ Read configuration options from
 .It Fl F
 Force
 .Nm Cm fetch
-to proceed where it normally would not, such as an unfinished upgrade
+to proceed in the case of an unfinished upgrade.
 .It Fl k Ar KEY
 Trust an RSA key with SHA256 of
 .Ar KEY .
 (default: read value from configuration file.)
 .It Fl r Ar newrelease
-Specify the new release to which
+Specify the new release (e.g., 11.2-RELEASE) to which
 .Nm
 should upgrade (upgrade command only).
 .It Fl s Ar server
@@ -152,13 +155,24 @@ Note that this command may require up to 500 MB of space in
 depending on which components of the
 .Fx
 base system are installed.
+.It Cm updatesready
+Check if there are fetched updates ready to install.
+Returns exit code 2 if there are no updates to install.
 .It Cm install
 Install the most recently fetched updates or upgrade.
+Returns exit code 2 if there are no updates to install
+and the
+.Cm fetch
+command wasn't passed as an earlier argument in the same
+invocation.
 .It Cm rollback
 Uninstall the most recently installed updates.
 .It Cm IDS
 Compare the system against a "known good" index of the
 installed release.
+.It Cm showconfig
+Show configuration options after parsing conffile and command
+line options.
 .El
 .Sh TIPS
 .Bl -bullet

@@ -1874,7 +1874,7 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 		if (error)
 			goto nfsmout;
 		NFSSET_ATTRBIT(&savbits, &attrbits);
-		NFSCLRNOTFILLABLE_ATTRBIT(&attrbits);
+		NFSCLRNOTFILLABLE_ATTRBIT(&attrbits, nd);
 		NFSZERO_ATTRBIT(&rderrbits);
 		NFSSETBIT_ATTRBIT(&rderrbits, NFSATTRBIT_RDATTRERROR);
 	} else {
@@ -1882,6 +1882,7 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 	}
 	fullsiz = siz;
 	nd->nd_repstat = getret = nfsvno_getattr(vp, &at, nd->nd_cred, p, 1);
+#if 0
 	if (!nd->nd_repstat) {
 	    if (off && verf != at.na_filerev) {
 		/*
@@ -1890,17 +1891,14 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 		 * removed/added unless that offset cookies returned to
 		 * the client are no longer valid.
 		 */
-#if 0
 		if (nd->nd_flag & ND_NFSV4) {
 			nd->nd_repstat = NFSERR_NOTSAME;
 		} else {
 			nd->nd_repstat = NFSERR_BAD_COOKIE;
 		}
-#endif
-	    } else if ((nd->nd_flag & ND_NFSV4) && off == 0 && verf != 0) {
-		nd->nd_repstat = NFSERR_BAD_COOKIE;
 	    }
 	}
+#endif
 	if (!nd->nd_repstat && vp->v_type != VDIR)
 		nd->nd_repstat = NFSERR_NOTDIR;
 	if (!nd->nd_repstat && cnt == 0)
@@ -2158,10 +2156,22 @@ again:
 						}
 					}
 				}
-				if (!r) {
-				    if (refp == NULL &&
-					((nd->nd_flag & ND_NFSV3) ||
-					 NFSNONZERO_ATTRBIT(&attrbits))) {
+
+				/*
+				 * If we failed to look up the entry, then it
+				 * has become invalid, most likely removed.
+				 */
+				if (r != 0) {
+					if (needs_unbusy)
+						vfs_unbusy(new_mp);
+					goto invalid;
+				}
+				KASSERT(refp != NULL || nvp != NULL,
+				    ("%s: undetected lookup error", __func__));
+
+				if (refp == NULL &&
+				    ((nd->nd_flag & ND_NFSV3) ||
+				     NFSNONZERO_ATTRBIT(&attrbits))) {
 					r = nfsvno_getfh(nvp, &nfh, p);
 					if (!r)
 					    r = nfsvno_getattr(nvp, nvap,
@@ -2182,17 +2192,25 @@ again:
 					    if (new_mp == mp)
 						new_mp = nvp->v_mount;
 					}
-				    }
-				} else {
-				    nvp = NULL;
 				}
-				if (r) {
+
+				/*
+				 * If we failed to get attributes of the entry,
+				 * then just skip it for NFSv3 (the traditional
+				 * behavior in the old NFS server).
+				 * For NFSv4 the behavior is controlled by
+				 * RDATTRERROR: we either ignore the error or
+				 * fail the request.
+				 * Note that RDATTRERROR is never set for NFSv3.
+				 */
+				if (r != 0) {
 					if (!NFSISSET_ATTRBIT(&attrbits,
 					    NFSATTRBIT_RDATTRERROR)) {
-						if (nvp != NULL)
-							vput(nvp);
+						vput(nvp);
 						if (needs_unbusy != 0)
 							vfs_unbusy(new_mp);
+						if ((nd->nd_flag & ND_NFSV3))
+							goto invalid;
 						nd->nd_repstat = r;
 						break;
 					}
@@ -2261,6 +2279,7 @@ again:
 			if (dirlen <= cnt)
 				entrycnt++;
 		}
+invalid:
 		cpos += dp->d_reclen;
 		dp = (struct dirent *)cpos;
 		cookiep++;
@@ -2411,10 +2430,12 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 	int attrsum = 0;
 	int i, j;
 	int error, attrsize, bitpos, aclsize, aceerr, retnotsup = 0;
-	int toclient = 0;
+	int moderet, toclient = 0;
 	u_char *cp, namestr[NFSV4_SMALLSTR + 1];
 	uid_t uid;
 	gid_t gid;
+	u_short mode, mask;		/* Same type as va_mode. */
+	struct vattr va;
 
 	error = nfsrv_getattrbits(nd, attrbitp, NULL, &retnotsup);
 	if (error)
@@ -2432,6 +2453,7 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 	} else {
 		bitpos = 0;
 	}
+	moderet = 0;
 	for (; bitpos < NFSATTRBIT_MAX; bitpos++) {
 	    if (attrsum > attrsize) {
 		error = NFSERR_BADXDR;
@@ -2481,6 +2503,7 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			attrsum += (NFSX_UNSIGNED + NFSM_RNDUP(i));
 			break;
 		case NFSATTRBIT_MODE:
+			moderet = NFSERR_INVAL;	/* Can't do MODESETMASKED. */
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 			nvap->na_mode = nfstov_mode(*tl);
 			attrsum += NFSX_UNSIGNED;
@@ -2583,6 +2606,32 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			    if (!toclient)
 				nvap->na_vaflags |= VA_UTIMES_NULL;
 			}
+			break;
+		case NFSATTRBIT_MODESETMASKED:
+			NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
+			mode = fxdr_unsigned(u_short, *tl++);
+			mask = fxdr_unsigned(u_short, *tl);
+			/*
+			 * vp == NULL implies an Open/Create operation.
+			 * This attribute can only be used for Setattr and
+			 * only for NFSv4.1 or higher.
+			 * If moderet != 0, a mode attribute has also been
+			 * specified and this attribute cannot be done in the
+			 * same Setattr operation.
+			 */
+			if ((nd->nd_flag & ND_NFSV41) == 0)
+				nd->nd_repstat = NFSERR_ATTRNOTSUPP;
+			else if ((mode & ~07777) != 0 || (mask & ~07777) != 0 ||
+			    vp == NULL)
+				nd->nd_repstat = NFSERR_INVAL;
+			else if (moderet == 0)
+				moderet = VOP_GETATTR(vp, &va, nd->nd_cred);
+			if (moderet == 0)
+				nvap->na_mode = (mode & mask) |
+				    (va.va_mode & ~mask);
+			else
+				nd->nd_repstat = moderet;
+			attrsum += 2 * NFSX_UNSIGNED;
 			break;
 		default:
 			nd->nd_repstat = NFSERR_ATTRNOTSUPP;
@@ -3173,8 +3222,7 @@ nfssvc_srvcall(struct thread *p, struct nfssvc_args *uap, struct ucred *cred)
 			error = EPERM;
 		if (!error) {
 		    len = sizeof (struct nfsd_dumpclients) * dumplist.ndl_size;
-		    dumpclients = (struct nfsd_dumpclients *)malloc(len,
-			M_TEMP, M_WAITOK);
+		    dumpclients = malloc(len, M_TEMP, M_WAITOK | M_ZERO);
 		    nfsrv_dumpclients(dumpclients, dumplist.ndl_size);
 		    error = copyout(dumpclients,
 			CAST_USER_ADDR_T(dumplist.ndl_list), len);
@@ -3192,8 +3240,7 @@ nfssvc_srvcall(struct thread *p, struct nfssvc_args *uap, struct ucred *cred)
 		if (!error) {
 			len = sizeof (struct nfsd_dumplocks) *
 				dumplocklist.ndllck_size;
-			dumplocks = (struct nfsd_dumplocks *)malloc(len,
-				M_TEMP, M_WAITOK);
+			dumplocks = malloc(len, M_TEMP, M_WAITOK | M_ZERO);
 			nfsrv_dumplocks(nd.ni_vp, dumplocks,
 			    dumplocklist.ndllck_size, p);
 			vput(nd.ni_vp);

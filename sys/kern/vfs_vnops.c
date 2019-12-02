@@ -262,6 +262,10 @@ restart:
 				error = EEXIST;
 				goto bad;
 			}
+			if (vp->v_type == VDIR) {
+				error = EISDIR;
+				goto bad;
+			}
 			fmode &= ~O_CREAT;
 		}
 	} else {
@@ -2080,7 +2084,7 @@ vn_vget_ino_gen(struct vnode *vp, vn_get_ino_t alloc, void *alloc_arg,
 	VOP_UNLOCK(vp, 0);
 	error = alloc(mp, alloc_arg, lkflags, rvp);
 	vfs_unbusy(mp);
-	if (*rvp != vp)
+	if (error != 0 || *rvp != vp)
 		vn_lock(vp, ltype | LK_RETRY);
 	if (vp->v_iflag & VI_DOOMED) {
 		if (error == 0) {
@@ -2180,7 +2184,8 @@ vn_bmap_seekhole(struct vnode *vp, u_long cmd, off_t *off, struct ucred *cred)
 		goto unlock;
 	}
 	bsize = vp->v_mount->mnt_stat.f_iosize;
-	for (bn = noff / bsize; noff < va.va_size; bn++, noff += bsize) {
+	for (bn = noff / bsize; noff < va.va_size; bn++, noff += bsize -
+	    noff % bsize) {
 		error = VOP_BMAP(vp, bn, NULL, &bnp, NULL, NULL);
 		if (error == EOPNOTSUPP) {
 			error = ENOTTY;

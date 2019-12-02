@@ -1,6 +1,5 @@
 #
-# Copyright (c) 2017 Ngie Cooper <ngie@FreeBSD.org>
-# All rights reserved.
+# Copyright (c) 2017 Enji Cooper <ngie@FreeBSD.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,7 +25,6 @@
 # $FreeBSD$
 #
 
-MAX_TRIES=20
 PROG_PID=
 PROG_PATH=$(atf_get_srcdir)/while1
 
@@ -38,16 +36,13 @@ start_program()
 	PROG_COMM=while1
 	PROG_PATH=$(atf_get_srcdir)/$PROG_COMM
 
-	$PROG_PATH $* &
+	mkfifo wait_for_start || atf_fail "mkfifo"
+	$PROG_PATH $* >wait_for_start &
 	PROG_PID=$!
-	try=0
-	while [ $try -lt $MAX_TRIES ] && ! kill -0 $PROG_PID; do
-		sleep 0.5
-		: $(( try += 1 ))
-	done
-	if [ $try -ge $MAX_TRIES ]; then
-		atf_fail "Polled for program start $MAX_TRIES tries and failed"
+	if ! read dummy <wait_for_start; then
+		atf_fail "Program did not start properly"
 	fi
+	rm wait_for_start
 }
 
 atf_test_case binary_info
@@ -131,10 +126,26 @@ file_descriptor_body()
 	atf_check -o match:"$line_re" awk 'NR > 1' procstat.out
 }
 
+atf_test_case kernel_stacks
+kernel_stacks_head()
+{
+	atf_set "descr" "Captures kernel stacks for all visible threads"
+}
+kernel_stacks_body()
+{
+	# Bug 237445: checks will fail because of missing MFCs on branch
+	#atf_check -o save:procstat.out procstat -a kstack
+	#atf_check -o not-empty awk '{if ($3 == "procstat") print}' procstat.out
+
+	atf_check -o save:procstat.out procstat -kka
+	atf_check -o not-empty awk '{if ($3 == "procstat") print}' procstat.out
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case binary_info
 	atf_add_test_case command_line_arguments
 	atf_add_test_case environment
 	atf_add_test_case file_descriptor
+	atf_add_test_case kernel_stacks
 }

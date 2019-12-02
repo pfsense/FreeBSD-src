@@ -118,7 +118,7 @@ my $gcc_devteam_warn = "-Wall -pedantic -DPEDANTIC -Wno-long-long -Wsign-compare
 # -Wincompatible-pointer-types-discards-qualifiers, -Wcast-align,
 # -Wunreachable-code -Wunused-parameter -Wlanguage-extension-token
 # -Wextended-offsetof
-my $clang_disabled_warnings = "-Wno-unused-parameter -Wno-missing-field-initializers -Wno-language-extension-token  -Wno-extended-offsetof";
+my $clang_disabled_warnings = "-Wno-unknown-warning-option -Wno-unused-parameter -Wno-missing-field-initializers -Wno-language-extension-token  -Wno-extended-offsetof";
 
 # These are used in addition to $gcc_devteam_warn when the compiler is clang.
 # TODO(openssl-team): fix problems and investigate if (at least) the
@@ -128,7 +128,7 @@ my $clang_disabled_warnings = "-Wno-unused-parameter -Wno-missing-field-initiali
 # -Wincompatible-pointer-types-discards-qualifiers, -Wcast-align,
 # -Wunreachable-code -Wunused-parameter -Wlanguage-extension-token
 # -Wextended-offsetof
-my $clang_devteam_warn = "-Wno-unused-parameter -Wno-missing-field-initializers -Wno-language-extension-token -Wno-extended-offsetof -Qunused-arguments";
+my $clang_devteam_warn = "-Wno-unknown-warning-option -Wno-unused-parameter -Wno-missing-field-initializers -Wno-language-extension-token -Wno-extended-offsetof -Qunused-arguments";
 
 # Warn that "make depend" should be run?
 my $warn_make_depend = 0;
@@ -475,6 +475,7 @@ my %table=(
 "android-x86","gcc:-mandroid -I\$(ANDROID_DEV)/include -B\$(ANDROID_DEV)/lib -O3 -fomit-frame-pointer -Wall::-D_REENTRANT::-ldl:BN_LLONG ${x86_gcc_des} ${x86_gcc_opts}:".eval{my $asm=${x86_elf_asm};$asm=~s/:elf/:android/;$asm}.":dlfcn:linux-shared:-fPIC::.so.\$(SHLIB_MAJOR).\$(SHLIB_MINOR)",
 "android-armv7","gcc:-march=armv7-a -mandroid -I\$(ANDROID_DEV)/include -B\$(ANDROID_DEV)/lib -O3 -fomit-frame-pointer -Wall::-D_REENTRANT::-ldl:BN_LLONG RC4_CHAR RC4_CHUNK DES_INT DES_UNROLL BF_PTR:${armv4_asm}:dlfcn:linux-shared:-fPIC::.so.\$(SHLIB_MAJOR).\$(SHLIB_MINOR)",
 "android-mips","gcc:-mandroid -I\$(ANDROID_DEV)/include -B\$(ANDROID_DEV)/lib -O3 -Wall::-D_REENTRANT::-ldl:BN_LLONG RC4_CHAR RC4_CHUNK DES_INT DES_UNROLL BF_PTR:${mips32_asm}:o32:dlfcn:linux-shared:-fPIC::.so.\$(SHLIB_MAJOR).\$(SHLIB_MINOR)",
+"android64-aarch64","gcc:-mandroid -fPIC -I\$(ANDROID_DEV)/include -B\$(ANDROID_DEV)/lib -O3 -Wall::-D_REENTRANT::-pie%-ldl:SIXTY_FOUR_BIT_LONG RC4_CHAR RC4_CHUNK DES_INT DES_UNROLL BF_PTR:${aarch64_asm}:linux64:dlfcn:linux-shared:::.so.\$(SHLIB_MAJOR).\$(SHLIB_MINOR)",
 
 #### *BSD [do see comment about ${BSDthreads} above!]
 "BSD-generic32","gcc:-O3 -fomit-frame-pointer -Wall::${BSDthreads}:::BN_LLONG RC2_CHAR RC4_INDEX DES_INT DES_UNROLL:${no_asm}:dlfcn:bsd-gcc-shared:-fPIC::.so.\$(SHLIB_MAJOR).\$(SHLIB_MINOR)",
@@ -1173,6 +1174,7 @@ foreach (sort (keys %disabled))
 				$depflags .= " -DOPENSSL_NO_$ALGO";
 				}
 			}
+                        if (/^comp$/)	{ $zlib = 0; }
 		}
 
 	print "\n";
@@ -1671,6 +1673,13 @@ while (<PIPE>) {
 }
 close(PIPE);
 
+# Xcode did not handle $cc -M before clang support
+my $cc_as_makedepend = 0;
+if ($predefined{__GNUC__} >= 3 && !(defined($predefined{__APPLE_CC__})
+                                    && !defined($predefined{__clang__}))) {
+  $cc_as_makedepend = 1;
+}
+
 if ($strict_warnings)
 	{
 	my $wopt;
@@ -1730,14 +1739,14 @@ while (<IN>)
 		s/^NM=\s*/NM= \$\(CROSS_COMPILE\)/;
 		s/^RANLIB=\s*/RANLIB= \$\(CROSS_COMPILE\)/;
 		s/^RC=\s*/RC= \$\(CROSS_COMPILE\)/;
-		s/^MAKEDEPPROG=.*$/MAKEDEPPROG= \$\(CROSS_COMPILE\)$cc/ if $predefined{__GNUC__} >= 3;
+		s/^MAKEDEPPROG=.*$/MAKEDEPPROG= \$\(CROSS_COMPILE\)$cc/ if $cc_as_makedepend;
 		}
 	else	{
 		s/^CC=.*$/CC= $cc/;
 		s/^AR=\s*ar/AR= $ar/;
 		s/^RANLIB=.*/RANLIB= $ranlib/;
 		s/^RC=.*/RC= $windres/;
-		s/^MAKEDEPPROG=.*$/MAKEDEPPROG= $cc/ if $predefined{__GNUC__} >= 3;
+		s/^MAKEDEPPROG=.*$/MAKEDEPPROG= $cc/ if $cc_as_makedepend;
 		}
 	s/^CFLAG=.*$/CFLAG= $cflags/;
 	s/^DEPFLAG=.*$/DEPFLAG=$depflags/;

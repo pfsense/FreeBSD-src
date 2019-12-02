@@ -1,4 +1,4 @@
-Updating Information for FreeBSD current users.
+Updating Information for FreeBSD stable/11 users.
 
 This file is maintained and copyrighted by M. Warner Losh <imp@freebsd.org>.
 See end of file for further details.  For commonly done items, please see the
@@ -6,7 +6,7 @@ COMMON ITEMS: section later in the file.  These instructions assume that you
 basically know what you are doing.  If not, then please consult the FreeBSD
 handbook:
 
-    https://www.freebsd.org/doc/en_US.ISO8859-1/books/handbook/updating-src.html
+    https://www.freebsd.org/doc/en_US.ISO8859-1/books/handbook/makeworld.html
 
 Items affecting the ports and packages system can be found in
 /usr/ports/UPDATING.  Please read that file before running portupgrade.
@@ -16,181 +16,102 @@ from older versions of FreeBSD, try WITHOUT_CLANG and WITH_GCC to bootstrap to
 the tip of head, and then rebuild without this option. The bootstrap process
 from older version of current across the gcc/clang cutover is a bit fragile.
 
-20190820	p14	FreeBSD-SA-19:22.mbuf
-			FreeBSD-SA-19:23.midi
-			FreeBSD-SA-19:24.mqueuefs
-
-	Fix IPv6 remote denial of service. [SA-19:22.mbuf]
-
-	Fix kernel memory disclosure from /dev/midistat. [SA-19:23.midi]
-
-	Fix reference count overflow in mqueuefs. [SA-19:24.mqueuefs]
-
-20190806	p13	FreeBSD-EN-19:15.libunwind
-			FreeBSD-SA-19:18.bzip2
-			FreeBSD-SA-19:19.mldv2
-			FreeBSD-SA-19:20.bsnmp
-			FreeBSD-SA-19:21.bhyve
-
-	Fix incorrect exception handling. [EN-19:15.libunwind]
-
-	Fix multiple vulnerabilities in bzip2. [SA-19:18.bzip2]
-
-	Fix ICMPv6 / MLDv2 out-of-bounds memory access. [SA-19:19.mldv2]
-
-	Fix insufficient message length validation in bsnmp library.
-						[SA-19:20.bsnmp]
-
-	Fix insufficient validation of guest-supplied data (e1000 device).
-						[SA-19:21.bhyve]
-
-20190724	p12	FreeBSD-EN-19:13.mds
-			FreeBSD-SA-19:12.telnet
-			FreeBSD-SA-19:13.pts
-			FreeBSD-SA-19:14.freebsd32
-			FreeBSD-SA-19:15.mqueuefs
-			FreeBSD-SA-19:16.bhyve
-			FreeBSD-SA-19:17.fd
-
-	Fix panic from Intel CPU vulnerability mitigation. [EN-19:13.mds]
-
-	Fix multiple telnet client vulnerabilities. [SA-19:12.telnet]
-
-	Fix pts write-after-free. [SA-19:13.pts]
-
-	Fix kernel memory disclosure in freebsd32_ioctl. [SA-19:14.freebsd32]
-
-	Fix reference count overflow in mqueuefs. [SA-19:15.mqueuefs]
-
-	Fix byhve out-of-bounds read in XHCI device. [SA-19:16.bhyve]
-
-	Fix file descriptor reference count leak. [SA-19:17.fd]
-
-20190702	p11	FreeBSD-EN-19:12.tzdata
-			FreeBSD-SA-19:09.iconv
-			FreeBSD-SA-19:10.ufs
-			FreeBSD-SA-19:11.cd_ioctl
-
-	Import tzdata 2019b. [EN-19:12.tzdata]
-
-	Fix iconv buffer overflow. [SA-19:09.iconv]
-
-	Fix kernel stack disclosure in UFS/FFS. [SA-19:10.ufs]
-
-	Fix privilege escalation in cd(4) driver. [SA-19:11.cd_ioctl]
-
-20190514	p10	FreeBSD-EN-19:08.tzdata
-			FreeBSD-EN-19:09.xinstall
-			FreeBSD-SA-19:03.wpa
-			FreeBSD-SA-19:04.ntp
-			FreeBSD-SA-19:05.pf
-			FreeBSD-SA-19:06.pf
-			FreeBSD-SA-19:07.mds
-
-	Import tzdata 2019a. [EN-19:08.tzdata]
-
-	Fix install with partially matching relative paths. [EN-19:09.xinstall]
-
-	Fix multiple vulnerabilities in hostapd/wpa_supplicant. [SA-19:03.wpa]
-
-	Fix authenticated denial of service in ntpd. [SA-19:04.ntp]
-
-	Fix IPv6 fragment reassembly in pf. [SA-19:05.pf]
-
-	Fix ICMP/ICMP6 packet filter bypass in pf. [SA-19:06.pf]
-
-	Add mitigations for Microarchitectural Data Sampling. [SA-19:07.mds]
-
-
-20190205	p9	FreeBSD-SA-19:01.syscall
-
-	amd64: clear callee-preserved registers on syscall exit
-							[SA-19:01.syscall]
-
-20190109	p8	FreeBSD-EN-19:03.sqlite
-			FreeBSD-EN-19:04.tzdata
-			FreeBSD-EN-19:05.kqueue
-
-	Update sqlite3-3.20.0 --> sqlite3-3.26.0 (3260000) [EN-19:03.sqlite]
-
-	Import tzdata 2018h, 2018i [EN-19:04.tzdata]
-
-	Avoid unsynchronized updates to kn_status. [EN-19:05.kqueue]
-
-
-20181219	p7	FreeBSD-SA-18:15.bootpd
-			FreeBSD-EN-18:16.ptrace
-			FreeBSD-EN-18:17.vm
-			FreeBSD-EN-18:18.zfs
-
-	bootpd: validate hardware type [SA-18:15.bootpd]
-
-	Only clear a pending thread event if one is pending. [EN-18:16.ptrace]
-
-	Update the free page count when blacklisting pages. [EN-18:17.vm]
-
-	Resolve a hang in ZFS during vnode reclamation [EN-18:18.zfs]
-
-
-20181204	p6	FreeBSD-SA-18:14.bhyve
-
-	Fix insufficient bounds checking in bhyve(8) device model.
-	[SA-18:14.bhyve]
-
-20181127	p5	FreeBSD-SA-18:13.nfs
-			FreeBSD-EN-18:13.icmp
-			FreeBSD-EN-18:14.tzdata
-			FreeBSD-EN-18:15.loader
-
-	Fix multiple vulnerabilities in NFS server code. [SA-18:13.nfs]
-
-	Fix ICMP buffer underwrite. [EN-18:13.icmp]
-
-	Timezone database information update. [EN-18:14.tzdata]
-
-	Fix deferred kernel loading breaks loader password. [EN-18:15.loader]
-
-20180927	p4	FreeBSD-EN-18:09.ip
-			FreeBSD-EN-18:10.syscall
-			FreeBSD-EN-18:11.listen
-			FreeBSD-EN-18:12.mem
-
-	Fix regression in IPv6 fragment reassembly. [EN-18:09.ip]
-
-	Fix NULL pointer dereference in freebsd4_getfsstat. [EN-18:10.syscall]
-
-	Fix DoS in listen syscall over IPv6 socket. [EN-18:11.listen]
-
-	Fix small kernel memory disclosures. [EN-18:12.mem]
-
-20180912	p3	FreeBSD-SA-18:12.elf
-			FreeBSD-EN-18:08.lazyfpu
-
-	Fix improper elf header parsing. [SA-18:12.elf]
-
-	Fix regression in Lazy FPU remediation. [EN-18:08.lazyfpu]
-
-20180814	p2	FreeBSD-SA-18:08.tcp [revised]
-			FreeBSD-SA-18:09.l1tf
-			FreeBSD-SA-18:10.ip
-			FreeBSD-SA-18:11.hostapd
-
-	Revise manual pages. [SA-18:08.tcp]
-
-	Fix L1 Terminal Fault (L1TF) kernel information disclosure.
-	[SA-18:09.l1tf]
-
-	Fix resource exhaustion in IP fragment reassembly. [SA-18:10.ip]
-
-	Fix unauthenticated EAPOL-Key decryption vulnerability.
-	[SA-18:11.hostapd]
-
-20180806	p1	FreeBSD-SA-18:08.tcp
-
-	Fix resource exhaustion in TCP reassembly.
-
-20180627:
-	11.2-RELEASE.
+20190913:
+	ntpd no longer by default locks its pages in memory, allowing them
+	to be paged out by the kernel. Use rlimit memlock to restore
+	historic BSD behaviour. For example, add "rlimit memlock 32"
+	to ntp.conf to lock up to 32 MB of ntpd address space in memory.
+
+20190723:
+	Clang, llvm, lld, lldb, compiler-rt, libc++, libunwind and openmp have
+	been upgraded to 8.0.1.  Please see the 20141231 entry below for
+	information about prerequisites and upgrading, if you are not already
+	using clang 3.5.0 or higher.
+
+20190426:
+	CARP now sets DSCP value CS7(Network Traffic) in the flowlabel field
+	of packets by default instead of only setting TOS_LOWDELAY in IPv4,
+	which was deprecated in 1998.  Original behavior can be restored by
+	setting sysctl net.inet.carp.dscp=4.
+
+20190416:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	8.0.0.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
+
+20190226:
+	geom_uzip(4) depends on the new module xz.  If geom_uzip is statically
+	compiled into your custom kernel, add 'device xz' statement to the
+	kernel config.
+
+20190220:
+	Co-existance for Forth and Lua interpreters in bootloaders has now been
+	merged to ease testing of lualoader.  LOADER_DEFAULT_INTERP, documented
+	in build(7), may be used to control which interpreter flavor is used in
+	the default loader to be installed.  For systems where Lua and Forth
+	coexist, this switch can also be made on a running system by creating a
+	link from /boot/loader{,.efi} to /boot/loader_${flavor}{,.efi} rather
+	than requiring a rebuild.
+
+	The default flavor in this branch will remain Forth.  As indicated in
+	the 20190216 UPDATING entry, booting is a complex environment; it would
+	be prudent to assume that lualoader may not work for your setup and make
+	provisions for backup boot methods.
+
+20190220:
+	zfsloader's functionality has now been folded into loader.
+	zfsloader is no longer necesasary once you've updated your
+	boot blocks. For a transition period, we will install a
+	hardlink for zfsloader to loader to allow a smooth transition
+	until the boot blocks can be updated (hard link because old
+	zfs boot blocks don't understand symlinks).
+
+20190216:
+	Lualoader has been merged to facilitate testing on this branch.  It's
+	purely opt-in for now by building WITH_LOADER_LUA and WITHOUT_FORTH in
+	/etc/src.conf, but co-existance will come shortly.  Booting is a complex
+	environment and test coverage for Lua-enabled loaders has been thin, so
+	it would be prudent to assume it might not work and make provisions for
+	backup boot methods.
+
+20190216:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	7.0.1.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
+
+20181228:
+	r342562 modifies the NFSv4 server so that it obeys vfs.nfsd.nfs_privport
+	in the same as it is applied to NFSv2 and 3.  This implies that NFSv4
+	servers that have vfs.nfsd.nfs_privport set will only allow mounts
+	from clients using a reserved port#. Since both the FreeBSD and Linux
+	NFSv4 clients use reserved port#s by default, this should not affect
+	most NFSv4 mounts.
+
+20181107:
+	The '%I' format in the kern.corefile sysctl limits the number of
+	core files that a process can generate to the number stored in the
+	debug.ncores sysctl. The '%I' format is replaced by the single digit
+	index. Previously, if all indexes were taken the kernel would overwrite
+	only a core file with the highest index in a filename.
+	Currently the system will create a new core file if there is a free
+	index or if all slots are taken it will overwrite the oldest one.
+
+20180818:
+	WITH_OFED option now only enables the build for the OFED libraries
+	and some fundamental client utilities.  OpenSM and rest of the
+	debugging tools are enabled by WITH_OFED_EXTRA build switch.
+	WITH_OFED is turned on by default on amd64.
+
+20180714:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	6.0.1.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
+
+20180601:
+	The releng/11.2 branch has been created from stable/11@r334458.
 
 20180504:
 	The tz database (tzdb) has been updated to 2018e.  This version more
@@ -257,6 +178,9 @@ from older version of current across the gcc/clang cutover is a bit fragile.
 	forground mode (i.e., do not use the -p or -y options). As it
 	starts, fsck will ask ``SAVE DATA TO FIND ALTERNATE SUPERBLOCKS''
 	to which you should answer yes.
+
+20170629:
+	The releng/11.1 branch has been created from stable/11@r320475.
 
 20170518:
 	arm64 builds now use the base system LLD 4.0.0 linker by default,
@@ -344,6 +268,12 @@ from older version of current across the gcc/clang cutover is a bit fragile.
 	to use an extension of .pico instead.  The purpose of this change is
 	to avoid a name clash with shared libraries on case-insensitive file
 	systems.  On those file systems, foo.So is the same file as foo.so.
+
+20160811:
+	The releng/11.0 branch has been created from stable/11@r303970.
+
+20160708:
+	The stable/11 branch has been created from head@r302406.
 
 20160622:
 	The libc stub for the pipe(2) system call has been replaced with
@@ -1883,12 +1813,13 @@ COMMON ITEMS:
 	can be deleted by "make delete-old-libs", but you have to make
 	sure that no program is using those libraries anymore.
 
-	[8] In order to have a kernel that can run the 4.x binaries needed to
-	do an installworld, you must include the COMPAT_FREEBSD4 option in
-	your kernel.  Failure to do so may leave you with a system that is
-	hard to boot to recover. A similar kernel option COMPAT_FREEBSD5 is
-	required to run the 5.x binaries on more recent kernels.  And so on
-	for COMPAT_FREEBSD6 and COMPAT_FREEBSD7.
+	[8] The new kernel must be able to run existing binaries used by
+	an installworld.  When upgrading across major versions, the new
+	kernel's configuration must include the correct COMPAT_FREEBSD<n>
+	option for existing binaries (e.g. COMPAT_FREEBSD11 to run 11.x
+	binaries).  Failure to do so may leave you with a system that is
+	hard to boot to recover.  A GENERIC kernel will include suitable
+	compatibility options to run binaries from older branches.
 
 	Make sure that you merge any new devices from GENERIC since the
 	last time you updated your kernel config file.

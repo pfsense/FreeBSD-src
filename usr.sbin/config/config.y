@@ -12,6 +12,7 @@
 %token	DEVICE
 %token	NODEVICE
 %token	ENV
+%token	ENVVAR
 %token	EQUALS
 %token	PLUSEQUALS
 %token	HINTS
@@ -26,6 +27,7 @@
 %token	INCLUDE
 %token	FILES
 
+%token	<str>	ENVLINE
 %token	<str>	ID
 %token	<val>	NUMBER
 
@@ -79,8 +81,6 @@
 struct	device_head dtab;
 char	*ident;
 char	*env;
-int	envmode;
-int	hintmode;
 int	yyline;
 const	char *yyfile;
 struct  file_list_head ftab;
@@ -95,8 +95,9 @@ int yywrap(void);
 
 static void newdev(char *name);
 static void newfile(char *name);
+static void newenvvar(char *name, bool is_file);
 static void rmdev_schedule(struct device_head *dh, char *name);
-static void newopt(struct opt_head *list, char *name, char *value, int append);
+static void newopt(struct opt_head *list, char *name, char *value, int append, int dupe);
 static void rmopt_schedule(struct opt_head *list, char *name);
 
 static char *
@@ -187,10 +188,8 @@ Config_spec:
 		|
 	MAXUSERS NUMBER { maxusers = $2; } |
 	PROFILE NUMBER { profiling = $2; } |
-	ENV ID {
-		env = $2;
-		envmode = 1;
-		} |
+	ENV ID { newenvvar($2, true); } |
+	ENVVAR ENVLINE { newenvvar($2, false); } |
 	HINTS ID {
 		struct hint *hint;
 
@@ -198,8 +197,7 @@ Config_spec:
 		if (hint == NULL)
 			err(EXIT_FAILURE, "calloc");	
 		hint->hint_name = $2;
-		STAILQ_INSERT_TAIL(&hints, hint, hint_next);
-		hintmode = 1;
+		STAILQ_INSERT_HEAD(&hints, hint, hint_next);
 	        }
 
 System_spec:
@@ -212,7 +210,7 @@ System_spec:
 	  ;
 
 System_id:
-	Save_id { newopt(&mkopt, ns("KERNEL"), $1, 0); };
+	Save_id { newopt(&mkopt, ns("KERNEL"), $1, 0, 0); };
 
 System_parameter_list:
 	  System_parameter_list ID
@@ -232,13 +230,13 @@ NoOpt_list:
 		;
 Option:
 	Save_id {
-		newopt(&opt, $1, NULL, 0);
+		newopt(&opt, $1, NULL, 0, 1);
 		if (strchr($1, '=') != NULL)
 			errx(1, "%s:%d: The `=' in options should not be "
 			    "quoted", yyfile, yyline);
 	      } |
 	Save_id EQUALS Opt_value {
-		newopt(&opt, $1, $3, 0);
+		newopt(&opt, $1, $3, 0, 1);
 	      } ;
 
 NoOption:
@@ -266,10 +264,10 @@ Mkopt_list:
 		;
 
 Mkoption:
-	Save_id { newopt(&mkopt, $1, ns(""), 0); } |
-	Save_id EQUALS { newopt(&mkopt, $1, ns(""), 0); } |
-	Save_id EQUALS Opt_value { newopt(&mkopt, $1, $3, 0); } |
-	Save_id PLUSEQUALS Opt_value { newopt(&mkopt, $1, $3, 1); } ;
+	Save_id { newopt(&mkopt, $1, ns(""), 0, 0); } |
+	Save_id EQUALS { newopt(&mkopt, $1, ns(""), 0, 0); } |
+	Save_id EQUALS Opt_value { newopt(&mkopt, $1, $3, 0, 0); } |
+	Save_id PLUSEQUALS Opt_value { newopt(&mkopt, $1, $3, 1, 0); } ;
 
 Dev:
 	ID { $$ = $1; }
@@ -295,7 +293,7 @@ NoDev_list:
 
 Device:
 	Dev {
-		newopt(&opt, devopt($1), ns("1"), 0);
+		newopt(&opt, devopt($1), ns("1"), 0, 0);
 		/* and the device part */
 		newdev($1);
 		}
@@ -347,7 +345,20 @@ newfile(char *name)
 	nl->f_name = name;
 	STAILQ_INSERT_TAIL(&fntab, nl, f_next);
 }
-	
+
+static void
+newenvvar(char *name, bool is_file)
+{
+	struct envvar *envvar;
+
+	envvar = (struct envvar *)calloc(1, sizeof (struct envvar));
+	if (envvar == NULL)
+		err(EXIT_FAILURE, "calloc");
+	envvar->env_str = name;
+	envvar->env_is_file = is_file;
+	STAILQ_INSERT_HEAD(&envvars, envvar, envvar_next);
+}
+
 /*
  * Find a device in the list of devices.
  */
@@ -419,7 +430,7 @@ findopt(struct opt_head *list, char *name)
  * Add an option to the list of options.
  */
 static void
-newopt(struct opt_head *list, char *name, char *value, int append)
+newopt(struct opt_head *list, char *name, char *value, int append, int dupe)
 {
 	struct opt *op, *op2;
 
@@ -432,7 +443,7 @@ newopt(struct opt_head *list, char *name, char *value, int append)
 	}
 
 	op2 = findopt(list, name);
-	if (op2 != NULL && !append) {
+	if (op2 != NULL && !append && !dupe) {
 		fprintf(stderr,
 		    "WARNING: duplicate option `%s' encountered.\n", name);
 		return;
@@ -445,9 +456,15 @@ newopt(struct opt_head *list, char *name, char *value, int append)
 	op->op_ownfile = 0;
 	op->op_value = value;
 	if (op2 != NULL) {
-		while (SLIST_NEXT(op2, op_append) != NULL)
-			op2 = SLIST_NEXT(op2, op_append);
-		SLIST_NEXT(op2, op_append) = op;
+		if (append) {
+			while (SLIST_NEXT(op2, op_append) != NULL)
+				op2 = SLIST_NEXT(op2, op_append);
+			SLIST_NEXT(op2, op_append) = op;
+		} else {
+			while (SLIST_NEXT(op2, op_next) != NULL)
+				op2 = SLIST_NEXT(op2, op_next);
+			SLIST_NEXT(op2, op_next) = op;
+		}
 	} else
 		SLIST_INSERT_HEAD(list, op, op_next);
 }
@@ -460,8 +477,7 @@ rmopt_schedule(struct opt_head *list, char *name)
 {
 	struct opt *op;
 
-	op = findopt(list, name);
-	if (op != NULL) {
+	while ((op = findopt(list, name)) != NULL) {
 		SLIST_REMOVE(list, op, opt, op_next);
 		free(op->op_name);
 		free(op);

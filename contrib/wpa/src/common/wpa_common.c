@@ -547,6 +547,8 @@ int fils_pmkid_erp(int akmp, const u8 *reauth, size_t reauth_len,
 	return 0;
 }
 
+#endif /* CONFIG_FILS */
+
 
 int fils_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const u8 *spa, const u8 *aa,
 		    const u8 *snonce, const u8 *anonce, const u8 *dhss,
@@ -2075,6 +2077,16 @@ u32 wpa_akm_to_suite(int akm)
 		return RSN_AUTH_KEY_MGMT_FT_FILS_SHA256;
 	if (akm & WPA_KEY_MGMT_FT_FILS_SHA384)
 		return RSN_AUTH_KEY_MGMT_FT_FILS_SHA384;
+	if (akm & WPA_KEY_MGMT_SAE)
+		return RSN_AUTH_KEY_MGMT_SAE;
+	if (akm & WPA_KEY_MGMT_FT_SAE)
+		return RSN_AUTH_KEY_MGMT_FT_SAE;
+	if (akm & WPA_KEY_MGMT_OWE)
+		return RSN_AUTH_KEY_MGMT_OWE;
+	if (akm & WPA_KEY_MGMT_DPP)
+		return RSN_AUTH_KEY_MGMT_DPP;
+	if (akm & WPA_KEY_MGMT_OSEN)
+		return RSN_AUTH_KEY_MGMT_OSEN;
 	return 0;
 }
 

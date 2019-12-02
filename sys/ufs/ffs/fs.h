@@ -10,7 +10,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -219,7 +219,8 @@
 #define	FFS_UNLINK		14	/* remove a name in the filesystem */
 #define	FFS_SET_INODE		15	/* update an on-disk inode */
 #define	FFS_SET_BUFOUTPUT	16	/* set buffered writing on descriptor */
-#define	FFS_MAXID		16	/* number of valid ffs ids */
+#define	FFS_SET_SIZE		17	/* set inode size */
+#define	FFS_MAXID		17	/* number of valid ffs ids */
 
 /*
  * Command structure passed in to the filesystem to adjust filesystem values.

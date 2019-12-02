@@ -97,16 +97,10 @@ struct {
 	{0x5812,  "Chelsio T560-CR VF"},	/* 1 x 40G, 2 x 10G */
 	{0x5814,  "Chelsio T580-LP-SO-CR VF"},	/* 2 x 40G, nomem */
 	{0x5815,  "Chelsio T502-BT VF"},	/* 2 x 1G */
-#ifdef notyet
-	{0x5804,  "Chelsio T520-BCH VF"},
-	{0x5805,  "Chelsio T540-BCH VF"},
-	{0x5806,  "Chelsio T540-CH VF"},
-	{0x5808,  "Chelsio T520-CX VF"},
-	{0x580b,  "Chelsio B520-SR VF"},
-	{0x580c,  "Chelsio B504-BT VF"},
-	{0x580f,  "Chelsio Amsterdam VF"},
-	{0x5813,  "Chelsio T580-CHR VF"},
-#endif
+	{0x5818,  "Chelsio T540-BT VF"},	/* 4 x 10GBaseT */
+	{0x5819,  "Chelsio T540-LP-BT VF"},	/* 4 x 10GBaseT */
+	{0x581a,  "Chelsio T540-SO-BT VF"},	/* 4 x 10GBaseT, nomem */
+	{0x581b,  "Chelsio T540-SO-CR VF"},	/* 4 x 10G, nomem */
 }, t6vf_pciids[] = {
 	{0x6800, "Chelsio T6-DBG-25 VF"},	/* 2 x 10/25G, debug */
 	{0x6801, "Chelsio T6225-CR VF"},	/* 2 x 10/25G */
@@ -127,6 +121,12 @@ struct {
 	/* Custom */
 	{0x6880, "Chelsio T6225 80 VF"},
 	{0x6881, "Chelsio T62100 81 VF"},
+	{0x6882, "Chelsio T6225-CR 82 VF"},
+	{0x6883, "Chelsio T62100-CR 83 VF"},
+	{0x6884, "Chelsio T64100-CR 84 VF"},
+	{0x6885, "Chelsio T6240-SO 85 VF"},
+	{0x6886, "Chelsio T6225-SO-CR 86 VF"},
+	{0x6887, "Chelsio T6225-CR 87 VF"},
 };
 
 static d_ioctl_t t4vf_ioctl;
@@ -294,6 +294,12 @@ set_params__post_init(struct adapter *sc)
 	param = FW_PARAM_PFVF(CPLFW4MSG_ENCAP);
 	val = 1;
 	(void)t4vf_set_params(sc, 1, &param, &val);
+
+	/* Enable 32b port caps if the firmware supports it. */
+	param = FW_PARAM_PFVF(PORT_CAPS32);
+	val = 1;
+	if (t4vf_set_params(sc, 1, &param, &val) == 0)
+		sc->params.port_caps32 = 1;
 
 	return (0);
 }
@@ -479,6 +485,7 @@ t4vf_attach(device_t dev)
 	sc->params.pci.mps = pci_get_max_payload(dev);
 
 	sc->flags |= IS_VF;
+	TUNABLE_INT_FETCH("hw.cxgbe.dflags", &sc->debug_flags);
 
 	sc->sge_gts_reg = VF_SGE_REG(A_SGE_VF_GTS);
 	sc->sge_kdoorbell_reg = VF_SGE_REG(A_SGE_VF_KDOORBELL);
@@ -637,6 +644,10 @@ t4vf_attach(device_t dev)
 		mtx_init(&pi->pi_lock, pi->lockname, 0, MTX_DEF);
 		sc->chan_map[pi->tx_chan] = i;
 
+		/* All VIs on this port share this media. */
+		ifmedia_init(&pi->media, IFM_IMASK, cxgbe_media_change,
+		    cxgbe_media_status);
+
 		pi->dev = device_add_child(dev, sc->names->vf_ifnet_name, -1);
 		if (pi->dev == NULL) {
 			device_printf(dev,
@@ -662,7 +673,7 @@ t4vf_attach(device_t dev)
 	s->nrxq = sc->params.nports * iaq.nrxq;
 	s->ntxq = sc->params.nports * iaq.ntxq;
 	s->neq = s->ntxq + s->nrxq;	/* the free list in an rxq is an eq */
-	s->neq += sc->params.nports + 1;/* ctrl queues: 1 per port + 1 mgmt */
+	s->neq += sc->params.nports;	/* ctrl queues: 1 per port */
 	s->niq = s->nrxq + 1;		/* 1 extra for firmware event queue */
 
 	s->rxq = malloc(s->nrxq * sizeof(struct sge_rxq), M_CXGBE,

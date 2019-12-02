@@ -24,7 +24,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd May 11, 2017
+.Dd February 20, 2019
 .Dt BUILD 7
 .Os
 .Sh NAME
@@ -177,16 +177,16 @@ are:
 .Bl -tag -width ".Cm distributeworld"
 .It Cm buildenv
 Spawn an interactive shell with environment variables set up for
-cross-building the system.
-The target architecture needs to be specified with
+building the system or individual components.
+For cross-building the target architecture needs to be specified with
 .Xr make 1
 variables
 .Va TARGET_ARCH
 and
 .Va TARGET .
 .Pp
-This target is only useful after a complete cross-toolchain including
-the compiler, linker, assembler, headers and libraries has been
+This target is only useful after a complete toolchain (including
+the compiler, linker, assembler, headers and libraries) has been
 built; see the
 .Cm toolchain
 target below.
@@ -422,6 +422,14 @@ Overrides which kernel to build and install for the various kernel
 make targets.
 It defaults to
 .Cm GENERIC .
+.It Va KERNCONFDIR
+Overrides the directory in which
+.Va KERNCONF
+and any files included by
+.Va KERNCONF
+should be found.
+Defaults to
+.Pa sys/${ARCH}/conf .
 .It Va KERNFAST
 If set, the build target
 .Cm buildkernel
@@ -564,6 +572,18 @@ using the
 option of
 .Xr make 1 :
 .Bl -tag -width ".Va -DNO_KERNELCONFIG"
+.It Va LOADER_DEFAULT_INTERP
+Defines what interpreter the default loader program will have.
+Valid values include
+.Dq 4th ,
+.Dq lua ,
+and
+.Dq simp .
+This creates the default link for
+.Pa /boot/loader
+to the loader with that interpreter.
+It also determines what interpreter is compiled into
+.Pa userboot .
 .It Va NO_CLEANDIR
 If set, the build targets that clean parts of the object tree use the
 equivalent of

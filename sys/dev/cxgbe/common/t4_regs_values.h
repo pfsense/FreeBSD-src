@@ -145,6 +145,11 @@
 #define X_FETCHBURSTMIN_64B		2
 #define X_FETCHBURSTMIN_128B		3
 
+/* T6 and later use a single-bit encoding for FetchBurstMin */
+#define X_FETCHBURSTMIN_SHIFT_T6	6
+#define X_FETCHBURSTMIN_64B_T6		0
+#define X_FETCHBURSTMIN_128B_T6		1
+
 #define X_FETCHBURSTMAX_SHIFT		6
 #define X_FETCHBURSTMAX_64B		0
 #define X_FETCHBURSTMAX_128B		1
@@ -289,6 +294,17 @@
 #define W_FT_MACMATCH			9
 #define W_FT_MPSHITTYPE			3
 #define W_FT_FRAGMENTATION		1
+
+#define M_FT_FCOE			((1ULL << W_FT_FCOE) - 1)
+#define M_FT_PORT			((1ULL << W_FT_PORT) - 1)
+#define M_FT_VNIC_ID			((1ULL << W_FT_VNIC_ID) - 1)
+#define M_FT_VLAN			((1ULL << W_FT_VLAN) - 1)
+#define M_FT_TOS			((1ULL << W_FT_TOS) - 1)
+#define M_FT_PROTOCOL			((1ULL << W_FT_PROTOCOL) - 1)
+#define M_FT_ETHERTYPE			((1ULL << W_FT_ETHERTYPE) - 1)
+#define M_FT_MACMATCH			((1ULL << W_FT_MACMATCH) - 1)
+#define M_FT_MPSHITTYPE			((1ULL << W_FT_MPSHITTYPE) - 1)
+#define M_FT_FRAGMENTATION		((1ULL << W_FT_FRAGMENTATION) - 1)
 
 /*
  * Some of the Compressed Filter Tuple fields have internal structure.  These

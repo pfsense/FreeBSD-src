@@ -431,10 +431,10 @@ arprequest(struct ifnet *ifp, const struct in_addr *sip,
 /*
  * Resolve an IP address into an ethernet address - heavy version.
  * Used internally by arpresolve().
- * We have already checked than  we can't use existing lle without
- * modification so we have to acquire LLE_EXCLUSIVE lle lock.
+ * We have already checked that we can't use an existing lle without
+ * modification so we have to acquire an LLE_EXCLUSIVE lle lock.
  *
- * On success, desten and flags are filled in and the function returns 0;
+ * On success, desten and pflags are filled in and the function returns 0;
  * If the packet must be held pending resolution, we return EWOULDBLOCK
  * On other errors, we return the corresponding error code.
  * Note that m_freem() handles NULL.
@@ -502,12 +502,8 @@ arpresolve_full(struct ifnet *ifp, int is_gw, int flags, struct mbuf *m,
 		}
 		bcopy(lladdr, desten, ll_len);
 
-		/* Check if we have feedback request from arptimer() */
-		if (la->r_skip_req != 0) {
-			LLE_REQ_LOCK(la);
-			la->r_skip_req = 0; /* Notify that entry was used */
-			LLE_REQ_UNLOCK(la);
-		}
+		/* Notify LLE code that the entry was used by datapath */
+		llentry_mark_used(la);
 		if (pflags != NULL)
 			*pflags = la->la_flags & (LLE_VALID|LLE_IFADDR);
 		if (plle) {
@@ -638,12 +634,8 @@ arpresolve(struct ifnet *ifp, int is_gw, struct mbuf *m,
 		bcopy(la->r_linkdata, desten, la->r_hdrlen);
 		if (pflags != NULL)
 			*pflags = LLE_VALID | (la->r_flags & RLLE_IFADDR);
-		/* Check if we have feedback request from arptimer() */
-		if (la->r_skip_req != 0) {
-			LLE_REQ_LOCK(la);
-			la->r_skip_req = 0; /* Notify that entry was used */
-			LLE_REQ_UNLOCK(la);
-		}
+		/* Notify the LLE handling code that the entry was used. */
+		llentry_mark_used(la);
 		if (plle) {
 			LLE_ADDREF(la);
 			*plle = la;
@@ -1359,6 +1351,8 @@ garp_rexmit(void *arg)
 		return;
 	}
 
+	CURVNET_SET(ia->ia_ifa.ifa_ifp->if_vnet);
+
 	/*
 	 * Drop lock while the ARP request is generated.
 	 */
@@ -1386,6 +1380,8 @@ garp_rexmit(void *arg)
 			ifa_free(&ia->ia_ifa);
 		}
 	}
+
+	CURVNET_RESTORE();
 }
 
 /*

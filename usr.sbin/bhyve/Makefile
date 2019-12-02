@@ -3,11 +3,10 @@
 #
 
 .include <src.opts.mk>
+CFLAGS+=-I${SRCTOP}/sys
 
 PROG=	bhyve
 PACKAGE=	bhyve
-
-DEBUG_FLAGS= -g -O0
 
 MAN=	bhyve.8
 
@@ -29,6 +28,7 @@ SRCS=	\
 	mem.c			\
 	mevent.c		\
 	mptbl.c			\
+	net_utils.c		\
 	pci_ahci.c		\
 	pci_e82545.c		\
 	pci_emul.c		\
@@ -65,6 +65,12 @@ SRCS+=	vmm_instruction_emul.c
 
 LIBADD=	vmmapi md pthread z
 
+.if ${MK_INET_SUPPORT} != "no"
+CFLAGS+=-DINET
+.endif
+.if ${MK_INET6_SUPPORT} != "no"
+CFLAGS+=-DINET6
+.endif
 .if ${MK_OPENSSL} == "no"
 CFLAGS+=-DNO_OPENSSL
 .else

@@ -3,7 +3,7 @@
  * 2005.
  */
 /* ====================================================================
- * Copyright (c) 2005 The OpenSSL Project.  All rights reserved.
+ * Copyright (c) 2005-2019 The OpenSSL Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -327,6 +327,8 @@ static EVP_PKEY *b2i_dss(const unsigned char **in, unsigned int length,
     } else {
         if (!read_lebn(&p, 20, &dsa->priv_key))
             goto memerr;
+        /* Set constant time flag before public key calculation */
+        BN_set_flags(dsa->priv_key, BN_FLG_CONSTTIME);
         /* Calculate public key */
         if (!(dsa->pub_key = BN_new()))
             goto memerr;
@@ -702,7 +704,7 @@ static EVP_PKEY *do_PVK_body(const unsigned char **in,
             inlen = cb(psbuf, PEM_BUFSIZE, 0, u);
         else
             inlen = PEM_def_callback(psbuf, PEM_BUFSIZE, 0, u);
-        if (inlen <= 0) {
+        if (inlen < 0) {
             PEMerr(PEM_F_DO_PVK_BODY, PEM_R_BAD_PASSWORD_READ);
             goto err;
         }

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  */
 
@@ -103,7 +103,7 @@ SYSCTL_INT(_vfs_zfs, OID_AUTO, zil_replay_disable, CTLFLAG_RWTUN,
  * out-of-order write cache is enabled.
  */
 boolean_t zfs_nocacheflush = B_FALSE;
-SYSCTL_INT(_vfs_zfs, OID_AUTO, cache_flush_disable, CTLFLAG_RDTUN,
+SYSCTL_INT(_vfs_zfs, OID_AUTO, cache_flush_disable, CTLFLAG_RWTUN,
     &zfs_nocacheflush, 0, "Disable cache flush");
 boolean_t zfs_trim_enabled = B_TRUE;
 SYSCTL_DECL(_vfs_zfs_trim);
@@ -131,17 +131,11 @@ zil_bp_compare(const void *x1, const void *x2)
 	const dva_t *dva1 = &((zil_bp_node_t *)x1)->zn_dva;
 	const dva_t *dva2 = &((zil_bp_node_t *)x2)->zn_dva;
 
-	if (DVA_GET_VDEV(dva1) < DVA_GET_VDEV(dva2))
-		return (-1);
-	if (DVA_GET_VDEV(dva1) > DVA_GET_VDEV(dva2))
-		return (1);
+	int cmp = AVL_CMP(DVA_GET_VDEV(dva1), DVA_GET_VDEV(dva2));
+	if (likely(cmp))
+		return (cmp);
 
-	if (DVA_GET_OFFSET(dva1) < DVA_GET_OFFSET(dva2))
-		return (-1);
-	if (DVA_GET_OFFSET(dva1) > DVA_GET_OFFSET(dva2))
-		return (1);
-
-	return (0);
+	return (AVL_CMP(DVA_GET_OFFSET(dva1), DVA_GET_OFFSET(dva2)));
 }
 
 static void
@@ -503,12 +497,7 @@ zil_lwb_vdev_compare(const void *x1, const void *x2)
 	const uint64_t v1 = ((zil_vdev_node_t *)x1)->zv_vdev;
 	const uint64_t v2 = ((zil_vdev_node_t *)x2)->zv_vdev;
 
-	if (v1 < v2)
-		return (-1);
-	if (v1 > v2)
-		return (1);
-
-	return (0);
+	return (AVL_CMP(v1, v2));
 }
 
 static lwb_t *
@@ -665,7 +654,8 @@ zil_create(zilog_t *zilog)
 			BP_ZERO(&blk);
 		}
 
-		error = zio_alloc_zil(zilog->zl_spa, txg, &blk, NULL,
+		error = zio_alloc_zil(zilog->zl_spa,
+		    zilog->zl_os->os_dsl_dataset->ds_object, txg, &blk, NULL,
 		    ZIL_MIN_BLKSZ, &slog);
 
 		if (error == 0)
@@ -1248,11 +1238,17 @@ zil_lwb_write_open(zilog_t *zilog, lwb_t *lwb)
  * aligned to 4KB) actually gets written. However, we can't always just
  * allocate SPA_OLD_MAXBLOCKSIZE as the slog space could be exhausted.
  */
-uint64_t zil_block_buckets[] = {
-    4096,		/* non TX_WRITE */
-    8192+4096,		/* data base */
-    32*1024 + 4096, 	/* NFS writes */
-    UINT64_MAX
+struct {
+	uint64_t	limit;
+	uint64_t	blksz;
+} zil_block_buckets[] = {
+    { 4096,		4096 },			/* non TX_WRITE */
+    { 8192 + 4096,	8192 + 4096 },		/* database */
+    { 32768 + 4096,	32768 + 4096 },		/* NFS writes */
+    { 65536 + 4096,	65536 + 4096 },		/* 64KB writes */
+    { 131072,		131072 },		/* < 128KB writes */
+    { 131072 + 4096,	65536 + 4096 },		/* 128KB writes */
+    { UINT64_MAX,	SPA_OLD_MAXBLOCKSIZE},	/* > 128KB writes */
 };
 
 /*
@@ -1329,11 +1325,9 @@ zil_lwb_write_issue(zilog_t *zilog, lwb_t *lwb)
 	 * pool log space.
 	 */
 	zil_blksz = zilog->zl_cur_used + sizeof (zil_chain_t);
-	for (i = 0; zil_blksz > zil_block_buckets[i]; i++)
+	for (i = 0; zil_blksz > zil_block_buckets[i].limit; i++)
 		continue;
-	zil_blksz = zil_block_buckets[i];
-	if (zil_blksz == UINT64_MAX)
-		zil_blksz = SPA_OLD_MAXBLOCKSIZE;
+	zil_blksz = zil_block_buckets[i].blksz;
 	zilog->zl_prev_blks[zilog->zl_prev_rotor] = zil_blksz;
 	for (i = 0; i < ZIL_PREV_BLKS; i++)
 		zil_blksz = MAX(zil_blksz, zilog->zl_prev_blks[i]);
@@ -1342,7 +1336,8 @@ zil_lwb_write_issue(zilog_t *zilog, lwb_t *lwb)
 	BP_ZERO(bp);
 
 	/* pass the old blkptr in order to spread log blocks across devs */
-	error = zio_alloc_zil(spa, txg, bp, &lwb->lwb_blk, zil_blksz, &slog);
+	error = zio_alloc_zil(spa, zilog->zl_os->os_dsl_dataset->ds_object,
+	    txg, bp, &lwb->lwb_blk, zil_blksz, &slog);
 	if (error == 0) {
 		ASSERT3U(bp->blk_birth, ==, txg);
 		bp->blk_cksum = lwb->lwb_blk.blk_cksum;
@@ -1624,12 +1619,7 @@ zil_aitx_compare(const void *x1, const void *x2)
 	const uint64_t o1 = ((itx_async_node_t *)x1)->ia_foid;
 	const uint64_t o2 = ((itx_async_node_t *)x2)->ia_foid;
 
-	if (o1 < o2)
-		return (-1);
-	if (o1 > o2)
-		return (1);
-
-	return (0);
+	return (AVL_CMP(o1, o2));
 }
 
 /*
@@ -2297,7 +2287,7 @@ zil_commit_waiter_timeout(zilog_t *zilog, zil_commit_waiter_t *zcw)
 	 */
 	lwb_t *nlwb = zil_lwb_write_issue(zilog, lwb);
 
-	ASSERT3S(lwb->lwb_state, !=, LWB_STATE_OPENED);
+	IMPLY(nlwb != NULL, lwb->lwb_state != LWB_STATE_OPENED);
 
 	/*
 	 * Since the lwb's zio hadn't been issued by the time this thread

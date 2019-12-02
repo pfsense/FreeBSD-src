@@ -185,7 +185,7 @@
 	movq	PCPU(KCR3),%rax
 	movq	%rax,%cr3
 	movq	PCPU(RSP0),%rax
-	subq	$PTI_SIZE,%rax
+	subq	$PTI_SIZE - 8 * (1 - \has_err),%rax
 	MOVE_STACKS	((PTI_SIZE / 8) - 1 + \has_err)
 	movq	%rax,%rsp
 	popq	%rdx
@@ -194,22 +194,25 @@
 
 	.macro	PTI_UENTRY has_err
 	swapgs
+	lfence
+	cmpq	$~0,PCPU(UCR3)
+	je	1f
 	pushq	%rax
 	pushq	%rdx
 	PTI_UUENTRY \has_err
+1:
 	.endm
 
-	.macro	PTI_ENTRY name, cont, has_err=0
+	.macro	PTI_ENTRY name, contk, contu, has_err=0
 	ALIGN_TEXT
 	.globl	X\name\()_pti
 	.type	X\name\()_pti,@function
 X\name\()_pti:
-	/* %rax, %rdx and possibly err not yet pushed */
-	testb	$SEL_RPL_MASK,PTI_CS-(2+1-\has_err)*8(%rsp)
-	jz	\cont
+	/* %rax, %rdx, and possibly err are not yet pushed */
+	testb	$SEL_RPL_MASK,PTI_CS-PTI_ERR-((1-\has_err)*8)(%rsp)
+	jz	\contk
 	PTI_UENTRY \has_err
-	swapgs
-	jmp	\cont
+	jmp	\contu
 	.endm
 
 	.macro	PTI_INTRENTRY vec_name
@@ -232,6 +235,7 @@ X\vec_name:
 	jz	.L\vec_name\()_u		/* Yes, dont swapgs again */
 	swapgs
 .L\vec_name\()_u:
+	lfence
 	subq	$TF_RIP,%rsp	/* skip dummy tf_err and tf_trapno */
 	movq	%rdi,TF_RDI(%rsp)
 	movq	%rsi,TF_RSI(%rsp)

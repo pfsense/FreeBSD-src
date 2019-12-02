@@ -100,6 +100,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_object.h>
 #include <vm/vm_pager.h>
 #include <vm/vm_param.h>
+#include <vm/vm_phys.h>
 
 #ifdef DDB
 #ifndef KDB
@@ -130,6 +131,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/perfmon.h>
 #endif
 #include <machine/tss.h>
+#include <x86/ucode.h>
 #ifdef SMP
 #include <machine/smp.h>
 #endif
@@ -588,8 +590,12 @@ freebsd4_sigreturn(struct thread *td, struct freebsd4_sigreturn_args *uap)
 void
 exec_setregs(struct thread *td, struct image_params *imgp, u_long stack)
 {
-	struct trapframe *regs = td->td_frame;
-	struct pcb *pcb = td->td_pcb;
+	struct trapframe *regs;
+	struct pcb *pcb;
+	register_t saved_rflags;
+
+	regs = td->td_frame;
+	pcb = td->td_pcb;
 
 	mtx_lock(&dt_lock);
 	if (td->td_proc->p_md.md_ldt != NULL)
@@ -603,11 +609,12 @@ exec_setregs(struct thread *td, struct image_params *imgp, u_long stack)
 	clear_pcb_flags(pcb, PCB_32BIT);
 	pcb->pcb_initial_fpucw = __INITIAL_FPUCW__;
 
+	saved_rflags = regs->tf_rflags & PSL_T;
 	bzero((char *)regs, sizeof(struct trapframe));
 	regs->tf_rip = imgp->entry_addr;
 	regs->tf_rsp = ((stack - 8) & ~0xFul) + 8;
 	regs->tf_rdi = stack;		/* argv */
-	regs->tf_rflags = PSL_USER | (regs->tf_rflags & PSL_T);
+	regs->tf_rflags = PSL_USER | saved_rflags;
 	regs->tf_ss = _udatasel;
 	regs->tf_cs = _ucodesel;
 	regs->tf_ds = _udatasel;
@@ -1230,6 +1237,12 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 	quad_t dcons_addr, dcons_size;
 	int page_counter;
 
+	/*
+	 * Tell the physical memory allocator about pages used to store
+	 * the kernel and preloaded data.  See kmem_bootstrap_free().
+	 */
+	vm_phys_add_seg((vm_paddr_t)kernphys, trunc_page(first));
+
 	bzero(physmap, sizeof(physmap));
 	physmap_idx = 0;
 
@@ -1566,6 +1579,9 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 
 	kmdp = init_ops.parse_preload_data(modulep);
 
+	physfree += ucode_load_bsp(physfree + KERNBASE);
+	physfree = roundup2(physfree, PAGE_SIZE);
+
 	identify_cpu1();
 	identify_hypervisor();
 	/*
@@ -1706,6 +1722,11 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	    != NULL)
 		vty_set_preferred(VTY_VT);
 
+	TUNABLE_INT_FETCH("hw.ibrs_disable", &hw_ibrs_disable);
+	TUNABLE_INT_FETCH("hw.spec_store_bypass_disable", &hw_ssb_disable);
+	TUNABLE_INT_FETCH("hw.mds_disable", &hw_mds_disable);
+	TUNABLE_INT_FETCH("machdep.mitigations.taa.enable", &x86_taa_enable);
+
 	finishidentcpu();	/* Final stage of CPU initialization */
 	initializecpu();	/* Initialize CPU registers */
 	initializecpucache();
@@ -1817,9 +1838,10 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	rsp0 = (vm_offset_t)thread0.td_pcb;
 	/* Ensure the stack is aligned to 16 bytes */
 	rsp0 &= ~0xFul;
-	common_tss[0].tss_rsp0 = pti ? ((vm_offset_t)PCPU_PTR(pti_stack) +
-	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful : rsp0;
+	common_tss[0].tss_rsp0 = rsp0;
 	PCPU_SET(rsp0, rsp0);
+	PCPU_SET(pti_rsp0, ((vm_offset_t)PCPU_PTR(pti_stack) +
+	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful);
 	PCPU_SET(curpcb, thread0.td_pcb);
 
 	/* transfer to user mode */
@@ -1983,14 +2005,21 @@ ptrace_set_pc(struct thread *td, unsigned long addr)
 int
 ptrace_single_step(struct thread *td)
 {
-	td->td_frame->tf_rflags |= PSL_T;
+
+	PROC_LOCK_ASSERT(td->td_proc, MA_OWNED);
+	if ((td->td_frame->tf_rflags & PSL_T) == 0) {
+		td->td_frame->tf_rflags |= PSL_T;
+		td->td_dbgflags |= TDB_STEP;
+	}
 	return (0);
 }
 
 int
 ptrace_clear_single_step(struct thread *td)
 {
+	PROC_LOCK_ASSERT(td->td_proc, MA_OWNED);
 	td->td_frame->tf_rflags &= ~PSL_T;
+	td->td_dbgflags &= ~TDB_STEP;
 	return (0);
 }
 
@@ -2006,6 +2035,7 @@ fill_regs(struct thread *td, struct reg *regs)
 int
 fill_frame_regs(struct trapframe *tp, struct reg *regs)
 {
+
 	regs->r_r15 = tp->tf_r15;
 	regs->r_r14 = tp->tf_r14;
 	regs->r_r13 = tp->tf_r13;
@@ -2037,6 +2067,8 @@ fill_frame_regs(struct trapframe *tp, struct reg *regs)
 		regs->r_fs = 0;
 		regs->r_gs = 0;
 	}
+	regs->r_err = 0;
+	regs->r_trapno = 0;
 	return (0);
 }
 
@@ -2493,14 +2525,23 @@ reset_dbregs(void)
  * breakpoint was in user space.  Return 0, otherwise.
  */
 int
-user_dbreg_trap(void)
+user_dbreg_trap(register_t dr6)
 {
-        u_int64_t dr7, dr6; /* debug registers dr6 and dr7 */
+        u_int64_t dr7;
         u_int64_t bp;       /* breakpoint bits extracted from dr6 */
         int nbp;            /* number of breakpoints that triggered */
         caddr_t addr[4];    /* breakpoint addresses */
         int i;
-        
+
+        bp = dr6 & DBREG_DR6_BMASK;
+        if (bp == 0) {
+                /*
+                 * None of the breakpoint bits are set meaning this
+                 * trap was not caused by any of the debug registers
+                 */
+                return 0;
+        }
+
         dr7 = rdr7();
         if ((dr7 & 0x000000ff) == 0) {
                 /*
@@ -2512,16 +2553,6 @@ user_dbreg_trap(void)
         }
 
         nbp = 0;
-        dr6 = rdr6();
-        bp = dr6 & 0x0000000f;
-
-        if (!bp) {
-                /*
-                 * None of the breakpoint bits are set meaning this
-                 * trap was not caused by any of the debug registers
-                 */
-                return 0;
-        }
 
         /*
          * at least one of the breakpoints were hit, check to see

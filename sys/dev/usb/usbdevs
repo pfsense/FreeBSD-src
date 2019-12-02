@@ -489,6 +489,7 @@ vendor ASAHIOPTICAL	0x0a17	Asahi Optical
 vendor BOCASYSTEMS	0x0a43	Boca Systems
 vendor SHANTOU		0x0a46	ShanTou
 vendor MEDIAGEAR	0x0a48	MediaGear
+vendor PLOYTEC		0x0a4a	Ploytec GmbH
 vendor BROADCOM		0x0a5c	Broadcom
 vendor GREENHOUSE	0x0a6b	GREENHOUSE
 vendor MEDELI		0x0a67	Medeli
@@ -742,6 +743,7 @@ vendor VIALABS		0x2109	VIA Labs
 vendor ERICSSON		0x2282	Ericsson
 vendor MOTOROLA2	0x22b8	Motorola
 vendor WETELECOM	0x22de	WeTelecom
+vendor TPLINK		0x2357	TP-Link
 vendor WESTMOUNTAIN	0x2405	West Mountain Radio
 vendor TRIPPLITE	0x2478	Tripp-Lite
 vendor HIROSE		0x2631	Hirose Electric
@@ -1011,6 +1013,7 @@ product ALCOR AU6390	0x6390	AU6390 USB-IDE converter
 /* Alink products */
 product ALINK DWM652U5		0xce16	DWM-652
 product ALINK 3G		0x9000	3G modem
+product ALINK SIM7600E		0x9001	LTE modem
 product ALINK 3GU		0x9200	3G modem
 
 /* Altec Lansing products */
@@ -1519,9 +1522,11 @@ product COREGA FETHER_USB_TXC	0x9601	FEther USB-TXC
 
 /* Corsair products */
 product CORSAIR K60		0x0a60	Corsair Vengeance K60 keyboard
+product CORSAIR K68		0x1b3f	Corsair Gaming K68 keyboard
 product CORSAIR K70		0x1b09	Corsair Vengeance K70 keyboard
 product CORSAIR K70_RGB		0x1b13	Corsair K70 RGB Keyboard
-product CORSAIR STRAFE		0x1b15	Cossair STRAFE Gaming keyboard
+product CORSAIR STRAFE		0x1b15	Corsair STRAFE Gaming keyboard
+product CORSAIR STRAFE2		0x1b44	Corsair STRAFE Gaming keyboard
 
 /* Creative products */
 product CREATIVE NOMAD_II	0x1002	Nomad II MP3 player
@@ -2549,6 +2554,7 @@ product JATON EDA		0x5704	Ethernet
 product JETI SPC1201		0x04b2	FTDI compatible adapter
 
 /* JMicron products */
+product JMICRON JMS566		0x3569	USB to SATA 3.0Gb/s bridge 
 product JMICRON JMS567		0x0567	USB to SATA 6.0Gb/s bridge 
 product JMICRON JM20336		0x2336	USB to SATA Bridge
 product JMICRON JM20337		0x2338	USB to ATA/ATAPI Bridge
@@ -2741,6 +2747,7 @@ product LOGITECH UN58A		0xc030	iFeel Mouse
 product LOGITECH UN53B		0xc032	iFeel MouseMan
 product LOGITECH WMPAD		0xc208	WingMan GamePad Extreme
 product LOGITECH WMRPAD		0xc20a	WingMan RumblePad
+product LOGITECH G510S		0xc22d  G510s Keyboard
 product LOGITECH WMJOY		0xc281	WingMan Force joystick
 product LOGITECH BB13		0xc401	USB-PS/2 Trackball
 product LOGITECH RK53		0xc501	Cordless mouse
@@ -3583,6 +3590,9 @@ product PLANEX2 GWUSNANO	0xab28	GW-USNano
 /* Plextor Corp. */
 product PLEXTOR 40_12_40U	0x0011	PlexWriter 40/12/40U
 
+/* Ploytec GmbH */
+product PLOYTEC SPL_CRIMSON_1	0xc150	SPL Crimson Revision 1
+
 /* PLX products */
 product PLX TESTBOARD		0x9060	test board
 product PLX CA42		0xac70	CA-42
@@ -3880,6 +3890,8 @@ product ROLAND SD20		0x0027	SD-20 MIDI Synth
 product ROLAND SD80		0x0029	SD-80 MIDI Synth
 product ROLAND UA700		0x002b	UA-700 Audio I/F
 product ROLAND PCR300		0x0033  EDIROL PCR-300 MIDI I/F
+product ROLAND UA25EX_AD	0x00e6  EDIROL UA-25EX (Advanced Driver)
+product ROLAND UA25EX_CC	0x00e7  EDIROL UA-25EX (Class Compliant)
 
 /* Rockfire products */
 product ROCKFIRE GAMEPAD	0x2033	gamepad 203USB
@@ -3920,6 +3932,7 @@ product SANDISK SDCZ2_128	0x7100	Cruzer Mini 128MB
 product SANDISK SDCZ2_256	0x7104	Cruzer Mini 256MB
 product SANDISK SDCZ4_128	0x7112	Cruzer Micro 128MB
 product SANDISK SDCZ4_256	0x7113	Cruzer Micro 256MB
+product SANDISK SDCZ48_32	0x5581  Ultra 32GB
 product SANDISK IMAGEMATE_SDDR289	0xb6ba	ImageMate SDDR-289
 
 /* Sanwa Electric Instrument Co., Ltd. products */
@@ -4188,6 +4201,7 @@ product SILABS	CP210X_2	0xea61	CP210x Serial
 product SILABS	CP210X_3	0xea70	CP210x Serial
 product SILABS	CP210X_4	0xea80	CP210x Serial
 product SILABS	INFINITY_MIC	0xea71	Infinity GPS-MIC-1 Radio Monophone
+product SILABS	CP2112		0xea90	CP2112 HID USB-to-SMBus Bridge with GPIO
 product SILABS	USBSCOPE50	0xf001	USBscope50
 product SILABS	USBWAVE12	0xf002	USBwave12
 product SILABS	USBPULSE100	0xf003	USBpulse100
@@ -4231,6 +4245,7 @@ product SITECOMEU RT3072_4	0x0048	RT3072
 product SITECOMEU RT3072_5	0x004a	RT3072
 product SITECOMEU WL349V1	0x004b	WL-349 v1
 product SITECOMEU RT3072_6	0x004d	RT3072
+product SITECOMEU WLA1000	0x005b	WLA-1000
 product SITECOMEU RTL8188CU_1	0x0052	RTL8188CU
 product SITECOMEU RTL8188CU_2	0x005c	RTL8188CU
 product SITECOMEU RTL8192CU	0x0061	RTL8192CU
@@ -4477,6 +4492,10 @@ product TOSHIBA RT3070		0x0a07	RT3070
 product TOSHIBA G450		0x0d45	G450 modem
 product TOSHIBA HSDPA		0x1302	G450 modem
 product TOSHIBA TRANSMEMORY	0x6545	USB ThumbDrive
+
+/* TP-Link products */
+product TPLINK T4U		0x0101	Archer T4U
+product TPLINK WN722NV2		0x010c	TL-WN722N v2
 
 /* Trek Technology products */
 product TREK THUMBDRIVE		0x1111	ThumbDrive

@@ -1324,10 +1324,15 @@ igb_init_locked(struct adapter *adapter)
 	*/
 	if (adapter->max_frame_size <= 2048)
 		adapter->rx_mbuf_sz = MCLBYTES;
+#ifndef CONTIGMALLOC_WORKS
+       else
+               adapter->rx_mbuf_sz = MJUMPAGESIZE;
+#else
 	else if (adapter->max_frame_size <= 4096)
 		adapter->rx_mbuf_sz = MJUMPAGESIZE;
 	else
 		adapter->rx_mbuf_sz = MJUM9BYTES;
+#endif
 
 	/* Prepare receive descriptors and buffers */
 	if (igb_setup_receive_structures(adapter)) {
@@ -2952,7 +2957,7 @@ igb_init_dmac(struct adapter *adapter, u32 pba)
 			dmac = pba - 10;
 		reg = E1000_READ_REG(hw, E1000_DMACR);
 		reg &= ~E1000_DMACR_DMACTHR_MASK;
-		reg = ((dmac << E1000_DMACR_DMACTHR_SHIFT)
+		reg |= ((dmac << E1000_DMACR_DMACTHR_SHIFT)
 		    & E1000_DMACR_DMACTHR_MASK);
 
 		/* transition to L0x or L1 if available..*/
@@ -3599,7 +3604,7 @@ igb_setup_transmit_ring(struct tx_ring *txr)
 		}
 #ifdef DEV_NETMAP
 		if (slot) {
-			int si = netmap_idx_n2k(&na->tx_rings[txr->me], i);
+			int si = netmap_idx_n2k(na->tx_rings[txr->me], i);
 			/* no need to set the address */
 			netmap_load_map(na, txr->txtag, txbuf->map, NMB(na, slot + si));
 		}
@@ -3903,16 +3908,12 @@ igb_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 	int	ehdrlen, ip_hlen = 0;
 	u16	etype;
 	u8	ipproto = 0;
-	int	offload = TRUE;
 	int	ctxd = txr->next_avail_desc;
 	u16	vtag = 0;
 
 	/* First check if TSO is to be used */
 	if (mp->m_pkthdr.csum_flags & CSUM_TSO)
 		return (igb_tso_setup(txr, mp, cmd_type_len, olinfo_status));
-
-	if ((mp->m_pkthdr.csum_flags & CSUM_OFFLOAD) == 0)
-		offload = FALSE;
 
 	/* Indicate the whole packet as payload when not doing TSO */
        	*olinfo_status |= mp->m_pkthdr.len << E1000_ADVTXD_PAYLEN_SHIFT;
@@ -3928,8 +3929,9 @@ igb_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 	if (mp->m_flags & M_VLANTAG) {
 		vtag = htole16(mp->m_pkthdr.ether_vtag);
 		vlan_macip_lens |= (vtag << E1000_ADVTXD_VLAN_SHIFT);
-	} else if (offload == FALSE) /* ... no offload to do */
+	} else if ((mp->m_pkthdr.csum_flags & CSUM_OFFLOAD) == 0) {
 		return (0);
+	}
 
 	/*
 	 * Determine where frame payload starts.
@@ -3963,7 +3965,6 @@ igb_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 			type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_IPV6;
 			break;
 		default:
-			offload = FALSE;
 			break;
 	}
 
@@ -3973,38 +3974,40 @@ igb_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 	switch (ipproto) {
 		case IPPROTO_TCP:
 #if __FreeBSD_version >= 1000000
-			if (mp->m_pkthdr.csum_flags & (CSUM_IP_TCP | CSUM_IP6_TCP))
+			if (mp->m_pkthdr.csum_flags & (CSUM_IP_TCP | CSUM_IP6_TCP)) {
 #else
-			if (mp->m_pkthdr.csum_flags & CSUM_TCP)
+			if (mp->m_pkthdr.csum_flags & CSUM_TCP) {
 #endif
 				type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_L4T_TCP;
+				*olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
+			}
 			break;
 		case IPPROTO_UDP:
 #if __FreeBSD_version >= 1000000
-			if (mp->m_pkthdr.csum_flags & (CSUM_IP_UDP | CSUM_IP6_UDP))
+			if (mp->m_pkthdr.csum_flags & (CSUM_IP_UDP | CSUM_IP6_UDP)) {
 #else
-			if (mp->m_pkthdr.csum_flags & CSUM_UDP)
+			if (mp->m_pkthdr.csum_flags & CSUM_UDP) {
 #endif
 				type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_L4T_UDP;
+				*olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
+			}
 			break;
 
 #if __FreeBSD_version >= 800000
 		case IPPROTO_SCTP:
 #if __FreeBSD_version >= 1000000
-			if (mp->m_pkthdr.csum_flags & (CSUM_IP_SCTP | CSUM_IP6_SCTP))
+			if (mp->m_pkthdr.csum_flags & (CSUM_IP_SCTP | CSUM_IP6_SCTP)) {
 #else
-			if (mp->m_pkthdr.csum_flags & CSUM_SCTP)
+			if (mp->m_pkthdr.csum_flags & CSUM_SCTP) {
 #endif
 				type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_L4T_SCTP;
+				*olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
+			}
 			break;
 #endif
 		default:
-			offload = FALSE;
 			break;
 	}
-
-	if (offload) /* For the TX descriptor setup */
-		*olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
 
 	/* 82575 needs the queue index added */
 	if (adapter->hw.mac.type == e1000_82575)
@@ -4415,7 +4418,7 @@ igb_setup_receive_ring(struct rx_ring *rxr)
 #ifdef DEV_NETMAP
 		if (slot) {
 			/* slot sj is mapped to the j-th NIC-ring entry */
-			int sj = netmap_idx_n2k(&na->rx_rings[rxr->me], j);
+			int sj = netmap_idx_n2k(na->rx_rings[rxr->me], j);
 			uint64_t paddr;
 			void *addr;
 
@@ -4801,7 +4804,7 @@ igb_initialize_receive_units(struct adapter *adapter)
 		 */
 		if (ifp->if_capenable & IFCAP_NETMAP) {
 			struct netmap_adapter *na = NA(adapter->ifp);
-			struct netmap_kring *kring = &na->rx_rings[i];
+			struct netmap_kring *kring = na->rx_rings[i];
 			int t = rxr->next_to_refresh - nm_kr_rxspace(kring);
 
 			if (t >= adapter->num_rx_desc)

@@ -57,7 +57,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/module.h>
 #include <sys/proc.h>
-#include <sys/rwlock.h>
 #include <sys/smp.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
@@ -202,17 +201,19 @@ VNET_DEFINE(int, pf_vnet_active);
 int pf_end_threads;
 struct proc *pf_purge_proc;
 
-struct rwlock			pf_rules_lock;
+struct rmlock			pf_rules_lock;
 struct sx			pf_ioctl_lock;
 struct sx			pf_end_lock;
 
 /* pfsync */
-pfsync_state_import_t 		*pfsync_state_import_ptr = NULL;
-pfsync_insert_state_t		*pfsync_insert_state_ptr = NULL;
-pfsync_update_state_t		*pfsync_update_state_ptr = NULL;
-pfsync_delete_state_t		*pfsync_delete_state_ptr = NULL;
-pfsync_clear_states_t		*pfsync_clear_states_ptr = NULL;
-pfsync_defer_t			*pfsync_defer_ptr = NULL;
+VNET_DEFINE(pfsync_state_import_t *, pfsync_state_import_ptr);
+VNET_DEFINE(pfsync_insert_state_t *, pfsync_insert_state_ptr);
+VNET_DEFINE(pfsync_update_state_t *, pfsync_update_state_ptr);
+VNET_DEFINE(pfsync_delete_state_t *, pfsync_delete_state_ptr);
+VNET_DEFINE(pfsync_clear_states_t *, pfsync_clear_states_ptr);
+VNET_DEFINE(pfsync_defer_t *, pfsync_defer_ptr);
+pfsync_detach_ifnet_t *pfsync_detach_ifnet_ptr;
+
 /* pflog */
 pflog_packet_t			*pflog_packet_ptr = NULL;
 
@@ -993,6 +994,7 @@ static int
 pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td)
 {
 	int			 error = 0;
+	PF_RULES_RLOCK_TRACKER;
 
 	/* XXX keep in sync with switch() below */
 	if (securelevel_gt(td->td_ucred, 2))
@@ -1665,8 +1667,8 @@ relock_DIOCCLRSTATES:
 			PF_HASHROW_UNLOCK(ih);
 		}
 		psk->psk_killed = killed;
-		if (pfsync_clear_states_ptr != NULL)
-			pfsync_clear_states_ptr(V_pf_status.hostid, psk->psk_ifname);
+		if (V_pfsync_clear_states_ptr != NULL)
+			V_pfsync_clear_states_ptr(V_pf_status.hostid, psk->psk_ifname);
 		break;
 	}
 
@@ -1777,9 +1779,9 @@ relock_DIOCKILLSCHEDULE:
 			error = EINVAL;
 			break;
 		}
-		if (pfsync_state_import_ptr != NULL) {
+		if (V_pfsync_state_import_ptr != NULL) {
 			PF_RULES_RLOCK();
-			error = pfsync_state_import_ptr(sp, PFSYNC_SI_IOCTL);
+			error = V_pfsync_state_import_ptr(sp, PFSYNC_SI_IOCTL);
 			PF_RULES_RUNLOCK();
 		} else
 			error = EOPNOTSUPP;
@@ -2734,24 +2736,20 @@ DIOCCHANGEADDR_error:
 			break;
 		}
 
-		PF_RULES_WLOCK();
+		PF_RULES_RLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
 		io->pfrio_size = min(io->pfrio_size, n);
+		PF_RULES_RUNLOCK();
 
 		totlen = io->pfrio_size * sizeof(struct pfr_table);
 		pfrts = mallocarray(io->pfrio_size, sizeof(struct pfr_table),
-		    M_TEMP, M_NOWAIT);
-		if (pfrts == NULL) {
-			error = ENOMEM;
-			PF_RULES_WUNLOCK();
-			break;
-		}
+		    M_TEMP, M_WAITOK);
 		error = copyin(io->pfrio_buffer, pfrts, totlen);
 		if (error) {
 			free(pfrts, M_TEMP);
-			PF_RULES_WUNLOCK();
 			break;
 		}
+		PF_RULES_WLOCK();
 		error = pfr_set_tflags(pfrts, io->pfrio_size,
 		    io->pfrio_setflag, io->pfrio_clrflag, &io->pfrio_nchange,
 		    &io->pfrio_ndel, io->pfrio_flags | PFR_FLAG_USERIOCTL);
@@ -3358,17 +3356,23 @@ DIOCCHANGEADDR_error:
 		struct pf_src_node	*n, *p, *pstore;
 		uint32_t		 i, nr = 0;
 
+		for (i = 0, sh = V_pf_srchash; i <= pf_srchashmask;
+				i++, sh++) {
+			PF_HASHROW_LOCK(sh);
+			LIST_FOREACH(n, &sh->nodes, entry)
+				nr++;
+			PF_HASHROW_UNLOCK(sh);
+		}
+
+		psn->psn_len = min(psn->psn_len,
+		    sizeof(struct pf_src_node) * nr);
+
 		if (psn->psn_len == 0) {
-			for (i = 0, sh = V_pf_srchash; i <= pf_srchashmask;
-			    i++, sh++) {
-				PF_HASHROW_LOCK(sh);
-				LIST_FOREACH(n, &sh->nodes, entry)
-					nr++;
-				PF_HASHROW_UNLOCK(sh);
-			}
 			psn->psn_len = sizeof(struct pf_src_node) * nr;
 			break;
 		}
+
+		nr = 0;
 
 		p = pstore = malloc(psn->psn_len, M_TEMP, M_WAITOK);
 		for (i = 0, sh = V_pf_srchash; i <= pf_srchashmask;
@@ -3765,20 +3769,6 @@ shutdown_pf(void)
 
 		/* status does not use malloced mem so no need to cleanup */
 		/* fingerprints and interfaces have their own cleanup code */
-
-		/* Free counters last as we updated them during shutdown. */
-		counter_u64_free(V_pf_default_rule.states_cur);
-		counter_u64_free(V_pf_default_rule.states_tot);
-		counter_u64_free(V_pf_default_rule.src_nodes);
-
-		for (int i = 0; i < PFRES_MAX; i++)
-			counter_u64_free(V_pf_status.counters[i]);
-		for (int i = 0; i < LCNT_MAX; i++)
-			counter_u64_free(V_pf_status.lcounters[i]);
-		for (int i = 0; i < FCNT_MAX; i++)
-			counter_u64_free(V_pf_status.fcounters[i]);
-		for (int i = 0; i < SCNT_MAX; i++)
-			counter_u64_free(V_pf_status.scounters[i]);
 	} while(0);
 
 	return (error);
@@ -3964,7 +3954,7 @@ pf_load(void)
 {
 	int error;
 
-	rw_init(&pf_rules_lock, "pf rulesets");
+	rm_init(&pf_rules_lock, "pf rulesets");
 	sx_init(&pf_ioctl_lock, "pf ioctl");
 	sx_init(&pf_end_lock, "pf end thread");
 
@@ -3991,7 +3981,6 @@ pf_unload_vnet(void)
 
 	V_pf_vnet_active = 0;
 	V_pf_status.running = 0;
-	swi_remove(V_pf_swi_cookie);
 	error = dehook_pf();
 	if (error) {
 		/*
@@ -4007,7 +3996,7 @@ pf_unload_vnet(void)
 	shutdown_pf();
 	PF_RULES_WUNLOCK();
 
-	pf_unload_vnet_purge();
+	swi_remove(V_pf_swi_cookie);
 
 	pf_normalize_cleanup();
 	PF_RULES_WLOCK();
@@ -4018,6 +4007,20 @@ pf_unload_vnet(void)
 	pf_cleanup();
 	if (IS_DEFAULT_VNET(curvnet))
 		pf_mtag_cleanup();
+
+	/* Free counters last as we updated them during shutdown. */
+	counter_u64_free(V_pf_default_rule.states_cur);
+	counter_u64_free(V_pf_default_rule.states_tot);
+	counter_u64_free(V_pf_default_rule.src_nodes);
+
+	for (int i = 0; i < PFRES_MAX; i++)
+		counter_u64_free(V_pf_status.counters[i]);
+	for (int i = 0; i < LCNT_MAX; i++)
+		counter_u64_free(V_pf_status.lcounters[i]);
+	for (int i = 0; i < FCNT_MAX; i++)
+		counter_u64_free(V_pf_status.fcounters[i]);
+	for (int i = 0; i < SCNT_MAX; i++)
+		counter_u64_free(V_pf_status.scounters[i]);
 }
 
 static int
@@ -4029,7 +4032,7 @@ pf_unload(void)
 	pf_end_threads = 1;
 	while (pf_end_threads < 2) {
 		wakeup_one(pf_purge_thread);
-		sx_sleep(pf_purge_proc, &pf_end_lock, 0, "pftmo", 0);
+		rm_sleep(pf_purge_thread, &pf_rules_lock, 0, "pftmo", 0);
 	}
 	sx_xunlock(&pf_end_lock);
 
@@ -4038,7 +4041,7 @@ pf_unload(void)
 
 	pfi_cleanup();
 
-	rw_destroy(&pf_rules_lock);
+	rm_destroy(&pf_rules_lock);
 	sx_destroy(&pf_ioctl_lock);
 	sx_destroy(&pf_end_lock);
 

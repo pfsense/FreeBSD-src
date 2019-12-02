@@ -54,7 +54,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/uio.h>
 #include <sys/bus.h>
-#include <sys/interrupt.h>
 #include <sys/cpuset.h>
 
 #include <net/vnet.h>
@@ -2965,6 +2964,10 @@ device_detach(device_t dev)
 	PDEBUG(("%s", DEVICENAME(dev)));
 	if (dev->state == DS_BUSY)
 		return (EBUSY);
+	if (dev->state == DS_ATTACHING) {
+		device_printf(dev, "device in attaching state! Deferring detach.\n");
+		return (EBUSY);
+	}
 	if (dev->state != DS_ATTACHED)
 		return (0);
 
@@ -3697,7 +3700,11 @@ bus_generic_detach(device_t dev)
 	if (dev->state != DS_ATTACHED)
 		return (EBUSY);
 
-	TAILQ_FOREACH(child, &dev->children, link) {
+	/*
+	 * Detach children in the reverse order.
+	 * See bus_generic_suspend for details.
+	 */
+	TAILQ_FOREACH_REVERSE(child, &dev->children, device_list, link) {
 		if ((error = device_detach(child)) != 0)
 			return (error);
 	}
@@ -3717,7 +3724,11 @@ bus_generic_shutdown(device_t dev)
 {
 	device_t child;
 
-	TAILQ_FOREACH(child, &dev->children, link) {
+	/*
+	 * Shut down children in the reverse order.
+	 * See bus_generic_suspend for details.
+	 */
+	TAILQ_FOREACH_REVERSE(child, &dev->children, device_list, link) {
 		device_shutdown(child);
 	}
 
@@ -3770,15 +3781,23 @@ int
 bus_generic_suspend(device_t dev)
 {
 	int		error;
-	device_t	child, child2;
+	device_t	child;
 
-	TAILQ_FOREACH(child, &dev->children, link) {
+	/*
+	 * Suspend children in the reverse order.
+	 * For most buses all children are equal, so the order does not matter.
+	 * Other buses, such as acpi, carefully order their child devices to
+	 * express implicit dependencies between them.  For such buses it is
+	 * safer to bring down devices in the reverse order.
+	 */
+	TAILQ_FOREACH_REVERSE(child, &dev->children, device_list, link) {
 		error = BUS_SUSPEND_CHILD(dev, child);
-		if (error) {
-			for (child2 = TAILQ_FIRST(&dev->children);
-			     child2 && child2 != child;
-			     child2 = TAILQ_NEXT(child2, link))
-				BUS_RESUME_CHILD(dev, child2);
+		if (error != 0) {
+			child = TAILQ_NEXT(child, link);
+			if (child != NULL) {
+				TAILQ_FOREACH_FROM(child, &dev->children, link)
+					BUS_RESUME_CHILD(dev, child);
+			}
 			return (error);
 		}
 	}
@@ -3802,6 +3821,96 @@ bus_generic_resume(device_t dev)
 	}
 	return (0);
 }
+
+
+/**
+ * @brief Helper function for implementing BUS_RESET_POST
+ *
+ * Bus can use this function to implement common operations of
+ * re-attaching or resuming the children after the bus itself was
+ * reset, and after restoring bus-unique state of children.
+ *
+ * @param dev	The bus
+ * #param flags	DEVF_RESET_*
+ */
+int
+bus_helper_reset_post(device_t dev, int flags)
+{
+	device_t child;
+	int error, error1;
+
+	error = 0;
+	TAILQ_FOREACH(child, &dev->children,link) {
+		BUS_RESET_POST(dev, child);
+		error1 = (flags & DEVF_RESET_DETACH) != 0 ?
+		    device_probe_and_attach(child) :
+		    BUS_RESUME_CHILD(dev, child);
+		if (error == 0 && error1 != 0)
+			error = error1;
+	}
+	return (error);
+}
+
+static void
+bus_helper_reset_prepare_rollback(device_t dev, device_t child, int flags)
+{
+
+	child = TAILQ_NEXT(child, link);
+	if (child == NULL)
+		return;
+	TAILQ_FOREACH_FROM(child, &dev->children,link) {
+		BUS_RESET_POST(dev, child);
+		if ((flags & DEVF_RESET_DETACH) != 0)
+			device_probe_and_attach(child);
+		else
+			BUS_RESUME_CHILD(dev, child);
+	}
+}
+
+/**
+ * @brief Helper function for implementing BUS_RESET_PREPARE
+ *
+ * Bus can use this function to implement common operations of
+ * detaching or suspending the children before the bus itself is
+ * reset, and then save bus-unique state of children that must
+ * persists around reset.
+ *
+ * @param dev	The bus
+ * #param flags	DEVF_RESET_*
+ */
+int
+bus_helper_reset_prepare(device_t dev, int flags)
+{
+	device_t child;
+	int error;
+
+	if (dev->state != DS_ATTACHED)
+		return (EBUSY);
+
+	TAILQ_FOREACH_REVERSE(child, &dev->children, device_list, link) {
+		if ((flags & DEVF_RESET_DETACH) != 0) {
+			error = device_get_state(child) == DS_ATTACHED ?
+			    device_detach(child) : 0;
+		} else {
+			error = BUS_SUSPEND_CHILD(dev, child);
+		}
+		if (error == 0) {
+			error = BUS_RESET_PREPARE(dev, child);
+			if (error != 0) {
+				if ((flags & DEVF_RESET_DETACH) != 0)
+					device_probe_and_attach(child);
+				else
+					BUS_RESUME_CHILD(dev, child);
+			}
+		}
+		if (error != 0) {
+			bus_helper_reset_prepare_rollback(dev, child, flags);
+			return (error);
+		}
+	}
+	return (0);
+}
+
 
 /**
  * @brief Helper function for implementing BUS_PRINT_CHILD().
@@ -5367,6 +5476,7 @@ devctl2_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 	case DEV_CLEAR_DRIVER:
 	case DEV_RESCAN:
 	case DEV_DELETE:
+	case DEV_RESET:
 		error = priv_check(td, PRIV_DRIVER);
 		if (error == 0)
 			error = find_device(req, &dev);
@@ -5574,6 +5684,14 @@ devctl2_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 		error = device_delete_child(parent, dev);
 		break;
 	}
+	case DEV_RESET:
+		if ((req->dr_flags & ~(DEVF_RESET_DETACH)) != 0) {
+			error = EINVAL;
+			break;
+		}
+		error = BUS_RESET_CHILD(device_get_parent(dev), dev,
+		    req->dr_flags);
+		break;
 	}
 	mtx_unlock(&Giant);
 	return (error);
@@ -5598,8 +5716,9 @@ devctl2_init(void)
  */
 static int obsolete_panic = 0;
 SYSCTL_INT(_debug, OID_AUTO, obsolete_panic, CTLFLAG_RWTUN, &obsolete_panic, 0,
-    "Bus debug level");
-/* 0 - don't panic, 1 - panic if already obsolete, 2 - panic if deprecated */
+    "Panic when obsolete features are used (0 = never, 1 = if osbolete, "
+    "2 = if deprecated)");
+
 static void
 gone_panic(int major, int running, const char *msg)
 {
@@ -5624,7 +5743,7 @@ _gone_in(int major, const char *msg)
 	gone_panic(major, P_OSREL_MAJOR(__FreeBSD_version), msg);
 	if (P_OSREL_MAJOR(__FreeBSD_version) >= major)
 		printf("Obsolete code will removed soon: %s\n", msg);
-	else if (P_OSREL_MAJOR(__FreeBSD_version) + 1 == major)
+	else
 		printf("Deprecated code (to be removed in FreeBSD %d): %s\n",
 		    major, msg);
 }
@@ -5637,7 +5756,7 @@ _gone_in_dev(device_t dev, int major, const char *msg)
 	if (P_OSREL_MAJOR(__FreeBSD_version) >= major)
 		device_printf(dev,
 		    "Obsolete code will removed soon: %s\n", msg);
-	else if (P_OSREL_MAJOR(__FreeBSD_version) + 1 == major)
+	else
 		device_printf(dev,
 		    "Deprecated code (to be removed in FreeBSD %d): %s\n",
 		    major, msg);

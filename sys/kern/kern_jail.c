@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/racct.h>
+#include <sys/rctl.h>
 #include <sys/refcount.h>
 #include <sys/sx.h>
 #include <sys/sysent.h>
@@ -199,6 +200,7 @@ static char *pr_allow_names[] = {
 	"allow.mount.fdescfs",
 	"allow.mount.linprocfs",
 	"allow.mount.linsysfs",
+	"allow.read_msgbuf",
 };
 const size_t pr_allow_names_size = sizeof(pr_allow_names);
 
@@ -218,6 +220,7 @@ static char *pr_allow_nonames[] = {
 	"allow.mount.nofdescfs",
 	"allow.mount.nolinprocfs",
 	"allow.mount.nolinsysfs",
+	"allow.noread_msgbuf",
 };
 const size_t pr_allow_nonames_size = sizeof(pr_allow_nonames);
 
@@ -1410,11 +1413,12 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		 * there is a duplicate on a jail with more than one
 		 * IP stop checking and return error.
 		 */
-		tppr = ppr;
 #ifdef VIMAGE
-		for (; tppr != &prison0; tppr = tppr->pr_parent)
+		for (tppr = ppr; tppr != &prison0; tppr = tppr->pr_parent)
 			if (tppr->pr_flags & PR_VNET)
 				break;
+#else
+		tppr = &prison0;
 #endif
 		FOREACH_PRISON_DESCENDANT(tppr, tpr, descend) {
 			if (tpr == pr ||
@@ -1477,11 +1481,12 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 		/* Check for conflicting IP addresses. */
-		tppr = ppr;
 #ifdef VIMAGE
-		for (; tppr != &prison0; tppr = tppr->pr_parent)
+		for (tppr = ppr; tppr != &prison0; tppr = tppr->pr_parent)
 			if (tppr->pr_flags & PR_VNET)
 				break;
+#else
+		tppr = &prison0;
 #endif
 		FOREACH_PRISON_DESCENDANT(tppr, tpr, descend) {
 			if (tpr == pr ||
@@ -2409,9 +2414,14 @@ do_jail_attach(struct thread *td, struct prison *pr)
 	newcred->cr_prison = pr;
 	proc_set_cred(p, newcred);
 	setsugid(p);
-	PROC_UNLOCK(p);
 #ifdef RACCT
 	racct_proc_ucred_changed(p, oldcred, newcred);
+	crhold(newcred);
+#endif
+	PROC_UNLOCK(p);
+#ifdef RCTL
+	rctl_proc_ucred_changed(p, newcred);
+	crfree(newcred);
 #endif
 	prison_deref(oldcred->cr_prison, PD_DEREF | PD_DEUREF);
 	crfree(oldcred);
@@ -3340,6 +3350,15 @@ prison_priv_check(struct ucred *cred, int priv)
 	case PRIV_PROC_SETLOGINCLASS:
 		return (0);
 
+		/*
+		 * Do not allow a process inside a jail to read the kernel
+		 * message buffer unless explicitly permitted.
+		 */
+	case PRIV_MSGBUF:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_READ_MSGBUF)
+			return (0);
+		return (EPERM);
+
 	default:
 		/*
 		 * In all remaining cases, deny the privilege request.  This
@@ -3788,6 +3807,8 @@ SYSCTL_JAIL_PARAM(_allow, quotas, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may set file quotas");
 SYSCTL_JAIL_PARAM(_allow, socket_af, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may create sockets other than just UNIX/IPv4/IPv6/route");
+SYSCTL_JAIL_PARAM(_allow, read_msgbuf, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may read the kernel message buffer");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,
@@ -3934,8 +3955,10 @@ prison_racct_attach(struct prison *pr)
 static void
 prison_racct_modify(struct prison *pr)
 {
+#ifdef RCTL
 	struct proc *p;
 	struct ucred *cred;
+#endif
 	struct prison_racct *oldprr;
 
 	ASSERT_RACCT_ENABLED();
@@ -3959,6 +3982,7 @@ prison_racct_modify(struct prison *pr)
 	 */
 	racct_move(pr->pr_prison_racct->prr_racct, oldprr->prr_racct);
 
+#ifdef RCTL
 	/*
 	 * Force rctl to reattach rules to processes.
 	 */
@@ -3966,9 +3990,10 @@ prison_racct_modify(struct prison *pr)
 		PROC_LOCK(p);
 		cred = crhold(p->p_ucred);
 		PROC_UNLOCK(p);
-		racct_proc_ucred_changed(p, cred, cred);
+		rctl_proc_ucred_changed(p, cred);
 		crfree(cred);
 	}
+#endif
 
 	sx_sunlock(&allproc_lock);
 	prison_racct_free_locked(oldprr);

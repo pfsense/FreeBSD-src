@@ -617,20 +617,25 @@ signotify(struct thread *td)
 	}
 }
 
+/*
+ * Returns 1 (true) if altstack is configured for the thread, and the
+ * passed stack bottom address falls into the altstack range.  Handles
+ * the 43 compat special case where the alt stack size is zero.
+ */
 int
 sigonstack(size_t sp)
 {
-	struct thread *td = curthread;
+	struct thread *td;
 
-	return ((td->td_pflags & TDP_ALTSTACK) ?
+	td = curthread;
+	if ((td->td_pflags & TDP_ALTSTACK) == 0)
+		return (0);
 #if defined(COMPAT_43)
-	    ((td->td_sigstk.ss_size == 0) ?
-		(td->td_sigstk.ss_flags & SS_ONSTACK) :
-		((sp - (size_t)td->td_sigstk.ss_sp) < td->td_sigstk.ss_size))
-#else
-	    ((sp - (size_t)td->td_sigstk.ss_sp) < td->td_sigstk.ss_size)
+	if (td->td_sigstk.ss_size == 0)
+		return ((td->td_sigstk.ss_flags & SS_ONSTACK) != 0);
 #endif
-	    : 0);
+	return (sp >= (size_t)td->td_sigstk.ss_sp &&
+	    sp < td->td_sigstk.ss_size + (size_t)td->td_sigstk.ss_sp);
 }
 
 static __inline int
@@ -982,12 +987,7 @@ execsigs(struct proc *p)
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	ps = p->p_sigacts;
 	mtx_lock(&ps->ps_mtx);
-	while (SIGNOTEMPTY(ps->ps_sigcatch)) {
-		sig = sig_ffs(&ps->ps_sigcatch);
-		sigdflt(ps, sig);
-		if ((sigprop(sig) & SA_IGNORE) != 0)
-			sigqueue_delete_proc(p, sig);
-	}
+	sig_drop_caught(p);
 
 	/*
 	 * As CloudABI processes cannot modify signal handlers, fully
@@ -2583,14 +2583,21 @@ ptracestop(struct thread *td, int sig, ksiginfo_t *si)
 			    p->p_xthread == NULL)) {
 				p->p_xsig = sig;
 				p->p_xthread = td;
-				td->td_dbgflags &= ~TDB_FSTP;
+
+				/*
+				 * If we are on sleepqueue already,
+				 * let sleepqueue code decide if it
+				 * needs to go sleep after attach.
+				 */
+				if (td->td_wchan == NULL)
+					td->td_dbgflags &= ~TDB_FSTP;
+
 				p->p_flag2 &= ~P2_PTRACE_FSTP;
 				p->p_flag |= P_STOPPED_SIG | P_STOPPED_TRACE;
 				sig_suspend_threads(td, p, 0);
 			}
 			if ((td->td_dbgflags & TDB_STOPATFORK) != 0) {
 				td->td_dbgflags &= ~TDB_STOPATFORK;
-				cv_broadcast(&p->p_dbgwait);
 			}
 stopme:
 			thread_suspend_switch(td, p);
@@ -2854,6 +2861,8 @@ issignal(struct thread *td)
 			sig = ptracestop(td, sig, &ksi);
 			mtx_lock(&ps->ps_mtx);
 
+			td->td_si.si_signo = 0;
+
 			/* 
 			 * Keep looking if the debugger discarded or
 			 * replaced the signal.
@@ -3076,6 +3085,23 @@ postsig(int sig)
 	return (1);
 }
 
+void
+proc_wkilled(struct proc *p)
+{
+
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+	if ((p->p_flag & P_WKILLED) == 0) {
+		p->p_flag |= P_WKILLED;
+		/*
+		 * Notify swapper that there is a process to swap in.
+		 * The notification is racy, at worst it would take 10
+		 * seconds for the swapper process to notice.
+		 */
+		if ((p->p_flag & (P_INMEM | P_SWAPPINGIN)) == 0)
+			wakeup(&proc0);
+	}
+}
+
 /*
  * Kill the current process for stated reason.
  */
@@ -3086,9 +3112,10 @@ killproc(struct proc *p, char *why)
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	CTR3(KTR_PROC, "killproc: proc %p (pid %d, %s)", p, p->p_pid,
 	    p->p_comm);
-	log(LOG_ERR, "pid %d (%s), uid %d, was killed: %s\n", p->p_pid,
-	    p->p_comm, p->p_ucred ? p->p_ucred->cr_uid : -1, why);
-	p->p_flag |= P_WKILLED;
+	log(LOG_ERR, "pid %d (%s), jid %d, uid %d, was killed: %s\n",
+	    p->p_pid, p->p_comm, p->p_ucred->cr_prison->pr_id,
+	    p->p_ucred ? p->p_ucred->cr_uid : -1, why);
+	proc_wkilled(p);
 	kern_psignal(p, SIGKILL);
 }
 
@@ -3129,8 +3156,9 @@ sigexit(struct thread *td, int sig)
 			sig |= WCOREFLAG;
 		if (kern_logsigexit)
 			log(LOG_INFO,
-			    "pid %d (%s), uid %d: exited on signal %d%s\n",
-			    p->p_pid, p->p_comm,
+			    "pid %d (%s), jid %d, uid %d: exited on "
+			    "signal %d%s\n", p->p_pid, p->p_comm,
+			    p->p_ucred->cr_prison->pr_id,
 			    td->td_ucred ? td->td_ucred->cr_uid : -1,
 			    sig &~ WCOREFLAG,
 			    sig & WCOREFLAG ? " (core dumped)" : "");
@@ -3288,6 +3316,94 @@ SYSCTL_PROC(_kern, OID_AUTO, corefile, CTLTYPE_STRING | CTLFLAG_RW |
     CTLFLAG_MPSAFE, 0, 0, sysctl_kern_corefile, "A",
     "Process corefile name format string");
 
+static void
+vnode_close_locked(struct thread *td, struct vnode *vp)
+{
+
+	VOP_UNLOCK(vp, 0);
+	vn_close(vp, FWRITE, td->td_ucred, td);
+}
+
+/*
+ * If the core format has a %I in it, then we need to check
+ * for existing corefiles before defining a name.
+ * To do this we iterate over 0..num_cores to find a
+ * non-existing core file name to use. If all core files are
+ * already used we choose the oldest one.
+ */
+static int
+corefile_open_last(struct thread *td, char *name, int indexpos,
+    struct vnode **vpp)
+{
+	struct vnode *oldvp, *nextvp, *vp;
+	struct vattr vattr;
+	struct nameidata nd;
+	int error, i, flags, oflags, cmode;
+	struct timespec lasttime;
+
+	nextvp = oldvp = NULL;
+	cmode = S_IRUSR | S_IWUSR;
+	oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
+	    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
+
+	for (i = 0; i < num_cores; i++) {
+		flags = O_CREAT | FWRITE | O_NOFOLLOW;
+		name[indexpos] = '0' + i;
+
+		NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
+		error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred,
+		    NULL);
+		if (error != 0)
+			break;
+
+		vp = nd.ni_vp;
+		NDFREE(&nd, NDF_ONLY_PNBUF);
+		if ((flags & O_CREAT) == O_CREAT) {
+			nextvp = vp;
+			break;
+		}
+
+		error = VOP_GETATTR(vp, &vattr, td->td_ucred);
+		if (error != 0) {
+			vnode_close_locked(td, vp);
+			break;
+		}
+
+		if (oldvp == NULL ||
+		    lasttime.tv_sec > vattr.va_mtime.tv_sec ||
+		    (lasttime.tv_sec == vattr.va_mtime.tv_sec &&
+		    lasttime.tv_nsec >= vattr.va_mtime.tv_nsec)) {
+			if (oldvp != NULL)
+				vnode_close_locked(td, oldvp);
+			oldvp = vp;
+			lasttime = vattr.va_mtime;
+		} else {
+			vnode_close_locked(td, vp);
+		}
+	}
+
+	if (oldvp != NULL) {
+		if (nextvp == NULL) {
+			if ((td->td_proc->p_flag & P_SUGID) != 0) {
+				error = EFAULT;
+				vnode_close_locked(td, oldvp);
+			} else {
+				nextvp = oldvp;
+			}
+		} else {
+			vnode_close_locked(td, oldvp);
+		}
+	}
+	if (error != 0) {
+		if (nextvp != NULL)
+			vnode_close_locked(td, oldvp);
+	} else {
+		*vpp = nextvp;
+	}
+
+	return (error);
+}
+
 /*
  * corefile_open(comm, uid, pid, td, compress, vpp, namep)
  * Expand the name described in corefilename, using name, uid, and pid
@@ -3304,11 +3420,11 @@ static int
 corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
     int compress, struct vnode **vpp, char **namep)
 {
-	struct nameidata nd;
 	struct sbuf sb;
+	struct nameidata nd;
 	const char *format;
 	char *hostname, *name;
-	int indexpos, i, error, cmode, flags, oflags;
+	int cmode, error, flags, i, indexpos, oflags;
 
 	hostname = NULL;
 	format = corefilename;
@@ -3372,48 +3488,38 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 	sbuf_finish(&sb);
 	sbuf_delete(&sb);
 
-	cmode = S_IRUSR | S_IWUSR;
-	oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
-	    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
-
-	/*
-	 * If the core format has a %I in it, then we need to check
-	 * for existing corefiles before returning a name.
-	 * To do this we iterate over 0..num_cores to find a
-	 * non-existing core file name to use.
-	 */
 	if (indexpos != -1) {
-		for (i = 0; i < num_cores; i++) {
-			flags = O_CREAT | O_EXCL | FWRITE | O_NOFOLLOW;
-			name[indexpos] = '0' + i;
-			NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
-			error = vn_open_cred(&nd, &flags, cmode, oflags,
-			    td->td_ucred, NULL);
-			if (error) {
-				if (error == EEXIST)
-					continue;
-				log(LOG_ERR,
-				    "pid %d (%s), uid (%u):  Path `%s' failed "
-				    "on initial open test, error = %d\n",
-				    pid, comm, uid, name, error);
-			}
-			goto out;
+		error = corefile_open_last(td, name, indexpos, vpp);
+		if (error != 0) {
+			log(LOG_ERR,
+			    "pid %d (%s), uid (%u):  Path `%s' failed "
+			    "on initial open test, error = %d\n",
+			    pid, comm, uid, name, error);
+		}
+	} else {
+		cmode = S_IRUSR | S_IWUSR;
+		oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
+		    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
+		flags = O_CREAT | FWRITE | O_NOFOLLOW;
+		if ((td->td_proc->p_flag & P_SUGID) != 0)
+			flags |= O_EXCL;
+
+		NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
+		error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred,
+		    NULL);
+		if (error == 0) {
+			*vpp = nd.ni_vp;
+			NDFREE(&nd, NDF_ONLY_PNBUF);
 		}
 	}
 
-	flags = O_CREAT | FWRITE | O_NOFOLLOW;
-	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
-	error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred, NULL);
-out:
-	if (error) {
+	if (error != 0) {
 #ifdef AUDIT
 		audit_proc_coredump(td, name, error);
 #endif
 		free(name, M_TEMP);
 		return (error);
 	}
-	NDFREE(&nd, NDF_ONLY_PNBUF);
-	*vpp = nd.ni_vp;
 	*namep = name;
 	return (0);
 }
@@ -3494,10 +3600,11 @@ coredump(struct thread *td)
 
 	/*
 	 * Don't dump to non-regular files or files with links.
-	 * Do not dump into system files.
+	 * Do not dump into system files. Effective user must own the corefile.
 	 */
 	if (vp->v_type != VREG || VOP_GETATTR(vp, &vattr, cred) != 0 ||
-	    vattr.va_nlink != 1 || (vp->v_vflag & VV_SYSTEM) != 0) {
+	    vattr.va_nlink != 1 || (vp->v_vflag & VV_SYSTEM) != 0 ||
+	    vattr.va_uid != cred->cr_uid) {
 		VOP_UNLOCK(vp, 0);
 		error = EFAULT;
 		goto out;
@@ -3731,4 +3838,21 @@ sigacts_shared(struct sigacts *ps)
 {
 
 	return (ps->ps_refcnt > 1);
+}
+
+void
+sig_drop_caught(struct proc *p)
+{
+	int sig;
+	struct sigacts *ps;
+
+	ps = p->p_sigacts;
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+	mtx_assert(&ps->ps_mtx, MA_OWNED);
+	while (SIGNOTEMPTY(ps->ps_sigcatch)) {
+		sig = sig_ffs(&ps->ps_sigcatch);
+		sigdflt(ps, sig);
+		if ((sigprop(sig) & SA_IGNORE) != 0)
+			sigqueue_delete_proc(p, sig);
+	}
 }

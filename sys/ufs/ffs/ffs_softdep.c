@@ -10216,22 +10216,22 @@ initiate_write_inodeblock_ufs1(inodedep, bp)
 		prevlbn = adp->ad_offset;
 		if (adp->ad_offset < NDADDR &&
 		    dp->di_db[adp->ad_offset] != adp->ad_newblkno)
-			panic("%s: direct pointer #%jd mismatch %d != %jd",
-			    "softdep_write_inodeblock",
+			panic("initiate_write_inodeblock_ufs1: "
+			    "direct pointer #%jd mismatch %d != %jd",
 			    (intmax_t)adp->ad_offset,
 			    dp->di_db[adp->ad_offset],
 			    (intmax_t)adp->ad_newblkno);
 		if (adp->ad_offset >= NDADDR &&
 		    dp->di_ib[adp->ad_offset - NDADDR] != adp->ad_newblkno)
-			panic("%s: indirect pointer #%jd mismatch %d != %jd",
-			    "softdep_write_inodeblock",
+			panic("initiate_write_inodeblock_ufs1: "
+			    "indirect pointer #%jd mismatch %d != %jd",
 			    (intmax_t)adp->ad_offset - NDADDR,
 			    dp->di_ib[adp->ad_offset - NDADDR],
 			    (intmax_t)adp->ad_newblkno);
 		deplist |= 1 << adp->ad_offset;
 		if ((adp->ad_state & ATTACHED) == 0)
-			panic("softdep_write_inodeblock: Unknown state 0x%x",
-			    adp->ad_state);
+			panic("initiate_write_inodeblock_ufs1: "
+			    "Unknown state 0x%x", adp->ad_state);
 #endif /* INVARIANTS */
 		adp->ad_state &= ~ATTACHED;
 		adp->ad_state |= UNDONE;
@@ -10254,7 +10254,8 @@ initiate_write_inodeblock_ufs1(inodedep, bp)
 		for (i = adp->ad_offset + 1; i < NDADDR; i++) {
 #ifdef INVARIANTS
 			if (dp->di_db[i] != 0 && (deplist & (1 << i)) == 0)
-				panic("softdep_write_inodeblock: lost dep1");
+				panic("initiate_write_inodeblock_ufs1: "
+				    "lost dep1");
 #endif /* INVARIANTS */
 			dp->di_db[i] = 0;
 		}
@@ -10262,7 +10263,8 @@ initiate_write_inodeblock_ufs1(inodedep, bp)
 #ifdef INVARIANTS
 			if (dp->di_ib[i] != 0 &&
 			    (deplist & ((1 << NDADDR) << i)) == 0)
-				panic("softdep_write_inodeblock: lost dep2");
+				panic("initiate_write_inodeblock_ufs1: "
+				    "lost dep2");
 #endif /* INVARIANTS */
 			dp->di_ib[i] = 0;
 		}
@@ -10384,18 +10386,18 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 	     adp = TAILQ_NEXT(adp, ad_next)) {
 #ifdef INVARIANTS
 		if (deplist != 0 && prevlbn >= adp->ad_offset)
-			panic("softdep_write_inodeblock: lbn order");
+			panic("initiate_write_inodeblock_ufs2: lbn order");
 		prevlbn = adp->ad_offset;
 		if (dp->di_extb[adp->ad_offset] != adp->ad_newblkno)
-			panic("%s: direct pointer #%jd mismatch %jd != %jd",
-			    "softdep_write_inodeblock",
+			panic("initiate_write_inodeblock_ufs2: "
+			    "ext pointer #%jd mismatch %jd != %jd",
 			    (intmax_t)adp->ad_offset,
 			    (intmax_t)dp->di_extb[adp->ad_offset],
 			    (intmax_t)adp->ad_newblkno);
 		deplist |= 1 << adp->ad_offset;
 		if ((adp->ad_state & ATTACHED) == 0)
-			panic("softdep_write_inodeblock: Unknown state 0x%x",
-			    adp->ad_state);
+			panic("initiate_write_inodeblock_ufs2: Unknown "
+			    "state 0x%x", adp->ad_state);
 #endif /* INVARIANTS */
 		adp->ad_state &= ~ATTACHED;
 		adp->ad_state |= UNDONE;
@@ -10416,7 +10418,8 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 		for (i = adp->ad_offset + 1; i < NXADDR; i++) {
 #ifdef INVARIANTS
 			if (dp->di_extb[i] != 0 && (deplist & (1 << i)) == 0)
-				panic("softdep_write_inodeblock: lost dep1");
+				panic("initiate_write_inodeblock_ufs2: "
+				    "lost dep1");
 #endif /* INVARIANTS */
 			dp->di_extb[i] = 0;
 		}
@@ -10449,22 +10452,22 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 		prevlbn = adp->ad_offset;
 		if (adp->ad_offset < NDADDR &&
 		    dp->di_db[adp->ad_offset] != adp->ad_newblkno)
-			panic("%s: direct pointer #%jd mismatch %jd != %jd",
-			    "softdep_write_inodeblock",
+			panic("initiate_write_inodeblock_ufs2: "
+			    "direct pointer #%jd mismatch %jd != %jd",
 			    (intmax_t)adp->ad_offset,
 			    (intmax_t)dp->di_db[adp->ad_offset],
 			    (intmax_t)adp->ad_newblkno);
 		if (adp->ad_offset >= NDADDR &&
 		    dp->di_ib[adp->ad_offset - NDADDR] != adp->ad_newblkno)
-			panic("%s indirect pointer #%jd mismatch %jd != %jd",
-			    "softdep_write_inodeblock:",
+			panic("initiate_write_inodeblock_ufs2: "
+			    "indirect pointer #%jd mismatch %jd != %jd",
 			    (intmax_t)adp->ad_offset - NDADDR,
 			    (intmax_t)dp->di_ib[adp->ad_offset - NDADDR],
 			    (intmax_t)adp->ad_newblkno);
 		deplist |= 1 << adp->ad_offset;
 		if ((adp->ad_state & ATTACHED) == 0)
-			panic("softdep_write_inodeblock: Unknown state 0x%x",
-			    adp->ad_state);
+			panic("initiate_write_inodeblock_ufs2: Unknown "
+			     "state 0x%x", adp->ad_state);
 #endif /* INVARIANTS */
 		adp->ad_state &= ~ATTACHED;
 		adp->ad_state |= UNDONE;
@@ -10487,7 +10490,8 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 		for (i = adp->ad_offset + 1; i < NDADDR; i++) {
 #ifdef INVARIANTS
 			if (dp->di_db[i] != 0 && (deplist & (1 << i)) == 0)
-				panic("softdep_write_inodeblock: lost dep2");
+				panic("initiate_write_inodeblock_ufs2: "
+				    "lost dep2");
 #endif /* INVARIANTS */
 			dp->di_db[i] = 0;
 		}
@@ -10495,7 +10499,8 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 #ifdef INVARIANTS
 			if (dp->di_ib[i] != 0 &&
 			    (deplist & ((1 << NDADDR) << i)) == 0)
-				panic("softdep_write_inodeblock: lost dep3");
+				panic("initiate_write_inodeblock_ufs2: "
+				    "lost dep3");
 #endif /* INVARIANTS */
 			dp->di_ib[i] = 0;
 		}
@@ -12424,24 +12429,13 @@ restart:
 		FREE_LOCK(ump);
 		if (ffs_vgetf(mp, parentino, LK_NOWAIT | LK_EXCLUSIVE, &pvp,
 		    FFSV_FORCEINSMQ)) {
-			error = vfs_busy(mp, MBF_NOWAIT);
-			if (error != 0) {
-				vfs_ref(mp);
-				VOP_UNLOCK(vp, 0);
-				error = vfs_busy(mp, 0);
-				vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-				vfs_rel(mp);
-				if (error != 0)
-					return (ENOENT);
-				if (vp->v_iflag & VI_DOOMED) {
-					vfs_unbusy(mp);
-					return (ENOENT);
-				}
-			}
+			/*
+			 * Unmount cannot proceed after unlock because
+			 * caller must have called vn_start_write().
+			 */
 			VOP_UNLOCK(vp, 0);
 			error = ffs_vgetf(mp, parentino, LK_EXCLUSIVE,
 			    &pvp, FFSV_FORCEINSMQ);
-			vfs_unbusy(mp);
 			vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 			if (vp->v_iflag & VI_DOOMED) {
 				if (error == 0)
@@ -13897,6 +13891,8 @@ softdep_bp_to_mp(bp)
 	if (LIST_EMPTY(&bp->b_dep))
 		return (NULL);
 	vp = bp->b_vp;
+	KASSERT(vp != NULL,
+	    ("%s, buffer with dependencies lacks vnode", __func__));
 
 	/*
 	 * The ump mount point is stable after we get a correct
@@ -13906,17 +13902,33 @@ softdep_bp_to_mp(bp)
 	 * workitem might be freed while dereferenced.
 	 */
 retry:
-	if (vp->v_type == VCHR) {
+	switch (vp->v_type) {
+	case VCHR:
 		VI_LOCK(vp);
 		mp = vp->v_type == VCHR ? vp->v_rdev->si_mountpt : NULL;
 		VI_UNLOCK(vp);
 		if (mp == NULL)
 			goto retry;
-	} else if (vp->v_type == VREG || vp->v_type == VDIR ||
-	    vp->v_type == VLNK) {
+		break;
+	case VREG:
+	case VDIR:
+	case VLNK:
+	case VFIFO:
+	case VSOCK:
 		mp = vp->v_mount;
-	} else {
-		return (NULL);
+		break;
+	case VBLK:
+		vn_printf(vp, "softdep_bp_to_mp: unexpected block device\n");
+		/* FALLTHROUGH */
+	case VNON:
+	case VBAD:
+	case VMARKER:
+		mp = NULL;
+		break;
+	default:
+		vn_printf(vp, "unknown vnode type");
+		mp = NULL;
+		break;
 	}
 	return (VFSTOUFS(mp));
 }

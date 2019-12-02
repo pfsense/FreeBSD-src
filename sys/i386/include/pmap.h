@@ -193,6 +193,8 @@ typedef uint32_t pt_entry_t;
  * Address of current address space page table maps and directories.
  */
 #ifdef _KERNEL
+#include <machine/atomic.h>
+
 extern pt_entry_t PTmap[];
 extern pd_entry_t PTD[];
 extern pd_entry_t PTDpde[];
@@ -233,6 +235,45 @@ extern pd_entry_t *IdlePTD;	/* physical address of "Idle" state directory */
  */
 extern pt_entry_t *KPTmap;
 
+#if (defined(PAE) || defined(PAE_TABLES))
+
+#define	pde_cmpset(pdep, old, new)	atomic_cmpset_64_i586(pdep, old, new)
+#define	pte_load_store(ptep, pte)	atomic_swap_64_i586(ptep, pte)
+#define	pte_load_clear(ptep)		atomic_swap_64_i586(ptep, 0)
+#define	pte_store(ptep, pte)		atomic_store_rel_64_i586(ptep, pte)
+static __inline uint64_t
+pte_load(pt_entry_t *p)
+{
+	uint64_t res;
+
+	__asm __volatile(
+	"	movl	%%ebx,%%eax ;	"
+	"	movl	%%ecx,%%edx ;	"
+	"	lock; cmpxchg8b %1"
+	: "=&A" (res),			/* 0 */
+	  "+m" (*p)			/* 1 */
+	: : "memory", "cc");
+	return (res);
+}
+
+extern pt_entry_t pg_nx;
+
+#else /* !(PAE || PAE_TABLES) */
+
+#define	pde_cmpset(pdep, old, new)	atomic_cmpset_int(pdep, old, new)
+#define	pte_load_store(ptep, pte)	atomic_swap_int(ptep, pte)
+#define	pte_load_clear(ptep)		atomic_swap_int(ptep, 0)
+#define	pte_store(ptep, pte) do { \
+	*(u_int *)(ptep) = (u_int)(pte); \
+} while (0)
+#define	pte_load(ptep)			atomic_load_acq_int(ptep)
+
+#endif /* !(PAE || PAE_TABLES) */
+
+#define	pte_clear(ptep)			pte_store(ptep, 0)
+
+#define	pde_store(pdep, pde)		pte_store(pdep, pde)
+
 /*
  * Extract from the kernel page table the physical address that is mapped by
  * the given virtual address "va".
@@ -244,7 +285,7 @@ pmap_kextract(vm_offset_t va)
 {
 	vm_paddr_t pa;
 
-	if ((pa = PTD[va >> PDRSHIFT]) & PG_PS) {
+	if ((pa = pte_load(&PTD[va >> PDRSHIFT])) & PG_PS) {
 		pa = (pa & PG_PS_FRAME) | (va & PDRMASK);
 	} else {
 		/*
@@ -259,30 +300,6 @@ pmap_kextract(vm_offset_t va)
 	}
 	return (pa);
 }
-
-#if (defined(PAE) || defined(PAE_TABLES))
-
-#define	pde_cmpset(pdep, old, new)	atomic_cmpset_64_i586(pdep, old, new)
-#define	pte_load_store(ptep, pte)	atomic_swap_64_i586(ptep, pte)
-#define	pte_load_clear(ptep)		atomic_swap_64_i586(ptep, 0)
-#define	pte_store(ptep, pte)		atomic_store_rel_64_i586(ptep, pte)
-
-extern pt_entry_t pg_nx;
-
-#else /* !(PAE || PAE_TABLES) */
-
-#define	pde_cmpset(pdep, old, new)	atomic_cmpset_int(pdep, old, new)
-#define	pte_load_store(ptep, pte)	atomic_swap_int(ptep, pte)
-#define	pte_load_clear(ptep)		atomic_swap_int(ptep, 0)
-#define	pte_store(ptep, pte) do { \
-	*(u_int *)(ptep) = (u_int)(pte); \
-} while (0)
-
-#endif /* !(PAE || PAE_TABLES) */
-
-#define	pte_clear(ptep)			pte_store(ptep, 0)
-
-#define	pde_store(pdep, pde)		pte_store(pdep, pde)
 
 #endif /* _KERNEL */
 
@@ -373,6 +390,7 @@ extern vm_offset_t virtual_end;
  * is called: pmap_kenter(), pmap_kextract(), pmap_kremove(), vtophys(), and
  * vtopte().
  */
+void	pmap_activate_boot(pmap_t pmap);
 void	pmap_bootstrap(vm_paddr_t);
 int	pmap_cache_bits(int mode, boolean_t is_pde);
 int	pmap_change_attr(vm_offset_t, vm_size_t, int);

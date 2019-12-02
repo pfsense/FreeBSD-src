@@ -31,7 +31,6 @@ __FBSDID("$FreeBSD$");
 #include "opt_apic.h"
 #endif
 #include "opt_cpu.h"
-#include "opt_isa.h"
 #include "opt_kstack_pages.h"
 #include "opt_pmap.h"
 #include "opt_sched.h"
@@ -62,9 +61,11 @@ __FBSDID("$FreeBSD$");
 #include <vm/pmap.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_extern.h>
+#include <vm/vm_map.h>
 
 #include <x86/apicreg.h>
 #include <machine/clock.h>
+#include <machine/cpu.h>
 #include <machine/cputypes.h>
 #include <x86/mca.h>
 #include <machine/md_var.h>
@@ -72,7 +73,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/psl.h>
 #include <machine/smp.h>
 #include <machine/specialreg.h>
-#include <machine/cpu.h>
+#include <x86/ucode.h>
 
 /* lock region used by kernel profiling */
 int	mcount_lock;
@@ -224,6 +225,7 @@ add_deterministic_cache(int type, int level, int share_count)
  *  - BKDG For AMD Family 10h Processors (Publication # 31116)
  *  - BKDG For AMD Family 15h Models 00h-0Fh Processors (Publication # 42301)
  *  - BKDG For AMD Family 16h Models 00h-0Fh Processors (Publication # 48751)
+ *  - PPR For AMD Family 17h Models 00h-0Fh Processors (Publication # 54945)
  */
 static void
 topo_probe_amd(void)
@@ -865,6 +867,8 @@ init_secondary_tail(void)
 {
 	u_int cpuid;
 
+	pmap_activate_boot(vmspace_pmap(proc0.p_vmspace));
+
 	/*
 	 * On real hardware, switch to x2apic mode if possible.  Do it
 	 * after aps_ready was signalled, to avoid manipulating the
@@ -1233,7 +1237,6 @@ ipi_nmi_handler(void)
 	return (0);
 }
 
-#ifdef DEV_ISA
 int nmi_kdb_lock;
 
 void
@@ -1257,7 +1260,6 @@ nmi_call_kdb_smp(u_int type, struct trapframe *frame)
 	if (call_post)
 		cpustop_handler_post(cpu);
 }
-#endif
 
 /*
  * Handle an IPI_STOP by saving our current context and spinning until we
@@ -1317,15 +1319,33 @@ cpususpend_handler(void)
 #else
 		npxsuspend(susppcbs[cpu]->sp_fpususpend);
 #endif
-		wbinvd();
-		CPU_SET_ATOMIC(cpu, &suspended_cpus);
 		/*
-		 * Hack for xen, which does not use resumectx() so never
-		 * uses the next clause: set resuming_cpus early so that
-		 * resume_cpus() can wait on the same bitmap for acpi and
-		 * xen.  resuming_cpus now means eventually_resumable_cpus.
+		 * suspended_cpus is cleared shortly after each AP is restarted
+		 * by a Startup IPI, so that the BSP can proceed to restarting
+		 * the next AP.
+		 *
+		 * resuming_cpus gets cleared when the AP completes
+		 * initialization after having been released by the BSP.
+		 * resuming_cpus is probably not the best name for the
+		 * variable, because it is actually a set of processors that
+		 * haven't resumed yet and haven't necessarily started resuming.
+		 *
+		 * Note that suspended_cpus is meaningful only for ACPI suspend
+		 * as it's not really used for Xen suspend since the APs are
+		 * automatically restored to the running state and the correct
+		 * context.  For the same reason resumectx is never called in
+		 * that case.
 		 */
+		CPU_SET_ATOMIC(cpu, &suspended_cpus);
 		CPU_SET_ATOMIC(cpu, &resuming_cpus);
+
+		/*
+		 * Invalidate the cache after setting the global status bits.
+		 * The last AP to set its bit may end up being an Owner of the
+		 * corresponding cache line in MOESI protocol.  The AP may be
+		 * stopped before the cache line is written to the main memory.
+		 */
+		wbinvd();
 	} else {
 #ifdef __amd64__
 		fpuresume(susppcbs[cpu]->sp_fpususpend);
@@ -1337,13 +1357,16 @@ cpususpend_handler(void)
 		PCPU_SET(switchtime, 0);
 		PCPU_SET(switchticks, ticks);
 
-		/* Indicate that we are resuming */
+		/* Indicate that we have restarted and restored the context. */
 		CPU_CLR_ATOMIC(cpu, &suspended_cpus);
 	}
 
 	/* Wait for resume directive */
 	while (!CPU_ISSET(cpu, &toresume_cpus))
 		ia32_pause();
+
+	/* Re-apply microcode updates. */
+	ucode_reload();
 
 	if (cpu_ops.cpu_resume)
 		cpu_ops.cpu_resume();

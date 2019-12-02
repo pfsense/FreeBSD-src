@@ -31,6 +31,9 @@
  * SOFTWARE.
  */
 
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
+
 #include "ipoib.h"
 
 int ipoib_mcast_attach(struct ipoib_dev_priv *priv, u16 mlid, union ib_gid *mgid, int set_qkey)
@@ -277,7 +280,8 @@ void ipoib_event(struct ib_event_handler *handler,
 		queue_work(ipoib_workqueue, &priv->flush_light);
 	} else if (record->event == IB_EVENT_PORT_ERR ||
 		   record->event == IB_EVENT_PORT_ACTIVE ||
-		   record->event == IB_EVENT_LID_CHANGE) {
+		   record->event == IB_EVENT_LID_CHANGE ||
+		   record->event == IB_EVENT_DEVICE_FATAL) {
 		queue_work(ipoib_workqueue, &priv->flush_normal);
 	} else if (record->event == IB_EVENT_PKEY_CHANGE) {
 		queue_work(ipoib_workqueue, &priv->flush_heavy);

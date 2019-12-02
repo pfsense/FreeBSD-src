@@ -20,6 +20,7 @@
 #include "opt_inet6.h"
 
 #include <sys/param.h>
+#include <sys/lock.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/systm.h>
@@ -30,6 +31,8 @@
 #include <sys/fcntl.h>
 #include <sys/filio.h>
 #include <sys/sockio.h>
+#include <sys/sx.h>
+#include <sys/syslog.h>
 #include <sys/ttycom.h>
 #include <sys/poll.h>
 #include <sys/selinfo.h>
@@ -41,6 +44,7 @@
 #include <sys/uio.h>
 #include <sys/malloc.h>
 #include <sys/random.h>
+#include <sys/ctype.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -78,16 +82,10 @@ struct tun_softc {
 #define	TUN_RWAIT	0x0040
 #define	TUN_ASYNC	0x0080
 #define	TUN_IFHEAD	0x0100
+#define	TUN_DYING	0x0200
 
 #define TUN_READY       (TUN_OPEN | TUN_INITED)
 
-	/*
-	 * XXXRW: tun_pid is used to exclusively lock /dev/tun.  Is this
-	 * actually needed?  Can we just return EBUSY if already open?
-	 * Problem is that this involved inherent races when a tun device
-	 * is handed off from one process to another, as opposed to just
-	 * being slightly stale informationally.
-	 */
 	pid_t	tun_pid;		/* owning pid */
 	struct	ifnet *tun_ifp;		/* the interface */
 	struct  sigio *tun_sigio;	/* information for async I/O */
@@ -105,6 +103,7 @@ struct tun_softc {
  * which is static after setup.
  */
 static struct mtx tunmtx;
+static eventhandler_tag tag;
 static const char tunname[] = "tun";
 static MALLOC_DEFINE(M_TUN, tunname, "Tunnel Interface");
 static int tundebug = 0;
@@ -112,6 +111,9 @@ static int tundclone = 1;
 static struct clonedevs *tunclones;
 static TAILQ_HEAD(,tun_softc)	tunhead = TAILQ_HEAD_INITIALIZER(tunhead);
 SYSCTL_INT(_debug, OID_AUTO, if_tun_debug, CTLFLAG_RW, &tundebug, 0, "");
+
+static struct sx tun_ioctl_sx;
+SX_SYSINIT(tun_ioctl_sx, &tun_ioctl_sx, "tun_ioctl");
 
 SYSCTL_DECL(_net_link);
 static SYSCTL_NODE(_net_link, OID_AUTO, tun, CTLFLAG_RW, 0,
@@ -129,9 +131,12 @@ static int	tunoutput(struct ifnet *, struct mbuf *,
 		    const struct sockaddr *, struct route *ro);
 static void	tunstart(struct ifnet *);
 
-static int	tun_clone_create(struct if_clone *, int, caddr_t);
-static void	tun_clone_destroy(struct ifnet *);
-static struct if_clone *tun_cloner;
+static int	tun_clone_match(struct if_clone *ifc, const char *name);
+static int	tun_clone_create(struct if_clone *, char *, size_t, caddr_t);
+static int	tun_clone_destroy(struct if_clone *, struct ifnet *);
+static struct unrhdr	*tun_unrhdr;
+static VNET_DEFINE(struct if_clone *, tun_cloner);
+#define V_tun_cloner VNET(tun_cloner)
 
 static d_open_t		tunopen;
 static d_close_t	tunclose;
@@ -173,10 +178,34 @@ static struct cdevsw tun_cdevsw = {
 };
 
 static int
-tun_clone_create(struct if_clone *ifc, int unit, caddr_t params)
+tun_clone_match(struct if_clone *ifc, const char *name)
+{
+	if (strncmp(tunname, name, 3) == 0 &&
+	    (name[3] == '\0' || isdigit(name[3])))
+		return (1);
+
+	return (0);
+}
+
+static int
+tun_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 {
 	struct cdev *dev;
-	int i;
+	int err, unit, i;
+
+	err = ifc_name2unit(name, &unit);
+	if (err != 0)
+		return (err);
+
+	if (unit != -1) {
+		/* If this unit number is still available that/s okay. */
+		if (alloc_unr_specific(tun_unrhdr, unit) == -1)
+			return (EEXIST);
+	} else {
+		unit = alloc_unr(tun_unrhdr);
+	}
+
+	snprintf(name, IFNAMSIZ, "%s%d", tunname, unit);
 
 	/* find any existing device, or allocate new unit number */
 	i = clone_create(&tunclones, &tun_cdevsw, &unit, &dev, 0);
@@ -243,15 +272,23 @@ tun_destroy(struct tun_softc *tp)
 	struct cdev *dev;
 
 	mtx_lock(&tp->tun_mtx);
+	tp->tun_flags |= TUN_DYING;
 	if ((tp->tun_flags & TUN_OPEN) != 0)
 		cv_wait_unlock(&tp->tun_cv, &tp->tun_mtx);
 	else
 		mtx_unlock(&tp->tun_mtx);
 
 	CURVNET_SET(TUN2IFP(tp)->if_vnet);
+
 	dev = tp->tun_dev;
 	bpfdetach(TUN2IFP(tp));
 	if_detach(TUN2IFP(tp));
+
+	sx_xlock(&tun_ioctl_sx);
+	TUN2IFP(tp)->if_softc = NULL;
+	sx_xunlock(&tun_ioctl_sx);
+
+	free_unr(tun_unrhdr, TUN2IFP(tp)->if_dunit);
 	if_free(TUN2IFP(tp));
 	destroy_dev(dev);
 	seldrain(&tp->tun_rsel);
@@ -263,8 +300,8 @@ tun_destroy(struct tun_softc *tp)
 	CURVNET_RESTORE();
 }
 
-static void
-tun_clone_destroy(struct ifnet *ifp)
+static int
+tun_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
 {
 	struct tun_softc *tp = ifp->if_softc;
 
@@ -272,39 +309,64 @@ tun_clone_destroy(struct ifnet *ifp)
 	TAILQ_REMOVE(&tunhead, tp, tun_list);
 	mtx_unlock(&tunmtx);
 	tun_destroy(tp);
+
+	return (0);
 }
+
+static void
+vnet_tun_init(const void *unused __unused)
+{
+	V_tun_cloner = if_clone_advanced(tunname, 0, tun_clone_match,
+			tun_clone_create, tun_clone_destroy);
+}
+VNET_SYSINIT(vnet_tun_init, SI_SUB_PROTO_IF, SI_ORDER_ANY,
+		vnet_tun_init, NULL);
+
+static void
+vnet_tun_uninit(const void *unused __unused)
+{
+	if_clone_detach(V_tun_cloner);
+}
+VNET_SYSUNINIT(vnet_tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY,
+    vnet_tun_uninit, NULL);
+
+static void
+tun_uninit(const void *unused __unused)
+{
+	struct tun_softc *tp;
+
+	EVENTHANDLER_DEREGISTER(dev_clone, tag);
+	drain_dev_clone_events();
+
+	mtx_lock(&tunmtx);
+	while ((tp = TAILQ_FIRST(&tunhead)) != NULL) {
+		TAILQ_REMOVE(&tunhead, tp, tun_list);
+		mtx_unlock(&tunmtx);
+		tun_destroy(tp);
+		mtx_lock(&tunmtx);
+	}
+	mtx_unlock(&tunmtx);
+	delete_unrhdr(tun_unrhdr);
+	clone_cleanup(&tunclones);
+	mtx_destroy(&tunmtx);
+}
+SYSUNINIT(tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY, tun_uninit, NULL);
 
 static int
 tunmodevent(module_t mod, int type, void *data)
 {
-	static eventhandler_tag tag;
-	struct tun_softc *tp;
 
 	switch (type) {
 	case MOD_LOAD:
 		mtx_init(&tunmtx, "tunmtx", NULL, MTX_DEF);
 		clone_setup(&tunclones);
+		tun_unrhdr = new_unrhdr(0, IF_MAXUNIT, &tunmtx);
 		tag = EVENTHANDLER_REGISTER(dev_clone, tunclone, 0, 1000);
 		if (tag == NULL)
 			return (ENOMEM);
-		tun_cloner = if_clone_simple(tunname, tun_clone_create,
-		    tun_clone_destroy, 0);
 		break;
 	case MOD_UNLOAD:
-		if_clone_detach(tun_cloner);
-		EVENTHANDLER_DEREGISTER(dev_clone, tag);
-		drain_dev_clone_events();
-
-		mtx_lock(&tunmtx);
-		while ((tp = TAILQ_FIRST(&tunhead)) != NULL) {
-			TAILQ_REMOVE(&tunhead, tp, tun_list);
-			mtx_unlock(&tunmtx);
-			tun_destroy(tp);
-			mtx_lock(&tunmtx);
-		}
-		mtx_unlock(&tunmtx);
-		clone_cleanup(&tunclones);
-		mtx_destroy(&tunmtx);
+		/* See tun_uninit, so it's done after the vnet_sysuninit() */
 		break;
 	default:
 		return EOPNOTSUPP;
@@ -409,19 +471,13 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 		tp = dev->si_drv1;
 	}
 
-	/*
-	 * XXXRW: This use of tun_pid is subject to error due to the
-	 * fact that a reference to the tunnel can live beyond the
-	 * death of the process that created it.  Can we replace this
-	 * with a simple busy flag?
-	 */
 	mtx_lock(&tp->tun_mtx);
-	if (tp->tun_pid != 0 && tp->tun_pid != td->td_proc->p_pid) {
+	if ((tp->tun_flags & (TUN_OPEN | TUN_DYING)) != 0) {
 		mtx_unlock(&tp->tun_mtx);
 		return (EBUSY);
 	}
-	tp->tun_pid = td->td_proc->p_pid;
 
+	tp->tun_pid = td->td_proc->p_pid;
 	tp->tun_flags |= TUN_OPEN;
 	ifp = TUN2IFP(tp);
 	if_link_state_change(ifp, LINK_STATE_UP);
@@ -438,15 +494,29 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 static	int
 tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 {
+	struct proc *p;
 	struct tun_softc *tp;
 	struct ifnet *ifp;
 
+	p = td->td_proc;
 	tp = dev->si_drv1;
 	ifp = TUN2IFP(tp);
 
 	mtx_lock(&tp->tun_mtx);
-	tp->tun_flags &= ~TUN_OPEN;
-	tp->tun_pid = 0;
+
+	/*
+	 * Realistically, we can't be obstinate here.  This only means that the
+	 * tuntap device was closed out of order, and the last closer wasn't the
+	 * controller.  These are still good to know about, though, as software
+	 * should avoid multiple processes with a tuntap device open and
+	 * ill-defined transfer of control (e.g., handoff, TUNSIFPID, close in
+	 * parent).
+	 */
+	if (p->p_pid != tp->tun_pid) {
+		log(LOG_INFO,
+		    "pid %d (%s), %s: tun/tap protocol violation, non-controlling process closed last.\n",
+		    p->p_pid, p->p_comm, dev->si_name);
+	}
 
 	/*
 	 * junk all pending output
@@ -485,6 +555,8 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 	selwakeuppri(&tp->tun_rsel, PZERO + 1);
 	KNOTE_LOCKED(&tp->tun_rsel.si_note, 0);
 	TUNDEBUG (ifp, "closed\n");
+	tp->tun_flags &= ~TUN_OPEN;
+	tp->tun_pid = 0;
 
 	cv_broadcast(&tp->tun_cv);
 	mtx_unlock(&tp->tun_mtx);
@@ -533,10 +605,16 @@ static int
 tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct ifreq *ifr = (struct ifreq *)data;
-	struct tun_softc *tp = ifp->if_softc;
+	struct tun_softc *tp;
 	struct ifstat *ifs;
 	int		error = 0;
 
+	sx_xlock(&tun_ioctl_sx);
+	tp = ifp->if_softc;
+	if (tp == NULL) {
+		error = ENXIO;
+		goto bad;
+	}
 	switch(cmd) {
 	case SIOCGIFSTATUS:
 		ifs = (struct ifstat *)data;
@@ -563,6 +641,8 @@ tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	default:
 		error = EINVAL;
 	}
+bad:
+	sx_xunlock(&tun_ioctl_sx);
 	return (error);
 }
 
@@ -662,24 +742,33 @@ static	int
 tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
     struct thread *td)
 {
-	int		error;
+	struct ifreq ifr, *ifrp;
 	struct tun_softc *tp = dev->si_drv1;
 	struct tuninfo *tunp;
+	int error;
 
 	switch (cmd) {
+	case TUNGIFNAME:
+		ifrp = (struct ifreq *)data;
+		strlcpy(ifrp->ifr_name, TUN2IFP(tp)->if_xname, IFNAMSIZ);
+		break;
 	case TUNSIFINFO:
 		tunp = (struct tuninfo *)data;
-		if (tunp->mtu < IF_MINMTU)
-			return (EINVAL);
-		if (TUN2IFP(tp)->if_mtu != tunp->mtu) {
-			error = priv_check(td, PRIV_NET_SETIFMTU);
-			if (error)
-				return (error);
-		}
 		if (TUN2IFP(tp)->if_type != tunp->type)
 			return (EPROTOTYPE);
 		mtx_lock(&tp->tun_mtx);
-		TUN2IFP(tp)->if_mtu = tunp->mtu;
+		if (TUN2IFP(tp)->if_mtu != tunp->mtu) {
+			strlcpy(ifr.ifr_name, if_name(TUN2IFP(tp)), IFNAMSIZ);
+			ifr.ifr_mtu = tunp->mtu;
+			CURVNET_SET(TUN2IFP(tp)->if_vnet);
+			error = ifhwioctl(SIOCSIFMTU, TUN2IFP(tp),
+			    (caddr_t)&ifr, td);
+			CURVNET_RESTORE();
+			if (error) {
+				mtx_unlock(&tp->tun_mtx);
+				return (error);
+			}
+		}
 		TUN2IFP(tp)->if_baudrate = tunp->baudrate;
 		mtx_unlock(&tp->tun_mtx);
 		break;

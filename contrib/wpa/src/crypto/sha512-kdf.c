@@ -69,7 +69,11 @@ int hmac_sha512_kdf(const u8 *secret, size_t secret_len,
 
 		if (iter == 255) {
 			os_memset(out, 0, outlen);
+<<<<<<< HEAD
 			os_memset(T, 0, SHA512_MAC_LEN);
+=======
+			forced_memzero(T, SHA512_MAC_LEN);
+>>>>>>> origin/stable/11
 			return -1;
 		}
 		iter++;
@@ -77,11 +81,19 @@ int hmac_sha512_kdf(const u8 *secret, size_t secret_len,
 		if (hmac_sha512_vector(secret, secret_len, 4, addr, len, T) < 0)
 		{
 			os_memset(out, 0, outlen);
+<<<<<<< HEAD
 			os_memset(T, 0, SHA512_MAC_LEN);
+=======
+			forced_memzero(T, SHA512_MAC_LEN);
+>>>>>>> origin/stable/11
 			return -1;
 		}
 	}
 
+<<<<<<< HEAD
 	os_memset(T, 0, SHA512_MAC_LEN);
+=======
+	forced_memzero(T, SHA512_MAC_LEN);
+>>>>>>> origin/stable/11
 	return 0;
 }

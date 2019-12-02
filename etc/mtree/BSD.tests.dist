@@ -264,6 +264,8 @@
         ..
         libarchive
         ..
+        libbe
+        ..
         libc
             c063
             ..
@@ -380,6 +382,8 @@
         ..
     ..
     sbin
+        bectl
+        ..
         dhclient
         ..
         devd
@@ -419,6 +423,10 @@
         acl
         ..
         aio
+        ..
+        audit
+        ..
+        auditpipe
         ..
         capsicum
         ..
@@ -481,6 +489,8 @@
         net
         ..
         netinet
+        ..
+        netmap
         ..
         opencrypto
         ..
@@ -696,6 +706,8 @@
             regress.multitest.out
             ..
         ..
+        seq
+        ..
         soelim
         ..
         stat
@@ -738,11 +750,15 @@
         ..
         fstyp
         ..
+        jail
+        ..
         makefs
         ..
         newsyslog
         ..
         nmtree
+        ..
+        praudit
         ..
         pw
         ..

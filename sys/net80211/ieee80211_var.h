@@ -523,7 +523,9 @@ struct ieee80211vap {
 	/* 802.3 output method for raw frame xmit */
 	int			(*iv_output)(struct ifnet *, struct mbuf *,
 				    const struct sockaddr *, struct route *);
-	uint64_t		iv_spare[6];
+	uint64_t		iv_spare[5];
+	uint32_t		iv_com_state;	/* com usage / detached flag */
+	uint32_t		iv_spare1;
 };
 MALLOC_DECLARE(M_80211_VAP);
 
@@ -697,6 +699,12 @@ MALLOC_DECLARE(M_80211_VAP);
 	"\20\1LDPC\2CHWIDTH40\5GREENFIELD\6SHORTGI20\7SHORTGI40\10TXSTBC" \
 	"\21AMPDU\22AMSDU\23HT\24SMPS\25RIFS"
 
+#define	IEEE80211_COM_DETACHED	0x00000001	/* ieee80211_ifdetach called */
+#define	IEEE80211_COM_REF_ADD	0x00000002	/* add / remove reference */
+#define	IEEE80211_COM_REF_M	0xfffffffe	/* reference counter bits */
+#define	IEEE80211_COM_REF_S	1
+#define	IEEE80211_COM_REF_MAX	(IEEE80211_COM_REF_M >> IEEE80211_COM_REF_S)
+
 int	ic_printf(struct ieee80211com *, const char *, ...) __printflike(2, 3);
 void	ieee80211_ifattach(struct ieee80211com *);
 void	ieee80211_ifdetach(struct ieee80211com *);
@@ -734,6 +742,8 @@ int	ieee80211_add_channel_ht40(struct ieee80211_channel[], int, int *,
 	    uint8_t, int8_t, uint32_t);
 int	ieee80211_add_channel_list_2ghz(struct ieee80211_channel[], int, int *,
 	    const uint8_t[], int, const uint8_t[], int);
+int	ieee80211_add_channels_default_2ghz(struct ieee80211_channel[], int,
+	    int *, const uint8_t[], int);
 int	ieee80211_add_channel_list_5ghz(struct ieee80211_channel[], int, int *,
 	    const uint8_t[], int, const uint8_t[], int);
 struct ieee80211_channel *ieee80211_find_channel(struct ieee80211com *,

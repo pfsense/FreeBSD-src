@@ -71,7 +71,7 @@ struct pci_device_id {
 #define	PCI_BASE_CLASS_BRIDGE		0x06
 #define	PCI_CLASS_BRIDGE_ISA		0x0601
 
-#define	PCI_ANY_ID		(-1)
+#define	PCI_ANY_ID			-1U
 #define	PCI_VENDOR_ID_APPLE		0x106b
 #define	PCI_VENDOR_ID_ASUSTEK		0x1043
 #define	PCI_VENDOR_ID_ATI		0x1002
@@ -98,6 +98,7 @@ struct pci_device_id {
 #define PCI_DEVFN(slot, func)   ((((slot) & 0x1f) << 3) | ((func) & 0x07))
 #define PCI_SLOT(devfn)		(((devfn) >> 3) & 0x1f)
 #define PCI_FUNC(devfn)		((devfn) & 0x07)
+#define	PCI_BUS_NUM(devfn)	(((devfn) >> 8) & 0xff)
 
 #define PCI_VDEVICE(_vendor, _device)					\
 	    .vendor = PCI_VENDOR_ID_##_vendor, .device = (_device),	\
@@ -215,6 +216,7 @@ struct pci_dev {
 	unsigned int		devfn;
 	uint32_t		class;
 	uint8_t			revision;
+	bool			msi_enabled;
 };
 
 static inline struct resource_list_entry *
@@ -249,7 +251,7 @@ linux_pci_find_irq_dev(unsigned int irq)
 	spin_lock(&pci_lock);
 	list_for_each_entry(pdev, &pci_devices, links) {
 		if (irq == pdev->dev.irq ||
-		    (irq >= pdev->dev.msix && irq < pdev->dev.msix_max)) {
+		    (irq >= pdev->dev.irq_start && irq < pdev->dev.irq_end)) {
 			found = &pdev->dev;
 			break;
 		}
@@ -341,8 +343,6 @@ static inline void
 pci_disable_device(struct pci_dev *pdev)
 {
 
-	pci_disable_io(pdev->dev.bsddev, SYS_RES_IOPORT);
-	pci_disable_io(pdev->dev.bsddev, SYS_RES_MEMORY);
 	pci_disable_busmaster(pdev->dev.bsddev);
 }
 
@@ -433,8 +433,23 @@ pci_disable_msix(struct pci_dev *pdev)
 	 * linux_pci_find_irq_dev() does no longer see them by
 	 * resetting their references to zero:
 	 */
-	pdev->dev.msix = 0;
-	pdev->dev.msix_max = 0;
+	pdev->dev.irq_start = 0;
+	pdev->dev.irq_end = 0;
+}
+
+#define	pci_disable_msi(pdev) \
+  linux_pci_disable_msi(pdev)
+
+static inline void
+linux_pci_disable_msi(struct pci_dev *pdev)
+{
+
+	pci_release_msi(pdev->dev.bsddev);
+
+	pdev->dev.irq_start = 0;
+	pdev->dev.irq_end = 0;
+	pdev->irq = pdev->dev.irq;
+	pdev->msi_enabled = false;
 }
 
 static inline bus_addr_t
@@ -567,10 +582,10 @@ pci_enable_msix(struct pci_dev *pdev, struct msix_entry *entries, int nreq)
 		return avail;
 	}
 	rle = linux_pci_get_rle(pdev, SYS_RES_IRQ, 1);
-	pdev->dev.msix = rle->start;
-	pdev->dev.msix_max = rle->start + avail;
+	pdev->dev.irq_start = rle->start;
+	pdev->dev.irq_end = rle->start + avail;
 	for (i = 0; i < nreq; i++)
-		entries[i].vector = pdev->dev.msix + i;
+		entries[i].vector = pdev->dev.irq_start + i;
 	return (0);
 }
 
@@ -600,9 +615,37 @@ pci_enable_msix_range(struct pci_dev *dev, struct msix_entry *entries,
 	return (nvec);
 }
 
-static inline int pci_channel_offline(struct pci_dev *pdev)
+#define	pci_enable_msi(pdev) \
+  linux_pci_enable_msi(pdev)
+
+static inline int
+pci_enable_msi(struct pci_dev *pdev)
 {
-	return false;
+	struct resource_list_entry *rle;
+	int error;
+	int avail;
+
+	avail = pci_msi_count(pdev->dev.bsddev);
+	if (avail < 1)
+		return -EINVAL;
+
+	avail = 1;	/* this function only enable one MSI IRQ */
+	if ((error = -pci_alloc_msi(pdev->dev.bsddev, &avail)) != 0)
+		return error;
+
+	rle = linux_pci_get_rle(pdev, SYS_RES_IRQ, 1);
+	pdev->dev.irq_start = rle->start;
+	pdev->dev.irq_end = rle->start + avail;
+	pdev->irq = rle->start;
+	pdev->msi_enabled = true;
+	return (0);
+}
+
+static inline int
+pci_channel_offline(struct pci_dev *pdev)
+{
+
+	return (pci_get_vendor(pdev->dev.bsddev) == PCIV_INVALID);
 }
 
 static inline int pci_enable_sriov(struct pci_dev *dev, int nr_virtfn)

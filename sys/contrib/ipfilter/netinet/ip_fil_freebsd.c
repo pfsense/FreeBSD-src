@@ -16,11 +16,11 @@ static const char rcsid[] = "@(#)$Id$";
 # define	KERNEL	1
 # define	_KERNEL	1
 #endif
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 400000) && \
+#if defined(__FreeBSD_version) && \
     !defined(KLD_MODULE) && !defined(IPFILTER_LKM)
 # include "opt_inet6.h"
 #endif
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 440000) && \
+#if defined(__FreeBSD_version) && \
     !defined(KLD_MODULE) && !defined(IPFILTER_LKM)
 # include "opt_random_ip_id.h"
 #endif
@@ -28,27 +28,24 @@ static const char rcsid[] = "@(#)$Id$";
 #include <sys/errno.h>
 #include <sys/types.h>
 #include <sys/file.h>
-# include <sys/fcntl.h>
-# include <sys/filio.h>
+#include <sys/fcntl.h>
+#include <sys/filio.h>
 #include <sys/time.h>
 #include <sys/systm.h>
 # include <sys/dirent.h>
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 800000)
+#if defined(__FreeBSD_version)
 #include <sys/jail.h>
 #endif
-# include <sys/malloc.h>
-# include <sys/mbuf.h>
-# include <sys/sockopt.h>
-#if !defined(__hpux)
-# include <sys/mbuf.h>
-#endif
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/sockopt.h>
 #include <sys/socket.h>
-# include <sys/selinfo.h>
-# include <netinet/tcp_var.h>
+#include <sys/selinfo.h>
+#include <netinet/tcp_var.h>
 
 #include <net/if.h>
-# include <net/if_var.h>
-#  include <net/netisr.h>
+#include <net/if_var.h>
+#include <net/netisr.h>
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/in_fib.h>
@@ -57,18 +54,7 @@ static const char rcsid[] = "@(#)$Id$";
 #include <netinet/ip.h>
 #include <netinet/ip_var.h>
 #include <netinet/tcp.h>
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 800000)
 #include <net/vnet.h>
-#else
-#define CURVNET_SET(arg)
-#define CURVNET_RESTORE()
-#define	VNET_DEFINE(_t, _v)	_t _v
-#define	VNET_DECLARE(_t, _v)	extern _t _v
-#define	VNET(arg)	arg
-#endif
-#if defined(__osf__)
-# include <netinet/tcp_timer.h>
-#endif
 #include <netinet/udp.h>
 #include <netinet/tcpip.h>
 #include <netinet/ip_icmp.h>
@@ -89,13 +75,12 @@ static const char rcsid[] = "@(#)$Id$";
 #include "netinet/ip_scan.h"
 #endif
 #include "netinet/ip_pool.h"
-# include <sys/malloc.h>
+#include <sys/malloc.h>
 #include <sys/kernel.h>
 #ifdef CSUM_DATA_VALID
 #include <machine/in_cksum.h>
 #endif
 extern	int	ip_optcopy __P((struct ip *, struct ip *));
-
 
 # ifdef IPFILTER_M_IPFILTER
 MALLOC_DEFINE(M_IPFILTER, "ipfilter", "IP Filter packet filter data structures");
@@ -111,9 +96,7 @@ VNET_DEFINE(ipf_main_softc_t, ipfmain) = {
 #define	V_ipfmain		VNET(ipfmain)
 
 # include <sys/conf.h>
-# if defined(NETBSD_PF)
 #  include <net/pfil.h>
-# endif /* NETBSD_PF */
 
 static eventhandler_tag ipf_arrivetag, ipf_departtag;
 #if 0
@@ -299,8 +282,7 @@ ipfdetach(softc)
  * Filter ioctl interface.
  */
 int
-ipfioctl(dev, cmd, data, mode
-, p)
+ipfioctl(dev, cmd, data, mode, p)
 	struct thread *p;
 #    define	p_cred	td_ucred
 #    define	p_uid	td_ucred->cr_ruid
@@ -489,11 +471,7 @@ ipf_send_ip(fin, m)
 		IP_HL_A(ip, sizeof(*oip) >> 2);
 		ip->ip_tos = oip->ip_tos;
 		ip->ip_id = fin->fin_ip->ip_id;
-#if defined(FreeBSD) && (__FreeBSD_version > 460000)
-		ip->ip_off = htons(path_mtu_discovery ? IP_DF : 0);
-#else
-		ip->ip_off = 0;
-#endif
+		ip->ip_off = htons(V_path_mtu_discovery ? IP_DF : 0);
 		ip->ip_ttl = V_ip_defttl;
 		ip->ip_sum = 0;
 		break;
@@ -554,12 +532,7 @@ ipf_send_icmp_err(type, fin, dst)
 
 	code = fin->fin_icode;
 #ifdef USE_INET6
-#if 0
-	/* XXX Fix an off by one error: s/>/>=/
-	 was:
-	 if ((code < 0) || (code > sizeof(icmptoicmp6unreach)/sizeof(int)))
-	 Fix obtained from NetBSD ip_fil_netbsd.c r1.4: */
-#endif
+	/* See NetBSD ip_fil_netbsd.c r1.4: */
 	if ((code < 0) || (code >= sizeof(icmptoicmp6unreach)/sizeof(int)))
 		return -1;
 #endif
@@ -1208,7 +1181,7 @@ ipf_checkv6sum(fin)
 size_t
 mbufchainlen(m0)
 	struct mbuf *m0;
-	{
+{
 	size_t len;
 
 	if ((m0->m_flags & M_PKTHDR) != 0) {
@@ -1360,14 +1333,11 @@ ipf_inject(fin, m)
 }
 
 int ipf_pfil_unhook(void) {
-#if defined(NETBSD_PF) && (__FreeBSD_version >= 500011)
 	struct pfil_head *ph_inet;
-#  ifdef USE_INET6
+#ifdef USE_INET6
 	struct pfil_head *ph_inet6;
-#  endif
 #endif
 
-#ifdef NETBSD_PF
 	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
 	if (ph_inet != NULL)
 		pfil_remove_hook((void *)ipf_check_wrapper, NULL,
@@ -1378,20 +1348,16 @@ int ipf_pfil_unhook(void) {
 		pfil_remove_hook((void *)ipf_check_wrapper6, NULL,
 		    PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
 # endif
-#endif
 
 	return (0);
 }
 
 int ipf_pfil_hook(void) {
-#if defined(NETBSD_PF) && (__FreeBSD_version >= 500011)
 	struct pfil_head *ph_inet;
-#  ifdef USE_INET6
+#ifdef USE_INET6
 	struct pfil_head *ph_inet6;
-#  endif
 #endif
 
-# ifdef NETBSD_PF
 	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
 #    ifdef USE_INET6
 	ph_inet6 = pfil_head_get(PFIL_TYPE_AF, AF_INET6);
@@ -1412,7 +1378,6 @@ int ipf_pfil_hook(void) {
 		pfil_add_hook((void *)ipf_check_wrapper6, NULL,
 				      PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
 #  endif
-# endif
 	return (0);
 }
 

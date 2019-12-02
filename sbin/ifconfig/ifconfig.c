@@ -69,6 +69,7 @@ static const char rcsid[] =
 #ifdef JAIL
 #include <jail.h>
 #endif
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,7 +107,7 @@ static	int ifconfig(int argc, char *const *argv, int iscreate,
 static	void status(const struct afswtch *afp, const struct sockaddr_dl *sdl,
 		struct ifaddrs *ifa);
 static	void tunnel_status(int s);
-static	void usage(void) _Noreturn;
+static _Noreturn void usage(void);
 
 static struct afswtch *af_getbyname(const char *name);
 static struct afswtch *af_getbyfamily(int af);
@@ -124,6 +125,31 @@ struct ifa_order_elt {
 };
 
 TAILQ_HEAD(ifa_queue, ifa_order_elt);
+
+static struct module_map_entry {
+	const char *ifname;
+	const char *kldname;
+} module_map[] = {
+	{
+		.ifname = "vmnet",
+		.kldname = "if_tap",
+	},
+	{
+		.ifname = "ipsec",
+		.kldname = "ipsec",
+	},
+	{
+		/*
+		 * This mapping exists because there is a conflicting enc module
+		 * in CAM.  ifconfig's guessing behavior will attempt to match
+		 * the ifname to a module as well as if_${ifname} and clash with
+		 * CAM enc.  This is an assertion of the correct module to load.
+		 */
+		.ifname = "enc",
+		.kldname = "if_enc",
+	},
+};
+
 
 void
 opt_register(struct option *p)
@@ -501,6 +527,18 @@ main(int argc, char *argv[])
 			}
 #endif
 			errx(1, "interface %s does not exist", ifname);
+		} else {
+			/*
+			 * Do not allow use `create` command as hostname if
+			 * address family is not specified.
+			 */
+			if (argc > 0 && (strcmp(argv[0], "create") == 0 ||
+			    strcmp(argv[0], "plumb") == 0)) {
+				if (argc == 1)
+					errx(1, "interface %s already exists",
+					    ifname);
+				argc--, argv++;
+			}
 		}
 	}
 
@@ -1351,7 +1389,7 @@ print_vhid(const struct ifaddrs *ifa, const char *s)
 	if (ifd->ifi_vhid == 0)
 		return;
 	
-	printf("vhid %d ", ifd->ifi_vhid);
+	printf(" vhid %d", ifd->ifi_vhid);
 }
 
 void
@@ -1359,9 +1397,11 @@ ifmaybeload(const char *name)
 {
 #define MOD_PREFIX_LEN		3	/* "if_" */
 	struct module_stat mstat;
-	int fileid, modid;
+	int i, fileid, modid;
 	char ifkind[IFNAMSIZ + MOD_PREFIX_LEN], ifname[IFNAMSIZ], *dp;
 	const char *cp;
+	struct module_map_entry *mme;
+	bool found;
 
 	/* loading suppressed by the user */
 	if (noload)
@@ -1375,9 +1415,24 @@ ifmaybeload(const char *name)
 			break;
 		}
 
-	/* turn interface and unit into module name */
-	strlcpy(ifkind, "if_", sizeof(ifkind));
-	strlcat(ifkind, ifname, sizeof(ifkind));
+	/* Either derive it from the map or guess otherwise */
+	*ifkind = '\0';
+	found = false;
+	for (i = 0; i < nitems(module_map); ++i) {
+		mme = &module_map[i];
+		if (strcmp(mme->ifname, ifname) == 0) {
+			strlcpy(ifkind, mme->kldname, sizeof(ifkind));
+			found = true;
+			break;
+		}
+	}
+
+	/* We didn't have an alias for it... we'll guess. */
+	if (!found) {
+	    /* turn interface and unit into module name */
+	    strlcpy(ifkind, "if_", sizeof(ifkind));
+	    strlcat(ifkind, ifname, sizeof(ifkind));
+	}
 
 	/* scan files in kernel */
 	mstat.version = sizeof(struct module_stat);
@@ -1393,8 +1448,12 @@ ifmaybeload(const char *name)
 			} else {
 				cp = mstat.name;
 			}
-			/* already loaded? */
-			if (strcmp(ifname, cp) == 0 ||
+			/*
+			 * Is it already loaded?  Don't compare with ifname if
+			 * we were specifically told which kld to use.  Doing
+			 * so could lead to conflicts not trivially solved.
+			 */
+			if ((!found && strcmp(ifname, cp) == 0) ||
 			    strcmp(ifkind, cp) == 0)
 				return;
 		}

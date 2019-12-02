@@ -11,6 +11,10 @@
 
 #include "utils/common.h"
 #include "utils/eloop.h"
+<<<<<<< HEAD
+=======
+#include "utils/ip_addr.h"
+>>>>>>> origin/stable/11
 #include "common/dpp.h"
 #include "common/gas.h"
 #include "common/gas_server.h"
@@ -433,8 +437,20 @@ int wpas_dpp_auth_init(struct wpa_supplicant *wpa_s, const char *cmd)
 {
 	const char *pos;
 	struct dpp_bootstrap_info *peer_bi, *own_bi = NULL;
+<<<<<<< HEAD
 	u8 allowed_roles = DPP_CAPAB_CONFIGURATOR;
 	unsigned int neg_freq = 0;
+=======
+	struct dpp_authentication *auth;
+	u8 allowed_roles = DPP_CAPAB_CONFIGURATOR;
+	unsigned int neg_freq = 0;
+	int tcp = 0;
+#ifdef CONFIG_DPP2
+	int tcp_port = DPP_TCP_PORT;
+	struct hostapd_ip_addr ipaddr;
+	char *addr;
+#endif /* CONFIG_DPP2 */
+>>>>>>> origin/stable/11
 
 	wpa_s->dpp_gas_client = 0;
 
@@ -449,6 +465,28 @@ int wpas_dpp_auth_init(struct wpa_supplicant *wpa_s, const char *cmd)
 		return -1;
 	}
 
+<<<<<<< HEAD
+=======
+#ifdef CONFIG_DPP2
+	pos = os_strstr(cmd, " tcp_port=");
+	if (pos) {
+		pos += 10;
+		tcp_port = atoi(pos);
+	}
+
+	addr = get_param(cmd, " tcp_addr=");
+	if (addr) {
+		int res;
+
+		res = hostapd_parse_ip_addr(addr, &ipaddr);
+		os_free(addr);
+		if (res)
+			return -1;
+		tcp = 1;
+	}
+#endif /* CONFIG_DPP2 */
+
+>>>>>>> origin/stable/11
 	pos = os_strstr(cmd, " own=");
 	if (pos) {
 		pos += 5;
@@ -491,13 +529,18 @@ int wpas_dpp_auth_init(struct wpa_supplicant *wpa_s, const char *cmd)
 	if (pos)
 		neg_freq = atoi(pos + 10);
 
+<<<<<<< HEAD
 	if (wpa_s->dpp_auth) {
+=======
+	if (!tcp && wpa_s->dpp_auth) {
+>>>>>>> origin/stable/11
 		eloop_cancel_timeout(wpas_dpp_init_timeout, wpa_s, NULL);
 		eloop_cancel_timeout(wpas_dpp_reply_wait_timeout, wpa_s, NULL);
 		eloop_cancel_timeout(wpas_dpp_auth_resp_retry_timeout, wpa_s,
 				     NULL);
 		offchannel_send_action_done(wpa_s);
 		dpp_auth_deinit(wpa_s->dpp_auth);
+<<<<<<< HEAD
 	}
 	wpa_s->dpp_auth = dpp_auth_init(wpa_s, peer_bi, own_bi, allowed_roles,
 					neg_freq,
@@ -517,6 +560,32 @@ int wpas_dpp_auth_init(struct wpa_supplicant *wpa_s, const char *cmd)
 		os_memcpy(wpa_s->dpp_auth->peer_mac_addr, peer_bi->mac_addr,
 			  ETH_ALEN);
 
+=======
+		wpa_s->dpp_auth = NULL;
+	}
+
+	auth = dpp_auth_init(wpa_s, peer_bi, own_bi, allowed_roles, neg_freq,
+			     wpa_s->hw.modes, wpa_s->hw.num_modes);
+	if (!auth)
+		goto fail;
+	wpas_dpp_set_testing_options(wpa_s, auth);
+	if (dpp_set_configurator(wpa_s->dpp, wpa_s, auth, cmd) < 0) {
+		dpp_auth_deinit(auth);
+		goto fail;
+	}
+
+	auth->neg_freq = neg_freq;
+
+	if (!is_zero_ether_addr(peer_bi->mac_addr))
+		os_memcpy(auth->peer_mac_addr, peer_bi->mac_addr, ETH_ALEN);
+
+#ifdef CONFIG_DPP2
+	if (tcp)
+		return dpp_tcp_init(wpa_s->dpp, auth, &ipaddr, tcp_port);
+#endif /* CONFIG_DPP2 */
+
+	wpa_s->dpp_auth = auth;
+>>>>>>> origin/stable/11
 	return wpas_dpp_auth_init_next(wpa_s);
 fail:
 	return -1;
@@ -1272,6 +1341,18 @@ static void wpas_dpp_rx_conf_result(struct wpa_supplicant *wpa_s, const u8 *src,
 	eloop_cancel_timeout(wpas_dpp_config_result_wait_timeout, wpa_s, NULL);
 }
 
+<<<<<<< HEAD
+=======
+
+static int wpas_dpp_process_conf_obj(void *ctx,
+				     struct dpp_authentication *auth)
+{
+	struct wpa_supplicant *wpa_s = ctx;
+
+	return wpas_dpp_handle_config_obj(wpa_s, auth);
+}
+
+>>>>>>> origin/stable/11
 #endif /* CONFIG_DPP2 */
 
 
@@ -1842,6 +1923,21 @@ wpas_dpp_gas_req_handler(void *ctx, const u8 *sa, const u8 *query,
 		wpa_printf(MSG_DEBUG, "DPP: No matching exchange in progress");
 		return NULL;
 	}
+<<<<<<< HEAD
+=======
+
+	if (wpa_s->dpp_auth_ok_on_ack && auth->configurator) {
+		wpa_printf(MSG_DEBUG,
+			   "DPP: Have not received ACK for Auth Confirm yet - assume it was received based on this GAS request");
+		/* wpas_dpp_auth_success() would normally have been called from
+		 * TX status handler, but since there was no such handler call
+		 * yet, simply send out the event message and proceed with
+		 * exchange. */
+		wpa_msg(wpa_s, MSG_INFO, DPP_EVENT_AUTH_SUCCESS "init=1");
+		wpa_s->dpp_auth_ok_on_ack = 0;
+	}
+
+>>>>>>> origin/stable/11
 	wpa_hexdump(MSG_DEBUG,
 		    "DPP: Received Configuration Request (GAS Query Request)",
 		    query, query_len);
@@ -2196,6 +2292,10 @@ void wpas_dpp_stop(struct wpa_supplicant *wpa_s)
 
 int wpas_dpp_init(struct wpa_supplicant *wpa_s)
 {
+<<<<<<< HEAD
+=======
+	struct dpp_global_config config;
+>>>>>>> origin/stable/11
 	u8 adv_proto_id[7];
 
 	adv_proto_id[0] = WLAN_EID_VENDOR_SPECIFIC;
@@ -2208,7 +2308,18 @@ int wpas_dpp_init(struct wpa_supplicant *wpa_s)
 				sizeof(adv_proto_id), wpas_dpp_gas_req_handler,
 				wpas_dpp_gas_status_handler, wpa_s) < 0)
 		return -1;
+<<<<<<< HEAD
 	wpa_s->dpp = dpp_global_init();
+=======
+
+	os_memset(&config, 0, sizeof(config));
+	config.msg_ctx = wpa_s;
+	config.cb_ctx = wpa_s;
+#ifdef CONFIG_DPP2
+	config.process_conf_obj = wpas_dpp_process_conf_obj;
+#endif /* CONFIG_DPP2 */
+	wpa_s->dpp = dpp_global_init(&config);
+>>>>>>> origin/stable/11
 	return wpa_s->dpp ? 0 : -1;
 }
 
@@ -2244,3 +2355,26 @@ void wpas_dpp_deinit(struct wpa_supplicant *wpa_s)
 	os_free(wpa_s->dpp_configurator_params);
 	wpa_s->dpp_configurator_params = NULL;
 }
+<<<<<<< HEAD
+=======
+
+
+#ifdef CONFIG_DPP2
+int wpas_dpp_controller_start(struct wpa_supplicant *wpa_s, const char *cmd)
+{
+	struct dpp_controller_config config;
+	const char *pos;
+
+	os_memset(&config, 0, sizeof(config));
+	if (cmd) {
+		pos = os_strstr(cmd, " tcp_port=");
+		if (pos) {
+			pos += 10;
+			config.tcp_port = atoi(pos);
+		}
+	}
+	config.configurator_params = wpa_s->dpp_configurator_params;
+	return dpp_controller_start(wpa_s->dpp, &config);
+}
+#endif /* CONFIG_DPP2 */
+>>>>>>> origin/stable/11

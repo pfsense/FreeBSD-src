@@ -24,6 +24,15 @@ CFLAGS+=	-std=iso9899:1999
 .else # CSTD
 CFLAGS+=	-std=${CSTD}
 .endif # CSTD
+#
+# Turn off -Werror for gcc 4.2.1. The compiler is on the glide path out of the
+# system, and any warnings specific to it are no longer relevant as there are
+# too many false positives.
+#
+.if ${COMPILER_VERSION} <  50000
+NO_WERROR.gcc=	yes
+.endif
+
 # -pedantic is problematic because it also imposes namespace restrictions
 #CFLAGS+=	-pedantic
 .if defined(WARNS)
@@ -80,6 +89,10 @@ CWARNFLAGS.clang+=	-Wno-unused-local-typedef
 .endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 40000
 CWARNFLAGS.clang+=	-Wno-address-of-packed-member
+.endif
+.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 70000 && \
+    ${MACHINE_CPUARCH} == "arm" && !${MACHINE_ARCH:Marmv[67]*}
+CWARNFLAGS.clang+=	-Wno-atomic-alignment
 .endif
 .endif # WARNS <= 3
 .if ${WARNS} <= 2

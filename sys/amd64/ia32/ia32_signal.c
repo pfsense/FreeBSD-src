@@ -260,6 +260,7 @@ freebsd32_getcontext(struct thread *td, struct freebsd32_getcontext_args *uap)
 	if (uap->ucp == NULL)
 		ret = EINVAL;
 	else {
+		bzero(&uc, sizeof(uc));
 		ia32_get_mcontext(td, &uc.uc_mcontext, GET_MC_CLEAR_RET);
 		PROC_LOCK(td->td_proc);
 		uc.uc_sigmask = td->td_sigmask;
@@ -300,6 +301,7 @@ freebsd32_swapcontext(struct thread *td, struct freebsd32_swapcontext_args *uap)
 	if (uap->oucp == NULL || uap->ucp == NULL)
 		ret = EINVAL;
 	else {
+		bzero(&uc, sizeof(uc));
 		ia32_get_mcontext(td, &uc.uc_mcontext, GET_MC_CLEAR_RET);
 		PROC_LOCK(td->td_proc);
 		uc.uc_sigmask = td->td_sigmask;
@@ -363,12 +365,14 @@ ia32_osendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	/* Build the argument list for the signal handler. */
 	sf.sf_signum = sig;
 	sf.sf_scp = (register_t)&fp->sf_siginfo.si_sc;
+	bzero(&sf.sf_siginfo, sizeof(sf.sf_siginfo));
 	if (SIGISMEMBER(psp->ps_siginfo, sig)) {
 		/* Signal handler installed with SA_SIGINFO. */
 		sf.sf_arg2 = (register_t)&fp->sf_siginfo;
 		sf.sf_siginfo.si_signo = sig;
 		sf.sf_siginfo.si_code = ksi->ksi_code;
 		sf.sf_ah = (uintptr_t)catcher;
+		sf.sf_addr = 0;
 	} else {
 		/* Old FreeBSD-style arguments. */
 		sf.sf_arg2 = ksi->ksi_code;
@@ -935,10 +939,14 @@ freebsd32_sigreturn(td, uap)
 void
 ia32_setregs(struct thread *td, struct image_params *imgp, u_long stack)
 {
-	struct trapframe *regs = td->td_frame;
-	struct pcb *pcb = td->td_pcb;
+	struct trapframe *regs;
+	struct pcb *pcb;
+	register_t saved_rflags;
 	
 	mtx_lock(&dt_lock);
+	regs = td->td_frame;
+	pcb = td->td_pcb;
+
 	if (td->td_proc->p_md.md_ldt != NULL)
 		user_ldt_free(td);
 	else
@@ -951,10 +959,11 @@ ia32_setregs(struct thread *td, struct image_params *imgp, u_long stack)
 	pcb->pcb_gsbase = 0;
 	pcb->pcb_initial_fpucw = __INITIAL_FPUCW_I386__;
 
+	saved_rflags = regs->tf_rflags & PSL_T;
 	bzero((char *)regs, sizeof(struct trapframe));
 	regs->tf_rip = imgp->entry_addr;
 	regs->tf_rsp = stack;
-	regs->tf_rflags = PSL_USER | (regs->tf_rflags & PSL_T);
+	regs->tf_rflags = PSL_USER | saved_rflags;
 	regs->tf_ss = _udatasel;
 	regs->tf_cs = _ucode32sel;
 	regs->tf_rbx = imgp->ps_strings;

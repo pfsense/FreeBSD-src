@@ -405,7 +405,9 @@ extern int invpcid_works;
 
 struct thread;
 
+void	pmap_activate_boot(pmap_t pmap);
 void	pmap_activate_sw(struct thread *);
+void	pmap_allow_2m_x_ept_recalculate(void);
 void	pmap_bootstrap(vm_paddr_t *);
 int	pmap_cache_bits(pmap_t pmap, int mode, boolean_t is_pde);
 int	pmap_change_attr(vm_offset_t, vm_size_t, int);
@@ -418,6 +420,7 @@ void	pmap_kremove(vm_offset_t);
 void	*pmap_mapbios(vm_paddr_t, vm_size_t);
 void	*pmap_mapdev(vm_paddr_t, vm_size_t);
 void	*pmap_mapdev_attr(vm_paddr_t, vm_size_t, int);
+void	*pmap_mapdev_pciecfg(vm_paddr_t pa, vm_size_t size);
 boolean_t pmap_page_is_mapped(vm_page_t m);
 void	pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma);
 void	pmap_pinit_pml4(vm_page_t);

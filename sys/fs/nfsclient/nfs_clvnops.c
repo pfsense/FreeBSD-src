@@ -929,8 +929,7 @@ nfs_setattr(struct vop_setattr_args *ap)
 			mtx_lock(&np->n_mtx);
 			tsize = np->n_size;
 			mtx_unlock(&np->n_mtx);
-			error = ncl_meta_setsize(vp, ap->a_cred, td,
-			    vap->va_size);
+			error = ncl_meta_setsize(vp, td, vap->va_size);
 			mtx_lock(&np->n_mtx);
  			if (np->n_flag & NMODIFIED) {
 			    tsize = np->n_size;
@@ -3008,14 +3007,19 @@ nfs_advlock(struct vop_advlock_args *ap)
 	int ret, error = EOPNOTSUPP;
 	u_quad_t size;
 	
+	ret = NFSVOPLOCK(vp, LK_SHARED);
+	if (ret != 0)
+		return (EBADF);
 	if (NFS_ISV4(vp) && (ap->a_flags & (F_POSIX | F_FLOCK)) != 0) {
-		if (vp->v_type != VREG)
+		if (vp->v_type != VREG) {
+			NFSVOPUNLOCK(vp, 0);
 			return (EINVAL);
+		}
 		if ((ap->a_flags & F_POSIX) != 0)
 			cred = p->p_ucred;
 		else
 			cred = td->td_ucred;
-		NFSVOPLOCK(vp, LK_EXCLUSIVE | LK_RETRY);
+		NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
 		if (vp->v_iflag & VI_DOOMED) {
 			NFSVOPUNLOCK(vp, 0);
 			return (EBADF);
@@ -3094,9 +3098,6 @@ nfs_advlock(struct vop_advlock_args *ap)
 		NFSVOPUNLOCK(vp, 0);
 		return (0);
 	} else if (!NFS_ISV4(vp)) {
-		error = NFSVOPLOCK(vp, LK_SHARED);
-		if (error)
-			return (error);
 		if ((VFSTONFS(vp->v_mount)->nm_flag & NFSMNT_NOLOCKD) != 0) {
 			size = VTONFS(vp)->n_size;
 			NFSVOPUNLOCK(vp, 0);
@@ -3119,7 +3120,8 @@ nfs_advlock(struct vop_advlock_args *ap)
 				NFSVOPUNLOCK(vp, 0);
 			}
 		}
-	}
+	} else
+		NFSVOPUNLOCK(vp, 0);
 	return (error);
 }
 
@@ -3478,9 +3480,6 @@ nfs_pathconf(struct vop_pathconf_args *ap)
 	case _PC_NO_TRUNC:
 		*ap->a_retval = pc.pc_notrunc;
 		break;
-	case _PC_ACL_EXTENDED:
-		*ap->a_retval = 0;
-		break;
 	case _PC_ACL_NFS4:
 		if (NFS_ISV4(vp) && nfsrv_useacl != 0 && attrflag != 0 &&
 		    NFSISSET_ATTRBIT(&nfsva.na_suppattr, NFSATTRBIT_ACL))
@@ -3493,9 +3492,6 @@ nfs_pathconf(struct vop_pathconf_args *ap)
 			*ap->a_retval = ACL_MAX_ENTRIES;
 		else
 			*ap->a_retval = 3;
-		break;
-	case _PC_MAC_PRESENT:
-		*ap->a_retval = 0;
 		break;
 	case _PC_PRIO_IO:
 		*ap->a_retval = 0;

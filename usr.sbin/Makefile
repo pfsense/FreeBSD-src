@@ -82,12 +82,14 @@ SUBDIR=	adduser \
 	setpmac \
 	smbmsg \
 	snapinfo \
+	spi \
 	spray \
 	syslogd \
 	sysrc \
 	tcpdrop \
 	tcpdump \
 	traceroute \
+	trim \
 	trpt \
 	tzsetup \
 	uefisign \

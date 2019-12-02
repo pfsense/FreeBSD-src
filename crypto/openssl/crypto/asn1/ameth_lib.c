@@ -3,7 +3,7 @@
  * 2006.
  */
 /* ====================================================================
- * Copyright (c) 2006 The OpenSSL Project.  All rights reserved.
+ * Copyright (c) 2006-2018 The OpenSSL Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -234,6 +234,21 @@ const EVP_PKEY_ASN1_METHOD *EVP_PKEY_asn1_find_str(ENGINE **pe,
 
 int EVP_PKEY_asn1_add0(const EVP_PKEY_ASN1_METHOD *ameth)
 {
+    /*
+     * One of the following must be true:
+     *
+     * pem_str == NULL AND ASN1_PKEY_ALIAS is set
+     * pem_str != NULL AND ASN1_PKEY_ALIAS is clear
+     *
+     * Anything else is an error and may lead to a corrupt ASN1 method table
+     */
+    if (!((ameth->pem_str == NULL
+           && (ameth->pkey_flags & ASN1_PKEY_ALIAS) != 0)
+          || (ameth->pem_str != NULL
+              && (ameth->pkey_flags & ASN1_PKEY_ALIAS) == 0))) {
+        return 0;
+    }
+
     if (app_methods == NULL) {
         app_methods = sk_EVP_PKEY_ASN1_METHOD_new(ameth_cmp);
         if (!app_methods)

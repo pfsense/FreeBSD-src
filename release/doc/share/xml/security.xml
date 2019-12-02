@@ -20,98 +20,110 @@
     <tbody>
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:06.openssh.asc">FreeBSD-SA-17:06.openssh</link></entry>
-	<entry>10&nbsp;August&nbsp;2017</entry>
-	<entry><para>Denial of Service vulnerability</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:07.wpa.asc">FreeBSD-SA-17:07.wpa</link></entry>
-	<entry>16&nbsp;October&nbsp;2017</entry>
-	<entry><para>WPA2 protocol vulnerability</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:08.ptrace.asc">FreeBSD-SA-17:08.ptrace</link></entry>
-	<entry>15&nbsp;November&nbsp;2017</entry>
-	<entry><para>Kernel data leak via
-	    <function>ptrace(PT_LWPINFO)</function></para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:10.kldstat.asc">FreeBSD-SA-17:10.kldstat</link></entry>
-	<entry>15&nbsp;November&nbsp;2017</entry>
-	<entry><para>Information leak</para></entry>
-      </row>
-
-      <row>
-	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:11.openssl.asc">FreeBSD-SA-17:11.openssl</link></entry>
-	<entry>29&nbsp;November&nbsp;2017</entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:12.telnet.asc">FreeBSD-SA-19:12.telnet</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
 	<entry><para>Multiple vulnerabilities</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-17:12.openssl.asc">FreeBSD-SA-17:12.openssl</link></entry>
-	<entry>09&nbsp;December&nbsp;2017</entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:13.pts.asc">FreeBSD-SA-19:13.pts</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>Write-after-free vulnerability</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:14.freebsd32.asc">FreeBSD-SA-19:14.freebsd32</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>Kernel memory disclosure</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:15.mqueuefs.asc">FreeBSD-SA-19:15.mqueuefs</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>Reference count overflow</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:16.bhyve.asc">FreeBSD-SA-19:16.bhyve</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>&man.xhci.4; out-of-bounds read</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:17.fd.asc">FreeBSD-SA-19:17.fd</link></entry>
+	<entry>24&nbsp;July&nbsp;2019</entry>
+	<entry><para>Reference count leak</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:18.bzip2.asc">FreeBSD-SA-19:18.bzip2</link></entry>
+	<entry>6&nbsp;August&nbsp;2019</entry>
 	<entry><para>Multiple vulnerabilities</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:01.ipsec.asc">FreeBSD-SA-18:01.ipsec</link></entry>
-	<entry>07&nbsp;March&nbsp;2018</entry>
-	<entry><para>Fix <acronym>IPSEC</acronym> validation and
-	  use-after-free</para></entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:19.mldv2.asc">FreeBSD-SA-19:19.mldv2</link></entry>
+	<entry>6&nbsp;August&nbsp;2019</entry>
+	<entry><para>Out-of-bounds memory access</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:02.ntp.asc">FreeBSD-SA-18:02.ntp</link></entry>
-	<entry>07&nbsp;March&nbsp;2018</entry>
-	<entry><para>Multiple vulnerabilities</para></entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:20.bsnmp.asc">FreeBSD-SA-19:20.bsnmp</link></entry>
+	<entry>6&nbsp;August&nbsp;2019</entry>
+	<entry><para>Insufficient message length
+	  validation</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:03.speculative_execution.asc">FreeBSD-SA-18:03.speculative_execution</link></entry>
-	<entry>14&nbsp;March&nbsp;2018</entry>
-	<entry>
-	  <para>Speculative Execution Vulnerabilities</para>
-	  <note>
-	    <para>This advisory addresses the most significant issues
-	      for &os;&nbsp;11.x on &arch.amd64; CPUs.  We expect to
-	      update this advisory to include &arch.i386; and other
-	      CPUs.</para>
-	  </note>
-	</entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:21.bhyve.asc">FreeBSD-SA-19:21.bhyve</link></entry>
+	<entry>6&nbsp;August&nbsp;2019</entry>
+	<entry><para>Insufficient validation of guest-supplied
+	  data</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:04.vt.asc">FreeBSD-SA-18:04.vt</link></entry>
-	<entry>04&nbsp;April&nbsp;2018</entry>
-	<entry><para>Fix &man.vt.4; console memory
-	    disclosure</para></entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:22.mbuf.asc">FreeBSD-SA-19:22.mbuf</link></entry>
+	<entry>20&nbsp;August&nbsp;2019</entry>
+	<entry><para>IPv6 remove denial-of-service</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:05.ipsec.asc">FreeBSD-SA-18:05.ipsec</link></entry>
-	<entry>04&nbsp;April&nbsp;2018</entry>
-	<entry><para>Fix denial of service</para></entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:23.midi.asc">FreeBSD-SA-19:23.midi</link></entry>
+	<entry>20&nbsp;August&nbsp;2019</entry>
+	<entry><para>Kernel memory disclosure</para></entry>
       </row>
 
       <row>
 	<entry><link
-	    xlink:href="&security.url;/FreeBSD-SA-18:06.debugreg.asc">FreeBSD-SA-18:06.debugreg</link></entry>
-	<entry>08&nbsp;May&nbsp;2018</entry>
-	<entry><para>Mishandling of x86 debug
-	    exceptions</para></entry>
+	    xlink:href="&security.url;/FreeBSD-SA-19:24.mqueuefs.asc">FreeBSD-SA-19:24.mqueuefs</link></entry>
+	<entry>20&nbsp;August&nbsp;2019</entry>
+	<entry><para>Reference count overflow</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:25.mcepsc.asc">FreeBSD-SA-19:25.mcepce</link></entry>
+	<entry>12&nbsp;November&nbsp;2019</entry>
+	<entry><para>Machine Check Exception on Page Size
+	  Change</para></entry>
+      </row>
+
+      <row>
+	<entry><link
+	    xlink:href="&security.url;/FreeBSD-SA-19:26.mcu.asc">FreeBSD-SA-19:26.mcu</link></entry>
+	<entry>12&nbsp;November&nbsp;2019</entry>
+	<entry><para>Intel CPU Microcode Update</para></entry>
       </row>
 
       <row>

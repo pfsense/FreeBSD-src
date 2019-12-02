@@ -977,7 +977,12 @@ printcpuinfo(void)
 				       "\003UMIP"
 				       "\004PKU"
 				       "\005OSPKE"
+				       "\006WAITPKG"
+				       "\011GFNI"
 				       "\027RDPID"
+				       "\032CLDEMOTE"
+				       "\034MOVDIRI"
+				       "\035MOVDIRI64B"
 				       "\037SGXLC"
 				       );
 			}
@@ -986,9 +991,13 @@ printcpuinfo(void)
 				printf("\n  Structured Extended Features3=0x%b",
 				    cpu_stdext_feature3,
 				       "\020"
+				       "\013MD_CLEAR"
+				       "\016TSXFA"
 				       "\033IBPB"
 				       "\034STIBP"
+				       "\035L1DFL"
 				       "\036ARCH_CAP"
+				       "\037CORE_CAP"
 				       "\040SSBD"
 				       );
 			}
@@ -1012,6 +1021,12 @@ printcpuinfo(void)
 				       "\020"
 				       "\001RDCL_NO"
 				       "\002IBRS_ALL"
+				       "\003RSBA"
+				       "\004SKIP_L1DFL_VME"
+				       "\005SSB_NO"
+				       "\006MDS_NO"
+				       "\010TSX_CTRL"
+				       "\011TAA_NO"
 				       );
 			}
 

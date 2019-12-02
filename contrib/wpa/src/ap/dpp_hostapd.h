@@ -19,7 +19,12 @@ void hostapd_dpp_tx_status(struct hostapd_data *hapd, const u8 *dst,
 			   const u8 *data, size_t data_len, int ok);
 struct wpabuf *
 hostapd_dpp_gas_req_handler(struct hostapd_data *hapd, const u8 *sa,
+<<<<<<< HEAD
 			    const u8 *query, size_t query_len);
+=======
+			    const u8 *query, size_t query_len,
+			    const u8 *data, size_t data_len);
+>>>>>>> origin/stable/11
 void hostapd_dpp_gas_status_handler(struct hostapd_data *hapd, int ok);
 int hostapd_dpp_configurator_add(struct hostapd_data *hapd, const char *cmd);
 int hostapd_dpp_configurator_remove(struct hostapd_data *hapd, const char *id);

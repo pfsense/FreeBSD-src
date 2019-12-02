@@ -168,19 +168,31 @@ typedef	struct _entry {
 #endif
 	char		**envp;
 	char		*cmd;
-	bitstr_t	bit_decl(second, SECOND_COUNT);
-	bitstr_t	bit_decl(minute, MINUTE_COUNT);
-	bitstr_t	bit_decl(hour,   HOUR_COUNT);
-	bitstr_t	bit_decl(dom,    DOM_COUNT);
-	bitstr_t	bit_decl(month,  MONTH_COUNT);
-	bitstr_t	bit_decl(dow,    DOW_COUNT);
+	union {
+		struct {
+			bitstr_t	bit_decl(second, SECOND_COUNT);
+			bitstr_t	bit_decl(minute, MINUTE_COUNT);
+			bitstr_t	bit_decl(hour,   HOUR_COUNT);
+			bitstr_t	bit_decl(dom,    DOM_COUNT);
+			bitstr_t	bit_decl(month,  MONTH_COUNT);
+			bitstr_t	bit_decl(dow,    DOW_COUNT);
+		};
+		struct {
+			time_t	lastexit;
+			time_t	interval;
+			pid_t	child;
+		};
+	};
 	int		flags;
 #define	DOM_STAR	0x01
 #define	DOW_STAR	0x02
 #define	WHEN_REBOOT	0x04
-#define	RUN_AT	0x08
+#define	RUN_AT		0x08
 #define	NOT_UNTIL	0x10
 #define	SEC_RES		0x20
+#define	INTERVAL	0x40
+#define	DONT_LOG	0x80
+#define	MAIL_WHEN_ERR	0x100
 	time_t	lastrun;
 } entry;
 
@@ -247,7 +259,7 @@ user		*load_user(int, struct passwd *, char *),
 entry		*load_entry(FILE *, void (*)(char *),
 				 struct passwd *, char **);
 
-FILE		*cron_popen(char *, char *, entry *);
+FILE		*cron_popen(char *, char *, entry *, PID_T *);
 
 
 				/* in the C tradition, we only create

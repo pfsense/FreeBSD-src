@@ -219,7 +219,7 @@ int X509_NAME_cmp(const X509_NAME *a, const X509_NAME *b)
 
     ret = a->canon_enclen - b->canon_enclen;
 
-    if (ret)
+    if (ret != 0 || a->canon_enclen == 0)
         return ret;
 
     return memcmp(a->canon_enc, b->canon_enc, a->canon_enclen);
@@ -490,6 +490,8 @@ STACK_OF(X509) *X509_chain_up_ref(STACK_OF(X509) *chain)
     STACK_OF(X509) *ret;
     int i;
     ret = sk_X509_dup(chain);
+    if (ret == NULL)
+        return NULL;
     for (i = 0; i < sk_X509_num(ret); i++) {
         X509 *x = sk_X509_value(ret, i);
         CRYPTO_add(&x->references, 1, CRYPTO_LOCK_X509);

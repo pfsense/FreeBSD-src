@@ -24,7 +24,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd September 17, 2017
+.Dd May 23, 2019
 .Dt GELI 8
 .Os
 .Sh NAME
@@ -67,7 +67,8 @@ utility:
 .Cm init
 .Nm
 .Cm attach
-.Op Fl dprv
+.Op Fl Cdprv
+.Op Fl n Ar keyno
 .Op Fl j Ar passfile
 .Op Fl k Ar keyfile
 .Ar prov
@@ -393,6 +394,9 @@ suffix.
 .Pp
 Additional options include:
 .Bl -tag -width ".Fl j Ar passfile"
+.It Fl C
+Do a dry-run decryption.
+This is useful to verify passphrase and keyfile without decrypting the device.
 .It Fl d
 If specified, a decrypted provider will be detached automatically on last close.
 This can help with scarce memory so the user does not have to remember to detach the
@@ -404,6 +408,9 @@ Probably a better choice is the
 option for the
 .Cm detach
 subcommand.
+.It Fl n Ar keyno
+Specifies the index number of the Master Key copy to use (could be 0 or 1).
+If the index number is not provided all keys will be tested.
 .It Fl j Ar passfile
 Specifies a file which contains the passphrase component of the User Key
 (or part of it).
@@ -849,6 +856,18 @@ specified in
 .El
 .Sh EXIT STATUS
 Exit status is 0 on success, and 1 if the command fails.
+.Sh DEPRECATION NOTICE
+Support for the
+.Nm Blowfish-CBC
+and
+.Nm 3DES-CBC
+cryptographic algorithms and
+.Nm HMAC/MD5
+authentication algorithm will be removed in
+.Fx 13.0 .
+New volumes cannot be created using these algorithms.
+Existing volumes should be migrated to a new volume that uses
+non-deprecated algorithms.
 .Sh EXAMPLES
 Initialize a provider which is going to be encrypted with a
 passphrase and random data from a file on the user's pen drive.
@@ -1082,7 +1101,7 @@ utility appeared in
 .Fx 6.0 .
 Support for the
 .Nm Camellia
-block cipher is implemented by Yoshisato Yanagisawa in
+block cipher was implemented by Yoshisato Yanagisawa in
 .Fx 7.0 .
 .Pp
 Highest

@@ -252,7 +252,8 @@ g_eli_read_done(struct bio *bp)
 			pbp->bio_driver2 = NULL;
 		}
 		g_io_deliver(pbp, pbp->bio_error);
-		atomic_subtract_int(&sc->sc_inflight, 1);
+		if (sc != NULL)
+			atomic_subtract_int(&sc->sc_inflight, 1);
 		return;
 	}
 	mtx_lock(&sc->sc_queue_mtx);
@@ -297,7 +298,8 @@ g_eli_write_done(struct bio *bp)
 	 */
 	sc = pbp->bio_to->geom->softc;
 	g_io_deliver(pbp, pbp->bio_error);
-	atomic_subtract_int(&sc->sc_inflight, 1);
+	if (sc != NULL)
+		atomic_subtract_int(&sc->sc_inflight, 1);
 }
 
 /*
@@ -871,8 +873,25 @@ g_eli_create(struct gctl_req *req, struct g_class *mp, struct g_provider *bpp,
 	G_ELI_DEBUG(0, "Device %s created.", pp->name);
 	G_ELI_DEBUG(0, "Encryption: %s %u", g_eli_algo2str(sc->sc_ealgo),
 	    sc->sc_ekeylen);
-	if (sc->sc_flags & G_ELI_FLAG_AUTH)
+	switch (sc->sc_ealgo) {
+	case CRYPTO_3DES_CBC:
+		gone_in(13,
+		    "support for GEOM_ELI volumes encrypted with 3des");
+		break;
+	case CRYPTO_BLF_CBC:
+		gone_in(13,
+		    "support for GEOM_ELI volumes encrypted with blowfish");
+		break;
+	}
+	if (sc->sc_flags & G_ELI_FLAG_AUTH) {
 		G_ELI_DEBUG(0, " Integrity: %s", g_eli_algo2str(sc->sc_aalgo));
+		switch (sc->sc_aalgo) {
+		case CRYPTO_MD5_HMAC:
+			gone_in(13,
+		    "support for GEOM_ELI volumes authenticated with hmac/md5");
+			break;
+		}
+	}
 	G_ELI_DEBUG(0, "    Crypto: %s",
 	    sc->sc_crypto == G_ELI_CRYPTO_SW ? "software" : "hardware");
 	return (gp);
@@ -1084,7 +1103,7 @@ g_eli_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
                                  memcpy(key, keybuf->kb_ents[i].ke_data,
                                      sizeof(key));
 
-                                 if (g_eli_mkey_decrypt(&md, key,
+                                 if (g_eli_mkey_decrypt_any(&md, key,
                                      mkey, &nkey) == 0 ) {
                                          explicit_bzero(key, sizeof(key));
                                          goto have_key;
@@ -1159,7 +1178,7 @@ g_eli_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
                 /*
                  * Decrypt Master-Key.
                  */
-                error = g_eli_mkey_decrypt(&md, key, mkey, &nkey);
+                error = g_eli_mkey_decrypt_any(&md, key, mkey, &nkey);
                 bzero(key, sizeof(key));
                 if (error == -1) {
                         if (i == tries) {

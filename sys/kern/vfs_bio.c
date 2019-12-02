@@ -1933,7 +1933,7 @@ bufwrite(struct buf *bp)
 	}
 
 	if (bp->b_flags & B_BARRIER)
-		barrierwrites++;
+		atomic_add_long(&barrierwrites, 1);
 
 	oldflags = bp->b_flags;
 
@@ -3942,6 +3942,8 @@ allocbuf(struct buf *bp, int size)
 
 extern int inflight_transient_maps;
 
+static struct bio_queue nondump_bios;
+
 void
 biodone(struct bio *bp)
 {
@@ -3949,6 +3951,17 @@ biodone(struct bio *bp)
 	void (*done)(struct bio *);
 	vm_offset_t start, end;
 
+
+	/*
+	 * Avoid completing I/O when dumping after a panic since that may
+	 * result in a deadlock in the filesystem or pager code.  Note that
+	 * this doesn't affect dumps that were started manually since we aim
+	 * to keep the system usable after it has been resumed.
+	 */
+	if (__predict_false(dumping && SCHEDULER_STOPPED())) {
+		TAILQ_INSERT_HEAD(&nondump_bios, bp, bio_queue);
+		return;
+	}
 	if ((bp->bio_flags & BIO_TRANSIENT_MAPPING) != 0) {
 		bp->bio_flags &= ~BIO_TRANSIENT_MAPPING;
 		bp->bio_flags |= BIO_UNMAPPED;
@@ -4043,7 +4056,7 @@ bufwait(struct buf *bp)
  *	read error occurred, or if the op was a write.  B_CACHE is never
  *	set if the buffer is invalid or otherwise uncacheable.
  *
- *	biodone does not mess with B_INVAL, allowing the I/O routine or the
+ *	bufdone does not mess with B_INVAL, allowing the I/O routine or the
  *	initiator to leave B_INVAL set to brelse the buffer out of existence
  *	in the biodone routine.
  */
@@ -4466,6 +4479,8 @@ b_io_dismiss(struct buf *bp, int ioflag, bool release)
 
 	if ((ioflag & IO_DIRECT) != 0)
 		bp->b_flags |= B_DIRECT;
+	if ((ioflag & IO_EXT) != 0)
+		bp->b_xflags |= BX_ALTDATA;
 	if ((ioflag & (IO_VMIO | IO_DIRECT)) != 0 && LIST_EMPTY(&bp->b_dep)) {
 		bp->b_flags |= B_RELBUF;
 		if ((ioflag & IO_NOREUSE) != 0)

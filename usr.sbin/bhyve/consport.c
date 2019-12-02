@@ -74,14 +74,14 @@ ttyopen(void)
 static bool
 tty_char_available(void)
 {
-        fd_set rfds;
-        struct timeval tv;
+	fd_set rfds;
+	struct timeval tv;
 
-        FD_ZERO(&rfds);
-        FD_SET(STDIN_FILENO, &rfds);
-        tv.tv_sec = 0;
-        tv.tv_usec = 0;
-        if (select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv) > 0) {
+	FD_ZERO(&rfds);
+	FD_SET(STDIN_FILENO, &rfds);
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+	if (select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv) > 0) {
 		return (true);
 	} else {
 		return (false);
@@ -136,11 +136,14 @@ console_handler(struct vmctx *ctx, int vcpu, int in, int port, int bytes,
 
 	if (!opened) {
 #ifndef WITHOUT_CAPSICUM
-	cap_rights_init(&rights, CAP_EVENT, CAP_IOCTL, CAP_READ, CAP_WRITE);
-	if (cap_rights_limit(STDIN_FILENO, &rights) == -1 && errno != ENOSYS)
-		errx(EX_OSERR, "Unable to apply rights for sandbox");
-	if (cap_ioctls_limit(STDIN_FILENO, cmds, nitems(cmds)) == -1 && errno != ENOSYS)
-		errx(EX_OSERR, "Unable to apply rights for sandbox");
+		cap_rights_init(&rights, CAP_EVENT, CAP_IOCTL, CAP_READ,
+		    CAP_WRITE);
+		if (cap_rights_limit(STDIN_FILENO, &rights) == -1 &&
+		    errno != ENOSYS)
+			errx(EX_OSERR, "Unable to apply rights for sandbox");
+		if (cap_ioctls_limit(STDIN_FILENO, cmds, nitems(cmds)) == -1 &&
+		    errno != ENOSYS)
+			errx(EX_OSERR, "Unable to apply rights for sandbox");
 #endif
 		ttyopen();
 		opened = 1;

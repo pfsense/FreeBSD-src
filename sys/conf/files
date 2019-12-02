@@ -222,6 +222,7 @@ cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_file.c			optional zfs compile-wi
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_indirect.c		optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_indirect_births.c	optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_indirect_mapping.c	optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_initialize.c		optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_geom.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_label.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/vdev_mirror.c		optional zfs compile-with "${ZFS_C}"
@@ -309,6 +310,7 @@ cddl/contrib/opensolaris/uts/common/fs/zfs/lua/lzio.c			optional zfs compile-wit
 # dtrace specific
 cddl/contrib/opensolaris/uts/common/dtrace/dtrace.c	optional dtrace compile-with "${DTRACE_C}" \
 							warning "kernel contains CDDL licensed DTRACE"
+cddl/contrib/opensolaris/uts/common/dtrace/dtrace_xoroshiro128_plus.c	optional dtrace compile-with "${DTRACE_C}"
 cddl/dev/dtmalloc/dtmalloc.c		optional dtmalloc        | dtraceall compile-with "${CDDL_C}"
 cddl/dev/profile/profile.c		optional dtrace_profile  | dtraceall compile-with "${CDDL_C}"
 cddl/dev/sdt/sdt.c			optional dtrace_sdt      | dtraceall compile-with "${CDDL_C}"
@@ -583,6 +585,7 @@ contrib/libfdt/fdt_rw.c		optional fdt
 contrib/libfdt/fdt_strerror.c	optional fdt
 contrib/libfdt/fdt_sw.c		optional fdt
 contrib/libfdt/fdt_wip.c	optional fdt
+contrib/libnv/cnvlist.c		standard
 contrib/libnv/dnvlist.c		standard
 contrib/libnv/nvlist.c		standard
 contrib/libnv/nvpair.c		standard
@@ -630,6 +633,17 @@ contrib/ngatm/netnatm/sig/sig_unimsgcpy.c optional ngatm_uni \
 	compile-with "${NORMAL_C} -I$S/contrib/ngatm"
 contrib/ngatm/netnatm/sig/sig_verify.c optional ngatm_uni \
 	compile-with "${NORMAL_C} -I$S/contrib/ngatm"
+# xz
+dev/xz/xz_mod.c	optional xz \
+	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
+contrib/xz-embedded/linux/lib/xz/xz_crc32.c	optional xz \
+	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
+contrib/xz-embedded/linux/lib/xz/xz_dec_bcj.c	optional xz \
+	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
+contrib/xz-embedded/linux/lib/xz/xz_dec_lzma2.c	optional xz \
+	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
+contrib/xz-embedded/linux/lib/xz/xz_dec_stream.c optional xz \
+	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
 crypto/blowfish/bf_ecb.c	optional ipsec | ipsec_support
 crypto/blowfish/bf_skey.c	optional crypto | ipsec | ipsec_support
 crypto/camellia/camellia.c	optional crypto | ipsec | ipsec_support
@@ -642,8 +656,8 @@ crypto/rijndael/rijndael-alg-fst.c optional crypto | geom_bde | \
 crypto/rijndael/rijndael-api-fst.c optional geom_bde | random !random_loadable
 crypto/rijndael/rijndael-api.c	optional crypto | ipsec | ipsec_support | \
 	wlan_ccmp
-crypto/sha1.c			optional carp | crypto | ipsec | \
-	ipsec_support | netgraph_mppc_encryption | sctp 
+crypto/sha1.c			optional carp | crypto | ether | ipsec | \
+	ipsec_support | netgraph_mppc_encryption | sctp
 crypto/sha2/sha256c.c		optional crypto | geom_bde | ipsec | \
 	ipsec_support | random !random_loadable | sctp | zfs
 crypto/sha2/sha512c.c		optional crypto | geom_bde | ipsec | \
@@ -1316,6 +1330,10 @@ dev/cxgb/sys/uipc_mvec.c	optional cxgb pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgb"
 dev/cxgb/cxgb_t3fw.c		optional cxgb cxgb_t3fw \
 	compile-with "${NORMAL_C} -I$S/dev/cxgb"
+dev/cxgbe/t4_clip.c		optional cxgbe pci \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/t4_filter.c		optional cxgbe pci \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/t4_if.m		optional cxgbe pci
 dev/cxgbe/t4_iov.c		optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
@@ -1328,6 +1346,8 @@ dev/cxgbe/t4_netmap.c		optional cxgbe pci \
 dev/cxgbe/t4_sched.c		optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/t4_sge.c		optional cxgbe pci \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/t4_smt.c		optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/t4_l2t.c		optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
@@ -1381,7 +1401,7 @@ t4fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t4fw.fwo"
 t4fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t4fw-1.19.1.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t4fw-1.23.0.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t4fw.fw"
@@ -1415,7 +1435,7 @@ t5fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t5fw.fwo"
 t5fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t5fw-1.19.1.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t5fw-1.23.0.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t5fw.fw"
@@ -1449,10 +1469,12 @@ t6fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t6fw.fwo"
 t6fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t6fw-1.19.1.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t6fw-1.23.0.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t6fw.fw"
+dev/cxgbe/crypto/t4_crypto.c	optional ccr \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cy/cy.c			optional cy
 dev/cy/cy_isa.c			optional cy isa
 dev/cy/cy_pci.c			optional cy pci
@@ -1709,7 +1731,7 @@ dev/fdt/fdt_clock_if.m		optional fdt fdt_clock
 dev/fdt/fdt_common.c		optional fdt
 dev/fdt/fdt_pinctrl.c		optional fdt fdt_pinctrl
 dev/fdt/fdt_pinctrl_if.m	optional fdt fdt_pinctrl
-dev/fdt/fdt_slicer.c		optional fdt cfi | fdt nand | fdt mx25l
+dev/fdt/fdt_slicer.c		optional fdt cfi | fdt nand | fdt mx25l | fdt at45d
 dev/fdt/fdt_static_dtb.S	optional fdt fdt_dtb_static \
 	dependency	"fdt_dtb_file"
 dev/fdt/simplebus.c		optional fdt
@@ -2371,6 +2393,12 @@ dev/mii/ukphy_subr.c		optional miibus | mii
 dev/mii/vscphy.c		optional miibus | vscphy
 dev/mii/xmphy.c			optional miibus | xmphy
 dev/mk48txx/mk48txx.c		optional mk48txx
+dev/mlxfw/mlxfw_fsm.c			optional mlxfw \
+	compile-with "${MLXFW_C}"
+dev/mlxfw/mlxfw_mfa2.c			optional mlxfw \
+	compile-with "${MLXFW_C}"
+dev/mlxfw/mlxfw_mfa2_tlv_multi.c	optional mlxfw \
+	compile-with "${MLXFW_C}"
 dev/mlx/mlx.c			optional mlx
 dev/mlx/mlx_disk.c		optional mlx
 dev/mlx/mlx_pci.c		optional mlx pci
@@ -2469,11 +2497,15 @@ dev/ncr/ncr.c			optional ncr pci
 dev/ncv/ncr53c500.c		optional ncv
 dev/ncv/ncr53c500_pccard.c	optional ncv pccard
 dev/netmap/netmap.c		optional netmap
+dev/netmap/netmap_bdg.c		optional netmap
 dev/netmap/netmap_freebsd.c	optional netmap
 dev/netmap/netmap_generic.c	optional netmap
+dev/netmap/netmap_kloop.c	optional netmap
+dev/netmap/netmap_legacy.c	optional netmap
 dev/netmap/netmap_mbq.c		optional netmap
 dev/netmap/netmap_mem2.c	optional netmap
 dev/netmap/netmap_monitor.c	optional netmap
+dev/netmap/netmap_null.c	optional netmap
 dev/netmap/netmap_offloadings.c	optional netmap
 dev/netmap/netmap_pipe.c	optional netmap
 dev/netmap/netmap_vale.c	optional netmap
@@ -3438,7 +3470,7 @@ geom/geom_disk.c		standard
 geom/geom_dump.c		standard
 geom/geom_event.c		standard
 geom/geom_fox.c			optional geom_fox
-geom/geom_flashmap.c		optional fdt cfi | fdt nand | fdt mx25l | mmcsd
+geom/geom_flashmap.c		optional fdt cfi | fdt nand | fdt mx25l | mmcsd | fdt at45d
 geom/geom_io.c			standard
 geom/geom_kern.c		standard
 geom/geom_map.c			optional geom_map
@@ -3457,6 +3489,7 @@ geom/journal/g_journal.c	optional geom_journal
 geom/journal/g_journal_ufs.c	optional geom_journal
 geom/label/g_label.c		optional geom_label | geom_label_gpt
 geom/label/g_label_ext2fs.c	optional geom_label
+geom/label/g_label_flashmap.c	optional geom_label
 geom/label/g_label_iso9660.c	optional geom_label
 geom/label/g_label_msdosfs.c	optional geom_label
 geom/label/g_label_ntfs.c	optional geom_label
@@ -3500,21 +3533,6 @@ geom/raid3/g_raid3.c		optional geom_raid3
 geom/raid3/g_raid3_ctl.c	optional geom_raid3
 geom/shsec/g_shsec.c		optional geom_shsec
 geom/stripe/g_stripe.c		optional geom_stripe
-contrib/xz-embedded/freebsd/xz_malloc.c	\
-	optional xz_embedded | geom_uzip \
-	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
-contrib/xz-embedded/linux/lib/xz/xz_crc32.c \
-	optional xz_embedded | geom_uzip \
-	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
-contrib/xz-embedded/linux/lib/xz/xz_dec_bcj.c \
-	optional xz_embedded | geom_uzip \
-	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
-contrib/xz-embedded/linux/lib/xz/xz_dec_lzma2.c \
-	optional xz_embedded | geom_uzip \
-	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
-contrib/xz-embedded/linux/lib/xz/xz_dec_stream.c \
-	optional xz_embedded | geom_uzip \
-	compile-with "${NORMAL_C} -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"
 geom/uzip/g_uzip.c		optional geom_uzip
 geom/uzip/g_uzip_lzma.c		optional geom_uzip
 geom/uzip/g_uzip_wrkthr.c	optional geom_uzip
@@ -3575,7 +3593,6 @@ kern/imgact_binmisc.c		optional	imagact_binmisc
 kern/imgact_elf.c		standard
 kern/imgact_elf32.c		optional compat_freebsd32
 kern/imgact_shell.c		standard
-kern/inflate.c			optional gzip
 kern/init_main.c		standard
 kern/init_sysent.c		standard
 kern/ksched.c			optional _kposix_priority_scheduling
@@ -3669,6 +3686,7 @@ kern/subr_acl_nfs4.c		optional ufs_acl | zfs
 kern/subr_acl_posix1e.c		optional ufs_acl
 kern/subr_autoconf.c		standard
 kern/subr_blist.c		standard
+kern/subr_boot.c		standard
 kern/subr_bus.c			standard
 kern/subr_bus_dma.c		standard
 kern/subr_bufring.c		standard
@@ -3683,6 +3701,7 @@ kern/subr_firmware.c		optional firmware
 kern/subr_gtaskqueue.c		standard
 kern/subr_hash.c		standard
 kern/subr_hints.c		standard
+kern/subr_inflate.c		optional gzip
 kern/subr_kdb.c			standard
 kern/subr_kobj.c		standard
 kern/subr_lock.c		standard
@@ -4225,6 +4244,10 @@ netpfil/ipfw/ip_fw_iface.c	optional inet ipfirewall
 netpfil/ipfw/ip_fw_nat.c	optional inet ipfirewall_nat
 netpfil/ipfw/nat64/ip_fw_nat64.c	optional inet inet6 ipfirewall \
 	ipfirewall_nat64
+netpfil/ipfw/nat64/nat64clat.c	optional inet inet6 ipfirewall \
+	ipfirewall_nat64
+netpfil/ipfw/nat64/nat64clat_control.c	optional inet inet6 ipfirewall \
+	ipfirewall_nat64
 netpfil/ipfw/nat64/nat64lsn.c	optional inet inet6 ipfirewall \
 	ipfirewall_nat64
 netpfil/ipfw/nat64/nat64lsn_control.c	optional inet inet6 ipfirewall \
@@ -4544,8 +4567,6 @@ dev/mlx5/mlx5_core/mlx5_cmd.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_cq.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
-dev/mlx5/mlx5_core/mlx5_crspace.c		optional mlx5 pci	\
-	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_diagnostics.c		optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_eq.c			optional mlx5 pci	\
@@ -4558,8 +4579,6 @@ dev/mlx5/mlx5_core/mlx5_fw.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_fwdump.c		optional mlx5 pci	\
 	compile-with "${OFED_C}"
-dev/mlx5/mlx5_core/mlx5_fwdump_regmaps.c	optional mlx5 pci	\
-	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_health.c		optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_mad.c			optional mlx5 pci	\
@@ -4567,6 +4586,8 @@ dev/mlx5/mlx5_core/mlx5_mad.c			optional mlx5 pci	\
 dev/mlx5/mlx5_core/mlx5_main.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_mcg.c			optional mlx5 pci	\
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_core/mlx5_mpfs.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_mr.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
@@ -4590,7 +4611,11 @@ dev/mlx5/mlx5_core/mlx5_vsc.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_core/mlx5_wq.c			optional mlx5 pci	\
 	compile-with "${OFED_C}"
+dev/mlx5/mlx5_lib/mlx5_gid.c			optional mlx5 pci	\
+	compile-with "${OFED_C}"
 
+dev/mlx5/mlx5_en/mlx5_en_dim.c			optional mlx5en pci inet inet6	\
+	compile-with "${OFED_C}"
 dev/mlx5/mlx5_en/mlx5_en_ethtool.c		optional mlx5en pci inet inet6	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_en/mlx5_en_main.c			optional mlx5en pci inet inet6	\
@@ -4602,6 +4627,8 @@ dev/mlx5/mlx5_en/mlx5_en_flow_table.c		optional mlx5en pci inet inet6	\
 dev/mlx5/mlx5_en/mlx5_en_rx.c			optional mlx5en pci inet inet6	\
 	compile-with "${OFED_C}"
 dev/mlx5/mlx5_en/mlx5_en_txrx.c			optional mlx5en pci inet inet6	\
+	compile-with "${OFED_C}"
+dev/mlx5/mlx5_en/mlx5_en_port_buffer.c		optional mlx5en pci inet inet6	\
 	compile-with "${OFED_C}"
 
 # crypto support

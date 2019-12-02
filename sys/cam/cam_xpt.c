@@ -39,7 +39,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/time.h>
 #include <sys/conf.h>
 #include <sys/fcntl.h>
-#include <sys/interrupt.h>
 #include <sys/proc.h>
 #include <sys/sbuf.h>
 #include <sys/smp.h>
@@ -1112,6 +1111,7 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 {
 	int ret = -1, l, o;
 	struct ccb_dev_advinfo cdai;
+	struct scsi_vpd_device_id *did;
 	struct scsi_vpd_id_descriptor *idd;
 
 	xpt_path_assert(path, MA_OWNED);
@@ -1121,6 +1121,7 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 	cdai.ccb_h.func_code = XPT_DEV_ADVINFO;
 	cdai.flags = CDAI_FLAG_NONE;
 	cdai.bufsiz = len;
+	cdai.buf = buf;
 
 	if (!strcmp(attr, "GEOM::ident"))
 		cdai.buftype = CDAI_TYPE_SERIAL_NUM;
@@ -1130,44 +1131,49 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 		 strcmp(attr, "GEOM::lunname") == 0) {
 		cdai.buftype = CDAI_TYPE_SCSI_DEVID;
 		cdai.bufsiz = CAM_SCSI_DEVID_MAXLEN;
+		cdai.buf = malloc(cdai.bufsiz, M_CAMXPT, M_NOWAIT);
+		if (cdai.buf == NULL) {
+			ret = ENOMEM;
+			goto out;
+		}
 	} else
 		goto out;
 
-	cdai.buf = malloc(cdai.bufsiz, M_CAMXPT, M_NOWAIT|M_ZERO);
-	if (cdai.buf == NULL) {
-		ret = ENOMEM;
-		goto out;
-	}
 	xpt_action((union ccb *)&cdai); /* can only be synchronous */
 	if ((cdai.ccb_h.status & CAM_DEV_QFRZN) != 0)
 		cam_release_devq(cdai.ccb_h.path, 0, 0, 0, FALSE);
 	if (cdai.provsiz == 0)
 		goto out;
-	if (cdai.buftype == CDAI_TYPE_SCSI_DEVID) {
+	switch(cdai.buftype) {
+	case CDAI_TYPE_SCSI_DEVID:
+		did = (struct scsi_vpd_device_id *)cdai.buf;
 		if (strcmp(attr, "GEOM::lunid") == 0) {
-			idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-			    cdai.provsiz, scsi_devid_is_lun_naa);
+			idd = scsi_get_devid(did, cdai.provsiz,
+			    scsi_devid_is_lun_naa);
 			if (idd == NULL)
-				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-				    cdai.provsiz, scsi_devid_is_lun_eui64);
+				idd = scsi_get_devid(did, cdai.provsiz,
+				    scsi_devid_is_lun_eui64);
 			if (idd == NULL)
-				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-				    cdai.provsiz, scsi_devid_is_lun_uuid);
+				idd = scsi_get_devid(did, cdai.provsiz,
+				    scsi_devid_is_lun_uuid);
 			if (idd == NULL)
-				idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-				    cdai.provsiz, scsi_devid_is_lun_md5);
+				idd = scsi_get_devid(did, cdai.provsiz,
+				    scsi_devid_is_lun_md5);
 		} else
 			idd = NULL;
+
 		if (idd == NULL)
-			idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-			    cdai.provsiz, scsi_devid_is_lun_t10);
+			idd = scsi_get_devid(did, cdai.provsiz,
+			    scsi_devid_is_lun_t10);
 		if (idd == NULL)
-			idd = scsi_get_devid((struct scsi_vpd_device_id *)cdai.buf,
-			    cdai.provsiz, scsi_devid_is_lun_name);
+			idd = scsi_get_devid(did, cdai.provsiz,
+			    scsi_devid_is_lun_name);
 		if (idd == NULL)
-			goto out;
+			break;
+
 		ret = 0;
-		if ((idd->proto_codeset & SVPD_ID_CODESET_MASK) == SVPD_ID_CODESET_ASCII) {
+		if ((idd->proto_codeset & SVPD_ID_CODESET_MASK) ==
+		    SVPD_ID_CODESET_ASCII) {
 			if (idd->length < len) {
 				for (l = 0; l < idd->length; l++)
 					buf[l] = idd->identifier[l] ?
@@ -1175,40 +1181,50 @@ xpt_getattr(char *buf, size_t len, const char *attr, struct cam_path *path)
 				buf[l] = 0;
 			} else
 				ret = EFAULT;
-		} else if ((idd->proto_codeset & SVPD_ID_CODESET_MASK) == SVPD_ID_CODESET_UTF8) {
+			break;
+		}
+		if ((idd->proto_codeset & SVPD_ID_CODESET_MASK) ==
+		    SVPD_ID_CODESET_UTF8) {
 			l = strnlen(idd->identifier, idd->length);
 			if (l < len) {
 				bcopy(idd->identifier, buf, l);
 				buf[l] = 0;
 			} else
 				ret = EFAULT;
-		} else if ((idd->id_type & SVPD_ID_TYPE_MASK) == SVPD_ID_TYPE_UUID
-		    && idd->identifier[0] == 0x10) {
-			if ((idd->length - 2) * 2 + 4 < len) {
-				for (l = 2, o = 0; l < idd->length; l++) {
-					if (l == 6 || l == 8 || l == 10 || l == 12)
-					    o += sprintf(buf + o, "-");
-					o += sprintf(buf + o, "%02x",
-					    idd->identifier[l]);
-				}
-			} else
-				ret = EFAULT;
-		} else {
-			if (idd->length * 2 < len) {
-				for (l = 0; l < idd->length; l++)
-					sprintf(buf + l * 2, "%02x",
-					    idd->identifier[l]);
-			} else
-				ret = EFAULT;
+			break;
 		}
-	} else {
-		ret = 0;
-		if (strlcpy(buf, cdai.buf, len) >= len)
+		if ((idd->id_type & SVPD_ID_TYPE_MASK) ==
+		    SVPD_ID_TYPE_UUID && idd->identifier[0] == 0x10) {
+			if ((idd->length - 2) * 2 + 4 >= len) {
+				ret = EFAULT;
+				break;
+			}
+			for (l = 2, o = 0; l < idd->length; l++) {
+				if (l == 6 || l == 8 || l == 10 || l == 12)
+				    o += sprintf(buf + o, "-");
+				o += sprintf(buf + o, "%02x",
+				    idd->identifier[l]);
+			}
+			break;
+		}
+		if (idd->length * 2 < len) {
+			for (l = 0; l < idd->length; l++)
+				sprintf(buf + l * 2, "%02x",
+				    idd->identifier[l]);
+		} else
+				ret = EFAULT;
+		break;
+	default:
+		if (cdai.provsiz < len) {
+			cdai.buf[cdai.provsiz] = 0;
+			ret = 0;
+		} else
 			ret = EFAULT;
+		break;
 	}
 
 out:
-	if (cdai.buf != NULL)
+	if ((char *)cdai.buf != buf)
 		free(cdai.buf, M_CAMXPT);
 	return ret;
 }
@@ -2475,9 +2491,7 @@ xptsetasyncbusfunc(struct cam_eb *bus, void *arg)
 			 CAM_TARGET_WILDCARD,
 			 CAM_LUN_WILDCARD);
 	xpt_path_lock(&path);
-	xpt_setup_ccb(&cpi.ccb_h, &path, CAM_PRIORITY_NORMAL);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, &path);
 	csa->callback(csa->callback_arg,
 			    AC_PATH_REGISTERED,
 			    &path, &cpi);
@@ -3921,9 +3935,7 @@ xpt_bus_register(struct cam_sim *sim, device_t parent, u_int32_t bus)
 		return (CAM_RESRC_UNAVAIL);
 	}
 
-	xpt_setup_ccb(&cpi.ccb_h, path, CAM_PRIORITY_NORMAL);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, path);
 
 	if (cpi.ccb_h.status == CAM_REQ_CMP) {
 		struct xpt_xport **xpt;

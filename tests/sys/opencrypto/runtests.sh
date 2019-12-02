@@ -50,9 +50,9 @@ cleanup_tests()
 }
 trap cleanup_tests EXIT INT TERM
 
-for required_module in aesni cryptodev; do
+for required_module in nexus/aesni cryptodev; do
 	if ! kldstat -q -m $required_module; then
-		kldload $required_module
+		kldload ${required_module#nexus/}
 		loaded_modules="$loaded_modules $required_module"
 	fi
 done
@@ -61,6 +61,6 @@ done
 oldcdas=$(sysctl -e kern.cryptodevallowsoft)
 sysctl kern.cryptodevallowsoft=1
 
-python $(dirname $0)/cryptotest.py
+python2 $(dirname $0)/cryptotest.py
 
 sysctl "$oldcdas"

@@ -35,6 +35,7 @@ static const char rcsid[] =
   "$FreeBSD$";
 #endif /* not lint */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -167,20 +168,24 @@ fullpath(struct dosDirEntry *dir)
 	char *cp, *np;
 	int nl;
 
-	cp = namebuf + sizeof namebuf - 1;
-	*cp = '\0';
-	do {
+	cp = namebuf + sizeof namebuf;
+	*--cp = '\0';
+
+	for(;;) {
 		np = dir->lname[0] ? dir->lname : dir->name;
 		nl = strlen(np);
-		if ((cp -= nl) <= namebuf + 1)
+		if (cp <= namebuf + 1 + nl) {
+			*--cp = '?';
 			break;
+		}
+		cp -= nl;
 		memcpy(cp, np, nl);
+		dir = dir->parent;
+		if (!dir)
+			break;
 		*--cp = '/';
-	} while ((dir = dir->parent) != NULL);
-	if (dir)
-		*--cp = '?';
-	else
-		cp++;
+	}
+
 	return cp;
 }
 
@@ -329,8 +334,11 @@ delete(int f, struct bootblock *boot, struct fatEntry *fat, cl_t startcl,
 		}
 		off = startcl * boot->bpbSecPerClust + boot->ClusterOffset;
 		off *= boot->bpbBytesPerSec;
-		if (lseek(f, off, SEEK_SET) != off
-		    || read(f, delbuf, clsz) != clsz) {
+		if (lseek(f, off, SEEK_SET) != off) {
+			perr("Unable to lseek to %" PRId64, off);
+			return FSFATAL;
+		}
+		if (read(f, delbuf, clsz) != clsz) {
 			perr("Unable to read directory");
 			return FSFATAL;
 		}
@@ -338,8 +346,11 @@ delete(int f, struct bootblock *boot, struct fatEntry *fat, cl_t startcl,
 			*s = SLOT_DELETED;
 			s += 32;
 		}
-		if (lseek(f, off, SEEK_SET) != off
-		    || write(f, delbuf, clsz) != clsz) {
+		if (lseek(f, off, SEEK_SET) != off) {
+			perr("Unable to lseek to %" PRId64, off);
+			return FSFATAL;
+		}
+		if (write(f, delbuf, clsz) != clsz) {
 			perr("Unable to write directory");
 			return FSFATAL;
 		}

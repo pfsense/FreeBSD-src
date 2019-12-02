@@ -78,19 +78,40 @@ atomic_long_dec(atomic_long_t *v)
 static inline long
 atomic_long_xchg(atomic_long_t *v, long val)
 {
+#if defined(__i386__) || defined(__amd64__) || defined(__aarch64__)
 	return atomic_swap_long(&v->counter, val);
+#else
+	long ret = atomic_long_read(v);
+
+	while (!atomic_fcmpset_long(&v->counter, &ret, val))
+		;
+	return (ret);
+#endif
+}
+
+static inline long
+atomic_long_cmpxchg(atomic_long_t *v, long old, long new)
+{
+	long ret = old;
+
+	for (;;) {
+		if (atomic_fcmpset_long(&v->counter, &ret, new))
+			break;
+		if (ret != old)
+			break;
+	}
+	return (ret);
 }
 
 static inline int
 atomic_long_add_unless(atomic_long_t *v, long a, long u)
 {
-	long c;
+	long c = atomic_long_read(v);
 
 	for (;;) {
-		c = atomic_long_read(v);
 		if (unlikely(c == u))
 			break;
-		if (likely(atomic_cmpset_long(&v->counter, c, c + a)))
+		if (likely(atomic_fcmpset_long(&v->counter, &c, c + a)))
 			break;
 	}
 	return (c != u);

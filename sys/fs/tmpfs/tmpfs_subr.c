@@ -37,6 +37,8 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/dirent.h>
 #include <sys/fnv_hash.h>
 #include <sys/lock.h>
 #include <sys/namei.h>
@@ -45,7 +47,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/random.h>
 #include <sys/rwlock.h>
 #include <sys/stat.h>
-#include <sys/systm.h>
 #include <sys/sysctl.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
@@ -212,6 +213,8 @@ tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *tmp, enum vtype type,
 		 */
 		return (EBUSY);
 	}
+	if ((mp->mnt_kern_flag & MNT_RDONLY) != 0)
+		return (EROFS);
 
 	nnode = (struct tmpfs_node *)uma_zalloc_arg(tmp->tm_node_pool, tmp,
 	    M_WAITOK);
@@ -1103,7 +1106,8 @@ tmpfs_dir_destroy(struct tmpfs_mount *tmp, struct tmpfs_node *dnode)
  * error happens.
  */
 static int
-tmpfs_dir_getdotdent(struct tmpfs_node *node, struct uio *uio)
+tmpfs_dir_getdotdent(struct tmpfs_mount *tm, struct tmpfs_node *node,
+    struct uio *uio)
 {
 	int error;
 	struct dirent dent;
@@ -1115,15 +1119,15 @@ tmpfs_dir_getdotdent(struct tmpfs_node *node, struct uio *uio)
 	dent.d_type = DT_DIR;
 	dent.d_namlen = 1;
 	dent.d_name[0] = '.';
-	dent.d_name[1] = '\0';
 	dent.d_reclen = GENERIC_DIRSIZ(&dent);
+	dirent_terminate(&dent);
 
 	if (dent.d_reclen > uio->uio_resid)
 		error = EJUSTRETURN;
 	else
 		error = uiomove(&dent, dent.d_reclen, uio);
 
-	tmpfs_set_status(node, TMPFS_NODE_ACCESSED);
+	tmpfs_set_status(tm, node, TMPFS_NODE_ACCESSED);
 
 	return (error);
 }
@@ -1136,10 +1140,12 @@ tmpfs_dir_getdotdent(struct tmpfs_node *node, struct uio *uio)
  * error happens.
  */
 static int
-tmpfs_dir_getdotdotdent(struct tmpfs_node *node, struct uio *uio)
+tmpfs_dir_getdotdotdent(struct tmpfs_mount *tm, struct tmpfs_node *node,
+    struct uio *uio)
 {
-	int error;
+	struct tmpfs_node *parent;
 	struct dirent dent;
+	int error;
 
 	TMPFS_VALIDATE_DIR(node);
 	MPASS(uio->uio_offset == TMPFS_DIRCOOKIE_DOTDOT);
@@ -1148,26 +1154,27 @@ tmpfs_dir_getdotdotdent(struct tmpfs_node *node, struct uio *uio)
 	 * Return ENOENT if the current node is already removed.
 	 */
 	TMPFS_ASSERT_LOCKED(node);
-	if (node->tn_dir.tn_parent == NULL)
+	parent = node->tn_dir.tn_parent;
+	if (parent == NULL)
 		return (ENOENT);
 
-	TMPFS_NODE_LOCK(node->tn_dir.tn_parent);
-	dent.d_fileno = node->tn_dir.tn_parent->tn_id;
-	TMPFS_NODE_UNLOCK(node->tn_dir.tn_parent);
+	TMPFS_NODE_LOCK(parent);
+	dent.d_fileno = parent->tn_id;
+	TMPFS_NODE_UNLOCK(parent);
 
 	dent.d_type = DT_DIR;
 	dent.d_namlen = 2;
 	dent.d_name[0] = '.';
 	dent.d_name[1] = '.';
-	dent.d_name[2] = '\0';
 	dent.d_reclen = GENERIC_DIRSIZ(&dent);
+	dirent_terminate(&dent);
 
 	if (dent.d_reclen > uio->uio_resid)
 		error = EJUSTRETURN;
 	else
 		error = uiomove(&dent, dent.d_reclen, uio);
 
-	tmpfs_set_status(node, TMPFS_NODE_ACCESSED);
+	tmpfs_set_status(tm, node, TMPFS_NODE_ACCESSED);
 
 	return (error);
 }
@@ -1180,8 +1187,8 @@ tmpfs_dir_getdotdotdent(struct tmpfs_node *node, struct uio *uio)
  * error code if another error happens.
  */
 int
-tmpfs_dir_getdents(struct tmpfs_node *node, struct uio *uio, int maxcookies,
-    u_long *cookies, int *ncookies)
+tmpfs_dir_getdents(struct tmpfs_mount *tm, struct tmpfs_node *node,
+    struct uio *uio, int maxcookies, u_long *cookies, int *ncookies)
 {
 	struct tmpfs_dir_cursor dc;
 	struct tmpfs_dirent *de;
@@ -1202,7 +1209,7 @@ tmpfs_dir_getdents(struct tmpfs_node *node, struct uio *uio, int maxcookies,
 	 */
 	switch (uio->uio_offset) {
 	case TMPFS_DIRCOOKIE_DOT:
-		error = tmpfs_dir_getdotdent(node, uio);
+		error = tmpfs_dir_getdotdent(tm, node, uio);
 		if (error != 0)
 			return (error);
 		uio->uio_offset = TMPFS_DIRCOOKIE_DOTDOT;
@@ -1210,7 +1217,7 @@ tmpfs_dir_getdents(struct tmpfs_node *node, struct uio *uio, int maxcookies,
 			cookies[(*ncookies)++] = off = uio->uio_offset;
 		/* FALLTHROUGH */
 	case TMPFS_DIRCOOKIE_DOTDOT:
-		error = tmpfs_dir_getdotdotdent(node, uio);
+		error = tmpfs_dir_getdotdotdent(tm, node, uio);
 		if (error != 0)
 			return (error);
 		de = tmpfs_dir_first(node, &dc);
@@ -1280,8 +1287,8 @@ tmpfs_dir_getdents(struct tmpfs_node *node, struct uio *uio, int maxcookies,
 		d.d_namlen = de->td_namelen;
 		MPASS(de->td_namelen < sizeof(d.d_name));
 		(void)memcpy(d.d_name, de->ud.td_name, de->td_namelen);
-		d.d_name[de->td_namelen] = '\0';
 		d.d_reclen = GENERIC_DIRSIZ(&d);
+		dirent_terminate(&d);
 
 		/* Stop reading if the directory entry we are treating is
 		 * bigger than the amount of data that can be returned. */
@@ -1312,7 +1319,7 @@ tmpfs_dir_getdents(struct tmpfs_node *node, struct uio *uio, int maxcookies,
 	node->tn_dir.tn_readdir_lastn = off;
 	node->tn_dir.tn_readdir_lastp = de;
 
-	tmpfs_set_status(node, TMPFS_NODE_ACCESSED);
+	tmpfs_set_status(tm, node, TMPFS_NODE_ACCESSED);
 	return error;
 }
 
@@ -1759,10 +1766,10 @@ tmpfs_chtimes(struct vnode *vp, struct vattr *vap,
 }
 
 void
-tmpfs_set_status(struct tmpfs_node *node, int status)
+tmpfs_set_status(struct tmpfs_mount *tm, struct tmpfs_node *node, int status)
 {
 
-	if ((node->tn_status & status) == status)
+	if ((node->tn_status & status) == status || tm->tm_ronly)
 		return;
 	TMPFS_NODE_LOCK(node);
 	node->tn_status |= status;

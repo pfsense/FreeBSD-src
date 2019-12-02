@@ -964,17 +964,12 @@ ENTRY(mds_handler_skl_avx512)
 	clts
 1:	movl	PCPU(MDS_BUF), %edi
 	movl	PCPU(MDS_BUF64), %edx
-/*	vmovdqa64	%zmm0, PCPU(MDS_TMP) */
-	.byte	0x64, 0x62, 0xf1, 0xfd, 0x48, 0x7f, 0x05
-	.long	PC_MDS_TMP
-/*	vpxor	%zmm0, %zmm0, %zmm0 */
-	.byte	0x62, 0xf1, 0xfd, 0x48, 0xef, 0xc0
+	vmovdqa64	%zmm0, PCPU(MDS_TMP)
+	vpxor	%zmm0, %zmm0, %zmm0
 
 	lfence
-/*	vorpd	(%edx), %zmm0, %zmm0 */
-	.byte	0x62, 0xf1, 0xfd, 0x48, 0x56, 0x02
-/*	vorpd	(%edx), %zmm0, %zmm0 */
-	.byte	0x62, 0xf1, 0xfd, 0x48, 0x56, 0x02
+	vorpd	(%edx), %zmm0, %zmm0
+	vorpd	(%edx), %zmm0, %zmm0
 	xorl	%eax, %eax
 2:	clflushopt	5376(%edi, %eax, 8)
 	addl	$8, %eax
@@ -986,9 +981,7 @@ ENTRY(mds_handler_skl_avx512)
 	rep; stosb
 	mfence
 
-/*	vmovdqa64	PCPU(MDS_TMP), %zmm0 */
-	.byte	0x64, 0x62, 0xf1, 0xfd, 0x48, 0x6f, 0x05
-	.long	PC_MDS_TMP
+	vmovdqa64	PCPU(MDS_TMP), %zmm0
 	testb	$CR0_TS, %al
 	je	3f
 	movl	%eax, %cr0

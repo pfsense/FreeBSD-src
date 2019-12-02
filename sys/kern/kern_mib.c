@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/jail.h>
 #include <sys/kernel.h>
+#include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
@@ -75,6 +76,8 @@ SYSCTL_ROOT_NODE(CTL_HW,	  hw,     CTLFLAG_RW, 0,
 	"hardware");
 SYSCTL_ROOT_NODE(CTL_MACHDEP, machdep, CTLFLAG_RW, 0,
 	"machine dependent");
+SYSCTL_NODE(_machdep, OID_AUTO, mitigations, CTLFLAG_RW, 0,
+	"Machine dependent platform mitigations.");
 SYSCTL_ROOT_NODE(CTL_USER,	  user,   CTLFLAG_RW, 0,
 	"user-level");
 SYSCTL_ROOT_NODE(CTL_P1003_1B,  p1003_1b,   CTLFLAG_RW, 0,
@@ -134,7 +137,7 @@ SYSCTL_INT(_kern, KERN_SAVED_IDS, saved_ids, CTLFLAG_RD|CTLFLAG_CAPRD,
     SYSCTL_NULL_INT_PTR, 0, "Whether saved set-group/user ID is available");
 #endif
 
-char kernelname[MAXPATHLEN] = "/kernel";	/* XXX bloat */
+char kernelname[MAXPATHLEN] = "/boot/kernel/kernel";	/* XXX bloat */
 
 SYSCTL_STRING(_kern, KERN_BOOTFILE, bootfile, CTLFLAG_RW | CTLFLAG_MPSAFE,
     kernelname, sizeof kernelname, "Name of kernel file booted");
@@ -173,37 +176,51 @@ SYSCTL_PROC(_kern, KERN_ARND, arandom,
 static int
 sysctl_hw_physmem(SYSCTL_HANDLER_ARGS)
 {
-	u_long val;
+	u_long val, p;
 
-	val = ctob(physmem);
+	p = SIZE_T_MAX >> PAGE_SHIFT;
+	if (physmem < p)
+		p = physmem;
+	val = ctob(p);
 	return (sysctl_handle_long(oidp, &val, 0, req));
 }
-
 SYSCTL_PROC(_hw, HW_PHYSMEM, physmem, CTLTYPE_ULONG | CTLFLAG_RD,
-	0, 0, sysctl_hw_physmem, "LU", "");
+    0, 0, sysctl_hw_physmem, "LU",
+    "Amount of physical memory (in bytes)");
 
 static int
 sysctl_hw_realmem(SYSCTL_HANDLER_ARGS)
 {
-	u_long val;
-	val = ctob(realmem);
+	u_long val, p;
+
+	p = SIZE_T_MAX >> PAGE_SHIFT;
+	if (realmem < p)
+		p = realmem;
+	val = ctob(p);
 	return (sysctl_handle_long(oidp, &val, 0, req));
 }
 SYSCTL_PROC(_hw, HW_REALMEM, realmem, CTLTYPE_ULONG | CTLFLAG_RD,
-	0, 0, sysctl_hw_realmem, "LU", "");
+    0, 0, sysctl_hw_realmem, "LU",
+    "Amount of memory (in bytes) reported by the firmware");
+
 static int
 sysctl_hw_usermem(SYSCTL_HANDLER_ARGS)
 {
-	u_long val;
+	u_long val, p, p1;
 
-	val = ctob(physmem - vm_cnt.v_wire_count);
+	p1 = physmem - vm_cnt.v_wire_count;
+	p = SIZE_T_MAX >> PAGE_SHIFT;
+	if (p1 < p)
+		p = p1;
+	val = ctob(p);
 	return (sysctl_handle_long(oidp, &val, 0, req));
 }
-
 SYSCTL_PROC(_hw, HW_USERMEM, usermem, CTLTYPE_ULONG | CTLFLAG_RD,
-	0, 0, sysctl_hw_usermem, "LU", "");
+    0, 0, sysctl_hw_usermem, "LU",
+    "Amount of memory (in bytes) which is not wired");
 
-SYSCTL_LONG(_hw, OID_AUTO, availpages, CTLFLAG_RD, &physmem, 0, "");
+SYSCTL_LONG(_hw, OID_AUTO, availpages, CTLFLAG_RD, &physmem, 0,
+    "Amount of physical memory (in pages)");
 
 u_long pagesizes[MAXPAGESIZES] = { PAGE_SIZE };
 

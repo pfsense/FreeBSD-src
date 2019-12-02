@@ -46,11 +46,11 @@ pr_debug("%s:%s:%d:(pid %d): " format, (dev)->ib_dev.name, __func__,	\
 	 __LINE__, current->pid, ##arg)
 
 #define mlx5_ib_err(dev, format, arg...)				\
-pr_err("%s:%s:%d:(pid %d): " format, (dev)->ib_dev.name, __func__,	\
+pr_err("%s: ERR: %s:%d:(pid %d): " format, (dev)->ib_dev.name, __func__,	\
 	__LINE__, current->pid, ##arg)
 
 #define mlx5_ib_warn(dev, format, arg...)				\
-pr_warn("%s:%s:%d:(pid %d): " format, (dev)->ib_dev.name, __func__,	\
+pr_warn("%s: WARN: %s:%d:(pid %d): " format, (dev)->ib_dev.name, __func__,	\
 	__LINE__, current->pid, ##arg)
 
 #define field_avail(type, fld, sz) (offsetof(type, fld) +		\
@@ -944,6 +944,8 @@ int mlx5_ib_set_vf_guid(struct ib_device *device, int vf, u8 port,
 
 __be16 mlx5_get_roce_udp_sport(struct mlx5_ib_dev *dev, u8 port_num,
 			       int index);
+int mlx5_get_roce_gid_type(struct mlx5_ib_dev *dev, u8 port_num,
+			   int index, enum ib_gid_type *gid_type);
 
 /* GSI QP helper functions */
 struct ib_qp *mlx5_ib_gsi_create_qp(struct ib_pd *pd,

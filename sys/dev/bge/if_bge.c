@@ -3204,6 +3204,14 @@ bge_can_use_msi(struct bge_softc *sc)
 		    sc->bge_chiprev != BGE_CHIPREV_5750_BX)
 			can_use_msi = 1;
 		break;
+	case BGE_ASICREV_BCM5784:
+		/*
+		 * Prevent infinite "watchdog timeout" errors
+		 * in some MacBook Pro and make it work out-of-the-box.
+		 */
+		if (sc->bge_chiprev == BGE_CHIPREV_5784_AX)
+			break;
+		/* FALLTHROUGH */
 	default:
 		if (BGE_IS_575X_PLUS(sc))
 			can_use_msi = 1;
@@ -3235,6 +3243,8 @@ bge_mbox_reorder(struct bge_softc *sc)
 		bus = device_get_parent(dev);
 		if (device_get_devclass(dev) != pcib)
 			break;
+		if (device_get_devclass(bus) != pci)
+			break;
 		for (i = 0; i < nitems(mbox_reorder_lists); i++) {
 			if (pci_get_vendor(dev) ==
 			    mbox_reorder_lists[i].vendor &&
@@ -3246,8 +3256,6 @@ bge_mbox_reorder(struct bge_softc *sc)
 				return (1);
 			}
 		}
-		if (device_get_devclass(bus) != pci)
-			break;
 	}
 	return (0);
 }

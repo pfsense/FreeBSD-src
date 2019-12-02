@@ -85,7 +85,11 @@ CFLAGS.gcc+= --param large-function-growth=${CFLAGS_PARAM_LARGE_FUNCTION_GROWTH}
 .if defined(CFLAGS_ARCH_PARAMS)
 CFLAGS.gcc+=${CFLAGS_ARCH_PARAMS}
 .endif
-WERROR?= -Werror
+.if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} < 50000
+WERROR?=	-Wno-error
+.else
+WERROR?=	-Werror
+.endif
 
 # XXX LOCORE means "don't declare C stuff" not "for locore.s".
 ASM_CFLAGS= -x assembler-with-cpp -DLOCORE ${CFLAGS} ${ASM_CFLAGS.${.IMPSRC:T}} 
@@ -183,6 +187,12 @@ OFEDCFLAGS=	${CFLAGS:N-I*} -DCONFIG_INFINIBAND_USER_MEM \
 OFED_C_NOIMP=	${CC} -c -o ${.TARGET} ${OFEDCFLAGS} ${WERROR} ${PROF}
 OFED_C=		${OFED_C_NOIMP} ${.IMPSRC}
 
+# mlxfw C flags.
+MLXFW_C=	${OFED_C_NOIMP} \
+		-I$S/contrib/xz-embedded/freebsd \
+		-I$S/contrib/xz-embedded/linux/lib/xz \
+		${.IMPSRC}
+
 GEN_CFILES= $S/$M/$M/genassym.c ${MFILES:T:S/.m$/.c/}
 SYSTEM_CFILES= config.c env.c hints.c vnode_if.c
 SYSTEM_DEP= Makefile ${SYSTEM_OBJS}
@@ -229,7 +239,7 @@ MKMODULESENV+=	DEBUG_FLAGS="${DEBUG}"
 MKMODULESENV+=	__MPATH="${__MPATH}"
 .endif
 
-# Architecture and output format arguments for objdump to convert image to
+# Architecture and output format arguments for objcopy to convert image to
 # object file
 
 .if ${MFS_IMAGE:Uno} != "no"
@@ -255,7 +265,7 @@ EMBEDFS_FORMAT.mips?=		elf32-tradbigmips
 EMBEDFS_FORMAT.mipsel?=		elf32-tradlittlemips
 EMBEDFS_FORMAT.mips64?=		elf64-tradbigmips
 EMBEDFS_FORMAT.mips64el?=	elf64-tradlittlemips
-EMBEDFS_FORMAT.riscv?=		elf64-littleriscv
+EMBEDFS_FORMAT.riscv64?=	elf64-littleriscv
 .endif
 .endif
 

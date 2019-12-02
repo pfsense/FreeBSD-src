@@ -253,6 +253,8 @@ typedef struct Struct_Obj_Entry {
     bool z_interpose : 1;	/* Interpose all objects but main */
     bool z_nodeflib : 1;	/* Don't search default library path */
     bool z_global : 1;		/* Make the object global */
+    bool static_tls : 1;	/* Needs static TLS allocation */
+    bool static_tls_copied : 1;	/* Needs static TLS copying */
     bool ref_nodel : 1;		/* Refcount increased to prevent dlclose */
     bool init_scanned: 1;	/* Object is already on init list. */
     bool on_fini_list: 1;	/* Object is already on fini list. */
@@ -261,6 +263,7 @@ typedef struct Struct_Obj_Entry {
     bool irelative : 1;		/* Object has R_MACHDEP_IRELATIVE relocs */
     bool gnu_ifunc : 1;		/* Object has references to STT_GNU_IFUNC */
     bool non_plt_gnu_ifunc : 1;	/* Object has non-plt IFUNC references */
+    bool ifuncs_resolved : 1;	/* Object ifuncs were already resolved */
     bool crt_no_init : 1;	/* Object' crt does not call _init/_fini */
     bool valid_hash_sysv : 1;	/* A valid System V hash hash tag is available */
     bool valid_hash_gnu : 1;	/* A valid GNU hash tag is available */

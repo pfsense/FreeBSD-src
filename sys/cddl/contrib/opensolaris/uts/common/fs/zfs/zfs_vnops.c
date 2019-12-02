@@ -2545,6 +2545,7 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp, int *ncookies, u_lon
 			odp->d_namlen = strlen(zap.za_name);
 			(void) strlcpy(odp->d_name, zap.za_name, odp->d_namlen + 1);
 			odp->d_type = type;
+			dirent_terminate(odp);
 			odp = (dirent64_t *)((intptr_t)odp + reclen);
 		}
 		outcount += reclen;
@@ -5252,7 +5253,7 @@ zfs_freebsd_setattr(ap)
 		FLAG_CHANGE(UF_HIDDEN, ZFS_HIDDEN, XAT_HIDDEN,
 		    xvap.xva_xoptattrs.xoa_hidden);
 		FLAG_CHANGE(UF_REPARSE, ZFS_REPARSE, XAT_REPARSE,
-		    xvap.xva_xoptattrs.xoa_hidden);
+		    xvap.xva_xoptattrs.xoa_reparse);
 		FLAG_CHANGE(UF_OFFLINE, ZFS_OFFLINE, XAT_OFFLINE,
 		    xvap.xva_xoptattrs.xoa_offline);
 		FLAG_CHANGE(UF_SPARSE, ZFS_SPARSE, XAT_SPARSE,

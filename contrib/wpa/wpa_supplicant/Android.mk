@@ -243,6 +243,10 @@ L_CFLAGS += -DCONFIG_SAE
 OBJS += src/common/sae.c
 NEED_ECC=y
 NEED_DH_GROUPS=y
+<<<<<<< HEAD
+=======
+NEED_DRAGONFLY=y
+>>>>>>> origin/stable/11
 endif
 
 ifdef CONFIG_DPP
@@ -643,6 +647,26 @@ CONFIG_IEEE8021X_EAPOL=y
 NEED_T_PRF=y
 endif
 
+<<<<<<< HEAD
+=======
+ifdef CONFIG_EAP_TEAP
+# EAP-TEAP
+ifeq ($(CONFIG_EAP_TEAP), dyn)
+L_CFLAGS += -DEAP_YEAP_DYNAMIC
+EAPDYN += src/eap_peer/eap_teap.so
+EAPDYN += src/eap_common/eap_teap_common.c
+else
+L_CFLAGS += -DEAP_TEAP
+OBJS += src/eap_peer/eap_teap.c src/eap_peer/eap_teap_pac.c
+OBJS += src/eap_common/eap_teap_common.c
+endif
+TLS_FUNCS=y
+CONFIG_IEEE8021X_EAPOL=y
+NEED_T_PRF=y
+NEED_SHA384=y
+endif
+
+>>>>>>> origin/stable/11
 ifdef CONFIG_EAP_PAX
 # EAP-PAX
 ifeq ($(CONFIG_EAP_PAX), dyn)
@@ -690,6 +714,10 @@ OBJS += src/eap_peer/eap_pwd.c src/eap_common/eap_pwd_common.c
 CONFIG_IEEE8021X_EAPOL=y
 NEED_SHA256=y
 NEED_ECC=y
+<<<<<<< HEAD
+=======
+NEED_DRAGONFLY=y
+>>>>>>> origin/stable/11
 endif
 
 ifdef CONFIG_EAP_EKE
@@ -979,6 +1007,13 @@ ifdef CONFIG_SMARTCARD
 L_CFLAGS += -DCONFIG_SMARTCARD
 endif
 
+<<<<<<< HEAD
+=======
+ifdef NEED_DRAGONFLY
+OBJS += src/common/dragonfly.c
+endif
+
+>>>>>>> origin/stable/11
 ifdef MS_FUNCS
 OBJS += src/crypto/ms_funcs.c
 NEED_DES=y

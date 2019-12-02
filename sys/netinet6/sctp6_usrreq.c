@@ -269,6 +269,7 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 	    pktdst->sa_len != sizeof(struct sockaddr_in6)) {
 		return;
 	}
+
 	if ((unsigned)cmd >= PRC_NCMDS) {
 		return;
 	}
@@ -292,6 +293,7 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 		if (ip6cp->ip6c_m == NULL) {
 			return;
 		}
+
 		/*
 		 * Check if we can safely examine the ports and the
 		 * verification tag of the SCTP common header.
@@ -300,6 +302,7 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 		    (int32_t)(ip6cp->ip6c_off + offsetof(struct sctphdr, checksum))) {
 			return;
 		}
+
 		/* Copy out the port numbers and the verification tag. */
 		memset(&sh, 0, sizeof(sh));
 		m_copydata(ip6cp->ip6c_m,
@@ -523,6 +526,7 @@ sctp6_attach(struct socket *so, int proto SCTP_UNUSED, struct thread *p SCTP_UNU
 		SCTP_LTRACE_ERR_RET(inp, NULL, NULL, SCTP_FROM_SCTP6_USRREQ, EINVAL);
 		return (EINVAL);
 	}
+
 	if (so->so_snd.sb_hiwat == 0 || so->so_rcv.sb_hiwat == 0) {
 		error = SCTP_SORESERVE(so, SCTP_BASE_SYSCTL(sctp_sendspace), SCTP_BASE_SYSCTL(sctp_recvspace));
 		if (error)
@@ -564,6 +568,7 @@ sctp6_bind(struct socket *so, struct sockaddr *addr, struct thread *p)
 		SCTP_LTRACE_ERR_RET(inp, NULL, NULL, SCTP_FROM_SCTP6_USRREQ, EINVAL);
 		return (EINVAL);
 	}
+
 	if (addr) {
 		switch (addr->sa_family) {
 #ifdef INET
@@ -908,7 +913,8 @@ sctp6_connect(struct socket *so, struct sockaddr *addr, struct thread *p)
 	/* We are GOOD to go */
 	stcb = sctp_aloc_assoc(inp, addr, &error, 0, vrf_id,
 	    inp->sctp_ep.pre_open_stream_count,
-	    inp->sctp_ep.port, p);
+	    inp->sctp_ep.port, p,
+	    SCTP_INITIALIZE_AUTH_PARAMS);
 	SCTP_ASOC_CREATE_UNLOCK(inp);
 	if (stcb == NULL) {
 		/* Gak! no memory */
@@ -919,12 +925,8 @@ sctp6_connect(struct socket *so, struct sockaddr *addr, struct thread *p)
 		/* Set the connected flag so we can queue data */
 		soisconnecting(so);
 	}
-	stcb->asoc.state = SCTP_STATE_COOKIE_WAIT;
+	SCTP_SET_STATE(stcb, SCTP_STATE_COOKIE_WAIT);
 	(void)SCTP_GETTIME_TIMEVAL(&stcb->asoc.time_entered);
-
-	/* initialize authentication parameters for the assoc */
-	sctp_initialize_auth_params(inp, stcb);
-
 	sctp_send_initiate(inp, stcb, SCTP_SO_LOCKED);
 	SCTP_TCB_UNLOCK(stcb);
 	return (error);
@@ -1106,6 +1108,7 @@ sctp6_in6getaddr(struct socket *so, struct sockaddr **nam)
 		SCTP_LTRACE_ERR_RET(NULL, NULL, NULL, SCTP_FROM_SCTP6_USRREQ, EINVAL);
 		return (EINVAL);
 	}
+
 	/* allow v6 addresses precedence */
 	error = sctp6_getaddr(so, nam);
 #ifdef INET
@@ -1141,6 +1144,7 @@ sctp6_getpeeraddr(struct socket *so, struct sockaddr **nam)
 		SCTP_LTRACE_ERR_RET(NULL, NULL, NULL, SCTP_FROM_SCTP6_USRREQ, EINVAL);
 		return (EINVAL);
 	}
+
 	/* allow v6 addresses precedence */
 	error = sctp6_peeraddr(so, nam);
 #ifdef INET

@@ -125,7 +125,9 @@ __DEFAULT_YES_OPTIONS = \
     LIB32 \
     LIBPTHREAD \
     LIBTHR \
+    LLVM_COV \
     LOADER_GELI \
+    LOADER_LUA \
     LOADER_OFW \
     LOADER_UBOOT \
     LOCALES \
@@ -183,6 +185,7 @@ __DEFAULT_YES_OPTIONS = \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
     ZFS \
+    LOADER_ZFS \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
@@ -195,8 +198,9 @@ __DEFAULT_NO_OPTIONS = \
     LINT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
+    LOADER_VERBOSE \
     NAND \
-    OFED \
+    OFED_EXTRA \
     OPENLDAP \
     REPRODUCIBLE_BUILD \
     RPCBIND_WARMSTART_SUPPORT \
@@ -227,6 +231,9 @@ __TT=${TARGET}
 __TT=${MACHINE}
 .endif
 
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_RISCV
+
 .include <bsd.compiler.mk>
 # If the compiler is not C++11 capable, disable Clang and use GCC instead.
 # This means that architectures that have GCC 4.2 as default can not
@@ -236,21 +243,31 @@ __TT=${MACHINE}
     ${__T} == "amd64" || ${__TT} == "arm" || ${__T} == "i386")
 # Clang is enabled, and will be installed as the default /usr/bin/cc.
 __DEFAULT_YES_OPTIONS+=CLANG CLANG_BOOTSTRAP CLANG_FULL CLANG_IS_CC LLD
+__DEFAULT_YES_OPTIONS+=LLVM_TARGET_AARCH64 LLVM_TARGET_ARM LLVM_TARGET_MIPS
+__DEFAULT_YES_OPTIONS+=LLVM_TARGET_POWERPC LLVM_TARGET_SPARC LLVM_TARGET_X86
 __DEFAULT_NO_OPTIONS+=GCC GCC_BOOTSTRAP GNUCXX
 .elif ${COMPILER_FEATURES:Mc++11} && ${__T} != "riscv64" && ${__T} != "sparc64"
 # If an external compiler that supports C++11 is used as ${CC} and Clang
 # supports the target, then Clang is enabled but GCC is installed as the
 # default /usr/bin/cc.
 __DEFAULT_YES_OPTIONS+=CLANG CLANG_FULL GCC GCC_BOOTSTRAP GNUCXX
+__DEFAULT_YES_OPTIONS+=LLVM_TARGET_AARCH64 LLVM_TARGET_ARM LLVM_TARGET_MIPS
+__DEFAULT_YES_OPTIONS+=LLVM_TARGET_POWERPC LLVM_TARGET_SPARC LLVM_TARGET_X86
 __DEFAULT_NO_OPTIONS+=CLANG_BOOTSTRAP CLANG_IS_CC LLD
 .else
 # Everything else disables Clang, and uses GCC instead.
 __DEFAULT_YES_OPTIONS+=GCC GCC_BOOTSTRAP GNUCXX
 __DEFAULT_NO_OPTIONS+=CLANG CLANG_BOOTSTRAP CLANG_FULL CLANG_IS_CC LLD
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_AARCH64 LLVM_TARGET_ARM LLVM_TARGET_MIPS
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_POWERPC LLVM_TARGET_SPARC LLVM_TARGET_X86
 .endif
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
 # In-tree binutils/gcc are older versions without modern architecture support.
 .if ${__T} == "aarch64" || ${__T} == "riscv64"
 BROKEN_OPTIONS+=BINUTILS BINUTILS_BOOTSTRAP GCC GCC_BOOTSTRAP GDB
+.endif
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
+    ${__T:Mriscv*} != "" || ${__TT} == "mips"
 __DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
 .else
 __DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
@@ -283,10 +300,6 @@ BROKEN_OPTIONS+=LIBSOFT
     ${__T:Mriscv*}
 BROKEN_OPTIONS+=EFI
 .endif
-# GELI isn't supported on !x86
-.if ${__T} != "i386" && ${__T} != "amd64"
-BROKEN_OPTIONS+=LOADER_GELI
-.endif
 # OFW is only for powerpc and sparc64, exclude others
 .if ${__T:Mpowerpc*} == "" && ${__T:Msparc64} == ""
 BROKEN_OPTIONS+=LOADER_OFW
@@ -295,7 +308,18 @@ BROKEN_OPTIONS+=LOADER_OFW
 .if ${__T:Marm*} == "" && ${__T:Mmips*} == "" && ${__T:Mpowerpc*} == ""
 BROKEN_OPTIONS+=LOADER_UBOOT
 .endif
-
+# GELI and Lua in loader currently cause boot failures on sparc64 and powerpc.
+# Further debugging is required -- probably they are just broken on big
+# endian systems generically (they jump to null pointers or try to read
+# crazy high addresses, which is typical of endianness problems).
+.if ${__T} == "sparc64" || ${__T:Mpowerpc*}
+BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
+.endif
+# Both features are untested on pc98, so we'll mark them as disabled just to
+# be safe and make sure we keep pc98 stable.
+.if ${__TT:Mpc98*}
+BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
+.endif
 .if ${__T:Mmips64*}
 # profiling won't work on MIPS64 because there is only assembly for o32
 BROKEN_OPTIONS+=PROFILE
@@ -307,6 +331,18 @@ __DEFAULT_YES_OPTIONS+=MLX5TOOL
 .else
 __DEFAULT_NO_OPTIONS+=CXGBETOOL
 __DEFAULT_NO_OPTIONS+=MLX5TOOL
+.endif
+
+.if ${__T} == "amd64"
+__DEFAULT_YES_OPTIONS+=OFED
+.else
+__DEFAULT_NO_OPTIONS+=OFED
+.endif
+
+.if ${COMPILER_FEATURES:Mc++11} && (${__T} == "amd64" || ${__T} == "i386")
+__DEFAULT_YES_OPTIONS+=OPENMP
+.else
+__DEFAULT_NO_OPTIONS+=OPENMP
 .endif
 
 .include <bsd.mkopt.mk>
@@ -337,6 +373,10 @@ MK_${var}:=	no
 # Force some options off if their dependencies are off.
 # Order is somewhat important.
 #
+.if !${COMPILER_FEATURES:Mc++11}
+MK_LLVM_LIBUNWIND:=	no
+.endif
+
 .if ${MK_CAPSICUM} == "no"
 MK_CASPER:=	no
 .endif
@@ -357,6 +397,7 @@ MK_SOURCELESS_UCODE:= no
 
 .if ${MK_CDDL} == "no"
 MK_ZFS:=	no
+MK_LOADER_ZFS:=	no
 MK_CTF:=	no
 .endif
 
@@ -394,6 +435,10 @@ MK_NLS_CATALOGS:= no
 .if ${MK_OPENSSL} == "no"
 MK_OPENSSH:=	no
 MK_KERBEROS:=	no
+.endif
+
+.if ${MK_OFED} == "no"
+MK_OFED_EXTRA:=	no
 .endif
 
 .if ${MK_PF} == "no"
@@ -438,6 +483,7 @@ MK_LLDB:=	no
 .if ${MK_CLANG} == "no"
 MK_CLANG_EXTRAS:= no
 MK_CLANG_FULL:= no
+MK_LLVM_COV:= no
 .endif
 
 #

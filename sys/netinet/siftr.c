@@ -150,8 +150,6 @@ __FBSDID("$FreeBSD$");
 #endif
 
 /* useful macros */
-#define CAST_PTR_INT(X) (*((int*)(X)))
-
 #define UPPER_SHORT(X)	(((X) & 0xFFFF0000) >> 16)
 #define LOWER_SHORT(X)	((X) & 0x0000FFFF)
 
@@ -1219,7 +1217,7 @@ siftr_manage_ops(uint8_t action)
 	if ((s = sbuf_new(NULL, NULL, 200, SBUF_AUTOEXTEND)) == NULL)
 		return (-1);
 
-	if (action == SIFTR_ENABLE) {
+	if (action == SIFTR_ENABLE && siftr_pkt_manager_thr == NULL) {
 		/*
 		 * Create our alq
 		 * XXX: We should abort if alq_open fails!
@@ -1424,7 +1422,8 @@ siftr_manage_ops(uint8_t action)
 
 		alq_close(siftr_alq);
 		siftr_alq = NULL;
-	}
+	} else
+		error = EINVAL;
 
 	sbuf_delete(s);
 
@@ -1440,29 +1439,33 @@ siftr_manage_ops(uint8_t action)
 static int
 siftr_sysctl_enabled_handler(SYSCTL_HANDLER_ARGS)
 {
-	if (req->newptr == NULL)
-		goto skip;
+	int error;
+	uint32_t new;
 
-	/* If the value passed in isn't 0 or 1, return an error. */
-	if (CAST_PTR_INT(req->newptr) != 0 && CAST_PTR_INT(req->newptr) != 1)
-		return (1);
-
-	/* If we are changing state (0 to 1 or 1 to 0). */
-	if (CAST_PTR_INT(req->newptr) != siftr_enabled )
-		if (siftr_manage_ops(CAST_PTR_INT(req->newptr))) {
-			siftr_manage_ops(SIFTR_DISABLE);
-			return (1);
+	new = siftr_enabled;
+	error = sysctl_handle_int(oidp, &new, 0, req);
+	if (error == 0 && req->newptr != NULL) {
+		if (new > 1)
+			return (EINVAL);
+		else if (new != siftr_enabled) {
+			if ((error = siftr_manage_ops(new)) == 0) {
+				siftr_enabled = new;
+			} else {
+				siftr_manage_ops(SIFTR_DISABLE);
+			}
 		}
+	}
 
-skip:
-	return (sysctl_handle_int(oidp, arg1, arg2, req));
+	return (error);
 }
 
 
 static void
 siftr_shutdown_handler(void *arg)
 {
-	siftr_manage_ops(SIFTR_DISABLE);
+	if (siftr_enabled == 1) {
+		siftr_manage_ops(SIFTR_DISABLE);
+	}
 }
 
 

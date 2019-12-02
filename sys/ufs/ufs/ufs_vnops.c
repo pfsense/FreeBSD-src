@@ -323,9 +323,6 @@ ufs_accessx(ap)
 	struct inode *ip = VTOI(vp);
 	accmode_t accmode = ap->a_accmode;
 	int error;
-#ifdef QUOTA
-	int relocked;
-#endif
 #ifdef UFS_ACL
 	struct acl *acl;
 	acl_type_t type;
@@ -348,32 +345,14 @@ ufs_accessx(ap)
 			 * Inode is accounted in the quotas only if struct
 			 * dquot is attached to it. VOP_ACCESS() is called
 			 * from vn_open_cred() and provides a convenient
-			 * point to call getinoquota().
+			 * point to call getinoquota().  The lock mode is
+			 * exclusive when the file is opening for write.
 			 */
-			if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
-
-				/*
-				 * Upgrade vnode lock, since getinoquota()
-				 * requires exclusive lock to modify inode.
-				 */
-				relocked = 1;
-				vhold(vp);
-				vn_lock(vp, LK_UPGRADE | LK_RETRY);
-				VI_LOCK(vp);
-				if (vp->v_iflag & VI_DOOMED) {
-					vdropl(vp);
-					error = ENOENT;
-					goto relock;
-				}
-				vdropl(vp);
-			} else
-				relocked = 0;
-			error = getinoquota(ip);
-relock:
-			if (relocked)
-				vn_lock(vp, LK_DOWNGRADE | LK_RETRY);
-			if (error != 0)
-				return (error);
+			if (VOP_ISLOCKED(vp) == LK_EXCLUSIVE) {
+				error = getinoquota(ip);
+				if (error != 0)
+					return (error);
+			}
 #endif
 			break;
 		default:
@@ -2237,7 +2216,7 @@ ufs_readdir(ap)
 			dstdp.d_fileno = dp->d_ino;
 			dstdp.d_reclen = GENERIC_DIRSIZ(&dstdp);
 			bcopy(dp->d_name, dstdp.d_name, dstdp.d_namlen);
-			dstdp.d_name[dstdp.d_namlen] = '\0';
+			dirent_terminate(&dstdp);
 			if (dstdp.d_reclen > uio->uio_resid) {
 				if (uio->uio_resid == startresid)
 					error = EINVAL;
@@ -2436,28 +2415,20 @@ ufs_pathconf(ap)
 	case _PC_NO_TRUNC:
 		*ap->a_retval = 1;
 		break;
-	case _PC_ACL_EXTENDED:
 #ifdef UFS_ACL
+	case _PC_ACL_EXTENDED:
 		if (ap->a_vp->v_mount->mnt_flag & MNT_ACLS)
 			*ap->a_retval = 1;
 		else
 			*ap->a_retval = 0;
-#else
-		*ap->a_retval = 0;
-#endif
 		break;
-
 	case _PC_ACL_NFS4:
-#ifdef UFS_ACL
 		if (ap->a_vp->v_mount->mnt_flag & MNT_NFS4ACLS)
 			*ap->a_retval = 1;
 		else
 			*ap->a_retval = 0;
-#else
-		*ap->a_retval = 0;
-#endif
 		break;
-
+#endif
 	case _PC_ACL_PATH_MAX:
 #ifdef UFS_ACL
 		if (ap->a_vp->v_mount->mnt_flag & (MNT_ACLS | MNT_NFS4ACLS))
@@ -2468,16 +2439,14 @@ ufs_pathconf(ap)
 		*ap->a_retval = 3;
 #endif
 		break;
-	case _PC_MAC_PRESENT:
 #ifdef MAC
+	case _PC_MAC_PRESENT:
 		if (ap->a_vp->v_mount->mnt_flag & MNT_MULTILABEL)
 			*ap->a_retval = 1;
 		else
 			*ap->a_retval = 0;
-#else
-		*ap->a_retval = 0;
-#endif
 		break;
+#endif
 	case _PC_MIN_HOLE_SIZE:
 		*ap->a_retval = ap->a_vp->v_mount->mnt_stat.f_iosize;
 		break;
@@ -2532,6 +2501,11 @@ ufs_vinit(mntp, fifoops, vpp)
 	vp = *vpp;
 	ip = VTOI(vp);
 	vp->v_type = IFTOVT(ip->i_mode);
+	/*
+	 * Only unallocated inodes should be of type VNON.
+	 */
+	if (ip->i_mode != 0 && vp->v_type == VNON)
+		return (EINVAL);
 	if (vp->v_type == VFIFO)
 		vp->v_op = fifoops;
 	ASSERT_VOP_LOCKED(vp, "ufs_vinit");

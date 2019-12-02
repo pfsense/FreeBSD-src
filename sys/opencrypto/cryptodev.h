@@ -239,7 +239,8 @@ struct crypt_op {
 #define COP_ENCRYPT	1
 #define COP_DECRYPT	2
 	u_int16_t	flags;
-#define	COP_F_BATCH	0x0008		/* Batch op if possible */
+#define	COP_F_CIPHER_FIRST	0x0001	/* Cipher before MAC. */
+#define	COP_F_BATCH		0x0008	/* Batch op if possible */
 	u_int		len;
 	c_caddr_t	src;		/* become iov[] inside kernel */
 	caddr_t		dst;
@@ -431,8 +432,12 @@ struct cryptop {
 					 * if CRYPTO_F_ASYNC flags is set
 					 */
 
-	caddr_t		crp_buf;	/* Data to be processed */
-	caddr_t		crp_opaque;	/* Opaque pointer, passed along */
+	union {
+		caddr_t		crp_buf;	/* Data to be processed */
+		struct mbuf	*crp_mbuf;
+		struct uio	*crp_uio;
+	};
+	void *		crp_opaque;	/* Opaque pointer, passed along */
 	struct cryptodesc *crp_desc;	/* Linked list of processing descriptors */
 
 	int (*crp_callback)(struct cryptop *); /* Callback function */
@@ -544,5 +549,6 @@ extern	void crypto_copydata(int flags, caddr_t buf, int off, int size,
 	    caddr_t out);
 extern	int crypto_apply(int flags, caddr_t buf, int off, int len,
 	    int (*f)(void *, void *, u_int), void *arg);
+
 #endif /* _KERNEL */
 #endif /* _CRYPTO_CRYPTO_H_ */

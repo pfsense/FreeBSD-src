@@ -46,7 +46,7 @@ linux32_assym.h			optional	compat_linux32		\
 #
 linux32_locore.o	optional	compat_linux32		\
 	dependency 	"linux32_assym.h $S/amd64/linux32/linux32_locore.s"	\
-	compile-with	"${CC} -x assembler-with-cpp -DLOCORE -m32 -shared -s -pipe -I. -I$S -Werror -Wall -fPIC -fno-common -nostdinc -nostdlib -Wl,-T$S/amd64/linux32/linux32_vdso.lds.s -Wl,-soname=linux32_vdso.so,--eh-frame-hdr,-warn-common ${.IMPSRC} -o ${.TARGET}" \
+	compile-with	"${CC} -x assembler-with-cpp -DLOCORE -m32 -shared -s -pipe -I. -I$S ${WERROR} -Wall -fPIC -fno-common -nostdinc -nostdlib -Wl,-T$S/amd64/linux32/linux32_vdso.lds.s -Wl,-soname=linux32_vdso.so,--eh-frame-hdr,-warn-common ${.IMPSRC} -o ${.TARGET}" \
 	no-obj no-implicit-rule						\
 	clean		"linux32_locore.o"
 #
@@ -191,6 +191,7 @@ dev/acpi_support/acpi_wmi_if.m	standard
 dev/agp/agp_amd64.c		optional	agp
 dev/agp/agp_i810.c		optional	agp
 dev/agp/agp_via.c		optional	agp
+dev/amdgpio/amdgpio.c		optional	amdgpio
 dev/amdsbwd/amdsbwd.c		optional	amdsbwd
 dev/amdsmn/amdsmn.c		optional	amdsmn | amdtemp
 dev/amdtemp/amdtemp.c		optional	amdtemp
@@ -472,6 +473,9 @@ dev/syscons/scvesactl.c		optional	sc vga vesa
 dev/syscons/scvgarndr.c		optional	sc vga
 dev/syscons/scvtb.c		optional	sc
 dev/tpm/tpm.c			optional	tpm
+dev/tpm/tpm20.c		optional	tpm
+dev/tpm/tpm_crb.c		optional	tpm acpi
+dev/tpm/tpm_tis.c		optional	tpm acpi
 dev/tpm/tpm_acpi.c		optional	tpm acpi
 dev/tpm/tpm_isa.c		optional	tpm isa
 dev/uart/uart_cpu_x86.c		optional	uart
@@ -619,6 +623,7 @@ amd64/linux32/linux32_support.s	optional	compat_linux32		\
 amd64/linux32/linux32_sysent.c	optional	compat_linux32
 amd64/linux32/linux32_sysvec.c	optional	compat_linux32
 compat/linux/linux_emul.c	optional	compat_linux32
+compat/linux/linux_errno.c	optional	compat_linux32
 compat/linux/linux_file.c	optional	compat_linux32
 compat/linux/linux_fork.c	optional	compat_linux32
 compat/linux/linux_futex.c	optional	compat_linux32
@@ -720,6 +725,7 @@ x86/x86/nexus.c			standard
 x86/x86/pvclock.c		standard
 x86/x86/stack_machdep.c		optional	ddb | stack
 x86/x86/tsc.c			standard
+x86/x86/ucode.c			standard
 x86/x86/delay.c			standard
 x86/xen/hvm.c			optional	xenhvm
 x86/xen/xen_intr.c		optional	xenhvm

@@ -7,6 +7,180 @@
  https://github.com/openssl/openssl/commits/ and pick the appropriate
  release branch.
 
+ Changes between 1.0.2s and 1.0.2t [10 Sep 2019]
+
+   *) For built-in EC curves, ensure an EC_GROUP built from the curve name is
+      used even when parsing explicit parameters, when loading a serialized key
+      or calling `EC_GROUP_new_from_ecpkparameters()`/
+      `EC_GROUP_new_from_ecparameters()`.
+      This prevents bypass of security hardening and performance gains,
+      especially for curves with specialized EC_METHODs.
+      By default, if a key encoded with explicit parameters is loaded and later
+      serialized, the output is still encoded with explicit parameters, even if
+      internally a "named" EC_GROUP is used for computation.
+      [Nicola Tuveri]
+
+  *) Compute ECC cofactors if not provided during EC_GROUP construction. Before
+     this change, EC_GROUP_set_generator would accept order and/or cofactor as
+     NULL. After this change, only the cofactor parameter can be NULL. It also
+     does some minimal sanity checks on the passed order.
+     (CVE-2019-1547)
+     [Billy Bob Brumley]
+
+  *) Fixed a padding oracle in PKCS7_dataDecode and CMS_decrypt_set1_pkey.
+     An attack is simple, if the first CMS_recipientInfo is valid but the
+     second CMS_recipientInfo is chosen ciphertext. If the second
+     recipientInfo decodes to PKCS #1 v1.5 form plaintext, the correct
+     encryption key will be replaced by garbage, and the message cannot be
+     decoded, but if the RSA decryption fails, the correct encryption key is
+     used and the recipient will not notice the attack.
+     As a work around for this potential attack the length of the decrypted
+     key must be equal to the cipher default key length, in case the
+     certifiate is not given and all recipientInfo are tried out.
+     The old behaviour can be re-enabled in the CMS code by setting the
+     CMS_DEBUG_DECRYPT flag.
+     (CVE-2019-1563)
+     [Bernd Edlinger]
+
+  *) Document issue with installation paths in diverse Windows builds
+
+     '/usr/local/ssl' is an unsafe prefix for location to install OpenSSL
+     binaries and run-time config file.
+     (CVE-2019-1552)
+     [Richard Levitte]
+
+ Changes between 1.0.2r and 1.0.2s [28 May 2019]
+
+  *) Change the default RSA, DSA and DH size to 2048 bit instead of 1024.
+     This changes the size when using the genpkey app when no size is given. It
+     fixes an omission in earlier changes that changed all RSA, DSA and DH
+     generation apps to use 2048 bits by default.
+     [Kurt Roeckx]
+
+  *) Add FIPS support for Android Arm 64-bit
+
+     Support for Android Arm 64-bit was added to the OpenSSL FIPS Object
+     Module in Version 2.0.10. For some reason, the corresponding target
+     'android64-aarch64' was missing OpenSSL 1.0.2, whence it could not be
+     built with FIPS support on Android Arm 64-bit. This omission has been
+     fixed.
+     [Matthias St. Pierre]
+
+ Changes between 1.0.2q and 1.0.2r [26 Feb 2019]
+
+  *) 0-byte record padding oracle
+
+     If an application encounters a fatal protocol error and then calls
+     SSL_shutdown() twice (once to send a close_notify, and once to receive one)
+     then OpenSSL can respond differently to the calling application if a 0 byte
+     record is received with invalid padding compared to if a 0 byte record is
+     received with an invalid MAC. If the application then behaves differently
+     based on that in a way that is detectable to the remote peer, then this
+     amounts to a padding oracle that could be used to decrypt data.
+
+     In order for this to be exploitable "non-stitched" ciphersuites must be in
+     use. Stitched ciphersuites are optimised implementations of certain
+     commonly used ciphersuites. Also the application must call SSL_shutdown()
+     twice even if a protocol error has occurred (applications should not do
+     this but some do anyway).
+
+     This issue was discovered by Juraj Somorovsky, Robert Merget and Nimrod
+     Aviram, with additional investigation by Steven Collison and Andrew
+     Hourselt. It was reported to OpenSSL on 10th December 2018.
+     (CVE-2019-1559)
+     [Matt Caswell]
+
+  *) Move strictness check from EVP_PKEY_asn1_new() to EVP_PKEY_asn1_add0().
+     [Richard Levitte]
+
+ Changes between 1.0.2p and 1.0.2q [20 Nov 2018]
+
+  *) Microarchitecture timing vulnerability in ECC scalar multiplication
+
+     OpenSSL ECC scalar multiplication, used in e.g. ECDSA and ECDH, has been
+     shown to be vulnerable to a microarchitecture timing side channel attack.
+     An attacker with sufficient access to mount local timing attacks during
+     ECDSA signature generation could recover the private key.
+
+     This issue was reported to OpenSSL on 26th October 2018 by Alejandro
+     Cabrera Aldaya, Billy Brumley, Sohaib ul Hassan, Cesar Pereida Garcia and
+     Nicola Tuveri.
+     (CVE-2018-5407)
+     [Billy Brumley]
+
+  *) Timing vulnerability in DSA signature generation
+
+     The OpenSSL DSA signature algorithm has been shown to be vulnerable to a
+     timing side channel attack. An attacker could use variations in the signing
+     algorithm to recover the private key.
+
+     This issue was reported to OpenSSL on 16th October 2018 by Samuel Weiser.
+     (CVE-2018-0734)
+     [Paul Dale]
+
+  *) Resolve a compatibility issue in EC_GROUP handling with the FIPS Object
+     Module, accidentally introduced while backporting security fixes from the
+     development branch and hindering the use of ECC in FIPS mode.
+     [Nicola Tuveri]
+
+ Changes between 1.0.2o and 1.0.2p [14 Aug 2018]
+
+  *) Client DoS due to large DH parameter
+
+     During key agreement in a TLS handshake using a DH(E) based ciphersuite a
+     malicious server can send a very large prime value to the client. This will
+     cause the client to spend an unreasonably long period of time generating a
+     key for this prime resulting in a hang until the client has finished. This
+     could be exploited in a Denial Of Service attack.
+
+     This issue was reported to OpenSSL on 5th June 2018 by Guido Vranken
+     (CVE-2018-0732)
+     [Guido Vranken]
+
+  *) Cache timing vulnerability in RSA Key Generation
+
+     The OpenSSL RSA Key generation algorithm has been shown to be vulnerable to
+     a cache timing side channel attack. An attacker with sufficient access to
+     mount cache timing attacks during the RSA key generation process could
+     recover the private key.
+
+     This issue was reported to OpenSSL on 4th April 2018 by Alejandro Cabrera
+     Aldaya, Billy Brumley, Cesar Pereida Garcia and Luis Manuel Alvarez Tapia.
+     (CVE-2018-0737)
+     [Billy Brumley]
+
+  *) Make EVP_PKEY_asn1_new() a bit stricter about its input.  A NULL pem_str
+     parameter is no longer accepted, as it leads to a corrupt table.  NULL
+     pem_str is reserved for alias entries only.
+     [Richard Levitte]
+
+  *) Revert blinding in ECDSA sign and instead make problematic addition
+     length-invariant. Switch even to fixed-length Montgomery multiplication.
+     [Andy Polyakov]
+
+  *) Change generating and checking of primes so that the error rate of not
+     being prime depends on the intended use based on the size of the input.
+     For larger primes this will result in more rounds of Miller-Rabin.
+     The maximal error rate for primes with more than 1080 bits is lowered
+     to 2^-128.
+     [Kurt Roeckx, Annie Yousar]
+
+  *) Increase the number of Miller-Rabin rounds for DSA key generating to 64.
+     [Kurt Roeckx]
+
+  *) Add blinding to ECDSA and DSA signatures to protect against side channel
+     attacks discovered by Keegan Ryan (NCC Group).
+     [Matt Caswell]
+
+  *) When unlocking a pass phrase protected PEM file or PKCS#8 container, we
+     now allow empty (zero character) pass phrases.
+     [Richard Levitte]
+
+  *) Certificate time validation (X509_cmp_time) enforces stricter
+     compliance with RFC 5280. Fractional seconds and timezone offsets
+     are no longer allowed.
+     [Emilia Käsper]
+
  Changes between 1.0.2n and 1.0.2o [27 Mar 2018]
 
   *) Constructed ASN.1 types with a recursive definition could exceed the stack
