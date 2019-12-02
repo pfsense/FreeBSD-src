@@ -152,6 +152,13 @@ __FBSDID("$FreeBSD$");
 #define SYSLOG_NAMES
 #include <sys/syslog.h>
 
+/*
+ *  This magic constant is used to identify a valid circular log file.
+ *  syslogd will ignore any circular log file that doesn't have this constant.
+ */
+
+static const char MAGIC_CONST[4] = "CLOG";
+
 static const char *ConfFile = _PATH_LOGCONF;
 static const char *PidFile = _PATH_LOGPID;
 static const char ctty[] = _PATH_CONSOLE;
@@ -1451,7 +1458,6 @@ logmsg(int pri, const struct logtime *timestamp, const char *hostname,
 	struct filed *f;
 	size_t savedlen;
 	int fac, prilev;
-	const char *timestamp;
 	char saved[MAXSVLINE];
 
 	dprintf("logmsg: pri %o, flags %x, from %s, msg %s\n",
@@ -1747,7 +1753,7 @@ fprintlog_write(struct filed *f, struct iovlist *il, int flags)
 	case F_RING:
 		dprintf(" %s\n", f->f_un.f_ring.f_rname);
 		iovlist_append(il, "\n");
-		if (rbwritev(f, il->iov, IOV_SIZE)==-1) {
+		if (rbwritev(f, il->iov, il->iovcnt)==-1) {
 			int e = errno;
 			(void)munmap(f->f_un.f_ring.f_footer,sizeof(struct clog_footer));
 			(void)close(f->f_file);
