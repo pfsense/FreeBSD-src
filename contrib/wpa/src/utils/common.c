@@ -1260,6 +1260,7 @@ char * get_param(const char *cmd, const char *param)
 	return val;
 }
 
+
 /* Try to prevent most compilers from optimizing out clearing of memory that
  * becomes unaccessible after this function is called. This is mostly the case
  * for clearing local stack variables at the end of a function. This is not

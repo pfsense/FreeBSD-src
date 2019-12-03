@@ -18,17 +18,11 @@
 #include "crypto/sha256.h"
 
 struct crypto_ecdh;
-<<<<<<< HEAD
-struct dpp_global;
-
-#define DPP_HDR_LEN (4 + 2) /* OUI, OUI Type, Crypto Suite, DPP frame type */
-=======
 struct hostapd_ip_addr;
 struct dpp_global;
 
 #define DPP_HDR_LEN (4 + 2) /* OUI, OUI Type, Crypto Suite, DPP frame type */
 #define DPP_TCP_PORT 7871
->>>>>>> origin/stable/11
 
 enum dpp_public_action_frame_type {
 	DPP_PA_AUTHENTICATION_REQ = 0,
@@ -267,8 +261,6 @@ struct dpp_introduction {
 	size_t pmk_len;
 };
 
-<<<<<<< HEAD
-=======
 struct dpp_relay_config {
 	const struct hostapd_ip_addr *ipaddr;
 	const u8 *pkhash;
@@ -285,7 +277,6 @@ struct dpp_controller_config {
 	int tcp_port;
 };
 
->>>>>>> origin/stable/11
 #ifdef CONFIG_TESTING_OPTIONS
 enum dpp_test_behavior {
 	DPP_TEST_DISABLED = 0,
@@ -524,9 +515,6 @@ int dpp_configurator_add(struct dpp_global *dpp, const char *cmd);
 int dpp_configurator_remove(struct dpp_global *dpp, const char *id);
 int dpp_configurator_get_key_id(struct dpp_global *dpp, unsigned int id,
 				char *buf, size_t buflen);
-<<<<<<< HEAD
-struct dpp_global * dpp_global_init(void);
-=======
 int dpp_relay_add_controller(struct dpp_global *dpp,
 			     struct dpp_relay_config *config);
 int dpp_relay_rx_action(struct dpp_global *dpp, const u8 *src, const u8 *hdr,
@@ -547,7 +535,6 @@ struct dpp_global_config {
 };
 
 struct dpp_global * dpp_global_init(struct dpp_global_config *config);
->>>>>>> origin/stable/11
 void dpp_global_clear(struct dpp_global *dpp);
 void dpp_global_deinit(struct dpp_global *dpp);
 

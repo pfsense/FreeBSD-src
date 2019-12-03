@@ -139,21 +139,6 @@ void hostapd_free_neighbor_db(struct hostapd_data *hapd)
 
 #ifdef NEED_AP_MLME
 static enum nr_chan_width hostapd_get_nr_chan_width(struct hostapd_data *hapd,
-<<<<<<< HEAD
-						    int ht, int vht)
-{
-	if (!ht && !vht)
-		return NR_CHAN_WIDTH_20;
-	if (!hapd->iconf->secondary_channel)
-		return NR_CHAN_WIDTH_20;
-	if (!vht || hapd->iconf->vht_oper_chwidth == VHT_CHANWIDTH_USE_HT)
-		return NR_CHAN_WIDTH_40;
-	if (hapd->iconf->vht_oper_chwidth == VHT_CHANWIDTH_80MHZ)
-		return NR_CHAN_WIDTH_80;
-	if (hapd->iconf->vht_oper_chwidth == VHT_CHANWIDTH_160MHZ)
-		return NR_CHAN_WIDTH_160;
-	if (hapd->iconf->vht_oper_chwidth == VHT_CHANWIDTH_80P80MHZ)
-=======
 						    int ht, int vht, int he)
 {
 	u8 oper_chwidth = hostapd_get_oper_chwidth(hapd->iconf);
@@ -169,7 +154,6 @@ static enum nr_chan_width hostapd_get_nr_chan_width(struct hostapd_data *hapd,
 	if (oper_chwidth == CHANWIDTH_160MHZ)
 		return NR_CHAN_WIDTH_160;
 	if (oper_chwidth == CHANWIDTH_80P80MHZ)
->>>>>>> origin/stable/11
 		return NR_CHAN_WIDTH_80P80;
 	return NR_CHAN_WIDTH_20;
 }
@@ -182,10 +166,7 @@ void hostapd_neighbor_set_own_report(struct hostapd_data *hapd)
 	u16 capab = hostapd_own_capab_info(hapd);
 	int ht = hapd->iconf->ieee80211n && !hapd->conf->disable_11n;
 	int vht = hapd->iconf->ieee80211ac && !hapd->conf->disable_11ac;
-<<<<<<< HEAD
-=======
 	int he = hapd->iconf->ieee80211ax;
->>>>>>> origin/stable/11
 	struct wpa_ssid_value ssid;
 	u8 channel, op_class;
 	u8 center_freq1_idx = 0, center_freq2_idx = 0;
@@ -227,18 +208,6 @@ void hostapd_neighbor_set_own_report(struct hostapd_data *hapd)
 
 	if (ieee80211_freq_to_channel_ext(hapd->iface->freq,
 					  hapd->iconf->secondary_channel,
-<<<<<<< HEAD
-					  hapd->iconf->vht_oper_chwidth,
-					  &op_class, &channel) ==
-	    NUM_HOSTAPD_MODES)
-		return;
-	width = hostapd_get_nr_chan_width(hapd, ht, vht);
-	if (vht) {
-		center_freq1_idx = hapd->iconf->vht_oper_centr_freq_seg0_idx;
-		if (width == NR_CHAN_WIDTH_80P80)
-			center_freq2_idx =
-				hapd->iconf->vht_oper_centr_freq_seg1_idx;
-=======
 					  hostapd_get_oper_chwidth(hapd->iconf),
 					  &op_class, &channel) ==
 	    NUM_HOSTAPD_MODES)
@@ -251,7 +220,6 @@ void hostapd_neighbor_set_own_report(struct hostapd_data *hapd)
 			center_freq2_idx =
 				hostapd_get_oper_centr_freq_seg1_idx(
 					hapd->iconf);
->>>>>>> origin/stable/11
 	} else if (ht) {
 		ieee80211_freq_to_chan(hapd->iface->freq +
 				       10 * hapd->iconf->secondary_channel,

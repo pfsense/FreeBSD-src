@@ -1,10 +1,7 @@
 /*
  * Driver interaction with Linux MACsec kernel module
  * Copyright (c) 2016, Sabrina Dubroca <sd@queasysnail.net> and Red Hat, Inc.
-<<<<<<< HEAD
-=======
  * Copyright (c) 2019, The Linux Foundation
->>>>>>> origin/stable/11
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -26,10 +23,7 @@
 
 #include "utils/common.h"
 #include "utils/eloop.h"
-<<<<<<< HEAD
-=======
 #include "common/eapol_common.h"
->>>>>>> origin/stable/11
 #include "pae/ieee802_1x_kay.h"
 #include "driver.h"
 #include "driver_wired_common.h"
@@ -65,10 +59,7 @@ struct macsec_drv_data {
 	char ifname[IFNAMSIZ + 1];
 	int ifi;
 	int parent_ifi;
-<<<<<<< HEAD
-=======
 	int use_pae_group_addr;
->>>>>>> origin/stable/11
 
 	Boolean created_link;
 
@@ -1411,8 +1402,6 @@ static int macsec_drv_status(void *priv, char *buf, size_t buflen)
 }
 
 
-<<<<<<< HEAD
-=======
 #ifdef __linux__
 
 static void macsec_drv_handle_data(void *ctx, unsigned char *buf, size_t len)
@@ -1621,7 +1610,6 @@ static int macsec_drv_send_eapol(void *priv, const u8 *addr,
 }
 
 
->>>>>>> origin/stable/11
 const struct wpa_driver_ops wpa_driver_macsec_linux_ops = {
 	.name = "macsec_linux",
 	.desc = "MACsec Ethernet driver for Linux",
@@ -1630,12 +1618,9 @@ const struct wpa_driver_ops wpa_driver_macsec_linux_ops = {
 	.get_capa = driver_wired_get_capa,
 	.init = macsec_drv_wpa_init,
 	.deinit = macsec_drv_wpa_deinit,
-<<<<<<< HEAD
-=======
 	.hapd_init = macsec_drv_hapd_init,
 	.hapd_deinit = macsec_drv_hapd_deinit,
 	.hapd_send_eapol = macsec_drv_send_eapol,
->>>>>>> origin/stable/11
 
 	.macsec_init = macsec_drv_macsec_init,
 	.macsec_deinit = macsec_drv_macsec_deinit,

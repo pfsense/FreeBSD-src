@@ -198,29 +198,6 @@ struct he_capabilities {
 	u8 ppet[HE_MAX_PPET_CAPAB_SIZE];
 };
 
-#define HE_MAX_NUM_SS 		8
-#define HE_MAX_PHY_CAPAB_SIZE	3
-
-/**
- * struct he_ppe_threshold - IEEE 802.11ax HE PPE Threshold
- */
-struct he_ppe_threshold {
-	u32 numss_m1;
-	u32 ru_count;
-	u32 ppet16_ppet8_ru3_ru0[HE_MAX_NUM_SS];
-};
-
-/**
- * struct he_capabilities - IEEE 802.11ax HE capabilities
- */
-struct he_capabilities {
-	u8 he_supported;
-	u32 phy_cap[HE_MAX_PHY_CAPAB_SIZE];
-	u32 mac_cap;
-	u32 mcs;
-	struct he_ppe_threshold ppet;
-};
-
 #define HOSTAPD_MODE_FLAG_HT_INFO_KNOWN BIT(0)
 #define HOSTAPD_MODE_FLAG_VHT_INFO_KNOWN BIT(1)
 

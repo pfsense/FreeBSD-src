@@ -2071,20 +2071,6 @@ static int wpa_cli_cmd_mesh_link_probe(struct wpa_ctrl *ctrl, int argc,
 	return wpa_cli_cmd(ctrl, "MESH_LINK_PROBE", 1, argc, argv);
 }
 
-
-static int wpa_cli_cmd_mesh_peer_remove(struct wpa_ctrl *ctrl, int argc,
-					char *argv[])
-{
-	return wpa_cli_cmd(ctrl, "MESH_PEER_REMOVE", 1, argc, argv);
-}
-
-
-static int wpa_cli_cmd_mesh_peer_add(struct wpa_ctrl *ctrl, int argc,
-				     char *argv[])
-{
-	return wpa_cli_cmd(ctrl, "MESH_PEER_ADD", 1, argc, argv);
-}
-
 #endif /* CONFIG_MESH */
 
 

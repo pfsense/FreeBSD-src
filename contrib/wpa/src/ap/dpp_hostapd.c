@@ -16,10 +16,7 @@
 #include "hostapd.h"
 #include "ap_drv_ops.h"
 #include "gas_query_ap.h"
-<<<<<<< HEAD
-=======
 #include "gas_serv.h"
->>>>>>> origin/stable/11
 #include "wpa_auth.h"
 #include "dpp_hostapd.h"
 
@@ -561,8 +558,6 @@ static void hostapd_dpp_rx_auth_req(struct hostapd_data *hapd, const u8 *src,
 	 * received hash values */
 	dpp_bootstrap_find_pair(hapd->iface->interfaces->dpp, i_bootstrap,
 				r_bootstrap, &own_bi, &peer_bi);
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_DPP2
 	if (!own_bi) {
 		if (dpp_relay_rx_action(hapd->iface->interfaces->dpp,
@@ -571,7 +566,6 @@ static void hostapd_dpp_rx_auth_req(struct hostapd_data *hapd, const u8 *src,
 			return;
 	}
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11
 	if (!own_bi) {
 		wpa_msg(hapd->msg_ctx, MSG_INFO, DPP_EVENT_FAIL
 			"No matching own bootstrapping key found - ignore message");
@@ -1372,15 +1366,12 @@ void hostapd_dpp_rx_action(struct hostapd_data *hapd, const u8 *src,
 	wpa_msg(hapd->msg_ctx, MSG_INFO, DPP_EVENT_RX "src=" MACSTR
 		" freq=%u type=%d", MAC2STR(src), freq, type);
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_DPP2
 	if (dpp_relay_rx_action(hapd->iface->interfaces->dpp,
 				src, hdr, buf, len, freq, NULL, NULL) == 0)
 		return;
 #endif /* CONFIG_DPP2 */
 
->>>>>>> origin/stable/11
 	switch (type) {
 	case DPP_PA_AUTHENTICATION_REQ:
 		hostapd_dpp_rx_auth_req(hapd, src, hdr, buf, len, freq);
@@ -1434,12 +1425,8 @@ void hostapd_dpp_rx_action(struct hostapd_data *hapd, const u8 *src,
 
 struct wpabuf *
 hostapd_dpp_gas_req_handler(struct hostapd_data *hapd, const u8 *sa,
-<<<<<<< HEAD
-			    const u8 *query, size_t query_len)
-=======
 			    const u8 *query, size_t query_len,
 			    const u8 *data, size_t data_len)
->>>>>>> origin/stable/11
 {
 	struct dpp_authentication *auth = hapd->dpp_auth;
 	struct wpabuf *resp;
@@ -1447,8 +1434,6 @@ hostapd_dpp_gas_req_handler(struct hostapd_data *hapd, const u8 *sa,
 	wpa_printf(MSG_DEBUG, "DPP: GAS request from " MACSTR, MAC2STR(sa));
 	if (!auth || !auth->auth_success ||
 	    os_memcmp(sa, auth->peer_mac_addr, ETH_ALEN) != 0) {
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_DPP2
 		if (dpp_relay_rx_gas_req(hapd->iface->interfaces->dpp, sa, data,
 				     data_len) == 0) {
@@ -1456,7 +1441,6 @@ hostapd_dpp_gas_req_handler(struct hostapd_data *hapd, const u8 *sa,
 			return NULL;
 		}
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11
 		wpa_printf(MSG_DEBUG, "DPP: No matching exchange in progress");
 		return NULL;
 	}
@@ -1648,8 +1632,6 @@ void hostapd_dpp_stop(struct hostapd_data *hapd)
 }
 
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_DPP2
 
 static void hostapd_dpp_relay_tx(void *ctx, const u8 *addr, unsigned int freq,
@@ -1706,16 +1688,11 @@ static int hostapd_dpp_add_controllers(struct hostapd_data *hapd)
 }
 
 
->>>>>>> origin/stable/11
 int hostapd_dpp_init(struct hostapd_data *hapd)
 {
 	hapd->dpp_allowed_roles = DPP_CAPAB_CONFIGURATOR | DPP_CAPAB_ENROLLEE;
 	hapd->dpp_init_done = 1;
-<<<<<<< HEAD
-	return 0;
-=======
 	return hostapd_dpp_add_controllers(hapd);
->>>>>>> origin/stable/11
 }
 
 

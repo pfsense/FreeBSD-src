@@ -547,8 +547,6 @@ int fils_pmkid_erp(int akmp, const u8 *reauth, size_t reauth_len,
 	return 0;
 }
 
-#endif /* CONFIG_FILS */
-
 
 int fils_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const u8 *spa, const u8 *aa,
 		    const u8 *snonce, const u8 *anonce, const u8 *dhss,

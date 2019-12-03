@@ -8,10 +8,7 @@
  */
 
 #include "utils/includes.h"
-<<<<<<< HEAD
-=======
 #include <fcntl.h>
->>>>>>> origin/stable/11
 #include <openssl/opensslv.h>
 #include <openssl/err.h>
 #include <openssl/asn1.h>
@@ -20,11 +17,8 @@
 #include "utils/common.h"
 #include "utils/base64.h"
 #include "utils/json.h"
-<<<<<<< HEAD
-=======
 #include "utils/ip_addr.h"
 #include "utils/eloop.h"
->>>>>>> origin/stable/11
 #include "common/ieee802_11_common.h"
 #include "common/ieee802_11_defs.h"
 #include "common/wpa_ctrl.h"
@@ -79,11 +73,6 @@ static void ECDSA_SIG_get0(const ECDSA_SIG *sig, const BIGNUM **pr,
 #endif
 
 
-<<<<<<< HEAD
-struct dpp_global {
-	struct dl_list bootstrap; /* struct dpp_bootstrap_info */
-	struct dl_list configurator; /* struct dpp_configurator */
-=======
 struct dpp_connection {
 	struct dl_list list;
 	struct dpp_controller *ctrl;
@@ -140,7 +129,6 @@ struct dpp_global {
 	void *cb_ctx;
 	int (*process_conf_obj)(void *ctx, struct dpp_authentication *auth);
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11
 };
 
 static const struct dpp_curve_params dpp_curves[] = {
@@ -622,8 +610,6 @@ static EVP_PKEY * dpp_set_pubkey_point(EVP_PKEY *group_key,
 }
 
 
-<<<<<<< HEAD
-=======
 static int dpp_ecdh(EVP_PKEY *own, EVP_PKEY *peer,
 		    u8 *secret, size_t *secret_len)
 {
@@ -709,7 +695,6 @@ fail:
 }
 
 
->>>>>>> origin/stable/11
 static void dpp_auth_fail(struct dpp_authentication *auth, const char *txt)
 {
 	wpa_msg(auth->msg_ctx, MSG_INFO, DPP_EVENT_FAIL "%s", txt);
@@ -845,19 +830,6 @@ static int dpp_clone_uri(struct dpp_bootstrap_info *bi, const char *uri)
 int dpp_parse_uri_chan_list(struct dpp_bootstrap_info *bi,
 			    const char *chan_list)
 {
-<<<<<<< HEAD
-	const char *pos = chan_list;
-	int opclass, channel, freq;
-
-	while (pos && *pos && *pos != ';') {
-		opclass = atoi(pos);
-		if (opclass <= 0)
-			goto fail;
-		pos = os_strchr(pos, '/');
-		if (!pos)
-			goto fail;
-		pos++;
-=======
 	const char *pos = chan_list, *pos2;
 	int opclass = -1, channel, freq;
 
@@ -871,7 +843,6 @@ int dpp_parse_uri_chan_list(struct dpp_bootstrap_info *bi,
 		}
 		if (opclass <= 0)
 			goto fail;
->>>>>>> origin/stable/11
 		channel = atoi(pos);
 		if (channel <= 0)
 			goto fail;
@@ -1251,11 +1222,7 @@ static void dpp_debug_print_key(const char *title, EVP_PKEY *key)
 static EVP_PKEY * dpp_gen_keypair(const struct dpp_curve_params *curve)
 {
 	EVP_PKEY_CTX *kctx = NULL;
-<<<<<<< HEAD
-	EC_KEY *ec_params;
-=======
 	EC_KEY *ec_params = NULL;
->>>>>>> origin/stable/11
 	EVP_PKEY *params = NULL, *key = NULL;
 	int nid;
 
@@ -1286,31 +1253,18 @@ static EVP_PKEY * dpp_gen_keypair(const struct dpp_curve_params *curve)
 	    EVP_PKEY_keygen_init(kctx) != 1 ||
 	    EVP_PKEY_keygen(kctx, &key) != 1) {
 		wpa_printf(MSG_ERROR, "DPP: Failed to generate EC key");
-<<<<<<< HEAD
-=======
 		key = NULL;
->>>>>>> origin/stable/11
 		goto fail;
 	}
 
 	if (wpa_debug_show_keys)
 		dpp_debug_print_key("Own generated key", key);
 
-<<<<<<< HEAD
-	EVP_PKEY_free(params);
-	EVP_PKEY_CTX_free(kctx);
-	return key;
-fail:
-	EVP_PKEY_CTX_free(kctx);
-	EVP_PKEY_free(params);
-	return NULL;
-=======
 fail:
 	EC_KEY_free(ec_params);
 	EVP_PKEY_free(params);
 	EVP_PKEY_CTX_free(kctx);
 	return key;
->>>>>>> origin/stable/11
 }
 
 
@@ -2273,10 +2227,6 @@ struct dpp_authentication * dpp_auth_init(void *msg_ctx,
 {
 	struct dpp_authentication *auth;
 	size_t nonce_len;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	size_t secret_len;
 	struct wpabuf *pi = NULL;
 	const u8 *r_pubkey_hash, *i_pubkey_hash;
@@ -2345,28 +2295,10 @@ struct dpp_authentication * dpp_auth_init(void *msg_ctx,
 		goto fail;
 
 	/* ECDH: M = pI * BR */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(auth->own_protocol_key, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, auth->peer_bi->pubkey) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &secret_len) != 1 ||
-	    secret_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, auth->Mx, &secret_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-	auth->secret_len = secret_len;
-	EVP_PKEY_CTX_free(ctx);
-	ctx = NULL;
-=======
 	if (dpp_ecdh(auth->own_protocol_key, auth->peer_bi->pubkey,
 		     auth->Mx, &secret_len) < 0)
 		goto fail;
 	auth->secret_len = secret_len;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (M.x)",
 			auth->Mx, auth->secret_len);
@@ -2418,10 +2350,6 @@ struct dpp_authentication * dpp_auth_init(void *msg_ctx,
 
 out:
 	wpabuf_free(pi);
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	return auth;
 fail:
 	dpp_auth_deinit(auth);
@@ -2894,10 +2822,6 @@ fail:
 static int dpp_auth_build_resp_ok(struct dpp_authentication *auth)
 {
 	size_t nonce_len;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	size_t secret_len;
 	struct wpabuf *msg, *pr = NULL;
 	u8 r_auth[4 + DPP_MAX_HASH_LEN];
@@ -2936,10 +2860,7 @@ static int dpp_auth_build_resp_ok(struct dpp_authentication *auth)
 #endif /* CONFIG_TESTING_OPTIONS */
 	wpa_hexdump(MSG_DEBUG, "DPP: R-nonce", auth->r_nonce, nonce_len);
 
-<<<<<<< HEAD
-=======
 	EVP_PKEY_free(auth->own_protocol_key);
->>>>>>> origin/stable/11
 #ifdef CONFIG_TESTING_OPTIONS
 	if (dpp_protocol_key_override_len) {
 		const struct dpp_curve_params *tmp_curve;
@@ -2963,26 +2884,9 @@ static int dpp_auth_build_resp_ok(struct dpp_authentication *auth)
 		goto fail;
 
 	/* ECDH: N = pR * PI */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(auth->own_protocol_key, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, auth->peer_protocol_key) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &secret_len) != 1 ||
-	    secret_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, auth->Nx, &secret_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-	EVP_PKEY_CTX_free(ctx);
-	ctx = NULL;
-=======
 	if (dpp_ecdh(auth->own_protocol_key, auth->peer_protocol_key,
 		     auth->Nx, &secret_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (N.x)",
 			auth->Nx, auth->secret_len);
@@ -3278,28 +3182,9 @@ dpp_auth_req_rx(void *msg_ctx, u8 dpp_allowed_roles, int qr_mutual,
 	}
 	dpp_debug_print_key("Peer (Initiator) Protocol Key", pi);
 
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(own_bi->pubkey, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pi) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &secret_len) != 1 ||
-	    secret_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, auth->Mx, &secret_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		dpp_auth_fail(auth, "Failed to derive ECDH shared secret");
-		goto fail;
-	}
-	auth->secret_len = secret_len;
-	EVP_PKEY_CTX_free(ctx);
-	ctx = NULL;
-=======
 	if (dpp_ecdh(own_bi->pubkey, pi, auth->Mx, &secret_len) < 0)
 		goto fail;
 	auth->secret_len = secret_len;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (M.x)",
 			auth->Mx, auth->secret_len);
@@ -3753,10 +3638,6 @@ dpp_auth_resp_rx(struct dpp_authentication *auth, const u8 *hdr,
 		 const u8 *attr_start, size_t attr_len)
 {
 	EVP_PKEY *pr;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	size_t secret_len;
 	const u8 *addr[2];
 	size_t len[2];
@@ -3906,29 +3787,11 @@ dpp_auth_resp_rx(struct dpp_authentication *auth, const u8 *hdr,
 	}
 	dpp_debug_print_key("Peer (Responder) Protocol Key", pr);
 
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(auth->own_protocol_key, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pr) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &secret_len) != 1 ||
-	    secret_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, auth->Nx, &secret_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		dpp_auth_fail(auth, "Failed to derive ECDH shared secret");
-		goto fail;
-	}
-	EVP_PKEY_CTX_free(ctx);
-	ctx = NULL;
-=======
 	if (dpp_ecdh(auth->own_protocol_key, pr, auth->Nx, &secret_len) < 0) {
 		dpp_auth_fail(auth, "Failed to derive ECDH shared secret");
 		goto fail;
 	}
 	EVP_PKEY_free(auth->peer_protocol_key);
->>>>>>> origin/stable/11
 	auth->peer_protocol_key = pr;
 	pr = NULL;
 
@@ -4099,10 +3962,6 @@ fail:
 	bin_clear_free(unwrapped, unwrapped_len);
 	bin_clear_free(unwrapped2, unwrapped2_len);
 	EVP_PKEY_free(pr);
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	return NULL;
 }
 
@@ -5433,10 +5292,7 @@ static EVP_PKEY * dpp_parse_jwk(struct json_token *jwk,
 
 	pkey = dpp_set_pubkey_point_group(group, wpabuf_head(x), wpabuf_head(y),
 					  wpabuf_len(x));
-<<<<<<< HEAD
-=======
 	EC_GROUP_free(group);
->>>>>>> origin/stable/11
 	*key_curve = curve;
 
 fail:
@@ -6605,10 +6461,6 @@ dpp_peer_intro(struct dpp_introduction *intro, const char *own_connector,
 	const char *pos, *end;
 	unsigned char *own_conn = NULL;
 	size_t own_conn_len;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	size_t Nx_len;
 	u8 Nx[DPP_MAX_SHARED_SECRET_LEN];
 
@@ -6722,23 +6574,8 @@ dpp_peer_intro(struct dpp_introduction *intro, const char *own_connector,
 	}
 
 	/* ECDH: N = nk * PK */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(own_key, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, peer_key) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Nx_len) != 1 ||
-	    Nx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Nx, &Nx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(own_key, peer_key, Nx, &Nx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (N.x)",
 			Nx, Nx_len);
@@ -6761,10 +6598,6 @@ fail:
 	if (ret != DPP_STATUS_OK)
 		os_memset(intro, 0, sizeof(*intro));
 	os_memset(Nx, 0, sizeof(Nx));
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	os_free(own_conn);
 	os_free(signed_connector);
 	os_free(info.payload);
@@ -6784,10 +6617,7 @@ static EVP_PKEY * dpp_pkex_get_role_elem(const struct dpp_curve_params *curve,
 	EC_GROUP *group;
 	size_t len = curve->prime_len;
 	const u8 *x, *y;
-<<<<<<< HEAD
-=======
 	EVP_PKEY *res;
->>>>>>> origin/stable/11
 
 	switch (curve->ike_group) {
 	case 19:
@@ -6821,24 +6651,16 @@ static EVP_PKEY * dpp_pkex_get_role_elem(const struct dpp_curve_params *curve,
 	group = EC_GROUP_new_by_curve_name(OBJ_txt2nid(curve->name));
 	if (!group)
 		return NULL;
-<<<<<<< HEAD
-	return dpp_set_pubkey_point_group(group, x, y, len);
-=======
 	res = dpp_set_pubkey_point_group(group, x, y, len);
 	EC_GROUP_free(group);
 	return res;
->>>>>>> origin/stable/11
 }
 
 
 static EC_POINT * dpp_pkex_derive_Qi(const struct dpp_curve_params *curve,
 				     const u8 *mac_init, const char *code,
 				     const char *identifier, BN_CTX *bnctx,
-<<<<<<< HEAD
-				     const EC_GROUP **ret_group)
-=======
 				     EC_GROUP **ret_group)
->>>>>>> origin/stable/11
 {
 	u8 hash[DPP_MAX_HASH_LEN];
 	const u8 *addr[3];
@@ -6907,15 +6729,10 @@ out:
 	EC_KEY_free(Pi_ec);
 	EVP_PKEY_free(Pi);
 	BN_clear_free(hash_bn);
-<<<<<<< HEAD
-	if (ret_group)
-		*ret_group = group2;
-=======
 	if (ret_group && Qi)
 		*ret_group = group2;
 	else
 		EC_GROUP_free(group2);
->>>>>>> origin/stable/11
 	return Qi;
 fail:
 	EC_POINT_free(Qi);
@@ -6927,11 +6744,7 @@ fail:
 static EC_POINT * dpp_pkex_derive_Qr(const struct dpp_curve_params *curve,
 				     const u8 *mac_resp, const char *code,
 				     const char *identifier, BN_CTX *bnctx,
-<<<<<<< HEAD
-				     const EC_GROUP **ret_group)
-=======
 				     EC_GROUP **ret_group)
->>>>>>> origin/stable/11
 {
 	u8 hash[DPP_MAX_HASH_LEN];
 	const u8 *addr[3];
@@ -7000,15 +6813,10 @@ out:
 	EC_KEY_free(Pr_ec);
 	EVP_PKEY_free(Pr);
 	BN_clear_free(hash_bn);
-<<<<<<< HEAD
-	if (ret_group)
-		*ret_group = group2;
-=======
 	if (ret_group && Qr)
 		*ret_group = group2;
 	else
 		EC_GROUP_free(group2);
->>>>>>> origin/stable/11
 	return Qr;
 fail:
 	EC_POINT_free(Qr);
@@ -7077,10 +6885,7 @@ fail:
 	BN_free(y);
 	EC_POINT_free(point);
 	BN_CTX_free(ctx);
-<<<<<<< HEAD
-=======
 	EC_GROUP_free(group);
->>>>>>> origin/stable/11
 
 	return ret;
 }
@@ -7092,11 +6897,7 @@ static struct wpabuf * dpp_pkex_build_exchange_req(struct dpp_pkex *pkex)
 	EC_KEY *X_ec = NULL;
 	const EC_POINT *X_point;
 	BN_CTX *bnctx = NULL;
-<<<<<<< HEAD
-	const EC_GROUP *group;
-=======
 	EC_GROUP *group = NULL;
->>>>>>> origin/stable/11
 	EC_POINT *Qi = NULL, *M = NULL;
 	struct wpabuf *M_buf = NULL;
 	BIGNUM *Mx = NULL, *My = NULL;
@@ -7218,10 +7019,7 @@ out:
 	BN_clear_free(Mx);
 	BN_clear_free(My);
 	BN_CTX_free(bnctx);
-<<<<<<< HEAD
-=======
 	EC_GROUP_free(group);
->>>>>>> origin/stable/11
 	return msg;
 fail:
 	wpa_printf(MSG_INFO, "DPP: Failed to build PKEX Exchange Request");
@@ -7466,11 +7264,7 @@ struct dpp_pkex * dpp_pkex_rx_exchange_req(void *msg_ctx,
 	struct dpp_pkex *pkex = NULL;
 	EC_POINT *Qi = NULL, *Qr = NULL, *M = NULL, *X = NULL, *N = NULL;
 	BN_CTX *bnctx = NULL;
-<<<<<<< HEAD
-	const EC_GROUP *group;
-=======
 	EC_GROUP *group = NULL;
->>>>>>> origin/stable/11
 	BIGNUM *Mx = NULL, *My = NULL;
 	EC_KEY *Y_ec = NULL, *X_ec = NULL;;
 	const EC_POINT *Y_point;
@@ -7478,10 +7272,6 @@ struct dpp_pkex * dpp_pkex_rx_exchange_req(void *msg_ctx,
 	u8 Kx[DPP_MAX_SHARED_SECRET_LEN];
 	size_t Kx_len;
 	int res;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 
 	if (bi->pkex_t >= PKEX_COUNTER_T_LIMIT) {
 		wpa_msg(msg_ctx, MSG_INFO, DPP_EVENT_FAIL
@@ -7648,23 +7438,8 @@ struct dpp_pkex * dpp_pkex_rx_exchange_req(void *msg_ctx,
 		goto fail;
 
 	/* K = y * X' */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(pkex->y, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->x) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Kx_len) != 1 ||
-	    Kx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Kx, &Kx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->y, pkex->x, Kx, &Kx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (K.x)",
 			Kx, Kx_len);
@@ -7682,10 +7457,6 @@ struct dpp_pkex * dpp_pkex_rx_exchange_req(void *msg_ctx,
 	pkex->exchange_done = 1;
 
 out:
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	BN_CTX_free(bnctx);
 	EC_POINT_free(Qi);
 	EC_POINT_free(Qr);
@@ -7698,10 +7469,7 @@ out:
 	EC_POINT_free(X);
 	EC_KEY_free(X_ec);
 	EC_KEY_free(Y_ec);
-<<<<<<< HEAD
-=======
 	EC_GROUP_free(group);
->>>>>>> origin/stable/11
 	return pkex;
 fail:
 	wpa_printf(MSG_DEBUG, "DPP: PKEX Exchange Request processing failed");
@@ -7830,20 +7598,12 @@ struct wpabuf * dpp_pkex_rx_exchange_resp(struct dpp_pkex *pkex,
 {
 	const u8 *attr_status, *attr_id, *attr_key, *attr_group;
 	u16 attr_status_len, attr_id_len, attr_key_len, attr_group_len;
-<<<<<<< HEAD
-	const EC_GROUP *group;
-=======
 	EC_GROUP *group = NULL;
->>>>>>> origin/stable/11
 	BN_CTX *bnctx = NULL;
 	struct wpabuf *msg = NULL, *A_pub = NULL, *X_pub = NULL, *Y_pub = NULL;
 	const struct dpp_curve_params *curve = pkex->own_bi->curve;
 	EC_POINT *Qr = NULL, *Y = NULL, *N = NULL;
 	BIGNUM *Nx = NULL, *Ny = NULL;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	EC_KEY *Y_ec = NULL;
 	size_t Jx_len, Kx_len;
 	u8 Jx[DPP_MAX_SHARED_SECRET_LEN], Kx[DPP_MAX_SHARED_SECRET_LEN];
@@ -7955,23 +7715,8 @@ struct wpabuf * dpp_pkex_rx_exchange_resp(struct dpp_pkex *pkex,
 	if (!pkex->y ||
 	    EVP_PKEY_set1_EC_KEY(pkex->y, Y_ec) != 1)
 		goto fail;
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(pkex->own_bi->pubkey, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->y) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Jx_len) != 1 ||
-	    Jx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Jx, &Jx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->own_bi->pubkey, pkex->y, Jx, &Jx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (J.x)",
 			Jx, Jx_len);
@@ -7995,24 +7740,8 @@ struct wpabuf * dpp_pkex_rx_exchange_resp(struct dpp_pkex *pkex,
 	wpa_hexdump(MSG_DEBUG, "DPP: u", u, curve->hash_len);
 
 	/* K = x * Y’ */
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-	ctx = EVP_PKEY_CTX_new(pkex->x, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->y) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Kx_len) != 1 ||
-	    Kx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Kx, &Kx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->x, pkex->y, Kx, &Kx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (K.x)",
 			Kx, Kx_len);
@@ -8042,13 +7771,8 @@ out:
 	BN_free(Nx);
 	BN_free(Ny);
 	EC_KEY_free(Y_ec);
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-	BN_CTX_free(bnctx);
-=======
 	BN_CTX_free(bnctx);
 	EC_GROUP_free(group);
->>>>>>> origin/stable/11
 	return msg;
 fail:
 	wpa_printf(MSG_DEBUG, "DPP: PKEX Exchange Response processing failed");
@@ -8174,10 +7898,6 @@ struct wpabuf * dpp_pkex_rx_commit_reveal_req(struct dpp_pkex *pkex,
 					      const u8 *buf, size_t buflen)
 {
 	const struct dpp_curve_params *curve = pkex->own_bi->curve;
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	size_t Jx_len, Lx_len;
 	u8 Jx[DPP_MAX_SHARED_SECRET_LEN];
 	u8 Lx[DPP_MAX_SHARED_SECRET_LEN];
@@ -8261,23 +7981,8 @@ struct wpabuf * dpp_pkex_rx_commit_reveal_req(struct dpp_pkex *pkex,
 			    pkex->peer_bootstrap_key);
 
 	/* ECDH: J' = y * A' */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(pkex->y, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->peer_bootstrap_key) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Jx_len) != 1 ||
-	    Jx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Jx, &Jx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->y, pkex->peer_bootstrap_key, Jx, &Jx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (J.x)",
 			Jx, Jx_len);
@@ -8313,24 +8018,8 @@ struct wpabuf * dpp_pkex_rx_commit_reveal_req(struct dpp_pkex *pkex,
 	wpa_printf(MSG_DEBUG, "DPP: Valid u (I-Auth tag) received");
 
 	/* ECDH: L = b * X' */
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-	ctx = EVP_PKEY_CTX_new(pkex->own_bi->pubkey, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->x) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Lx_len) != 1 ||
-	    Lx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Lx, &Lx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->own_bi->pubkey, pkex->x, Lx, &Lx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (L.x)",
 			Lx, Lx_len);
@@ -8356,10 +8045,6 @@ struct wpabuf * dpp_pkex_rx_commit_reveal_req(struct dpp_pkex *pkex,
 		goto fail;
 
 out:
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	os_free(unwrapped);
 	wpabuf_free(A_pub);
 	wpabuf_free(B_pub);
@@ -8388,10 +8073,6 @@ int dpp_pkex_rx_commit_reveal_resp(struct dpp_pkex *pkex, const u8 *hdr,
 	u8 v[DPP_MAX_HASH_LEN];
 	size_t Lx_len;
 	u8 Lx[DPP_MAX_SHARED_SECRET_LEN];
-<<<<<<< HEAD
-	EVP_PKEY_CTX *ctx = NULL;
-=======
->>>>>>> origin/stable/11
 	struct wpabuf *B_pub = NULL, *X_pub = NULL, *Y_pub = NULL;
 
 #ifdef CONFIG_TESTING_OPTIONS
@@ -8462,23 +8143,8 @@ int dpp_pkex_rx_commit_reveal_resp(struct dpp_pkex *pkex, const u8 *hdr,
 			    pkex->peer_bootstrap_key);
 
 	/* ECDH: L' = x * B' */
-<<<<<<< HEAD
-	ctx = EVP_PKEY_CTX_new(pkex->x, NULL);
-	if (!ctx ||
-	    EVP_PKEY_derive_init(ctx) != 1 ||
-	    EVP_PKEY_derive_set_peer(ctx, pkex->peer_bootstrap_key) != 1 ||
-	    EVP_PKEY_derive(ctx, NULL, &Lx_len) != 1 ||
-	    Lx_len > DPP_MAX_SHARED_SECRET_LEN ||
-	    EVP_PKEY_derive(ctx, Lx, &Lx_len) != 1) {
-		wpa_printf(MSG_ERROR,
-			   "DPP: Failed to derive ECDH shared secret: %s",
-			   ERR_error_string(ERR_get_error(), NULL));
-		goto fail;
-	}
-=======
 	if (dpp_ecdh(pkex->x, pkex->peer_bootstrap_key, Lx, &Lx_len) < 0)
 		goto fail;
->>>>>>> origin/stable/11
 
 	wpa_hexdump_key(MSG_DEBUG, "DPP: ECDH shared secret (L.x)",
 			Lx, Lx_len);
@@ -8518,10 +8184,6 @@ out:
 	wpabuf_free(B_pub);
 	wpabuf_free(X_pub);
 	wpabuf_free(Y_pub);
-<<<<<<< HEAD
-	EVP_PKEY_CTX_free(ctx);
-=======
->>>>>>> origin/stable/11
 	os_free(unwrapped);
 	return ret;
 fail:
@@ -8894,39 +8556,25 @@ int dpp_bootstrap_info(struct dpp_global *dpp, int id,
 		       char *reply, int reply_size)
 {
 	struct dpp_bootstrap_info *bi;
-<<<<<<< HEAD
-=======
 	char pkhash[2 * SHA256_MAC_LEN + 1];
->>>>>>> origin/stable/11
 
 	bi = dpp_bootstrap_get_id(dpp, id);
 	if (!bi)
 		return -1;
-<<<<<<< HEAD
-=======
 	wpa_snprintf_hex(pkhash, sizeof(pkhash), bi->pubkey_hash,
 			 SHA256_MAC_LEN);
->>>>>>> origin/stable/11
 	return os_snprintf(reply, reply_size, "type=%s\n"
 			   "mac_addr=" MACSTR "\n"
 			   "info=%s\n"
 			   "num_freq=%u\n"
-<<<<<<< HEAD
-			   "curve=%s\n",
-=======
 			   "curve=%s\n"
 			   "pkhash=%s\n",
->>>>>>> origin/stable/11
 			   dpp_bootstrap_type_txt(bi->type),
 			   MAC2STR(bi->mac_addr),
 			   bi->info ? bi->info : "",
 			   bi->num_freq,
-<<<<<<< HEAD
-			   bi->curve->name);
-=======
 			   bi->curve->name,
 			   pkhash);
->>>>>>> origin/stable/11
 }
 
 
@@ -9069,9 +8717,6 @@ int dpp_configurator_get_key_id(struct dpp_global *dpp, unsigned int id,
 }
 
 
-<<<<<<< HEAD
-struct dpp_global * dpp_global_init(void)
-=======
 #ifdef CONFIG_DPP2
 
 static void dpp_connection_free(struct dpp_connection *conn)
@@ -9136,18 +8781,12 @@ static void dpp_relay_flush_controllers(struct dpp_global *dpp)
 
 
 struct dpp_global * dpp_global_init(struct dpp_global_config *config)
->>>>>>> origin/stable/11
 {
 	struct dpp_global *dpp;
 
 	dpp = os_zalloc(sizeof(*dpp));
 	if (!dpp)
 		return NULL;
-<<<<<<< HEAD
-
-	dl_list_init(&dpp->bootstrap);
-	dl_list_init(&dpp->configurator);
-=======
 	dpp->msg_ctx = config->msg_ctx;
 #ifdef CONFIG_DPP2
 	dpp->cb_ctx = config->cb_ctx;
@@ -9160,7 +8799,6 @@ struct dpp_global * dpp_global_init(struct dpp_global_config *config)
 	dl_list_init(&dpp->controllers);
 	dl_list_init(&dpp->tcp_init);
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11
 
 	return dpp;
 }
@@ -9173,14 +8811,11 @@ void dpp_global_clear(struct dpp_global *dpp)
 
 	dpp_bootstrap_del(dpp, 0);
 	dpp_configurator_del(dpp, 0);
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_DPP2
 	dpp_tcp_init_flush(dpp);
 	dpp_relay_flush_controllers(dpp);
 	dpp_controller_stop(dpp);
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11
 }
 
 
@@ -9189,8 +8824,6 @@ void dpp_global_deinit(struct dpp_global *dpp)
 	dpp_global_clear(dpp);
 	os_free(dpp);
 }
-<<<<<<< HEAD
-=======
 
 
 #ifdef CONFIG_DPP2
@@ -10421,4 +10054,3 @@ void dpp_controller_stop(struct dpp_global *dpp)
 }
 
 #endif /* CONFIG_DPP2 */
->>>>>>> origin/stable/11

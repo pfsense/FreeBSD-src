@@ -2873,8 +2873,6 @@ static int tls_connection_set_subject_match(struct tls_connection *conn,
 
 	return 0;
 }
-#endif /* OPENSSL_VERSION_NUMBER */
-#endif /* CONFIG_SUITEB */
 
 
 #ifdef CONFIG_SUITEB

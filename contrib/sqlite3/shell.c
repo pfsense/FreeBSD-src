@@ -2299,29 +2299,6 @@ static int fileStat(
 #endif
 }
 
-typedef struct ExpertInfo ExpertInfo;
-struct ExpertInfo {
-  sqlite3expert *pExpert;
-  int bVerbose;
-};
-
-/* A single line in the EQP output */
-typedef struct EQPGraphRow EQPGraphRow;
-struct EQPGraphRow {
-  int iEqpId;           /* ID for this row */
-  int iParentId;        /* ID of the parent row */
-  EQPGraphRow *pNext;   /* Next row in sequence */
-  char zText[1];        /* Text to display for this row */
-};
-
-/* All EQP output is collected into an instance of the following */
-typedef struct EQPGraph EQPGraph;
-struct EQPGraph {
-  EQPGraphRow *pRow;    /* Linked list of all rows of the EQP output */
-  EQPGraphRow *pLast;   /* Last element of the pRow list */
-  char zPrefix[100];    /* Graph prefix */
-};
-
 /*
 ** This function is used in place of lstat().  On Windows, special handling
 ** is required in order for the included time to be returned as UTC.  On all
@@ -2339,23 +2316,6 @@ static int fileLinkStat(
   return lstat(zPath, pStatBuf);
 #endif
 }
-
-
-/* Allowed values for ShellState.autoEQP
-*/
-#define AUTOEQP_off      0           /* Automatic EXPLAIN QUERY PLAN is off */
-#define AUTOEQP_on       1           /* Automatic EQP is on */
-#define AUTOEQP_trigger  2           /* On and also show plans for triggers */
-#define AUTOEQP_full     3           /* Show full EXPLAIN */
-
-/* Allowed values for ShellState.openMode
-*/
-#define SHELL_OPEN_UNSPEC      0      /* No open-mode specified */
-#define SHELL_OPEN_NORMAL      1      /* Normal database file */
-#define SHELL_OPEN_APPENDVFS   2      /* Use appendvfs */
-#define SHELL_OPEN_ZIPFILE     3      /* Use the zipfile virtual table */
-#define SHELL_OPEN_READONLY    4      /* Open a normal database read-only */
-#define SHELL_OPEN_DESERIALIZE 5      /* Open using sqlite3_deserialize() */
 
 /*
 ** Argument zFile is the name of a file that will be created and/or written
@@ -11455,10 +11415,6 @@ static void exec_prepared_stmt(
       } while( SQLITE_ROW == rc );
       sqlite3_free(pData);
     }
-    case MODE_EQP: {
-      eqp_append(p, atoi(azArg[0]), atoi(azArg[1]), azArg[3]);
-      break;
-    }
   }
 }
 
@@ -14544,41 +14500,6 @@ static int arExecSql(ArCommand *pAr, const char *zSql){
   return rc;
 }
 
-/*
-** Try to delete the temporary file (if there is one) and free the
-** memory used to hold the name of the temp file.
-*/
-static void clearTempFile(ShellState *p){
-  if( p->zTempFile==0 ) return;
-  if( p->doXdgOpen ) return;
-  if( shellDeleteFile(p->zTempFile) ) return;
-  sqlite3_free(p->zTempFile);
-  p->zTempFile = 0;
-}
-
-/*
-** Create a new temp file name with the given suffix.
-*/
-static void newTempFile(ShellState *p, const char *zSuffix){
-  clearTempFile(p);
-  sqlite3_free(p->zTempFile);
-  p->zTempFile = 0;
-  if( p->db ){
-    sqlite3_file_control(p->db, 0, SQLITE_FCNTL_TEMPFILENAME, &p->zTempFile);
-  }
-  if( p->zTempFile==0 ){
-    sqlite3_uint64 r;
-    sqlite3_randomness(sizeof(r), &r);
-    p->zTempFile = sqlite3_mprintf("temp%llx.%s", r, zSuffix);
-  }else{
-    p->zTempFile = sqlite3_mprintf("%z.%s", p->zTempFile, zSuffix);
-  }
-  if( p->zTempFile==0 ){
-    raw_printf(stderr, "out of memory\n");
-    exit(1);
-  }
-}
-
 
 /*
 ** Implementation of .ar "create", "insert", and "update" commands.
@@ -16029,13 +15950,6 @@ static int do_meta_command(char *zLine, ShellState *p){
       raw_printf(p->out, "%s\n", zBuf);
     }
   }else
-
-#ifndef SQLITE_OMIT_VIRTUALTABLE
-  if( c=='e' && strncmp(azArg[0], "expert", n)==0 ){
-    open_db(p, 0);
-    expertDotCommand(p, azArg, nArg);
-  }else
-#endif
 
   if( c=='f' && strncmp(azArg[0], "fullschema", n)==0 ){
     ShellState data;

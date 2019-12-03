@@ -2571,59 +2571,6 @@ static u16 check_multi_ap(struct hostapd_data *hapd, struct sta_info *sta,
 	return WLAN_STATUS_SUCCESS;
 }
 
-static u16 check_multi_ap(struct hostapd_data *hapd, struct sta_info *sta,
-			  const u8 *multi_ap_ie, size_t multi_ap_len)
-{
-	u8 multi_ap_value = 0;
-
-	sta->flags &= ~WLAN_STA_MULTI_AP;
-
-	if (!hapd->conf->multi_ap)
-		return WLAN_STATUS_SUCCESS;
-
-	if (multi_ap_ie) {
-		const u8 *multi_ap_subelem;
-
-		multi_ap_subelem = get_ie(multi_ap_ie + 4,
-					  multi_ap_len - 4,
-					  MULTI_AP_SUB_ELEM_TYPE);
-		if (multi_ap_subelem && multi_ap_subelem[1] == 1) {
-			multi_ap_value = multi_ap_subelem[2];
-		} else {
-			hostapd_logger(hapd, sta->addr,
-				       HOSTAPD_MODULE_IEEE80211,
-				       HOSTAPD_LEVEL_INFO,
-				       "Multi-AP IE has missing or invalid Multi-AP subelement");
-			return WLAN_STATUS_INVALID_IE;
-		}
-	}
-
-	if (multi_ap_value && multi_ap_value != MULTI_AP_BACKHAUL_STA)
-		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
-			       HOSTAPD_LEVEL_INFO,
-			       "Multi-AP IE with unexpected value 0x%02x",
-			       multi_ap_value);
-
-	if (!(multi_ap_value & MULTI_AP_BACKHAUL_STA)) {
-		if (hapd->conf->multi_ap & FRONTHAUL_BSS)
-			return WLAN_STATUS_SUCCESS;
-
-		hostapd_logger(hapd, sta->addr,
-			       HOSTAPD_MODULE_IEEE80211,
-			       HOSTAPD_LEVEL_INFO,
-			       "Non-Multi-AP STA tries to associate with backhaul-only BSS");
-		return WLAN_STATUS_ASSOC_DENIED_UNSPEC;
-	}
-
-	if (!(hapd->conf->multi_ap & BACKHAUL_BSS))
-		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
-			       HOSTAPD_LEVEL_DEBUG,
-			       "Backhaul STA tries to associate with fronthaul-only BSS");
-
-	sta->flags |= WLAN_STA_MULTI_AP;
-	return WLAN_STATUS_SUCCESS;
-}
-
 
 static u16 copy_supp_rates(struct hostapd_data *hapd, struct sta_info *sta,
 			   struct ieee802_11_elems *elems)
@@ -2888,8 +2835,6 @@ u16 owe_validate_request(struct hostapd_data *hapd, const u8 *peer,
 	return WLAN_STATUS_SUCCESS;
 }
 
-#endif /* CONFIG_OWE */
-
 
 u16 owe_process_rsn_ie(struct hostapd_data *hapd,
 		       struct sta_info *sta,
@@ -3020,10 +2965,6 @@ static u16 check_assoc_ies(struct hostapd_data *hapd, struct sta_info *sta,
 #ifdef CONFIG_IEEE80211AC
 	if (hapd->iconf->ieee80211ac) {
 		resp = copy_sta_vht_capab(hapd, sta, elems.vht_capabilities);
-		if (resp != WLAN_STATUS_SUCCESS)
-			return resp;
-
-		resp = copy_sta_vht_oper(hapd, sta, elems.vht_operation);
 		if (resp != WLAN_STATUS_SUCCESS)
 			return resp;
 

@@ -1,10 +1,7 @@
 /*
  * hostapd / IEEE 802.11ax HE
  * Copyright (c) 2016-2017, Qualcomm Atheros, Inc.
-<<<<<<< HEAD
-=======
  * Copyright (c) 2019 John Crispin <john@phrozen.org>
->>>>>>> origin/stable/11
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -17,21 +14,6 @@
 #include "hostapd.h"
 #include "ap_config.h"
 #include "beacon.h"
-<<<<<<< HEAD
-#include "ieee802_11.h"
-#include "dfs.h"
-
-u8 * hostapd_eid_he_capab(struct hostapd_data *hapd, u8 *eid)
-{
-	struct ieee80211_he_capabilities *cap;
-	u8 *pos = eid;
-
-	if (!hapd->iface->current_mode)
-		return eid;
-
-	*pos++ = WLAN_EID_EXTENSION;
-	*pos++ = 1 + sizeof(struct ieee80211_he_capabilities);
-=======
 #include "sta_info.h"
 #include "ieee802_11.h"
 #include "dfs.h"
@@ -100,17 +82,11 @@ u8 * hostapd_eid_he_capab(struct hostapd_data *hapd, u8 *eid,
 
 	*pos++ = WLAN_EID_EXTENSION;
 	*pos++ = 1 + ie_size;
->>>>>>> origin/stable/11
 	*pos++ = WLAN_EID_EXT_HE_CAPABILITIES;
 
 	cap = (struct ieee80211_he_capabilities *) pos;
 	os_memset(cap, 0, sizeof(*cap));
 
-<<<<<<< HEAD
-	if (hapd->iface->conf->he_phy_capab.he_su_beamformer)
-		cap->he_phy_capab_info[HE_PHYCAP_SU_BEAMFORMER_CAPAB_IDX] |=
-			HE_PHYCAP_SU_BEAMFORMER_CAPAB;
-=======
 	os_memcpy(cap->he_mac_capab_info, mode->he_capab[opmode].mac_cap,
 		  HE_MAX_MAC_CAPAB_SIZE);
 	os_memcpy(cap->he_phy_capab_info, mode->he_capab[opmode].phy_cap,
@@ -126,25 +102,17 @@ u8 * hostapd_eid_he_capab(struct hostapd_data *hapd, u8 *eid,
 	else
 		cap->he_phy_capab_info[HE_PHYCAP_SU_BEAMFORMER_CAPAB_IDX] &=
 			~HE_PHYCAP_SU_BEAMFORMER_CAPAB;
->>>>>>> origin/stable/11
 
 	if (hapd->iface->conf->he_phy_capab.he_su_beamformee)
 		cap->he_phy_capab_info[HE_PHYCAP_SU_BEAMFORMEE_CAPAB_IDX] |=
 			HE_PHYCAP_SU_BEAMFORMEE_CAPAB;
-<<<<<<< HEAD
-=======
 	else
 		cap->he_phy_capab_info[HE_PHYCAP_SU_BEAMFORMEE_CAPAB_IDX] &=
 			~HE_PHYCAP_SU_BEAMFORMEE_CAPAB;
->>>>>>> origin/stable/11
 
 	if (hapd->iface->conf->he_phy_capab.he_mu_beamformer)
 		cap->he_phy_capab_info[HE_PHYCAP_MU_BEAMFORMER_CAPAB_IDX] |=
 			HE_PHYCAP_MU_BEAMFORMER_CAPAB;
-<<<<<<< HEAD
-
-	pos += sizeof(*cap);
-=======
 	else
 		cap->he_phy_capab_info[HE_PHYCAP_MU_BEAMFORMER_CAPAB_IDX] &=
 			~HE_PHYCAP_MU_BEAMFORMER_CAPAB;
@@ -153,7 +121,6 @@ u8 * hostapd_eid_he_capab(struct hostapd_data *hapd, u8 *eid,
 		he_oper_chwidth;
 
 	pos += ie_size;
->>>>>>> origin/stable/11
 
 	return pos;
 }
@@ -163,47 +130,19 @@ u8 * hostapd_eid_he_operation(struct hostapd_data *hapd, u8 *eid)
 {
 	struct ieee80211_he_operation *oper;
 	u8 *pos = eid;
-<<<<<<< HEAD
-=======
 	int oper_size = 6;
 	u32 params = 0;
->>>>>>> origin/stable/11
 
 	if (!hapd->iface->current_mode)
 		return eid;
 
 	*pos++ = WLAN_EID_EXTENSION;
-<<<<<<< HEAD
-	*pos++ = 1 + sizeof(struct ieee80211_he_operation);
-=======
 	*pos++ = 1 + oper_size;
->>>>>>> origin/stable/11
 	*pos++ = WLAN_EID_EXT_HE_OPERATION;
 
 	oper = (struct ieee80211_he_operation *) pos;
 	os_memset(oper, 0, sizeof(*oper));
 
-<<<<<<< HEAD
-	if (hapd->iface->conf->he_op.he_bss_color)
-		oper->he_oper_params |= hapd->iface->conf->he_op.he_bss_color;
-
-	if (hapd->iface->conf->he_op.he_default_pe_duration)
-		oper->he_oper_params |=
-			(hapd->iface->conf->he_op.he_default_pe_duration <<
-			 HE_OPERATION_DFLT_PE_DURATION_OFFSET);
-
-	if (hapd->iface->conf->he_op.he_twt_required)
-		oper->he_oper_params |= HE_OPERATION_TWT_REQUIRED;
-
-	if (hapd->iface->conf->he_op.he_rts_threshold)
-		oper->he_oper_params |=
-			(hapd->iface->conf->he_op.he_rts_threshold <<
-			 HE_OPERATION_RTS_THRESHOLD_OFFSET);
-
-	/* TODO: conditional MaxBSSID Indicator subfield */
-
-	pos += sizeof(*oper);
-=======
 	if (hapd->iface->conf->he_op.he_default_pe_duration)
 		params |= (hapd->iface->conf->he_op.he_default_pe_duration <<
 			   HE_OPERATION_DFLT_PE_DURATION_OFFSET);
@@ -228,7 +167,6 @@ u8 * hostapd_eid_he_operation(struct hostapd_data *hapd, u8 *eid)
 	oper->he_oper_params = host_to_le32(params);
 
 	pos += oper_size;
->>>>>>> origin/stable/11
 
 	return pos;
 }
@@ -263,8 +201,6 @@ u8 * hostapd_eid_he_mu_edca_parameter_set(struct hostapd_data *hapd, u8 *eid)
 
 	return pos;
 }
-<<<<<<< HEAD
-=======
 
 
 u8 * hostapd_eid_spatial_reuse(struct hostapd_data *hapd, u8 *eid)
@@ -410,4 +346,3 @@ u16 copy_sta_he_capab(struct hostapd_data *hapd, struct sta_info *sta,
 
 	return WLAN_STATUS_SUCCESS;
 }
->>>>>>> origin/stable/11
