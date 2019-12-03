@@ -8664,7 +8664,6 @@ int t4_handle_fw_rpl(struct adapter *adap, const __be64 *rpl)
 			t4_os_link_changed(pi);
 			PORT_UNLOCK(pi);
 		}
-		PORT_UNLOCK(pi);
 	} else {
 		CH_WARN_RATELIMIT(adap, "Unknown firmware reply %d\n", opcode);
 		return -EINVAL;

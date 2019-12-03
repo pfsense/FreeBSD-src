@@ -4685,7 +4685,9 @@ fixup_link_config(struct port_info *pi)
 static int
 apply_link_config(struct port_info *pi)
 {
+	struct adapter *sc = pi->adapter;
 	struct link_config *lc = &pi->link_cfg;
+	int rc;
 
 #ifdef INVARIANTS
 	ASSERT_SYNCHRONIZED_OP(sc);
