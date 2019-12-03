@@ -15,6 +15,7 @@ options		GEOM_MIRROR
 options		GEOM_UZIP
 options		GEOM_ELI
 options		GEOM_BDE
+options		XZ		# Used by GEOM_UZIP
 
 options		TMPFS
 options		UNIONFS
