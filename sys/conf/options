@@ -1015,3 +1015,6 @@ HN_DEBUG	opt_hn.h
 
 # NVME options
 NVME_USE_NVD	opt_nvme.h
+
+# XZ embedded support
+XZ		opt_dontuse.h
