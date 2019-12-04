@@ -179,6 +179,7 @@ device  	mlx4		# Shared code module between IB and Ethernet
 device  	mlx4en		# Mellanox ConnectX HCA Ethernet
 device		mlx5		# Shared code module between IB and Ethernet
 device		mlx5en		# Mellanox ConnectX-4 and ConnectX-4 LX
+device		mlxfw		# Firmware access
 
 # Enable Linux Kernel Programming Interface - required by mlx[45]
 options 	COMPAT_LINUXKPI
