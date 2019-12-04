@@ -184,7 +184,7 @@ device		mlx5en		# Mellanox ConnectX-4 and ConnectX-4 LX
 options 	COMPAT_LINUXKPI
 
 # Required by mlx5en
-options		RATELIMIT		# TX rate limiting support
+#options		RATELIMIT		# TX rate limiting support
 
 # Default serial speed
 options		CONSPEED=115200
