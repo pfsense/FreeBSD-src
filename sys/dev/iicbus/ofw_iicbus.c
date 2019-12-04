@@ -86,8 +86,6 @@ EARLY_DRIVER_MODULE(ofw_iicbus, iichb, ofw_iicbus_driver, ofw_iicbus_devclass,
     0, 0, BUS_PASS_BUS);
 EARLY_DRIVER_MODULE(ofw_iicbus, twsi, ofw_iicbus_driver, ofw_iicbus_devclass,
     0, 0, BUS_PASS_BUS);
-EARLY_DRIVER_MODULE(ofw_iicbus, twsi, ofw_iicbus_driver, ofwiicbus_devclass,
-    0, 0, BUS_PASS_BUS);
 MODULE_VERSION(ofw_iicbus, 1);
 MODULE_DEPEND(ofw_iicbus, iicbus, 1, 1, 1);
 
