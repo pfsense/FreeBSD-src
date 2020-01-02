@@ -35,8 +35,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
+#include <sys/lock.h>
 #include <sys/module.h>
 #include <sys/malloc.h>
+#include <sys/mutex.h>
 #include <sys/rman.h>
 #include <sys/proc.h>
 #include <sys/sched.h>
@@ -53,7 +55,6 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/ioccom.h>
 #include <sys/filio.h>
-#include <sys/tty.h>
 #include <sys/kbio.h>
 
 #include <dev/kbd/kbdreg.h>
@@ -578,9 +579,7 @@ static keyboard_switch_t kmisw = {
 	.clear_state = &kmi_clear_state,
 	.get_state = &kmi_get_state,
 	.set_state = &kmi_set_state,
-	.get_fkeystr = &genkbd_get_fkeystr,
 	.poll = &kmi_poll,
-	.diag = &genkbd_diag,
 };
 
 KEYBOARD_DRIVER(kmi, kmisw, kmi_configure);
@@ -717,7 +716,7 @@ pl050_kmi_attach(device_t dev)
 #endif
 
 	if (bootverbose) {
-		genkbd_diag(kbd, bootverbose);
+		kbdd_diag(kbd, bootverbose);
 	}
 	kmi_attached = 1;
 	return (0);
