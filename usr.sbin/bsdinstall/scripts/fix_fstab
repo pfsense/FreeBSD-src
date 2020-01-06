@@ -111,6 +111,11 @@ while read device mountpoint fstype options dump pass; do
 	# If label is blank, use device name
 	label=${label:-${device}}
 
+	if [ "${fstype}" = "ufs" ] && \
+	    ! echo "${options}" | grep -q noatime; then
+		options="${options},noatime"
+	fi
+
 	printf "%s\t%s\t%s\t%s\t%s\t%s\n" ${label} ${mountpoint} ${fstype} \
 	    ${options} ${dump} ${pass} >> ${TMP}
 done < ${FSTAB}
