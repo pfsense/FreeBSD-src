@@ -77,9 +77,9 @@ typedef void * (*path_enum_proc) (const char *path, size_t len, void *arg);
 static const char *basename(const char *);
 static void digest_dynamic1(Obj_Entry *, int, const Elf_Dyn **,
     const Elf_Dyn **, const Elf_Dyn **);
-static void digest_dynamic2(Obj_Entry *, const Elf_Dyn *, const Elf_Dyn *,
+static bool digest_dynamic2(Obj_Entry *, const Elf_Dyn *, const Elf_Dyn *,
     const Elf_Dyn *);
-static void digest_dynamic(Obj_Entry *, int);
+static bool digest_dynamic(Obj_Entry *, int);
 static Obj_Entry *digest_phdr(const Elf_Phdr *, int, caddr_t, const char *);
 static void distribute_static_tls(Objlist *, RtldLockState *);
 static Obj_Entry *dlcheck(void *);
@@ -123,7 +123,8 @@ static void objlist_push_head(Objlist *, Obj_Entry *);
 static void objlist_push_tail(Objlist *, Obj_Entry *);
 static void objlist_put_after(Objlist *, Obj_Entry *, Obj_Entry *);
 static void objlist_remove(Objlist *, Obj_Entry *);
-static int open_binary_fd(const char *argv0, bool search_in_path);
+static int open_binary_fd(const char *argv0, bool search_in_path,
+    const char **binpath_res);
 static int parse_args(char* argv[], int argc, bool *use_pathp, int *fdp);
 static int parse_integer(const char *);
 static void *path_enumerate(const char *, path_enum_proc, const char *, void *);
@@ -362,6 +363,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     struct stat st;
     Elf_Addr *argcp;
     char **argv, *argv0, **env, **envp, *kexecpath, *library_path_rpath;
+    const char *binpath;
     caddr_t imgentry;
     char buf[MAXPATHLEN];
     int argc, fd, i, mib[2], phnum, rtld_argc;
@@ -445,8 +447,9 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		rtld_argc = parse_args(argv, argc, &search_in_path, &fd);
 		argv0 = argv[rtld_argc];
 		explicit_fd = (fd != -1);
+		binpath = NULL;
 		if (!explicit_fd)
-		    fd = open_binary_fd(argv0, search_in_path);
+		    fd = open_binary_fd(argv0, search_in_path, &binpath);
 		if (fstat(fd, &st) == -1) {
 		    _rtld_error("failed to fstat FD %d (%s): %s", fd,
 		      explicit_fd ? "user-provided descriptor" : argv0,
@@ -499,10 +502,23 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		} while (*envp != NULL);
 		aux = auxp = (Elf_Auxinfo *)envp;
 		auxpf = (Elf_Auxinfo *)(envp + rtld_argc);
+		/* XXXKIB insert place for AT_EXECPATH if not present */
 		for (;; auxp++, auxpf++) {
 		    *auxp = *auxpf;
 		    if (auxp->a_type == AT_NULL)
 			    break;
+		}
+
+		/* Point AT_EXECPATH auxv and aux_info to the binary path. */
+		if (binpath == NULL) {
+		    aux_info[AT_EXECPATH] = NULL;
+		} else {
+		    if (aux_info[AT_EXECPATH] == NULL) {
+			aux_info[AT_EXECPATH] = xmalloc(sizeof(Elf_Auxinfo));
+			aux_info[AT_EXECPATH]->a_type = AT_EXECPATH;
+		    }
+		    aux_info[AT_EXECPATH]->a_un.a_ptr = __DECONST(void *,
+		      binpath);
 		}
 	    } else {
 		rtld_printf("no binary\n");
@@ -629,7 +645,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     }
 #endif
 
-    digest_dynamic(obj_main, 0);
+    if (!digest_dynamic(obj_main, 0))
+	rtld_die();
     dbg("%s valid_hash_sysv %d valid_hash_gnu %d dynsymcount %d",
 	obj_main->path, obj_main->valid_hash_sysv, obj_main->valid_hash_gnu,
 	obj_main->dynsymcount);
@@ -1343,13 +1360,13 @@ obj_resolve_origin(Obj_Entry *obj)
 	return (rtld_dirname_abs(obj->path, obj->origin_path) != -1);
 }
 
-static void
+static bool
 digest_dynamic2(Obj_Entry *obj, const Elf_Dyn *dyn_rpath,
     const Elf_Dyn *dyn_soname, const Elf_Dyn *dyn_runpath)
 {
 
 	if (obj->z_origin && !obj_resolve_origin(obj))
-		rtld_die();
+		return (false);
 
 	if (dyn_runpath != NULL) {
 		obj->runpath = (char *)obj->strtab + dyn_runpath->d_un.d_val;
@@ -1360,9 +1377,10 @@ digest_dynamic2(Obj_Entry *obj, const Elf_Dyn *dyn_rpath,
 	}
 	if (dyn_soname != NULL)
 		object_add_name(obj, obj->strtab + dyn_soname->d_un.d_val);
+	return (true);
 }
 
-static void
+static bool
 digest_dynamic(Obj_Entry *obj, int early)
 {
 	const Elf_Dyn *dyn_rpath;
@@ -1370,7 +1388,7 @@ digest_dynamic(Obj_Entry *obj, int early)
 	const Elf_Dyn *dyn_runpath;
 
 	digest_dynamic1(obj, early, &dyn_rpath, &dyn_soname, &dyn_runpath);
-	digest_dynamic2(obj, dyn_rpath, dyn_soname, dyn_runpath);
+	return (digest_dynamic2(obj, dyn_rpath, dyn_soname, dyn_runpath));
 }
 
 /*
@@ -2490,16 +2508,15 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
     if (name != NULL)
 	object_add_name(obj, name);
     obj->path = path;
-    digest_dynamic(obj, 0);
+    if (!digest_dynamic(obj, 0))
+	goto errp;
     dbg("%s valid_hash_sysv %d valid_hash_gnu %d dynsymcount %d", obj->path,
 	obj->valid_hash_sysv, obj->valid_hash_gnu, obj->dynsymcount);
     if (obj->z_noopen && (flags & (RTLD_LO_DLOPEN | RTLD_LO_TRACE)) ==
       RTLD_LO_DLOPEN) {
 	dbg("refusing to load non-loadable \"%s\"", obj->path);
 	_rtld_error("Cannot dlopen non-loadable %s", obj->path);
-	munmap(obj->mapbase, obj->mapsize);
-	obj_free(obj);
-	return (NULL);
+	goto errp;
     }
 
     obj->dlopened = (flags & RTLD_LO_DLOPEN) != 0;
@@ -2516,7 +2533,12 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
     LD_UTRACE(UTRACE_LOAD_OBJECT, obj, obj->mapbase, obj->mapsize, 0,
 	obj->path);    
 
-    return obj;
+    return (obj);
+
+errp:
+    munmap(obj->mapbase, obj->mapsize);
+    obj_free(obj);
+    return (NULL);
 }
 
 static Obj_Entry *
@@ -3917,12 +3939,17 @@ rtld_dirname_abs(const char *path, char *base)
 {
 	char *last;
 
-	if (realpath(path, base) == NULL)
+	if (realpath(path, base) == NULL) {
+		_rtld_error("realpath \"%s\" failed (%s)", path,
+		    rtld_strerror(errno));
 		return (-1);
+	}
 	dbg("%s -> %s", path, base);
 	last = strrchr(base, '/');
-	if (last == NULL)
+	if (last == NULL) {
+		_rtld_error("non-abs result from realpath \"%s\"", path);
 		return (-1);
+	}
 	if (last != base)
 		*last = '\0';
 	return (0);
@@ -5392,12 +5419,14 @@ symlook_init_from_req(SymLook *dst, const SymLook *src)
 }
 
 static int
-open_binary_fd(const char *argv0, bool search_in_path)
+open_binary_fd(const char *argv0, bool search_in_path,
+    const char **binpath_res)
 {
-	char *pathenv, *pe, binpath[PATH_MAX];
+	char *pathenv, *pe, *binpath;
 	int fd;
 
 	if (search_in_path && strchr(argv0, '/') == NULL) {
+		binpath = xmalloc(PATH_MAX);
 		pathenv = getenv("PATH");
 		if (pathenv == NULL) {
 			rtld_printf("-p and no PATH environment variable\n");
@@ -5411,24 +5440,25 @@ open_binary_fd(const char *argv0, bool search_in_path)
 		fd = -1;
 		errno = ENOENT;
 		while ((pe = strsep(&pathenv, ":")) != NULL) {
-			if (strlcpy(binpath, pe, sizeof(binpath)) >=
-			    sizeof(binpath))
+			if (strlcpy(binpath, pe, PATH_MAX) >= PATH_MAX)
 				continue;
 			if (binpath[0] != '\0' &&
-			    strlcat(binpath, "/", sizeof(binpath)) >=
-			    sizeof(binpath))
+			    strlcat(binpath, "/", PATH_MAX) >= PATH_MAX)
 				continue;
-			if (strlcat(binpath, argv0, sizeof(binpath)) >=
-			    sizeof(binpath))
+			if (strlcat(binpath, argv0, PATH_MAX) >= PATH_MAX)
 				continue;
 			fd = open(binpath, O_RDONLY | O_CLOEXEC | O_VERIFY);
-			if (fd != -1 || errno != ENOENT)
+			if (fd != -1 || errno != ENOENT) {
+				*binpath_res = binpath;
 				break;
+			}
 		}
 		free(pathenv);
 	} else {
 		fd = open(argv0, O_RDONLY | O_CLOEXEC | O_VERIFY);
+		*binpath_res = argv0;
 	}
+	/* XXXKIB Use getcwd() to resolve relative binpath to absolute. */
 
 	if (fd == -1) {
 		rtld_printf("Opening %s: %s\n", argv0,
