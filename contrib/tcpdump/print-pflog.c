@@ -99,8 +99,10 @@ pflog_print(netdissect_options *ndo, const struct pfloghdr *hdr)
 
 	ND_PRINT((ndo, "%s", tok2str(pf_reasons, "unkn(%u)", hdr->reason)));
 
+#ifdef PF_USER_INFO
 	if (hdr->uid != UID_MAX)
 		ND_PRINT((ndo, " [uid %u]", (unsigned)hdr->uid));
+#endif
 
 	ND_PRINT((ndo, ": %s %s on %s: ",
 	    tok2str(pf_actions, "unkn(%u)", hdr->action),
