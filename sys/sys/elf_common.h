@@ -542,7 +542,15 @@ typedef struct {
 #define	PT_LOPROC	0x70000000	/* First processor-specific type. */
 #define	PT_ARM_ARCHEXT	0x70000000	/* ARM arch compat information. */
 #define	PT_ARM_EXIDX	0x70000001	/* ARM exception unwind tables. */
+#define	PT_MIPS_REGINFO		0x70000000	/* MIPS register usage info */
+#define	PT_MIPS_RTPROC		0x70000001	/* MIPS runtime procedure tbl */
+#define	PT_MIPS_OPTIONS		0x70000002	/* MIPS e_flags value*/
+#define	PT_MIPS_ABIFLAGS	0x70000003	/* MIPS fp mode */
 #define	PT_HIPROC	0x7fffffff	/* Last processor-specific type. */
+
+#define	PT_OPENBSD_RANDOMIZE	0x65A3DBE6	/* OpenBSD random data segment */
+#define	PT_OPENBSD_WXNEEDED	0x65A3DBE7	/* OpenBSD EXEC/WRITE pages needed */
+#define	PT_OPENBSD_BOOTDATA	0x65A41BE6	/* OpenBSD section for boot args */
 
 /* Values for p_flags. */
 #define	PF_X		0x1		/* Executable. */
@@ -778,7 +786,9 @@ typedef struct {
 
 /* NT_FREEBSD_FEATURE_CTL desc[0] bits */
 #define	NT_FREEBSD_FCTL_ASLR_DISABLE	0x00000001
+#define	NT_FREEBSD_FCTL_PROTMAX_DISABLE	0x00000002
 #define	NT_FREEBSD_FCTL_STKGAP_DISABLE	0x00000004
+#define	NT_FREEBSD_FCTL_WXNEEDED	0x00000008
 
 /* Values for n_type.  Used in core files. */
 #define	NT_PRSTATUS	1	/* Process status. */
