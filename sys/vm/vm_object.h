@@ -167,6 +167,7 @@ struct vm_object {
 		struct {
 			void *swp_tmpfs;
 			struct pctrie swp_blks;
+			vm_ooffset_t writemappings;
 		} swp;
 	} un_pager;
 	struct ucred *cred;
@@ -188,6 +189,7 @@ struct vm_object {
 #define	OBJ_MIGHTBEDIRTY 0x0100		/* object might be dirty, only for vnode */
 #define	OBJ_TMPFS_NODE	0x0200		/* object belongs to tmpfs VREG node */
 #define	OBJ_TMPFS_DIRTY	0x0400		/* dirty tmpfs obj */
+#define	OBJ_SIZEVNLOCK	0x0800		/* lock vnode to check obj size */
 #define	OBJ_COLORED	0x1000		/* pg_color is defined */
 #define	OBJ_ONEMAPPING	0x2000		/* One USE (a single, non-forked) mapping flag */
 #define	OBJ_DISCONNECTWNT 0x4000	/* disconnect from vnode wanted */
@@ -196,20 +198,14 @@ struct vm_object {
 /*
  * Helpers to perform conversion between vm_object page indexes and offsets.
  * IDX_TO_OFF() converts an index into an offset.
- * OFF_TO_IDX() converts an offset into an index.  Since offsets are signed
- *   by default, the sign propagation in OFF_TO_IDX(), when applied to
- *   negative offsets, is intentional and returns a vm_object page index
- *   that cannot be created by a userspace mapping.
- * UOFF_TO_IDX() treats the offset as an unsigned value and converts it
- *   into an index accordingly.  Use it only when the full range of offset
- *   values are allowed.  Currently, this only applies to device mappings.
+ * OFF_TO_IDX() converts an offset into an index.
  * OBJ_MAX_SIZE specifies the maximum page index corresponding to the
  *   maximum unsigned offset.
  */
 #define	IDX_TO_OFF(idx) (((vm_ooffset_t)(idx)) << PAGE_SHIFT)
 #define	OFF_TO_IDX(off) ((vm_pindex_t)(((vm_ooffset_t)(off)) >> PAGE_SHIFT))
-#define	UOFF_TO_IDX(off) (((vm_pindex_t)(off)) >> PAGE_SHIFT)
-#define	OBJ_MAX_SIZE	(UOFF_TO_IDX(UINT64_MAX) + 1)
+#define	UOFF_TO_IDX(off) OFF_TO_IDX(off)
+#define	OBJ_MAX_SIZE	(OFF_TO_IDX(UINT64_MAX) + 1)
 
 #ifdef	_KERNEL
 

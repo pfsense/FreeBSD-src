@@ -95,6 +95,10 @@ static int xhcistreams;
 SYSCTL_INT(_hw_usb_xhci, OID_AUTO, streams, CTLFLAG_RWTUN,
     &xhcistreams, 0, "Set to enable streams mode support");
 
+static int xhcictlquirk = 1;
+SYSCTL_INT(_hw_usb_xhci, OID_AUTO, ctlquirk, CTLFLAG_RWTUN,
+    &xhcictlquirk, 0, "Set to enable control endpoint quirk");
+
 #ifdef USB_DEBUG
 static int xhcidebug;
 static int xhciroute;
@@ -601,6 +605,9 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 	device_printf(self, "%d bytes context size, %d-bit DMA\n",
 	    sc->sc_ctx_is_64_byte ? 64 : 32, (int)sc->sc_bus.dma_bits);
 
+	/* enable 64Kbyte control endpoint quirk */
+	sc->sc_bus.control_ep_quirk = (xhcictlquirk ? 1 : 0);
+
 	temp = XREAD4(sc, capa, XHCI_HCSPARAMS1);
 
 	/* get number of device slots */
@@ -891,7 +898,7 @@ xhci_check_transfer(struct xhci_softc *sc, struct xhci_trb *trb)
 	uint64_t td_event;
 	uint32_t temp;
 	uint32_t remainder;
-	uint16_t stream_id;
+	uint16_t stream_id = 0;
 	uint16_t i;
 	uint8_t status;
 	uint8_t halted;
@@ -904,7 +911,6 @@ xhci_check_transfer(struct xhci_softc *sc, struct xhci_trb *trb)
 
 	remainder = XHCI_TRB_2_REM_GET(temp);
 	status = XHCI_TRB_2_ERROR_GET(temp);
-	stream_id = XHCI_TRB_2_STREAM_GET(temp);
 
 	temp = le32toh(trb->dwTrb3);
 	epno = XHCI_TRB_3_EP_GET(temp);
@@ -914,8 +920,8 @@ xhci_check_transfer(struct xhci_softc *sc, struct xhci_trb *trb)
 	halted = (status != XHCI_TRB_ERROR_SHORT_PKT &&
 	    status != XHCI_TRB_ERROR_SUCCESS);
 
-	DPRINTF("slot=%u epno=%u stream=%u remainder=%u status=%u\n",
-	    index, epno, stream_id, remainder, status);
+	DPRINTF("slot=%u epno=%u remainder=%u status=%u\n",
+	    index, epno, remainder, status);
 
 	if (index > sc->sc_noslot) {
 		DPRINTF("Invalid slot.\n");
@@ -929,18 +935,19 @@ xhci_check_transfer(struct xhci_softc *sc, struct xhci_trb *trb)
 
 	pepext = &sc->sc_hw.devs[index].endp[epno];
 
-	if (pepext->trb_ep_mode != USB_EP_MODE_STREAMS) {
-		stream_id = 0;
-		DPRINTF("stream_id=0\n");
-	} else if (stream_id >= XHCI_MAX_STREAMS) {
-		DPRINTF("Invalid stream ID.\n");
-		return;
-	}
-
 	/* try to find the USB transfer that generated the event */
-	for (i = 0; i != (XHCI_MAX_TRANSFERS - 1); i++) {
+	for (i = 0;; i++) {
 		struct usb_xfer *xfer;
 		struct xhci_td *td;
+
+		if (i == (XHCI_MAX_TRANSFERS - 1)) {
+			if (pepext->trb_ep_mode != USB_EP_MODE_STREAMS ||
+			    stream_id == (XHCI_MAX_STREAMS - 1))
+				break;
+			stream_id++;
+			i = 0;
+			DPRINTFN(5, "stream_id=%u\n", stream_id);
+		}
 
 		xfer = pepext->xfer[i + (XHCI_MAX_TRANSFERS * stream_id)];
 		if (xfer == NULL)
@@ -2003,7 +2010,7 @@ restart:
 
 	/* clear TD SIZE to zero, hence this is the last TRB */
 	/* remove chain bit because this is the last data TRB in the chain */
-	td->td_trb[td->ntrb - 1].dwTrb2 &= ~htole32(XHCI_TRB_2_TDSZ_SET(15));
+	td->td_trb[td->ntrb - 1].dwTrb2 &= ~htole32(XHCI_TRB_2_TDSZ_SET(31));
 	td->td_trb[td->ntrb - 1].dwTrb3 &= ~htole32(XHCI_TRB_3_CHAIN_BIT);
 	/* remove CHAIN-BIT from last LINK TRB */
 	td->td_trb[td->ntrb].dwTrb3 &= ~htole32(XHCI_TRB_3_CHAIN_BIT);
@@ -3831,6 +3838,7 @@ xhci_configure_reset_endpoint(struct usb_xfer *xfer)
 	struct usb_page_cache *pcinp;
 	usb_error_t err;
 	usb_stream_t stream_id;
+	uint32_t mask;
 	uint8_t index;
 	uint8_t epno;
 
@@ -3896,16 +3904,20 @@ xhci_configure_reset_endpoint(struct usb_xfer *xfer)
 	 * endpoint context state diagram in the XHCI specification:
 	 */
 
-	xhci_configure_mask(udev, (1U << epno) | 1U, 0);
+	mask = (1U << epno);
+	xhci_configure_mask(udev, mask | 1U, 0);
 
-	if (epno > 1)
+	if (!(sc->sc_hw.devs[index].ep_configured & mask)) {
+		sc->sc_hw.devs[index].ep_configured |= mask;
 		err = xhci_cmd_configure_ep(sc, buf_inp.physaddr, 0, index);
-	else
+	} else {
 		err = xhci_cmd_evaluate_ctx(sc, buf_inp.physaddr, index);
+	}
 
-	if (err != 0)
-		DPRINTF("Could not configure endpoint %u\n", epno);
-
+	if (err != 0) {
+		DPRINTF("Could not configure "
+		    "endpoint %u at slot %u.\n", epno, index);
+	}
 	XHCI_CMD_UNLOCK(sc);
 
 	return (0);
@@ -4266,6 +4278,7 @@ xhci_device_state_change(struct usb_device *udev)
 
 		/* set default state */
 		sc->sc_hw.devs[index].state = XHCI_ST_DEFAULT;
+		sc->sc_hw.devs[index].ep_configured = 3U;
 
 		/* reset number of contexts */
 		sc->sc_hw.devs[index].context_num = 0;
@@ -4283,6 +4296,7 @@ xhci_device_state_change(struct usb_device *udev)
 			break;
 
 		sc->sc_hw.devs[index].state = XHCI_ST_ADDRESSED;
+		sc->sc_hw.devs[index].ep_configured = 3U;
 
 		/* set configure mask to slot only */
 		xhci_configure_mask(udev, 1, 0);
@@ -4297,11 +4311,19 @@ xhci_device_state_change(struct usb_device *udev)
 		break;
 
 	case USB_STATE_CONFIGURED:
-		if (sc->sc_hw.devs[index].state == XHCI_ST_CONFIGURED)
-			break;
+		if (sc->sc_hw.devs[index].state == XHCI_ST_CONFIGURED) {
+			/* deconfigure all endpoints, except EP0 */
+			err = xhci_cmd_configure_ep(sc, 0, 1, index);
+
+			if (err) {
+				DPRINTF("Failed to deconfigure "
+				    "slot %u.\n", index);
+			}
+		}
 
 		/* set configured state */
 		sc->sc_hw.devs[index].state = XHCI_ST_CONFIGURED;
+		sc->sc_hw.devs[index].ep_configured = 3U;
 
 		/* reset number of contexts */
 		sc->sc_hw.devs[index].context_num = 0;

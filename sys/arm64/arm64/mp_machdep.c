@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/module.h>
 #include <sys/mutex.h>
+#include <sys/pcpu.h>
 #include <sys/proc.h>
 #include <sys/sched.h>
 #include <sys/smp.h>
@@ -110,8 +111,6 @@ static struct intr_ipi ipi_sources[INTR_IPI_COUNT];
 static struct intr_ipi *intr_ipi_lookup(u_int);
 static void intr_pic_ipi_setup(u_int, const char *, intr_ipi_handler_t *,
     void *);
-
-extern struct pcpu __pcpu[];
 
 static device_identify_t arm64_cpu_identify;
 static device_probe_t arm64_cpu_probe;
@@ -307,18 +306,12 @@ init_secondary(uint64_t cpu)
 	dbg_init();
 	pan_enable();
 
-	/* Enable interrupts */
-	intr_enable();
-
 	mtx_lock_spin(&ap_boot_mtx);
-
 	atomic_add_rel_32(&smp_cpus, 1);
-
 	if (smp_cpus == mp_ncpus) {
 		/* enable IPI's, tlb shootdown, freezes etc */
 		atomic_store_rel_int(&smp_started, 1);
 	}
-
 	mtx_unlock_spin(&ap_boot_mtx);
 
 	/* Enter the scheduler */
@@ -520,13 +513,15 @@ madt_handler(ACPI_SUBTABLE_HEADER *entry, void *arg)
 {
 	ACPI_MADT_GENERIC_INTERRUPT *intr;
 	u_int *cpuid;
+	u_int id;
 
 	switch(entry->Type) {
 	case ACPI_MADT_TYPE_GENERIC_INTERRUPT:
 		intr = (ACPI_MADT_GENERIC_INTERRUPT *)entry;
 		cpuid = arg;
-
-		start_cpu((*cpuid), intr->ArmMpidr);
+		id = *cpuid;
+		start_cpu(id, intr->ArmMpidr);
+		__pcpu[id].pc_acpi_id = intr->Uid;
 		(*cpuid)++;
 		break;
 	default:
@@ -556,6 +551,12 @@ cpu_init_acpi(void)
 	    madt_handler, &cpuid);
 
 	acpi_unmap_table(madt);
+
+#if MAXMEMDOM > 1
+	/* set proximity info */
+	acpi_pxm_set_cpu_locality();
+	acpi_pxm_free();
+#endif
 }
 #endif
 

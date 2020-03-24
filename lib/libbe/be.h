@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2017 Kyle J. Kneitinger <kyle@kneit.in>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -59,6 +58,8 @@ typedef enum be_error {
 	BE_ERR_NOPOOL,		/* operation not supported on this pool */
 	BE_ERR_NOMEM,		/* insufficient memory */
 	BE_ERR_UNKNOWN,         /* unknown error */
+	BE_ERR_INVORIGIN,       /* invalid origin */
+	BE_ERR_HASCLONES,	/* snapshot has clones */
 } be_error_t;
 
 
@@ -81,8 +82,11 @@ void be_prop_list_free(nvlist_t *be_list);
 
 int be_activate(libbe_handle_t *, const char *, bool);
 
+bool be_is_auto_snapshot_name(libbe_handle_t *, const char *);
+
 /* Bootenv creation functions */
 int be_create(libbe_handle_t *, const char *);
+int be_create_depth(libbe_handle_t *, const char *, const char *, int);
 int be_create_from_existing(libbe_handle_t *, const char *, const char *);
 int be_create_from_existing_snap(libbe_handle_t *, const char *, const char *);
 int be_snapshot(libbe_handle_t *, const char *, const char *, bool, char *);
@@ -93,7 +97,9 @@ int be_rename(libbe_handle_t *, const char *, const char *);
 /* Bootenv removal functions */
 
 typedef enum {
-	BE_DESTROY_FORCE = 1 << 0,
+	BE_DESTROY_FORCE	= 1 << 0,
+	BE_DESTROY_ORIGIN	= 1 << 1,
+	BE_DESTROY_AUTOORIGIN	= 1 << 2,
 } be_destroy_opt_t;
 
 int be_destroy(libbe_handle_t *, const char *, int);
@@ -102,7 +108,7 @@ int be_destroy(libbe_handle_t *, const char *, int);
 
 typedef enum {
 	BE_MNT_FORCE		= 1 << 0,
-		BE_MNT_DEEP	= 1 << 1,
+	BE_MNT_DEEP		= 1 << 1,
 } be_mount_opt_t;
 
 int be_mount(libbe_handle_t *, char *, char *, int, char *);

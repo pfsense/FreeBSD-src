@@ -131,6 +131,7 @@ void ioat_put_dmaengine(bus_dmaengine_t dmaengine);
 int ioat_get_hwversion(bus_dmaengine_t dmaengine);
 size_t ioat_get_max_io_size(bus_dmaengine_t dmaengine);
 uint32_t ioat_get_capabilities(bus_dmaengine_t dmaengine);
+int ioat_get_domain(bus_dmaengine_t dmaengine, int *domain);
 
 /*
  * Set interrupt coalescing on a DMA channel.
@@ -173,7 +174,8 @@ void ioat_release(bus_dmaengine_t dmaengine);
  *
  * On failure, the caller does not hold the dmaengine.
  */
-int ioat_acquire_reserve(bus_dmaengine_t dmaengine, unsigned n, int mflags);
+int ioat_acquire_reserve(bus_dmaengine_t dmaengine, unsigned n, int mflags)
+    __result_use_check;
 
 /*
  * Issue a blockfill operation.  The 64-bit pattern 'fillpattern' is written to

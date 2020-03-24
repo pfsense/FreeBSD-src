@@ -130,7 +130,7 @@ struct lvt {
 
 struct lapic {
 	struct lvt la_lvts[APIC_LVT_MAX + 1];
-	struct lvt la_elvts[APIC_ELVT_MAX + 1];;
+	struct lvt la_elvts[APIC_ELVT_MAX + 1];
 	u_int la_id:8;
 	u_int la_cluster:4;
 	u_int la_cluster_id:2;
@@ -676,7 +676,8 @@ amd_read_ext_features(void)
 {
 	uint32_t version;
 
-	if (cpu_vendor_id != CPU_VENDOR_AMD)
+	if (cpu_vendor_id != CPU_VENDOR_AMD &&
+	    cpu_vendor_id != CPU_VENDOR_HYGON)
 		return (0);
 	version = lapic_read32(LAPIC_VERSION);
 	if ((version & APIC_VER_AMD_EXT_SPACE) != 0)

@@ -445,7 +445,7 @@ ATF_TC_BODY(object_resize, tc)
 		/*
 		 * The previous ftruncate(2) shrunk the backing object
 		 * so that this address is no longer valid, so reading
-		 * from it should trigger a SIGSEGV.
+		 * from it should trigger a SIGBUS.
 		 */
 		c = page[pagesize];
 		fprintf(stderr, "child: page 1: '%c'\n", c);
@@ -455,7 +455,7 @@ ATF_TC_BODY(object_resize, tc)
 	if (wait(&status) < 0)
 		atf_tc_fail("wait failed; errno=%d", errno);
 
-	if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGSEGV)
+	if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGBUS)
 		atf_tc_fail("child terminated with status %x", status);
 
 	/* Grow the object back to 2 pages. */
@@ -609,6 +609,27 @@ ATF_TC_BODY(shm_functionality_across_fork, tc)
 	shm_unlink(test_path);
 }
 
+ATF_TC_WITHOUT_HEAD(cloexec);
+ATF_TC_BODY(cloexec, tc)
+{
+	int fd;
+
+	gen_test_path();
+
+	/* shm_open(2) is required to set FD_CLOEXEC */
+	fd = shm_open(SHM_ANON, O_RDWR, 0777);
+	ATF_REQUIRE_MSG(fd >= 0, "shm_open failed; errno=%d", errno);
+	ATF_REQUIRE((fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0);
+	close(fd);
+
+	/* Also make sure that named shm is correct */
+	fd = shm_open(test_path, O_CREAT | O_RDWR, 0600);
+	ATF_REQUIRE_MSG(fd >= 0, "shm_open failed; errno=%d", errno);
+	ATF_REQUIRE((fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0);
+	close(fd);
+}
+
+
 ATF_TP_ADD_TCS(tp)
 {
 
@@ -630,6 +651,7 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, unlink_bad_path_pointer);
 	ATF_TP_ADD_TC(tp, unlink_path_too_long);
 	ATF_TP_ADD_TC(tp, object_resize);
+	ATF_TP_ADD_TC(tp, cloexec);
 
 	return (atf_no_error());
 }

@@ -1,6 +1,7 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2017 Ian Lepore <ian@freebsd.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -617,3 +618,4 @@ static devclass_t ds13rtc_devclass;
 DRIVER_MODULE(ds13rtc, iicbus, ds13rtc_driver, ds13rtc_devclass, NULL, NULL);
 MODULE_VERSION(ds13rtc, 1);
 MODULE_DEPEND(ds13rtc, iicbus, IICBB_MINVER, IICBB_PREFVER, IICBB_MAXVER);
+IICBUS_FDT_PNP_INFO(compat_data);

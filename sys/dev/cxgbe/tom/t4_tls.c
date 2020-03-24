@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #ifdef TCP_OFFLOAD
 #include "common/common.h"
 #include "common/t4_tcb.h"
+#include "crypto/t4_crypto.h"
 #include "tom/t4_tom_l2t.h"
 #include "tom/t4_tom.h"
 
@@ -429,32 +430,13 @@ prepare_txkey_wr(struct tls_keyctx *kwr, struct tls_key_context *kctx)
 }
 
 /* TLS Key memory management */
-int
-tls_init_kmap(struct adapter *sc, struct tom_data *td)
-{
-
-	td->key_map = vmem_create("T4TLS key map", sc->vres.key.start,
-	    sc->vres.key.size, 8, 0, M_FIRSTFIT | M_NOWAIT);
-	if (td->key_map == NULL)
-		return (ENOMEM);
-	return (0);
-}
-
-void
-tls_free_kmap(struct tom_data *td)
-{
-
-	if (td->key_map != NULL)
-		vmem_destroy(td->key_map);
-}
-
 static int
 get_new_keyid(struct toepcb *toep, struct tls_key_context *k_ctx)
 {
-	struct tom_data *td = toep->td;
+	struct adapter *sc = td_adapter(toep->td);
 	vmem_addr_t addr;
 
-	if (vmem_alloc(td->key_map, TLS_KEY_CONTEXT_SZ, M_NOWAIT | M_FIRSTFIT,
+	if (vmem_alloc(sc->key_map, TLS_KEY_CONTEXT_SZ, M_NOWAIT | M_FIRSTFIT,
 	    &addr) != 0)
 		return (-1);
 
@@ -464,9 +446,9 @@ get_new_keyid(struct toepcb *toep, struct tls_key_context *k_ctx)
 static void
 free_keyid(struct toepcb *toep, int keyid)
 {
-	struct tom_data *td = toep->td;
+	struct adapter *sc = td_adapter(toep->td);
 
-	vmem_free(td->key_map, keyid, TLS_KEY_CONTEXT_SZ);
+	vmem_free(sc->key_map, keyid, TLS_KEY_CONTEXT_SZ);
 }
 
 static void
@@ -511,9 +493,9 @@ tls_program_key_id(struct toepcb *toep, struct tls_key_context *k_ctx)
 	struct tls_key_req *kwr;
 	struct tls_keyctx *kctx;
 
-	kwrlen = roundup2(sizeof(*kwr), 16);
+	kwrlen = sizeof(*kwr);
 	kctxlen = roundup2(sizeof(*kctx), 32);
-	len = kwrlen + kctxlen;
+	len = roundup2(kwrlen + kctxlen, 16);
 
 	if (toep->txsd_avail == 0)
 		return (EAGAIN);
@@ -555,7 +537,6 @@ tls_program_key_id(struct toepcb *toep, struct tls_key_context *k_ctx)
 	kwr->sc_more = htobe32(V_ULPTX_CMD(ULP_TX_SC_IMM));
 	kwr->sc_len = htobe32(kctxlen);
 
-	/* XXX: This assumes that kwrlen == sizeof(*kwr). */
 	kctx = (struct tls_keyctx *)(kwr + 1);
 	memset(kctx, 0, kctxlen);
 
@@ -608,7 +589,7 @@ program_key_context(struct tcpcb *tp, struct toepcb *toep,
 	    "KEY_WRITE_TX", uk_ctx->proto_ver);
 
 	if (G_KEY_GET_LOC(uk_ctx->l_p_key) == KEY_WRITE_RX &&
-	    toep->ulp_mode != ULP_MODE_TLS)
+	    ulp_mode(toep) != ULP_MODE_TLS)
 		return (EOPNOTSUPP);
 
 	/* Don't copy the 'tx' and 'rx' fields. */
@@ -806,7 +787,7 @@ t4_ctloutput_tls(struct socket *so, struct sockopt *sopt)
 			INP_WUNLOCK(inp);
 			break;
 		case TCP_TLSOM_CLR_TLS_TOM:
-			if (toep->ulp_mode == ULP_MODE_TLS) {
+			if (ulp_mode(toep) == ULP_MODE_TLS) {
 				CTR2(KTR_CXGBE, "%s: tid %d CLR_TLS_TOM",
 				    __func__, toep->tid);
 				tls_clr_ofld_mode(toep);
@@ -815,7 +796,7 @@ t4_ctloutput_tls(struct socket *so, struct sockopt *sopt)
 			INP_WUNLOCK(inp);
 			break;
 		case TCP_TLSOM_CLR_QUIES:
-			if (toep->ulp_mode == ULP_MODE_TLS) {
+			if (ulp_mode(toep) == ULP_MODE_TLS) {
 				CTR2(KTR_CXGBE, "%s: tid %d CLR_QUIES",
 				    __func__, toep->tid);
 				tls_clr_quiesce(toep);
@@ -838,7 +819,7 @@ t4_ctloutput_tls(struct socket *so, struct sockopt *sopt)
 			 */
 			optval = TLS_TOM_NONE;
 			if (can_tls_offload(td_adapter(toep->td))) {
-				switch (toep->ulp_mode) {
+				switch (ulp_mode(toep)) {
 				case ULP_MODE_NONE:
 				case ULP_MODE_TCPDDP:
 					optval = TLS_TOM_TXONLY;
@@ -871,7 +852,7 @@ tls_init_toep(struct toepcb *toep)
 	tls_ofld->key_location = TLS_SFO_WR_CONTEXTLOC_DDR;
 	tls_ofld->rx_key_addr = -1;
 	tls_ofld->tx_key_addr = -1;
-	if (toep->ulp_mode == ULP_MODE_TLS)
+	if (ulp_mode(toep) == ULP_MODE_TLS)
 		callout_init_mtx(&tls_ofld->handshake_timer,
 		    &tls_handshake_lock, 0);
 }
@@ -900,7 +881,7 @@ void
 tls_uninit_toep(struct toepcb *toep)
 {
 
-	if (toep->ulp_mode == ULP_MODE_TLS)
+	if (ulp_mode(toep) == ULP_MODE_TLS)
 		tls_stop_handshake_timer(toep);
 	clear_tls_keyid(toep);
 }
@@ -1115,9 +1096,9 @@ t4_push_tls_records(struct adapter *sc, struct toepcb *toep, int drop)
 	KASSERT(toep->flags & TPF_FLOWC_WR_SENT,
 	    ("%s: flowc_wr not sent for tid %u.", __func__, toep->tid));
 
-	KASSERT(toep->ulp_mode == ULP_MODE_NONE ||
-	    toep->ulp_mode == ULP_MODE_TCPDDP || toep->ulp_mode == ULP_MODE_TLS,
-	    ("%s: ulp_mode %u for toep %p", __func__, toep->ulp_mode, toep));
+	KASSERT(ulp_mode(toep) == ULP_MODE_NONE ||
+	    ulp_mode(toep) == ULP_MODE_TCPDDP || ulp_mode(toep) == ULP_MODE_TLS,
+	    ("%s: ulp_mode %u for toep %p", __func__, ulp_mode(toep), toep));
 	KASSERT(tls_tx_key(toep),
 	    ("%s: TX key not set for toep %p", __func__, toep));
 
@@ -1368,7 +1349,7 @@ t4_push_tls_records(struct adapter *sc, struct toepcb *toep, int drop)
 		tp->snd_max += plen;
 
 		SOCKBUF_LOCK(sb);
-		sbsndptr(sb, tls_ofld->sb_off, plen, &sndptroff);
+		sbsndptr_adv(sb, sb->sb_sndptr, plen);
 		tls_ofld->sb_off += plen;
 		SOCKBUF_UNLOCK(sb);
 
@@ -1476,7 +1457,7 @@ do_rx_tls_cmp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	struct socket *so;
 	struct sockbuf *sb;
 	struct mbuf *tls_data;
-	int len, pdu_length, pdu_overhead, sb_length;
+	int len, pdu_length, rx_credits;
 
 	KASSERT(toep->tid == tid, ("%s: toep tid/atid mismatch", __func__));
 	KASSERT(!(toep->flags & TPF_SYNQE),
@@ -1580,24 +1561,10 @@ do_rx_tls_cmp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	}
 
 	/*
-	 * Not all of the bytes on the wire are included in the socket
-	 * buffer (e.g. the MAC of the TLS record).  However, those
-	 * bytes are included in the TCP sequence space.  To handle
-	 * this, compute the delta for this TLS record in
-	 * 'pdu_overhead' and treat those bytes as having already been
-	 * "read" by the application for the purposes of expanding the
-	 * window.  The meat of the TLS record passed to the
-	 * application ('sb_length') will still not be counted as
-	 * "read" until userland actually reads the bytes.
-	 *
-	 * XXX: Some of the calculations below are probably still not
-	 * really correct.
+	 * Not all of the bytes on the wire are included in the socket buffer
+	 * (e.g. the MAC of the TLS record).  However, those bytes are included
+	 * in the TCP sequence space.
 	 */
-	sb_length = m->m_pkthdr.len;
-	pdu_overhead = pdu_length - sb_length;
-	toep->rx_credits += pdu_overhead;
-	tp->rcv_wnd += pdu_overhead;
-	tp->rcv_adv += pdu_overhead;
 
 	/* receive buffer autosize */
 	MPASS(toep->vnet == so->so_vnet);
@@ -1605,34 +1572,25 @@ do_rx_tls_cmp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	if (sb->sb_flags & SB_AUTOSIZE &&
 	    V_tcp_do_autorcvbuf &&
 	    sb->sb_hiwat < V_tcp_autorcvbuf_max &&
-	    sb_length > (sbspace(sb) / 8 * 7)) {
+	    m->m_pkthdr.len > (sbspace(sb) / 8 * 7)) {
 		unsigned int hiwat = sb->sb_hiwat;
 		unsigned int newsize = min(hiwat + V_tcp_autorcvbuf_inc,
 		    V_tcp_autorcvbuf_max);
 
 		if (!sbreserve_locked(sb, newsize, so, NULL))
 			sb->sb_flags &= ~SB_AUTOSIZE;
-		else
-			toep->rx_credits += newsize - hiwat;
 	}
 
-	KASSERT(toep->sb_cc >= sbused(sb),
-	    ("%s: sb %p has more data (%d) than last time (%d).",
-	    __func__, sb, sbused(sb), toep->sb_cc));
-	toep->rx_credits += toep->sb_cc - sbused(sb);
 	sbappendstream_locked(sb, m, 0);
-	toep->sb_cc = sbused(sb);
+	rx_credits = sbspace(sb) > tp->rcv_wnd ? sbspace(sb) - tp->rcv_wnd : 0;
 #ifdef VERBOSE_TRACES
-	CTR5(KTR_CXGBE, "%s: tid %u PDU overhead %d rx_credits %u rcv_wnd %u",
-	    __func__, tid, pdu_overhead, toep->rx_credits, tp->rcv_wnd);
+	CTR4(KTR_CXGBE, "%s: tid %u rx_credits %u rcv_wnd %u",
+	    __func__, tid, rx_credits, tp->rcv_wnd);
 #endif
-	if (toep->rx_credits > 0 && toep->sb_cc + tp->rcv_wnd < sb->sb_lowat) {
-		int credits;
-
-		credits = send_rx_credits(sc, toep, toep->rx_credits);
-		toep->rx_credits -= credits;
-		tp->rcv_wnd += credits;
-		tp->rcv_adv += credits;
+	if (rx_credits > 0 && sbused(sb) + tp->rcv_wnd < sb->sb_lowat) {
+		rx_credits = send_rx_credits(sc, toep, rx_credits);
+		tp->rcv_wnd += rx_credits;
+		tp->rcv_adv += rx_credits;
 	}
 
 	sorwakeup_locked(so);

@@ -144,7 +144,7 @@ zfs_getquota(zfsvfs_t *zfsvfs, uid_t id, int isgroup, struct dqblk64 *dqp)
 	quotaobj = isgroup ? zfsvfs->z_groupquota_obj : zfsvfs->z_userquota_obj;
 
 	if (quotaobj == 0 || zfsvfs->z_replay) {
-		error = ENOENT;
+		error = EINVAL;
 		goto done;
 	}
 	(void)sprintf(buf, "%llx", (longlong_t)id);
@@ -1400,6 +1400,7 @@ zfs_domount(vfs_t *vfsp, char *osname)
 	vfsp->mnt_kern_flag |= MNTK_SHARED_WRITES;
 	vfsp->mnt_kern_flag |= MNTK_EXTENDED_SHARED;
 	vfsp->mnt_kern_flag |= MNTK_NO_IOPF;	/* vn_io_fault can be used */
+	vfsp->mnt_kern_flag |= MNTK_VMSETSIZE_BUG;
 
 	/*
 	 * The fsid is 64 bits, composed of an 8-bit fs type, which
@@ -2317,8 +2318,11 @@ zfs_vget(vfs_t *vfsp, ino_t ino, int flags, vnode_t **vpp)
 	if (err == 0)
 		*vpp = ZTOV(zp);
 	ZFS_EXIT(zfsvfs);
-	if (err == 0)
+	if (err == 0) {
 		err = vn_lock(*vpp, flags);
+		if (err != 0)
+			vrele(*vpp);
+	}
 	if (err != 0)
 		*vpp = NULL;
 	return (err);

@@ -72,7 +72,6 @@ __FBSDID("$FreeBSD$");
 #ifdef DEV_ACPI
 #include <contrib/dev/acpica/include/acpi.h>
 #include <dev/acpica/acpivar.h>
-#include "acpi_bus_if.h"
 #endif
 
 #define	GT_CTRL_ENABLE		(1 << 0)
@@ -323,11 +322,11 @@ arm_tmr_fdt_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (ofw_bus_is_compatible(dev, "arm,armv7-timer")) {
-		device_set_desc(dev, "ARMv7 Generic Timer");
-		return (BUS_PROBE_DEFAULT);
-	} else if (ofw_bus_is_compatible(dev, "arm,armv8-timer")) {
+	if (ofw_bus_is_compatible(dev, "arm,armv8-timer")) {
 		device_set_desc(dev, "ARMv8 Generic Timer");
+		return (BUS_PROBE_DEFAULT);
+	} else if (ofw_bus_is_compatible(dev, "arm,armv7-timer")) {
+		device_set_desc(dev, "ARMv7 Generic Timer");
 		return (BUS_PROBE_DEFAULT);
 	}
 
@@ -340,8 +339,6 @@ static void
 arm_tmr_acpi_add_irq(device_t parent, device_t dev, int rid, u_int irq)
 {
 
-	irq = ACPI_BUS_MAP_INTR(parent, dev, irq,
-		INTR_TRIGGER_LEVEL, INTR_POLARITY_HIGH);
 	BUS_SET_RESOURCE(parent, dev, SYS_RES_IRQ, rid, irq, 1);
 }
 
@@ -396,7 +393,7 @@ arm_tmr_attach(device_t dev)
 	pcell_t clock;
 #endif
 	int error;
-	int i;
+	int i, first_timer, last_timer;
 
 	sc = device_get_softc(dev);
 	if (arm_tmr_sc)
@@ -436,17 +433,25 @@ arm_tmr_attach(device_t dev)
 		return (ENXIO);
 	}
 
-#ifdef __arm__
-	sc->physical = true;
-#else /* __aarch64__ */
-	/* If we do not have a virtual timer use the physical. */
-	sc->physical = (sc->res[2] == NULL) ? true : false;
+#ifdef __aarch64__
+	/* Use the virtual timer if we have one. */
+	if (sc->res[2] != NULL) {
+		sc->physical = false;
+		first_timer = 2;
+		last_timer = 2;
+	} else
 #endif
+	/* Otherwise set up the secure and non-secure physical timers. */
+	{
+		sc->physical = true;
+		first_timer = 0;
+		last_timer = 1;
+	}
 
 	arm_tmr_sc = sc;
 
 	/* Setup secure, non-secure and virtual IRQs handler */
-	for (i = 0; i < 3; i++) {
+	for (i = first_timer; i <= last_timer; i++) {
 		/* If we do not have the interrupt, skip it. */
 		if (sc->res[i] == NULL)
 			continue;

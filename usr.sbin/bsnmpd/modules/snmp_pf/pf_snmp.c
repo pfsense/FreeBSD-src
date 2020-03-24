@@ -907,7 +907,7 @@ pf_tbladdr(struct snmp_context __unused *ctx, struct snmp_value __unused *val,
 }
 
 int
-pf_altq_snmp(struct snmp_context __unused *ctx, struct snmp_value *val,
+pf_altq_num(struct snmp_context __unused *ctx, struct snmp_value *val,
 	u_int sub, u_int __unused vindex, enum snmp_op op)
 {
 	asn_subid_t	which = val->var.subs[sub - 1];
@@ -1655,10 +1655,11 @@ altq_is_enabled(int pfdev)
 			syslog(LOG_INFO, "No ALTQ support in kernel\n"
 			    "ALTQ related functions disabled\n");
 			return (0);
-		} else
+		} else {
 			syslog(LOG_ERR, "DIOCGETALTQS returned an error: %s",
 			    strerror(errno));
 			return (-1);
+		}
 	}
 	return (1);
 }

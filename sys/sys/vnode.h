@@ -169,7 +169,8 @@ struct vnode {
 	u_int	v_iflag;			/* i vnode flags (see below) */
 	u_int	v_vflag;			/* v vnode flags */
 	u_int	v_mflag;			/* l mnt-specific vnode flags */
-	int	v_writecount;			/* v ref count of writers */
+	int	v_writecount;			/* I ref count of writers or
+						   (negative) text users */
 	u_int	v_hash;
 	enum	vtype v_type;			/* u vnode type */
 };
@@ -232,6 +233,7 @@ struct xvnode {
  *	VI_DOOMED is doubly protected by the interlock and vnode lock.  Both
  *	are required for writing but the status may be checked with either.
  */
+#define	VI_TEXT_REF	0x0001	/* Text ref grabbed use ref */
 #define	VI_MOUNT	0x0020	/* Mount in progress */
 #define	VI_DOOMED	0x0080	/* This vnode is being recycled */
 #define	VI_FREE		0x0100	/* This vnode is on the freelist */
@@ -244,7 +246,7 @@ struct xvnode {
 #define	VV_NOSYNC	0x0004	/* unlinked, stop syncing */
 #define	VV_ETERNALDEV	0x0008	/* device that is never destroyed */
 #define	VV_CACHEDLABEL	0x0010	/* Vnode has valid cached MAC label */
-#define	VV_TEXT		0x0020	/* vnode is a pure text prototype */
+#define	VV_VMSIZEVNLOCK	0x0020	/* object size check requires vnode lock */
 #define	VV_COPYONWRITE	0x0040	/* vnode is doing copy-on-write */
 #define	VV_SYSTEM	0x0080	/* vnode being used by kernel */
 #define	VV_PROCDEP	0x0100	/* vnode is process dependent */
@@ -575,6 +577,7 @@ typedef void vop_getpages_iodone_t(void *, vm_page_t *, int, int);
 #define	VN_OPEN_NOAUDIT		0x00000001
 #define	VN_OPEN_NOCAPCHECK	0x00000002
 #define	VN_OPEN_NAMECACHE	0x00000004
+#define	VN_OPEN_INVFS		0x00000008
 
 /*
  * Public vnode manipulation functions.
@@ -657,7 +660,8 @@ void	vgone(struct vnode *vp);
 void	_vhold(struct vnode *, bool);
 void	vinactive(struct vnode *, struct thread *);
 int	vinvalbuf(struct vnode *vp, int save, int slpflag, int slptimeo);
-int	vtruncbuf(struct vnode *vp, struct ucred *cred, off_t length,
+int	vtruncbuf(struct vnode *vp, off_t length, int blksize);
+void	v_inval_buf_range(struct vnode *vp, daddr_t startlbn, daddr_t endlbn,
 	    int blksize);
 void	vunref(struct vnode *);
 void	vn_printf(struct vnode *vp, const char *fmt, ...) __printflike(2,3);
@@ -669,6 +673,7 @@ int	vn_close(struct vnode *vp,
 	    int flags, struct ucred *file_cred, struct thread *td);
 void	vn_finished_write(struct mount *mp);
 void	vn_finished_secondary_write(struct mount *mp);
+int	vn_fsync_buf(struct vnode *vp, int waitfor);
 int	vn_isdisk(struct vnode *vp, int *errp);
 int	_vn_lock(struct vnode *vp, int flags, char *file, int line);
 #define vn_lock(vp, flags) _vn_lock(vp, flags, __FILE__, __LINE__)
@@ -747,6 +752,7 @@ int	vop_stdadvlock(struct vop_advlock_args *ap);
 int	vop_stdadvlockasync(struct vop_advlockasync_args *ap);
 int	vop_stdadvlockpurge(struct vop_advlockpurge_args *ap);
 int	vop_stdallocate(struct vop_allocate_args *ap);
+int	vop_stdset_text(struct vop_set_text_args *ap);
 int	vop_stdpathconf(struct vop_pathconf_args *);
 int	vop_stdpoll(struct vop_poll_args *);
 int	vop_stdvptocnp(struct vop_vptocnp_args *ap);
@@ -825,6 +831,36 @@ void	vop_rename_fail(struct vop_rename_args *ap);
 
 #define VOP_LOCK(vp, flags) VOP_LOCK1(vp, flags, __FILE__, __LINE__)
 
+#ifdef INVARIANTS
+#define	VOP_ADD_WRITECOUNT_CHECKED(vp, cnt)				\
+do {									\
+	int error_;							\
+									\
+	error_ = VOP_ADD_WRITECOUNT((vp), (cnt));			\
+	VNASSERT(error_ == 0, (vp), ("VOP_ADD_WRITECOUNT returned %d",	\
+	    error_));							\
+} while (0)
+#define	VOP_SET_TEXT_CHECKED(vp)					\
+do {									\
+	int error_;							\
+									\
+	error_ = VOP_SET_TEXT((vp));					\
+	VNASSERT(error_ == 0, (vp), ("VOP_SET_TEXT returned %d",	\
+	    error_));							\
+} while (0)
+#define	VOP_UNSET_TEXT_CHECKED(vp)					\
+do {									\
+	int error_;							\
+									\
+	error_ = VOP_UNSET_TEXT((vp));					\
+	VNASSERT(error_ == 0, (vp), ("VOP_UNSET_TEXT returned %d",	\
+	    error_));							\
+} while (0)
+#else
+#define	VOP_ADD_WRITECOUNT_CHECKED(vp, cnt)	VOP_ADD_WRITECOUNT((vp), (cnt))
+#define	VOP_SET_TEXT_CHECKED(vp)		VOP_SET_TEXT((vp))
+#define	VOP_UNSET_TEXT_CHECKED(vp)		VOP_UNSET_TEXT((vp))
+#endif
 
 void	vput(struct vnode *vp);
 void	vrele(struct vnode *vp);
@@ -884,6 +920,8 @@ int vn_chown(struct file *fp, uid_t uid, gid_t gid, struct ucred *active_cred,
     struct thread *td);
 
 void vn_fsid(struct vnode *vp, struct vattr *va);
+
+int vn_dir_check_exec(struct vnode *vp, struct componentname *cnp);
 
 #endif /* _KERNEL */
 

@@ -115,13 +115,18 @@ SYSCTL_INT(_kern, OID_AUTO, panic_reboot_wait_time, CTLFLAG_RWTUN,
 
 #ifdef KDB
 #ifdef KDB_UNATTENDED
-int debugger_on_panic = 0;
+static int debugger_on_panic = 0;
 #else
-int debugger_on_panic = 1;
+static int debugger_on_panic = 1;
 #endif
 SYSCTL_INT(_debug, OID_AUTO, debugger_on_panic,
     CTLFLAG_RWTUN | CTLFLAG_SECURE,
     &debugger_on_panic, 0, "Run debugger on kernel panic");
+
+int debugger_on_trap = 0;
+SYSCTL_INT(_debug, OID_AUTO, debugger_on_trap,
+    CTLFLAG_RWTUN | CTLFLAG_SECURE,
+    &debugger_on_trap, 0, "Run debugger on kernel trap before panic");
 
 #ifdef KDB_TRACE
 static int trace_on_panic = 1;
@@ -200,9 +205,9 @@ SYSCTL_INT(_kern, OID_AUTO, kerneldump_gzlevel, CTLFLAG_RWTUN,
  * Variable panicstr contains argument to first call to panic; used as flag
  * to indicate that the kernel has already called panic.
  */
-const char *panicstr;
+const char __read_mostly *panicstr;
 
-int dumping;				/* system is dumping */
+int __read_mostly dumping;		/* system is dumping */
 int rebooting;				/* system is rebooting */
 static struct dumperinfo dumper;	/* our selected dumper */
 
@@ -559,6 +564,9 @@ shutdown_halt(void *junk, int howto)
 		printf("\n");
 		printf("The operating system has halted.\n");
 		printf("Please press any key to reboot.\n\n");
+
+		wdog_kern_pat(WD_TO_NEVER);
+
 		switch (cngetc()) {
 		case -1:		/* No console, just die */
 			cpu_halt();
@@ -677,7 +685,7 @@ SYSCTL_INT(_debug_kassert, OID_AUTO, do_log, KASSERT_RWTUN,
     &kassert_do_log, 0,
     "If warn_only is enabled, log (1) or do not log (0) assertion violations");
 
-SYSCTL_INT(_debug_kassert, OID_AUTO, warnings, KASSERT_RWTUN,
+SYSCTL_INT(_debug_kassert, OID_AUTO, warnings, CTLFLAG_RD | CTLFLAG_STATS,
     &kassert_warnings, 0, "number of KASSERTs that have been triggered");
 
 SYSCTL_INT(_debug_kassert, OID_AUTO, log_panic_at, KASSERT_RWTUN,

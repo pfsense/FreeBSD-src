@@ -179,9 +179,7 @@ static int	acpi_child_location_str_method(device_t acdev, device_t child,
 					       char *buf, size_t buflen);
 static int	acpi_child_pnpinfo_str_method(device_t acdev, device_t child,
 					      char *buf, size_t buflen);
-#if defined(__i386__) || defined(__amd64__)
 static void	acpi_enable_pcie(void);
-#endif
 static void	acpi_hint_device_unit(device_t acdev, device_t child,
 		    const char *name, int *unitp);
 static void	acpi_reset_interfaces(device_t dev);
@@ -502,10 +500,8 @@ acpi_attach(device_t dev)
 	goto out;
     }
 
-#if defined(__i386__) || defined(__amd64__)
     /* Handle MCFG table if present. */
     acpi_enable_pcie();
-#endif
 
     /*
      * Note that some systems (specifically, those with namespace evaluation
@@ -869,7 +865,7 @@ acpi_child_location_str_method(device_t cbdev, device_t child, char *buf,
                 strlcat(buf, buf2, buflen);
         }
     } else {
-        snprintf(buf, buflen, "unknown");
+        snprintf(buf, buflen, "");
     }
     return (0);
 }
@@ -1286,11 +1282,10 @@ acpi_set_resource(device_t dev, device_t child, int type, int rid,
     struct acpi_softc *sc = device_get_softc(dev);
     struct acpi_device *ad = device_get_ivars(child);
     struct resource_list *rl = &ad->ad_rl;
-#if defined(__i386__) || defined(__amd64__)
     ACPI_DEVICE_INFO *devinfo;
-#endif
     rman_res_t end;
-    
+    int allow;
+
     /* Ignore IRQ resources for PCI link devices. */
     if (type == SYS_RES_IRQ && ACPI_ID_PROBE(dev, child, pcilink_ids) != NULL)
 	return (0);
@@ -1304,11 +1299,15 @@ acpi_set_resource(device_t dev, device_t child, int type, int rid,
      * x86 of a PCI bridge claiming the I/O ports used for PCI config
      * access.
      */
-#if defined(__i386__) || defined(__amd64__)
     if (type == SYS_RES_MEMORY || type == SYS_RES_IOPORT) {
 	if (ACPI_SUCCESS(AcpiGetObjectInfo(ad->ad_handle, &devinfo))) {
 	    if ((devinfo->Flags & ACPI_PCI_ROOT_BRIDGE) != 0) {
-		if (!(type == SYS_RES_IOPORT && start == CONF1_ADDR_PORT)) {
+#if defined(__i386__) || defined(__amd64__)
+		allow = (type == SYS_RES_IOPORT && start == CONF1_ADDR_PORT);
+#else
+		allow = 0;
+#endif
+		if (!allow) {
 		    AcpiOsFree(devinfo);
 		    return (0);
 		}
@@ -1316,6 +1315,12 @@ acpi_set_resource(device_t dev, device_t child, int type, int rid,
 	    AcpiOsFree(devinfo);
 	}
     }
+
+#ifdef INTRNG
+    /* map with default for now */
+    if (type == SYS_RES_IRQ)
+	start = (rman_res_t)acpi_map_intr(child, (u_int)start,
+			acpi_get_handle(child));
 #endif
 
     /* If the resource is already allocated, fail. */
@@ -1344,6 +1349,14 @@ acpi_set_resource(device_t dev, device_t child, int type, int rid,
      * using legacy routing).
      */
     if (type == SYS_RES_IRQ)
+	return (0);
+
+    /*
+     * Don't reserve resources for CPU devices.  Some of these
+     * resources need to be allocated as shareable, but reservations
+     * are always non-shareable.
+     */
+    if (device_get_devclass(child) == devclass_find("cpu"))
 	return (0);
 
     /*
@@ -1858,15 +1871,18 @@ acpi_isa_pnp_probe(device_t bus, device_t child, struct isa_pnp_id *ids)
     return_VALUE (result);
 }
 
-#if defined(__i386__) || defined(__amd64__)
 /*
  * Look for a MCFG table.  If it is present, use the settings for
  * domain (segment) 0 to setup PCI config space access via the memory
  * map.
+ *
+ * On non-x86 architectures (arm64 for now), this will be done from the
+ * PCI host bridge driver.
  */
 static void
 acpi_enable_pcie(void)
 {
+#if defined(__i386__) || defined(__amd64__)
 	ACPI_TABLE_HEADER *hdr;
 	ACPI_MCFG_ALLOCATION *alloc, *end;
 	ACPI_STATUS status;
@@ -1885,31 +1901,8 @@ acpi_enable_pcie(void)
 		}
 		alloc++;
 	}
-}
-#elif defined(__aarch64__)
-static void
-acpi_enable_pcie(device_t child, int segment)
-{
-	ACPI_TABLE_HEADER *hdr;
-	ACPI_MCFG_ALLOCATION *alloc, *end;
-	ACPI_STATUS status;
-
-	status = AcpiGetTable(ACPI_SIG_MCFG, 1, &hdr);
-	if (ACPI_FAILURE(status))
-		return;
-
-	end = (ACPI_MCFG_ALLOCATION *)((char *)hdr + hdr->Length);
-	alloc = (ACPI_MCFG_ALLOCATION *)((ACPI_TABLE_MCFG *)hdr + 1);
-	while (alloc < end) {
-		if (alloc->PciSegment == segment) {
-			bus_set_resource(child, SYS_RES_MEMORY, 0,
-			    alloc->Address, 0x10000000);
-			return;
-		}
-		alloc++;
-	}
-}
 #endif
+}
 
 /*
  * Scan all of the ACPI namespace and attach child devices.
@@ -2000,9 +1993,6 @@ acpi_probe_child(ACPI_HANDLE handle, UINT32 level, void *context, void **status)
 {
     ACPI_DEVICE_INFO *devinfo;
     struct acpi_device	*ad;
-#ifdef __aarch64__
-    int segment;
-#endif
     struct acpi_prw_data prw;
     ACPI_OBJECT_TYPE type;
     ACPI_HANDLE h;
@@ -2105,13 +2095,6 @@ acpi_probe_child(ACPI_HANDLE handle, UINT32 level, void *context, void **status)
 		    ad->ad_cls_class = strtoul(devinfo->ClassCode.String,
 			NULL, 16);
 		}
-#ifdef __aarch64__
-		if ((devinfo->Flags & ACPI_PCI_ROOT_BRIDGE) != 0) {
-		    if (ACPI_SUCCESS(acpi_GetInteger(handle, "_SEG", &segment))) {
-			acpi_enable_pcie(child, segment);
-		    }
-		}
-#endif
 		AcpiOsFree(devinfo);
 	    }
 	    break;
@@ -2219,8 +2202,6 @@ acpi_DeviceIsPresent(device_t dev)
 	h = acpi_get_handle(dev);
 	if (h == NULL)
 		return (FALSE);
-	status = acpi_GetInteger(h, "_STA", &s);
-
 	/*
 	 * Onboard serial ports on certain AMD motherboards have an invalid _STA
 	 * method that always returns 0.  Force them to always be treated as present.
@@ -2230,9 +2211,14 @@ acpi_DeviceIsPresent(device_t dev)
 	if (acpi_MatchHid(h, "AMDI0020") || acpi_MatchHid(h, "AMDI0010"))
 		return (TRUE);
 
-	/* If no _STA method, must be present */
+	status = acpi_GetInteger(h, "_STA", &s);
+
+	/*
+	 * If no _STA method or if it failed, then assume that
+	 * the device is present.
+	 */
 	if (ACPI_FAILURE(status))
-		return (status == AE_NOT_FOUND ? TRUE : FALSE);
+		return (TRUE);
 
 	return (ACPI_DEVICE_PRESENT(s) ? TRUE : FALSE);
 }
@@ -2252,9 +2238,12 @@ acpi_BatteryIsPresent(device_t dev)
 		return (FALSE);
 	status = acpi_GetInteger(h, "_STA", &s);
 
-	/* If no _STA method, must be present */
+	/*
+	 * If no _STA method or if it failed, then assume that
+	 * the device is present.
+	 */
 	if (ACPI_FAILURE(status))
-		return (status == AE_NOT_FOUND ? TRUE : FALSE);
+		return (TRUE);
 
 	return (ACPI_BATTERY_PRESENT(s) ? TRUE : FALSE);
 }
@@ -2568,6 +2557,98 @@ acpi_AppendBufferResource(ACPI_BUFFER *buf, ACPI_RESOURCE *res)
     rp->Length = ACPI_RS_SIZE_MIN;
 
     return (AE_OK);
+}
+
+UINT8
+acpi_DSMQuery(ACPI_HANDLE h, uint8_t *uuid, int revision)
+{
+    /*
+     * ACPI spec 9.1.1 defines this.
+     *
+     * "Arg2: Function Index Represents a specific function whose meaning is
+     * specific to the UUID and Revision ID. Function indices should start
+     * with 1. Function number zero is a query function (see the special
+     * return code defined below)."
+     */
+    ACPI_BUFFER buf;
+    ACPI_OBJECT *obj;
+    UINT8 ret = 0;
+
+    if (!ACPI_SUCCESS(acpi_EvaluateDSM(h, uuid, revision, 0, NULL, &buf))) {
+	ACPI_INFO(("Failed to enumerate DSM functions\n"));
+	return (0);
+    }
+
+    obj = (ACPI_OBJECT *)buf.Pointer;
+    KASSERT(obj, ("Object not allowed to be NULL\n"));
+
+    /*
+     * From ACPI 6.2 spec 9.1.1:
+     * If Function Index = 0, a Buffer containing a function index bitfield.
+     * Otherwise, the return value and type depends on the UUID and revision
+     * ID (see below).
+     */
+    switch (obj->Type) {
+    case ACPI_TYPE_BUFFER:
+	ret = *(uint8_t *)obj->Buffer.Pointer;
+	break;
+    case ACPI_TYPE_INTEGER:
+	ACPI_BIOS_WARNING((AE_INFO,
+	    "Possibly buggy BIOS with ACPI_TYPE_INTEGER for function enumeration\n"));
+	ret = obj->Integer.Value & 0xFF;
+	break;
+    default:
+	ACPI_WARNING((AE_INFO, "Unexpected return type %u\n", obj->Type));
+    };
+
+    AcpiOsFree(obj);
+    return ret;
+}
+
+/*
+ * DSM may return multiple types depending on the function. It is therefore
+ * unsafe to use the typed evaluation. It is highly recommended that the caller
+ * check the type of the returned object.
+ */
+ACPI_STATUS
+acpi_EvaluateDSM(ACPI_HANDLE handle, uint8_t *uuid, int revision,
+    uint64_t function, union acpi_object *package, ACPI_BUFFER *out_buf)
+{
+    ACPI_OBJECT arg[4];
+    ACPI_OBJECT_LIST arglist;
+    ACPI_BUFFER buf;
+    ACPI_STATUS status;
+
+    if (out_buf == NULL)
+	return (AE_NO_MEMORY);
+
+    arg[0].Type = ACPI_TYPE_BUFFER;
+    arg[0].Buffer.Length = ACPI_UUID_LENGTH;
+    arg[0].Buffer.Pointer = uuid;
+    arg[1].Type = ACPI_TYPE_INTEGER;
+    arg[1].Integer.Value = revision;
+    arg[2].Type = ACPI_TYPE_INTEGER;
+    arg[2].Integer.Value = function;
+    if (package) {
+	arg[3] = *package;
+    } else {
+	arg[3].Type = ACPI_TYPE_PACKAGE;
+	arg[3].Package.Count = 0;
+	arg[3].Package.Elements = NULL;
+    }
+
+    arglist.Pointer = arg;
+    arglist.Count = 4;
+    buf.Pointer = NULL;
+    buf.Length = ACPI_ALLOCATE_BUFFER;
+    status = AcpiEvaluateObject(handle, "_DSM", &arglist, &buf);
+    if (ACPI_FAILURE(status))
+	return (status);
+
+    KASSERT(ACPI_SUCCESS(status), ("Unexpected status"));
+
+    *out_buf = buf;
+    return (status);
 }
 
 ACPI_STATUS

@@ -63,7 +63,6 @@ __FBSDID("$FreeBSD$");
 #include <arm/mv/mvwin.h>
 #endif
 
-extern struct pcpu __pcpu[];
 /* used to hold the AP's until we are ready to release them */
 struct mtx ap_boot_mtx;
 struct pcb stoppcbs[MAXCPU];
@@ -106,8 +105,6 @@ check_ap(void)
 
 	return (-2);
 }
-
-extern unsigned char _end[];
 
 /* Initialize and fire up non-boot processors */
 void

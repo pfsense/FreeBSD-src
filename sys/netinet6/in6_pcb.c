@@ -802,19 +802,20 @@ in6_pcblookup_local(struct inpcbinfo *pcbinfo, struct in6_addr *laddr,
 void
 in6_pcbpurgeif0(struct inpcbinfo *pcbinfo, struct ifnet *ifp)
 {
-	struct inpcb *in6p;
+	struct inpcb *inp;
+	struct in6_multi *inm;
+	struct in6_mfilter *imf;
 	struct ip6_moptions *im6o;
-	int i, gap;
 
 	INP_INFO_WLOCK(pcbinfo);
-	CK_LIST_FOREACH(in6p, pcbinfo->ipi_listhead, inp_list) {
-		INP_WLOCK(in6p);
-		if (__predict_false(in6p->inp_flags2 & INP_FREED)) {
-			INP_WUNLOCK(in6p);
+	CK_LIST_FOREACH(inp, pcbinfo->ipi_listhead, inp_list) {
+		INP_WLOCK(inp);
+		if (__predict_false(inp->inp_flags2 & INP_FREED)) {
+			INP_WUNLOCK(inp);
 			continue;
 		}
-		im6o = in6p->in6p_moptions;
-		if ((in6p->inp_vflag & INP_IPV6) && im6o != NULL) {
+		im6o = inp->in6p_moptions;
+		if ((inp->inp_vflag & INP_IPV6) && im6o != NULL) {
 			/*
 			 * Unselect the outgoing ifp for multicast if it
 			 * is being detached.
@@ -825,20 +826,20 @@ in6_pcbpurgeif0(struct inpcbinfo *pcbinfo, struct ifnet *ifp)
 			 * Drop multicast group membership if we joined
 			 * through the interface being detached.
 			 */
-			gap = 0;
-			for (i = 0; i < im6o->im6o_num_memberships; i++) {
-				if (im6o->im6o_membership[i]->in6m_ifp ==
-				    ifp) {
-					in6_leavegroup(im6o->im6o_membership[i], NULL);
-					gap++;
-				} else if (gap != 0) {
-					im6o->im6o_membership[i - gap] =
-					    im6o->im6o_membership[i];
-				}
+restart:
+			IP6_MFILTER_FOREACH(imf, &im6o->im6o_head) {
+				if ((inm = imf->im6f_in6m) == NULL)
+					continue;
+				if (inm->in6m_ifp != ifp)
+					continue;
+				ip6_mfilter_remove(&im6o->im6o_head, imf);
+				IN6_MULTI_LOCK_ASSERT();
+				in6_leavegroup_locked(inm, NULL);
+				ip6_mfilter_free(imf);
+				goto restart;
 			}
-			im6o->im6o_num_memberships -= gap;
 		}
-		INP_WUNLOCK(in6p);
+		INP_WUNLOCK(inp);
 	}
 	INP_INFO_WUNLOCK(pcbinfo);
 }
@@ -873,16 +874,15 @@ in6_pcblookup_lbgroup(const struct inpcbinfo *pcbinfo,
     const struct in6_addr *laddr, uint16_t lport, const struct in6_addr *faddr,
     uint16_t fport, int lookupflags)
 {
-	struct inpcb *local_wild = NULL;
+	struct inpcb *local_wild;
 	const struct inpcblbgrouphead *hdr;
 	struct inpcblbgroup *grp;
-	struct inpcblbgroup *grp_local_wild;
 	uint32_t idx;
 
 	INP_HASH_LOCK_ASSERT(pcbinfo);
 
-	hdr = &pcbinfo->ipi_lbgrouphashbase[INP_PCBLBGROUP_PORTHASH(
-	    lport, pcbinfo->ipi_lbgrouphashmask)];
+	hdr = &pcbinfo->ipi_lbgrouphashbase[
+	    INP_PCBPORTHASH(lport, pcbinfo->ipi_lbgrouphashmask)];
 
 	/*
 	 * Order of socket selection:
@@ -893,33 +893,24 @@ in6_pcblookup_lbgroup(const struct inpcbinfo *pcbinfo,
 	 * - Load balanced group does not contain jailed sockets.
 	 * - Load balanced does not contain IPv4 mapped INET6 wild sockets.
 	 */
+	local_wild = NULL;
 	CK_LIST_FOREACH(grp, hdr, il_list) {
 #ifdef INET
 		if (!(grp->il_vflag & INP_IPV6))
 			continue;
 #endif
-		if (grp->il_lport == lport) {
-			idx = 0;
-			int pkt_hash = INP_PCBLBGROUP_PKTHASH(
-			    INP6_PCBHASHKEY(faddr), lport, fport);
+		if (grp->il_lport != lport)
+			continue;
 
-			idx = pkt_hash % grp->il_inpcnt;
-
-			if (IN6_ARE_ADDR_EQUAL(&grp->il6_laddr, laddr)) {
-				return (grp->il_inp[idx]);
-			} else {
-				if (IN6_IS_ADDR_UNSPECIFIED(&grp->il6_laddr) &&
-				    (lookupflags & INPLOOKUP_WILDCARD)) {
-					local_wild = grp->il_inp[idx];
-					grp_local_wild = grp;
-				}
-			}
-		}
+		idx = INP_PCBLBGROUP_PKTHASH(INP6_PCBHASHKEY(faddr), lport,
+		    fport) % grp->il_inpcnt;
+		if (IN6_ARE_ADDR_EQUAL(&grp->il6_laddr, laddr))
+			return (grp->il_inp[idx]);
+		if (IN6_IS_ADDR_UNSPECIFIED(&grp->il6_laddr) &&
+		    (lookupflags & INPLOOKUP_WILDCARD) != 0)
+			local_wild = grp->il_inp[idx];
 	}
-	if (local_wild != NULL) {
-		return (local_wild);
-	}
-	return (NULL);
+	return (local_wild);
 }
 
 #ifdef PCBGROUP
@@ -1171,13 +1162,11 @@ in6_pcblookup_hash_locked(struct inpcbinfo *pcbinfo, struct in6_addr *faddr,
 	/*
 	 * Then look in lb group (for wildcard match).
 	 */
-	if (pcbinfo->ipi_lbgrouphashbase != NULL &&
-	    (lookupflags & INPLOOKUP_WILDCARD)) {
+	if ((lookupflags & INPLOOKUP_WILDCARD) != 0) {
 		inp = in6_pcblookup_lbgroup(pcbinfo, laddr, lport, faddr,
 		    fport, lookupflags);
-		if (inp != NULL) {
+		if (inp != NULL)
 			return (inp);
-		}
 	}
 
 	/*

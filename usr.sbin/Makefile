@@ -67,6 +67,7 @@ SUBDIR=	adduser \
 	pstat \
 	pw \
 	pwd_mkdb \
+	pwm \
 	quot \
 	rarpd \
 	rmt \
@@ -91,9 +92,11 @@ SUBDIR=	adduser \
 	tcpdrop \
 	tcpdump \
 	traceroute \
+	trim \
 	trpt \
 	tzsetup \
 	ugidfw \
+	valectl \
 	vigr \
 	vipw \
 	wake \
@@ -122,6 +125,9 @@ SUBDIR.${MK_BLUETOOTH}+=	bluetooth
 SUBDIR.${MK_BOOTPARAMD}+=	bootparamd
 SUBDIR.${MK_BSDINSTALL}+=	bsdinstall
 SUBDIR.${MK_BSNMP}+=	bsnmpd
+.if ${MK_CAROOT} != "no"
+SUBDIR.${MK_OPENSSL}+=	certctl
+.endif
 SUBDIR.${MK_CTM}+=	ctm
 SUBDIR.${MK_CXGBETOOL}+=	cxgbetool
 SUBDIR.${MK_DIALOG}+=	bsdconfig

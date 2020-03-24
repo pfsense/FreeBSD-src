@@ -118,6 +118,7 @@ static struct opt {
 	{ MNT_GJOURNAL,		"gjournal" },
 	{ MNT_AUTOMOUNTED,	"automounted" },
 	{ MNT_VERIFIED,		"verified" },
+	{ MNT_UNTRUSTED,	"untrusted" },
 	{ 0, NULL }
 };
 
@@ -227,6 +228,7 @@ restart_mountd(void)
 	struct pidfh *pfh;
 	pid_t mountdpid;
 
+	mountdpid = 0;
 	pfh = pidfile_open(_PATH_MOUNTDPID, 0600, &mountdpid);
 	if (pfh != NULL) {
 		/* Mountd is not running. */
@@ -237,6 +239,16 @@ restart_mountd(void)
 		/* Cannot open pidfile for some reason. */
 		return;
 	}
+
+	/*
+	 * Refuse to send broadcast or group signals, this has
+	 * happened due to the bugs in pidfile(3).
+	 */
+	if (mountdpid <= 0) {
+		warnx("mountd pid %d, refusing to send SIGHUP", mountdpid);
+		return;
+	}
+
 	/* We have mountd(8) PID in mountdpid varible, let's signal it. */
 	if (kill(mountdpid, SIGHUP) == -1)
 		err(1, "signal mountd");
@@ -961,6 +973,7 @@ flags2opts(int flags)
 	if (flags & MNT_MULTILABEL)	res = catopt(res, "multilabel");
 	if (flags & MNT_ACLS)		res = catopt(res, "acls");
 	if (flags & MNT_NFS4ACLS)	res = catopt(res, "nfsv4acls");
+	if (flags & MNT_UNTRUSTED)	res = catopt(res, "untrusted");
 
 	return (res);
 }

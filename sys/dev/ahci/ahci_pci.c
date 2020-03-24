@@ -212,6 +212,10 @@ static const struct {
 	{0x9c078086, 0x00, "Intel Lynx Point-LP (RAID)",	0},
 	{0x9c0e8086, 0x00, "Intel Lynx Point-LP (RAID)",	0},
 	{0x9c0f8086, 0x00, "Intel Lynx Point-LP (RAID)",	0},
+	{0x9c838086, 0x00, "Intel Wildcat Point-LP",	0},
+	{0x9c858086, 0x00, "Intel Wildcat Point-LP (RAID)",	0},
+	{0x9c878086, 0x00, "Intel Wildcat Point-LP (RAID)",	0},
+	{0x9c8f8086, 0x00, "Intel Wildcat Point-LP (RAID)",	0},
 	{0x9d038086, 0x00, "Intel Sunrise Point-LP",	0},
 	{0x9d058086, 0x00, "Intel Sunrise Point-LP (RAID)",	0},
 	{0x9d078086, 0x00, "Intel Sunrise Point-LP (RAID)",	0},
@@ -232,6 +236,8 @@ static const struct {
 	{0xa2828086, 0x00, "Intel Union Point",	0},
 	{0xa2868086, 0x00, "Intel Union Point (RAID)",	0},
 	{0xa28e8086, 0x00, "Intel Union Point (RAID)",	0},
+	{0xa3528086, 0x00, "Intel Cannon Lake",	0},
+	{0xa3538086, 0x00, "Intel Cannon Lake",	0},
 	{0x23238086, 0x00, "Intel DH89xxCC",	0},
 	{0x2360197b, 0x00, "JMicron JMB360",	0},
 	{0x2361197b, 0x00, "JMicron JMB361",	AHCI_Q_NOFORCE | AHCI_Q_1CH},
@@ -350,6 +356,7 @@ static const struct {
 	{0x01861039, 0x00, "SiS 968",		0},
 	{0xa01c177d, 0x00, "ThunderX",		AHCI_Q_ABAR0|AHCI_Q_1MSI},
 	{0x00311c36, 0x00, "Annapurna",		AHCI_Q_FORCE_PI|AHCI_Q_RESTORE_CAP|AHCI_Q_NOMSIX},
+	{0x1600144d, 0x00, "Samsung",		AHCI_Q_NOMSI},
 	{0x00000000, 0x00, NULL,		0}
 };
 
@@ -357,10 +364,7 @@ static int
 ahci_pci_ctlr_reset(device_t dev)
 {
 
-	if (pci_read_config(dev, PCIR_DEVVENDOR, 4) == 0x28298086 &&
-	    (pci_read_config(dev, 0x92, 1) & 0xfe) == 0x04)
-		pci_write_config(dev, 0x92, 0x01, 1);
-	return ahci_ctlr_reset(dev);
+	return(ahci_ctlr_reset(dev));
 }
 
 static int
@@ -494,6 +498,48 @@ ahci_pci_attach(device_t dev)
 	if (!(ctlr->r_mem = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
 	    &ctlr->r_rid, RF_ACTIVE)))
 		return ENXIO;
+
+	/*
+	 * Intel RAID hardware can remap NVMe devices inside its BAR.
+	 * Try to detect this. Either we have to add the device
+	 * here, or the user has to change the mode in the BIOS
+	 * from RST to AHCI.
+	 */
+	if (pci_get_vendor(dev) == 0x8086) {
+		uint32_t vscap;
+
+		vscap = ATA_INL(ctlr->r_mem, AHCI_VSCAP);
+		if (vscap & 1) {
+			uint32_t cap = ATA_INL(ctlr->r_mem, 0x800); /* Intel's REMAP CAP */
+			int i;
+
+			ctlr->remap_offset = 0x4000;
+			ctlr->remap_size = 0x4000;
+
+			/*
+			 * Check each of the devices that might be remapped to
+			 * make sure they are an nvme device. At the present,
+			 * nvme are the only known devices remapped.
+			 */
+			for (i = 0; i < 3; i++) {
+				if (cap & (1 << i) &&
+				    (ATA_INL(ctlr->r_mem, 0x880 + i * 0x80) ==
+				     ((PCIC_STORAGE << 16) |
+				      (PCIS_STORAGE_NVM << 8) |
+				      PCIP_STORAGE_NVM_ENTERPRISE_NVMHCI_1_0))) {
+					ctlr->remapped_devices++;
+				}
+			}
+
+			/* If we have any remapped device, disable MSI */
+			if (ctlr->remapped_devices > 0) {
+				device_printf(dev, "Detected %d nvme remapped devices\n",
+				    ctlr->remapped_devices);
+				ctlr->quirks |= (AHCI_Q_NOMSIX | AHCI_Q_NOMSI);
+			}
+		}
+	}
+
 
 	if (ctlr->quirks & AHCI_Q_NOMSIX)
 		msix_count = 0;

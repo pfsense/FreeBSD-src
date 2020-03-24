@@ -530,6 +530,7 @@ uipc_attach(struct socket *so, int proto, struct thread *td)
 		UNP_LINK_WLOCK();
 
 	unp->unp_gencnt = ++unp_gencnt;
+	unp->unp_ino = ++unp_ino;
 	unp_count++;
 	switch (so->so_type) {
 	case SOCK_STREAM:
@@ -1302,12 +1303,8 @@ uipc_sense(struct socket *so, struct stat *sb)
 	KASSERT(unp != NULL, ("uipc_sense: unp == NULL"));
 
 	sb->st_blksize = so->so_snd.sb_hiwat;
-	UNP_PCB_LOCK(unp);
 	sb->st_dev = NODEV;
-	if (unp->unp_ino == 0)
-		unp->unp_ino = (++unp_ino == 0) ? ++unp_ino : unp_ino;
 	sb->st_ino = unp->unp_ino;
-	UNP_PCB_UNLOCK(unp);
 	return (0);
 }
 
@@ -2157,7 +2154,7 @@ unp_internalize(struct mbuf **controlp, struct thread *td)
 	struct timespec *ts;
 	void *data;
 	socklen_t clen, datalen;
-	int i, error, *fdp, oldfds;
+	int i, j, error, *fdp, oldfds;
 	u_int newlen;
 
 	UNP_LINK_UNLOCK_ASSERT();
@@ -2240,6 +2237,19 @@ unp_internalize(struct mbuf **controlp, struct thread *td)
 				goto out;
 			}
 			fdp = data;
+			for (i = 0; i < oldfds; i++, fdp++) {
+				if (!fhold(fdesc->fd_ofiles[*fdp].fde_file)) {
+					fdp = data;
+					for (j = 0; j < i; j++, fdp++) {
+						fdrop(fdesc->fd_ofiles[*fdp].
+						    fde_file, td);
+					}
+					FILEDESC_SUNLOCK(fdesc);
+					error = EBADF;
+					goto out;
+				}
+			}
+			fdp = data;
 			fdep = (struct filedescent **)
 			    CMSG_DATA(mtod(*controlp, struct cmsghdr *));
 			fdev = malloc(sizeof(*fdev) * oldfds, M_FILECAPS,
@@ -2308,7 +2318,8 @@ unp_internalize(struct mbuf **controlp, struct thread *td)
 			goto out;
 		}
 
-		controlp = &(*controlp)->m_next;
+		if (*controlp != NULL)
+			controlp = &(*controlp)->m_next;
 		if (CMSG_SPACE(datalen) < clen) {
 			clen -= CMSG_SPACE(datalen);
 			cm = (struct cmsghdr *)
@@ -2443,7 +2454,6 @@ unp_internalize_fp(struct file *fp)
 		unp->unp_file = fp;
 		unp->unp_msgcount++;
 	}
-	fhold(fp);
 	unp_rights++;
 	UNP_LINK_WUNLOCK();
 }
@@ -2604,10 +2614,10 @@ unp_gc(__unused void *arg, int pending)
 			if ((unp->unp_gcflag & UNPGC_DEAD) != 0) {
 				f = unp->unp_file;
 				if (unp->unp_msgcount == 0 || f == NULL ||
-				    f->f_count != unp->unp_msgcount)
+				    f->f_count != unp->unp_msgcount ||
+				    !fhold(f))
 					continue;
 				unref[total++] = f;
-				fhold(f);
 				KASSERT(total <= unp_unreachable,
 				    ("unp_gc: incorrect unreachable count."));
 			}

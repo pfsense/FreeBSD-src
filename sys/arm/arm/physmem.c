@@ -29,6 +29,7 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_acpi.h"
 #include "opt_ddb.h"
 
 /*
@@ -48,8 +49,13 @@ __FBSDID("$FreeBSD$");
  * that can be allocated, or both, depending on the exclusion flags associated
  * with the region.
  */
+#ifdef DEV_ACPI
+#define	MAX_HWCNT	32	/* ACPI needs more regions */
+#define	MAX_EXCNT	32
+#else
 #define	MAX_HWCNT	16
 #define	MAX_EXCNT	16
+#endif
 
 #if defined(__arm__)
 #define	MAX_PHYS_ADDR	0xFFFFFFFFull
@@ -265,7 +271,7 @@ regions_to_avail(vm_paddr_t *avail, uint32_t exflags, size_t maxavail,
 	if (pavail != NULL)
 		*pavail = availmem;
 	if (prealmem != NULL)
-		*prealmem = realmem;
+		*prealmem = totalmem;
 	return (acnt);
 }
 
@@ -281,6 +287,8 @@ insert_region(struct region *regions, size_t rcnt, vm_paddr_t addr,
 
 	ep = regions + rcnt;
 	for (i = 0, rp = regions; i < rcnt; ++i, ++rp) {
+		if (rp->addr == addr && rp->size == size) /* Pure dup. */
+			return (rcnt);
 		if (flags == rp->flags) {
 			if (addr + size == rp->addr) {
 				rp->addr = addr;

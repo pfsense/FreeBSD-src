@@ -176,6 +176,21 @@ void
 assert_mtx(const struct lock_object *lock, int what)
 {
 
+	/*
+	 * Treat LA_LOCKED as if LA_XLOCKED was asserted.
+	 *
+	 * Some callers of lc_assert uses LA_LOCKED to indicate that either
+	 * a shared lock or write lock was held, while other callers uses
+	 * the more strict LA_XLOCKED (used as MA_OWNED).
+	 *
+	 * Mutex is the only lock class that can not be shared, as a result,
+	 * we can reasonably consider the caller really intends to assert
+	 * LA_XLOCKED when they are asserting LA_LOCKED on a mutex object.
+	 */
+	if (what & LA_LOCKED) {
+		what &= ~LA_LOCKED;
+		what |= LA_XLOCKED;
+	}
 	mtx_assert((const struct mtx *)lock, what);
 }
 
@@ -486,7 +501,7 @@ __mtx_lock_sleep(volatile uintptr_t *c, uintptr_t v)
 	int64_t all_time = 0;
 #endif
 #if defined(KDTRACE_HOOKS) || defined(LOCK_PROFILING)
-	int doing_lockprof;
+	int doing_lockprof = 0;
 #endif
 
 	td = curthread;
@@ -690,7 +705,7 @@ _mtx_lock_spin_cookie(volatile uintptr_t *c, uintptr_t v)
 	int64_t spin_time = 0;
 #endif
 #if defined(KDTRACE_HOOKS) || defined(LOCK_PROFILING)
-	int doing_lockprof;
+	int doing_lockprof = 0;
 #endif
 
 	tid = (uintptr_t)curthread;

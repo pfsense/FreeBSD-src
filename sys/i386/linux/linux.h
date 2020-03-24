@@ -448,15 +448,10 @@ extern struct sysentvec linux_sysvec;
 
 union l_semun {
 	l_int		val;
-	struct l_semid_ds	*buf;
+	l_uintptr_t	buf;
 	l_ushort	*array;
-	struct l_seminfo	*__buf;
-	void		*__pad;
-};
-
-struct l_sockaddr {
-	l_ushort	sa_family;
-	char		sa_data[14];
+	l_uintptr_t	__buf;
+	l_uintptr_t	__pad;
 };
 
 struct l_ifmap {
@@ -467,9 +462,6 @@ struct l_ifmap {
 	u_char		dma;
 	u_char		port;
 };
-
-#define	LINUX_IFHWADDRLEN	6
-#define	LINUX_IFNAMSIZ		16
 
 struct l_ifreq {
 	union {

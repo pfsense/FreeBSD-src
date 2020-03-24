@@ -150,7 +150,7 @@ struct	namecache_ts {
  * Names found by directory scans are retained in a cache
  * for future reference.  It is managed LRU, so frequently
  * used names will hang around.  Cache is indexed by hash value
- * obtained from (vp, name) where vp refers to the directory
+ * obtained from (dvp, name) where dvp refers to the directory
  * containing name.
  *
  * If it is a "negative" entry, (i.e. for a name that is known NOT to
@@ -1129,23 +1129,6 @@ cache_lookup_dot(struct vnode *dvp, struct vnode **vpp, struct componentname *cn
 	return (-1);
 }
 
-/*
- * Lookup an entry in the cache
- *
- * Lookup is called with dvp pointing to the directory to search,
- * cnp pointing to the name of the entry being sought. If the lookup
- * succeeds, the vnode is returned in *vpp, and a status of -1 is
- * returned. If the lookup determines that the name does not exist
- * (negative caching), a status of ENOENT is returned. If the lookup
- * fails, a status of zero is returned.  If the directory vnode is
- * recycled out from under us due to a forced unmount, a status of
- * ENOENT is returned.
- *
- * vpp is locked and ref'd on return.  If we're looking up DOTDOT, dvp is
- * unlocked.  If we're looking up . an extra ref is taken, but the lock is
- * not recursively acquired.
- */
-
 static __noinline int
 cache_lookup_nomakeentry(struct vnode *dvp, struct vnode **vpp,
     struct componentname *cnp, struct timespec *tsp, int *ticksp)
@@ -1229,6 +1212,42 @@ out_no_entry:
 	return (0);
 }
 
+/**
+ * Lookup a name in the name cache
+ *
+ * # Arguments
+ *
+ * - dvp:	Parent directory in which to search.
+ * - vpp:	Return argument.  Will contain desired vnode on cache hit.
+ * - cnp:	Parameters of the name search.  The most interesting bits of
+ *   		the cn_flags field have the following meanings:
+ *   	- MAKEENTRY:	If clear, free an entry from the cache rather than look
+ *   			it up.
+ *   	- ISDOTDOT:	Must be set if and only if cn_nameptr == ".."
+ * - tsp:	Return storage for cache timestamp.  On a successful (positive
+ *   		or negative) lookup, tsp will be filled with any timespec that
+ *   		was stored when this cache entry was created.  However, it will
+ *   		be clear for "." entries.
+ * - ticks:	Return storage for alternate cache timestamp.  On a successful
+ *   		(positive or negative) lookup, it will contain the ticks value
+ *   		that was current when the cache entry was created, unless cnp
+ *   		was ".".
+ *
+ * # Returns
+ *
+ * - -1:	A positive cache hit.  vpp will contain the desired vnode.
+ * - ENOENT:	A negative cache hit, or dvp was recycled out from under us due
+ *		to a forced unmount.  vpp will not be modified.  If the entry
+ *		is a whiteout, then the ISWHITEOUT flag will be set in
+ *		cnp->cn_flags.
+ * - 0:		A cache miss.  vpp will not be modified.
+ *
+ * # Locking
+ *
+ * On a cache hit, vpp will be returned locked and ref'd.  If we're looking up
+ * .., dvp is unlocked.  If we're looking up . an extra ref is taken, but the
+ * lock is not recursively acquired.
+ */
 int
 cache_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp,
     struct timespec *tsp, int *ticksp)
@@ -1945,7 +1964,7 @@ cache_changesize(int newmaxvnodes)
 }
 
 /*
- * Invalidate all entries to a particular vnode.
+ * Invalidate all entries from and to a particular vnode.
  */
 void
 cache_purge(struct vnode *vp)
@@ -2086,9 +2105,7 @@ vfs_cache_lookup(struct vop_lookup_args *ap)
 	int error;
 	struct vnode **vpp = ap->a_vpp;
 	struct componentname *cnp = ap->a_cnp;
-	struct ucred *cred = cnp->cn_cred;
 	int flags = cnp->cn_flags;
-	struct thread *td = cnp->cn_thread;
 
 	*vpp = NULL;
 	dvp = ap->a_dvp;
@@ -2100,8 +2117,8 @@ vfs_cache_lookup(struct vop_lookup_args *ap)
 	    (cnp->cn_nameiop == DELETE || cnp->cn_nameiop == RENAME))
 		return (EROFS);
 
-	error = VOP_ACCESS(dvp, VEXEC, cred, td);
-	if (error)
+	error = vn_dir_check_exec(dvp, cnp);
+	if (error != 0)
 		return (error);
 
 	error = cache_lookup(dvp, vpp, cnp, NULL, NULL);

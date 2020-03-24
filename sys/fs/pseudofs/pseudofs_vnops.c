@@ -448,10 +448,6 @@ pfs_lookup(struct vop_cachedlookup_args *va)
 		PFS_RETURN (ENOTDIR);
 	KASSERT_PN_IS_DIR(pd);
 
-	error = VOP_ACCESS(vn, VEXEC, cnp->cn_cred, cnp->cn_thread);
-	if (error)
-		PFS_RETURN (error);
-
 	/*
 	 * Don't support DELETE or RENAME.  CREATE is supported so
 	 * that O_CREAT will work, but the lookup will still fail if
@@ -829,6 +825,8 @@ pfs_readdir(struct vop_readdir_args *va)
 		for (i = 0; i < PFS_NAMELEN - 1 && pn->pn_name[i] != '\0'; ++i)
 			pfsent->entry.d_name[i] = pn->pn_name[i];
 		pfsent->entry.d_namlen = i;
+		/* NOTE: d_off is the offset of the *next* entry. */
+		pfsent->entry.d_off = offset + PFS_DELEN;
 		switch (pn->pn_type) {
 		case pfstype_procdir:
 			KASSERT(p != NULL,
@@ -965,7 +963,8 @@ pfs_setattr(struct vop_setattr_args *va)
 	PFS_TRACE(("%s", pn->pn_name));
 	pfs_assert_not_owned(pn);
 
-	PFS_RETURN (EOPNOTSUPP);
+	/* Silently ignore unchangeable attributes. */
+	PFS_RETURN (0);
 }
 
 /*

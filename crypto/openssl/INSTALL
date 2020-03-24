@@ -98,6 +98,9 @@
     $ nmake test
     $ nmake install
 
+ Note that in order to perform the install step above you need to have
+ appropriate permissions to write to the installation directory.
+
  If any of these steps fails, see section Installation in Detail below.
 
  This will build and install OpenSSL in the default location, which is:
@@ -106,6 +109,12 @@
   OpenVMS: SYS$COMMON:[OPENSSL-'version'...], where 'version' is the
            OpenSSL version number with underscores instead of periods.
   Windows: C:\Program Files\OpenSSL or C:\Program Files (x86)\OpenSSL
+
+ The installation directory should be appropriately protected to ensure
+ unprivileged users cannot make changes to OpenSSL binaries or files, or install
+ engines. If you already have a pre-installed version of OpenSSL as part of
+ your Operating System it is recommended that you do not overwrite the system
+ version and instead install to somewhere else.
 
  If you want to install it anywhere else, run config like this:
 
@@ -135,7 +144,10 @@
                    Don't build with support for deprecated APIs below the
                    specified version number. For example "--api=1.1.0" will
                    remove support for all APIS that were deprecated in OpenSSL
-                   version 1.1.0 or below.
+                   version 1.1.0 or below. This is a rather specialized option
+                   for developers. If you just intend to remove all deprecated
+                   APIs entirely (up to the current version), it is easier
+                   to add the 'no-deprecated' option instead (see below).
 
   --cross-compile-prefix=PREFIX
                    The PREFIX to include in front of commands for your
@@ -229,7 +241,7 @@
                                source exists.
                    getrandom:  Use the L<getrandom(2)> or equivalent system
                                call.
-                   devrandom:  Use the the first device from the DEVRANDOM list
+                   devrandom:  Use the first device from the DEVRANDOM list
                                which can be opened to read random bytes. The
                                DEVRANDOM preprocessor constant expands to
                                "/dev/urandom","/dev/random","/dev/srandom" on
@@ -287,6 +299,19 @@
                    Typically OpenSSL will automatically load a system config
                    file which configures default ssl options.
 
+  enable-buildtest-c++
+                   While testing, generate C++ buildtest files that
+                   simply check that the public OpenSSL header files
+                   are usable standalone with C++.
+
+                   Enabling this option demands extra care.  For any
+                   compiler flag given directly as configuration
+                   option, you must ensure that it's valid for both
+                   the C and the C++ compiler.  If not, the C++ build
+                   test will most likely break.  As an alternative,
+                   you can use the language specific variables, CFLAGS
+                   and CXXFLAGS.
+
   no-capieng
                    Don't build the CAPI engine. This option will be forced if
                    on a platform that does not support CAPI.
@@ -326,8 +351,10 @@
                    Don't build support for datagram based BIOs. Selecting this
                    option will also force the disabling of DTLS.
 
-  no-dso
-                   Don't build support for loading Dynamic Shared Objects.
+  enable-devcryptoeng
+                   Build the /dev/crypto engine.  It is automatically selected
+                   on BSD implementations, in which case it can be disabled with
+                   no-devcryptoeng.
 
   no-dynamic-engine
                    Don't build the dynamically loaded engines. This only has an
@@ -401,6 +428,24 @@
 
   no-pic
                    Don't build with support for Position Independent Code.
+
+  no-pinshared     By default OpenSSL will attempt to stay in memory until the
+                   process exits. This is so that libcrypto and libssl can be
+                   properly cleaned up automatically via an "atexit()" handler.
+                   The handler is registered by libcrypto and cleans up both
+                   libraries. On some platforms the atexit() handler will run on
+                   unload of libcrypto (if it has been dynamically loaded)
+                   rather than at process exit. This option can be used to stop
+                   OpenSSL from attempting to stay in memory until the process
+                   exits. This could lead to crashes if either libcrypto or
+                   libssl have already been unloaded at the point
+                   that the atexit handler is invoked, e.g. on a platform which
+                   calls atexit() on unload of the library, and libssl is
+                   unloaded before libcrypto then a crash is likely to happen.
+                   Applications can suppress running of the atexit() handler at
+                   run time by using the OPENSSL_INIT_NO_ATEXIT option to
+                   OPENSSL_init_crypto(). See the man page for it for further
+                   details.
 
   no-posix-io
                    Don't use POSIX IO capabilities.
@@ -642,6 +687,11 @@
                         CC=gcc CROSS_COMPILE=x86_64-w64-mingw32- \
                         ./config -DCOOKIE
 
+                   If CC is set, it is advisable to also set CXX to ensure
+                   both C and C++ compilers are in the same "family".  This
+                   becomes relevant with 'enable-external-tests' and
+                   'enable-buildtest-c++'.
+
   reconf
   reconfigure
                    Reconfigure from earlier data.  This fetches the previous
@@ -870,8 +920,11 @@
        $ mms install                                    ! OpenVMS
        $ nmake install                                  # Windows
 
-     This will install all the software components in this directory
-     tree under PREFIX (the directory given with --prefix or its
+     Note that in order to perform the install step above you need to have
+     appropriate permissions to write to the installation directory.
+
+     The above commands will install all the software components in this
+     directory tree under PREFIX (the directory given with --prefix or its
      default):
 
        Unix:
@@ -927,6 +980,12 @@
                         for private key files.
          misc           Various scripts.
 
+     The installation directory should be appropriately protected to ensure
+     unprivileged users cannot make changes to OpenSSL binaries or files, or
+     install engines. If you already have a pre-installed version of OpenSSL as
+     part of your Operating System it is recommended that you do not overwrite
+     the system version and instead install to somewhere else.
+
      Package builders who want to configure the library for standard
      locations, but have the package installed somewhere else so that
      it can easily be packaged, can use
@@ -941,10 +1000,10 @@
 
   *  COMPILING existing applications
 
-     OpenSSL 1.1.0 hides a number of structures that were previously
-     open.  This includes all internal libssl structures and a number
-     of EVP types.  Accessor functions have been added to allow
-     controlled access to the structures' data.
+     Starting with version 1.1.0, OpenSSL hides a number of structures
+     that were previously open.  This includes all internal libssl
+     structures and a number of EVP types.  Accessor functions have
+     been added to allow controlled access to the structures' data.
 
      This means that some software needs to be rewritten to adapt to
      the new ways of doing things.  This often amounts to allocating
@@ -1047,7 +1106,7 @@
 
  depend
                 Rebuild the dependencies in the Makefiles. This is a legacy
-                option that no longer needs to be used in OpenSSL 1.1.0.
+                option that no longer needs to be used since OpenSSL 1.1.0.
 
  install
                 Install all OpenSSL components.

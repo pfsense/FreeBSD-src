@@ -1,8 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0-only
 
 #include <dt-bindings/input/input.h>
 
@@ -129,7 +125,7 @@
 };
 
 &mmc3 {
-	interrupts-extended = <&intc 94 &omap3_pmx_core2 0x46>;
+	interrupts-extended = <&intc 94 &omap3_pmx_core 0x136>;
 	pinctrl-0 = <&mmc3_pins &wl127x_gpio>;
 	pinctrl-names = "default";
 	vmmc-supply = <&wl12xx_vmmc>;
@@ -142,7 +138,7 @@
 		compatible = "ti,wl1273";
 		reg = <2>;
 		interrupt-parent = <&gpio1>;
-		interrupts = <2 IRQ_TYPE_LEVEL_HIGH>; /* gpio 2 */
+		interrupts = <2 IRQ_TYPE_EDGE_RISING>; /* gpio 2 */
 		ref-clock-frequency = <26000000>;
 	};
 };

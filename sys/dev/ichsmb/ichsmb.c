@@ -131,14 +131,8 @@ ichsmb_attach(device_t dev)
 		goto fail;
 	}
 
-	/* Attach "smbus" child */
-	if ((error = bus_generic_attach(dev)) != 0) {
-		device_printf(dev, "failed to attach child: %d\n", error);
-		goto fail;
-	}
-
-	return (0);
-
+	/* Attach children when interrupts are available */
+	return (bus_delayed_attach_children(dev));
 fail:
 	mtx_destroy(&sc->mutex);
 	return (error);

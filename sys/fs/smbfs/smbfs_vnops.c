@@ -1120,8 +1120,8 @@ smbfs_advlock(ap)
 static int
 smbfs_pathcheck(struct smbmount *smp, const char *name, int nmlen, int nameiop)
 {
-	static const char *badchars = "*/:<>;?";
-	static const char *badchars83 = " +|,[]=";
+	static const char *badchars = "*/:<>?";
+	static const char *badchars83 = " +|,[]=;";
 	const char *cp;
 	int i, error;
 
@@ -1198,7 +1198,8 @@ smbfs_lookup(ap)
 	islastcn = flags & ISLASTCN;
 	if (islastcn && (mp->mnt_flag & MNT_RDONLY) && (nameiop != LOOKUP))
 		return EROFS;
-	if ((error = VOP_ACCESS(dvp, VEXEC, cnp->cn_cred, td)) != 0)
+	error = vn_dir_check_exec(dvp, cnp);
+	if (error != 0)
 		return error;
 	smp = VFSTOSMBFS(mp);
 	dnp = VTOSMB(dvp);

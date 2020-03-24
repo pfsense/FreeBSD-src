@@ -69,31 +69,17 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 {
 	struct pcb *pcb2;
 	struct trapframe *tf;
-	register_t val;
 
 	if ((flags & RFPROC) == 0)
 		return;
 
-	if (td1 == curthread) {
-		/*
-		 * Save the tp. These normally happen in cpu_switch,
-		 * but if userland changes this then forks this may
-		 * not have happened.
-		 */
-		__asm __volatile("mv %0, tp" : "=&r"(val));
-		td1->td_pcb->pcb_tp = val;
-
-		/* RISCVTODO: save the FPU state here */
-	}
+	/* RISCVTODO: save the FPU state here */
 
 	pcb2 = (struct pcb *)(td2->td_kstack +
 	    td2->td_kstack_pages * PAGE_SIZE) - 1;
 
 	td2->td_pcb = pcb2;
 	bcopy(td1->td_pcb, pcb2, sizeof(*pcb2));
-
-	td2->td_pcb->pcb_l1addr =
-	    vtophys(vmspace_pmap(td2->td_proc->p_vmspace)->pm_l1);
 
 	tf = (struct trapframe *)STACKALIGN((struct trapframe *)pcb2 - 1);
 	bcopy(td1->td_frame, tf, sizeof(*tf));
@@ -208,15 +194,15 @@ cpu_set_upcall(struct thread *td, void (*entry)(void *), void *arg,
 int
 cpu_set_user_tls(struct thread *td, void *tls_base)
 {
-	struct pcb *pcb;
 
 	if ((uintptr_t)tls_base >= VM_MAXUSER_ADDRESS)
 		return (EINVAL);
 
-	pcb = td->td_pcb;
-	pcb->pcb_tp = (register_t)tls_base + TP_OFFSET;
-	if (td == curthread)
-		__asm __volatile("mv tp, %0" :: "r"(pcb->pcb_tp));
+	/*
+	 * The user TLS is set by modifying the trapframe's tp value, which
+	 * will be restored when returning to userspace.
+	 */
+	td->td_frame->tf_tp = (register_t)tls_base + TP_OFFSET;
 
 	return (0);
 }
@@ -265,6 +251,21 @@ cpu_fork_kthread_handler(struct thread *td, void (*func)(void *), void *arg)
 void
 cpu_exit(struct thread *td)
 {
+}
+
+bool
+cpu_exec_vmspace_reuse(struct proc *p __unused, vm_map_t map __unused)
+{
+
+	return (true);
+}
+
+int
+cpu_procctl(struct thread *td __unused, int idtype __unused, id_t id __unused,
+    int com __unused, void *data __unused)
+{
+
+	return (EINVAL);
 }
 
 void

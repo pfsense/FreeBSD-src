@@ -36,11 +36,13 @@
 #define	_MACHINE_PROC_H_
 
 #include <sys/queue.h>
+#include <machine/pcb.h>
 #include <machine/segments.h>
 
 /*
  * List of locks
- *	k - only accessed by curthread
+ *	c  - proc lock
+ *	k  - only accessed by curthread
  *	pp - pmap.c:invl_gen_mtx
  */
 
@@ -49,10 +51,17 @@ struct proc_ldt {
 	int     ldt_refcnt;
 };
 
+#define PMAP_INVL_GEN_NEXT_INVALID	0x1ULL
 struct pmap_invl_gen {
 	u_long gen;			/* (k) */
-	LIST_ENTRY(pmap_invl_gen) link;	/* (pp) */
-};
+	union {
+		LIST_ENTRY(pmap_invl_gen) link;	/* (pp) */
+		struct {
+			struct pmap_invl_gen *next;
+			u_char saved_pri;
+		};
+	};
+} __aligned(16);
 
 /*
  * Machine-dependent part of the proc structure for AMD64.
@@ -64,12 +73,16 @@ struct mdthread {
 	struct pmap_invl_gen md_invl_gen;
 	register_t md_efirt_tmp;	/* (k) */
 	int	md_efirt_dis_pf;	/* (k) */
+	struct pcb md_pcb;
+	vm_offset_t md_stack_base;
 };
 
 struct mdproc {
 	struct proc_ldt *md_ldt;	/* (t) per-process ldt */
 	struct system_segment_descriptor md_ldt_sd;
 };
+
+#define	P_MD_KPTI		0x00000001	/* Enable KPTI on exec */
 
 #define	KINFO_PROC_SIZE 1088
 #define	KINFO_PROC32_SIZE 768

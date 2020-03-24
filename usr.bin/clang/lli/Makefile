@@ -2,8 +2,7 @@
 
 PROG_CXX=	lli
 
-SRCDIR=		tools/lli
-SRCS+=		OrcLazyJIT.cpp
+SRCDIR=		llvm/tools/lli
 SRCS+=		lli.cpp
 
 LIBADD+=	z

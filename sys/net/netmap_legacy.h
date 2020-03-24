@@ -99,14 +99,7 @@
  * nr_flags	is the recommended mode to indicate which rings should
  *		be bound to a file descriptor. Values are NR_REG_*
  *
- * nr_arg1 (in)	The number of extra rings to be reserved.
- *		Especially when allocating a VALE port the system only
- *		allocates the amount of memory needed for the port.
- *		If more shared memory rings are desired (e.g. for pipes),
- *		the first invocation for the same basename/allocator
- *		should specify a suitable number. Memory cannot be
- *		extended after the first allocation without closing
- *		all ports on the same region.
+ * nr_arg1 (in)	Reserved.
  *
  * nr_arg2 (in/out) The identity of the memory region used.
  *		On input, 0 means the system decides autonomously,
@@ -123,13 +116,13 @@
  * nr_cmd (in)	if non-zero indicates a special command:
  *	NETMAP_BDG_ATTACH	 and nr_name = vale*:ifname
  *		attaches the NIC to the switch; nr_ringid specifies
- *		which rings to use. Used by vale-ctl -a ...
+ *		which rings to use. Used by valectl -a ...
  *	    nr_arg1 = NETMAP_BDG_HOST also attaches the host port
- *		as in vale-ctl -h ...
+ *		as in valectl -h ...
  *
  *	NETMAP_BDG_DETACH	and nr_name = vale*:ifname
  *		disconnects a previously attached NIC.
- *		Used by vale-ctl -d ...
+ *		Used by valectl -d ...
  *
  *	NETMAP_BDG_LIST
  *		list the configuration of VALE switches.
@@ -140,10 +133,10 @@
  *
  *	NETMAP_BDG_NEWIF
  *		create a persistent VALE port with name nr_name.
- *		Used by vale-ctl -n ...
+ *		Used by valectl -n ...
  *
  *	NETMAP_BDG_DELIF
- *		delete a persistent VALE port. Used by vale-ctl -d ...
+ *		delete a persistent VALE port. Used by valectl -d ...
  *
  * nr_arg1, nr_arg2, nr_arg3  (in/out)		command specific
  *
@@ -188,7 +181,7 @@ struct nmreq {
 #define NETMAP_BDG_POLLING_ON	10	/* delete polling kthread */
 #define NETMAP_BDG_POLLING_OFF	11	/* delete polling kthread */
 #define NETMAP_VNET_HDR_GET	12      /* get the port virtio-net-hdr length */
-	uint16_t	nr_arg1;	/* reserve extra rings in NIOCREGIF */
+	uint16_t	nr_arg1;	/* extra arguments */
 #define NETMAP_BDG_HOST		1	/* nr_arg1 value for NETMAP_BDG_ATTACH */
 
 	uint16_t	nr_arg2;	/* id of the memory allocator */

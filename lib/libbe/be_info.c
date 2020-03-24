@@ -3,7 +3,6 @@
  *
  * Copyright (c) 2017 Kyle J. Kneitinger <kyle@kneit.in>
  * Copyright (c) 2018 Kyle Evans <kevans@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +28,8 @@
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
+
+#include <sys/zfs_context.h>
 
 #include "be.h"
 #include "be_impl.h"
@@ -257,7 +258,8 @@ static int
 snapshot_proplist_update(zfs_handle_t *hdl, prop_data_t *data)
 {
 
-	return (zfs_iter_snapshots_sorted(hdl, prop_list_builder_cb, data));
+	return (zfs_iter_snapshots_sorted(hdl, prop_list_builder_cb, data,
+	    0, 0));
 }
 
 

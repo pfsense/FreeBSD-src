@@ -193,7 +193,7 @@ static devclass_t  i2c_devclass;
 DRIVER_MODULE(imx_i2c, simplebus, i2c_driver, i2c_devclass, 0, 0);
 DRIVER_MODULE(ofw_iicbus, imx_i2c, ofw_iicbus_driver, ofw_iicbus_devclass, 0, 0);
 MODULE_DEPEND(imx_i2c, iicbus, 1, 1, 1);
-MODULE_DEPEND(imx_i2c, ofw_iicbus, 1, 1, 1);
+SIMPLEBUS_PNP_INFO(compat_data);
 
 static phandle_t
 i2c_get_node(device_t bus, device_t dev)
@@ -448,8 +448,7 @@ no_recovery:
 	/* We don't do a hardware reset here because iicbus_attach() does it. */
 
 	/* Probe and attach the iicbus when interrupts are available. */
-	config_intrhook_oneshot((ich_func_t)bus_generic_attach, dev);
-	return (0);
+	return (bus_delayed_attach_children(dev));
 }
 
 static int
@@ -467,6 +466,10 @@ i2c_detach(device_t dev)
 
 	if (sc->iicbus != NULL)
 		device_delete_child(dev, sc->iicbus);
+
+	/* Release bus-recover pins; gpio_pin_release() handles NULL args. */
+	gpio_pin_release(sc->rb_sclpin);
+	gpio_pin_release(sc->rb_sdapin);
 
 	if (sc->res != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->res);

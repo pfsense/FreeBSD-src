@@ -460,11 +460,11 @@ intpr(int clientOnly, int serverOnly)
 		xo_close_container("operations");
 
 		xo_open_container("server");
-		xo_emit("{T:Server Re-Failed:}\n");
-		xo_emit("{T:retfailed/%17ju}\n", (uintmax_t)ext_nfsstats.srvrpc_errs);
+		xo_emit("{T:Server Re-Failed}\n");
+		xo_emit("{:retfailed/%16ju}\n", (uintmax_t)ext_nfsstats.srvrpc_errs);
 
-		xo_emit("{T:Server Faults:}\n");
-		xo_emit("{T:faults/%13ju}\n", (uintmax_t)ext_nfsstats.srv_errs);
+		xo_emit("{T:Server Faults}\n");
+		xo_emit("{:faults/%13ju}\n", (uintmax_t)ext_nfsstats.srv_errs);
 
 		xo_emit("{T:Server Write Gathering:/%13.13s}\n");
 
@@ -790,7 +790,7 @@ exp_intpr(int clientOnly, int serverOnly, int nfs41)
 		    (uintmax_t)ext_nfsstats.cllocalopenowners);
 
 		xo_emit("{T:LocalOpen/%13.13s}{T:LocalLown/%13.13s}"
-		    "{T:LocalLock\n");
+		    "{T:LocalLock/%13.13s}\n");
 		xo_emit("{:localopen/%13ju}{:locallown/%13ju}"
 		    "{:locallock/%13ju}\n",
 		    (uintmax_t)ext_nfsstats.cllocalopens,

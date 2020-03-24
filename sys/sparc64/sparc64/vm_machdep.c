@@ -373,6 +373,21 @@ cpu_fork_kthread_handler(struct thread *td, void (*func)(void *), void *arg)
 	fp->fr_local[1] = (u_long)arg;
 }
 
+bool
+cpu_exec_vmspace_reuse(struct proc *p __unused, vm_map_t map __unused)
+{
+
+	return (true);
+}
+
+int
+cpu_procctl(struct thread *td __unused, int idtype __unused, id_t id __unused,
+    int com __unused, void *data __unused)
+{
+
+	return (EINVAL);
+}
+
 int
 is_physical_memory(vm_paddr_t addr)
 {
@@ -446,4 +461,29 @@ sf_buf_unmap(struct sf_buf *sf)
 
 	pmap_qremove(sf->kva, 1);
 	return (1);
+}
+
+uint32_t casuword32_int(volatile uint32_t *base, uint32_t oldval,
+    uint32_t newval);
+uint32_t
+casuword32(volatile uint32_t *base, uint32_t oldval, uint32_t newval)
+{
+	uint32_t ret;
+
+	ret = casuword32_int(base, oldval, newval);
+	if (ret != -1)
+		ret = ret != oldval;
+	return (ret);
+}
+
+u_long casuword64_int(volatile u_long *p, u_long oldval, u_long newval);
+u_long
+casuword(volatile u_long *p, u_long oldval, u_long newval)
+{
+	u_long ret;
+
+	ret = casuword64_int(p, oldval, newval);
+	if (ret != -1L)
+		ret = ret != oldval;
+	return (ret);
 }

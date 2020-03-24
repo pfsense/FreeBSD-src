@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -1474,13 +1474,14 @@ DtCompileSdev (
                         Namesp->DeviceIdOffset + Namesp->DeviceIdLength;
                     Namesp->VendorDataLength =
                         (UINT16) Subtable->Length;
+
+                    /* Final size of entire namespace structure */
+
+                    SdevHeader->Length = (UINT16)(sizeof(ACPI_SDEV_NAMESPACE) +
+                        Subtable->Length + Namesp->DeviceIdLength);
                 }
             }
 
-            /* Final size of entire namespace structure */
-
-            SdevHeader->Length = (UINT16) (sizeof (ACPI_SDEV_NAMESPACE) +
-                Subtable->Length + Namesp->DeviceIdLength);
             break;
 
         case ACPI_SDEV_TYPE_PCIE_ENDPOINT_DEVICE:
@@ -1620,7 +1621,9 @@ DtCompileSlit (
     DT_SUBTABLE             *ParentTable;
     DT_FIELD                **PFieldList = (DT_FIELD **) List;
     DT_FIELD                *FieldList;
+    DT_FIELD                *EndOfFieldList = NULL;
     UINT32                  Localities;
+    UINT32                  LocalityListLength;
     UINT8                   *LocalityBuffer;
 
 
@@ -1636,6 +1639,7 @@ DtCompileSlit (
 
     Localities = *ACPI_CAST_PTR (UINT32, Subtable->Buffer);
     LocalityBuffer = UtLocalCalloc (Localities);
+    LocalityListLength = 0;
 
     /* Compile each locality buffer */
 
@@ -1645,9 +1649,21 @@ DtCompileSlit (
         DtCompileBuffer (LocalityBuffer,
             FieldList->Value, FieldList, Localities);
 
+        LocalityListLength++;
         DtCreateSubtable (LocalityBuffer, Localities, &Subtable);
         DtInsertSubtable (ParentTable, Subtable);
+        EndOfFieldList = FieldList;
         FieldList = FieldList->Next;
+    }
+
+    if (LocalityListLength != Localities)
+    {
+        sprintf(AslGbl_MsgBuffer,
+            "Found %u entries, must match LocalityCount: %u",
+            LocalityListLength, Localities);
+        DtError (ASL_ERROR, ASL_MSG_ENTRY_LIST, EndOfFieldList, AslGbl_MsgBuffer);
+        ACPI_FREE (LocalityBuffer);
+        return (AE_LIMIT);
     }
 
     ACPI_FREE (LocalityBuffer);
@@ -1731,6 +1747,11 @@ DtCompileSrat (
         case ACPI_SRAT_TYPE_GIC_ITS_AFFINITY:
 
             InfoTable = AcpiDmTableInfoSrat4;
+            break;
+
+        case ACPI_SRAT_TYPE_GENERIC_AFFINITY:
+
+            InfoTable = AcpiDmTableInfoSrat5;
             break;
 
         default:
@@ -1878,6 +1899,62 @@ DtCompileTcpa (
 
 /******************************************************************************
  *
+ * FUNCTION:    DtCompileTpm2Rev3
+ *
+ * PARAMETERS:  PFieldList          - Current field list pointer
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Compile TPM2 revision 3
+ *
+ *****************************************************************************/
+static ACPI_STATUS
+DtCompileTpm2Rev3 (
+    void                    **List)
+{
+    DT_FIELD                **PFieldList = (DT_FIELD **) List;
+    DT_SUBTABLE             *Subtable;
+    ACPI_TABLE_TPM23        *Tpm23Header;
+    DT_SUBTABLE             *ParentTable;
+    ACPI_STATUS             Status = AE_OK;
+
+
+    Status = DtCompileTable (PFieldList, AcpiDmTableInfoTpm23,
+        &Subtable);
+
+    ParentTable = DtPeekSubtable ();
+    DtInsertSubtable (ParentTable, Subtable);
+    Tpm23Header = ACPI_CAST_PTR (ACPI_TABLE_TPM23, ParentTable->Buffer);
+
+    /* Subtable type depends on the StartMethod */
+
+    switch (Tpm23Header->StartMethod)
+    {
+    case ACPI_TPM23_ACPI_START_METHOD:
+
+        /* Subtable specific to to ARM_SMC */
+
+        Status = DtCompileTable (PFieldList, AcpiDmTableInfoTpm23a,
+            &Subtable);
+        if (ACPI_FAILURE (Status))
+        {
+            return (Status);
+        }
+
+        ParentTable = DtPeekSubtable ();
+        DtInsertSubtable (ParentTable, Subtable);
+        break;
+
+    default:
+        break;
+    }
+
+    return (Status);
+}
+
+
+/******************************************************************************
+ *
  * FUNCTION:    DtCompileTpm2
  *
  * PARAMETERS:  PFieldList          - Current field list pointer
@@ -1897,7 +1974,17 @@ DtCompileTpm2 (
     ACPI_TABLE_TPM2         *Tpm2Header;
     DT_SUBTABLE             *ParentTable;
     ACPI_STATUS             Status = AE_OK;
+    ACPI_TABLE_HEADER       *Header;
 
+
+    ParentTable = DtPeekSubtable ();
+
+    Header = ACPI_CAST_PTR (ACPI_TABLE_HEADER, ParentTable->Buffer);
+
+    if (Header->Revision == 3)
+    {
+        return (DtCompileTpm2Rev3 (List));
+    }
 
     /* Compile the main table */
 

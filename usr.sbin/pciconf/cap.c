@@ -389,6 +389,8 @@ link_speed_string(uint8_t speed)
 		return ("5.0");
 	case 3:
 		return ("8.0");
+	case 4:
+		return ("16.0");
 	default:
 		return ("undef");
 	}
@@ -512,6 +514,11 @@ cap_express(int fd, struct pci_conf *p, uint8_t ptr)
 		ctl = read_config(fd, &p->pc_sel, ptr + PCIER_LINK_CTL, 2);
 		printf(" ASPM %s(%s)", aspm_string(ctl & PCIEM_LINK_CTL_ASPMC),
 		    aspm_string((cap & PCIEM_LINK_CAP_ASPM) >> 10));
+	}
+	if ((cap & PCIEM_LINK_CAP_CLOCK_PM) != 0) {
+		ctl = read_config(fd, &p->pc_sel, ptr + PCIER_LINK_CTL, 2);
+		printf(" ClockPM %s", (ctl & PCIEM_LINK_CTL_ECPM) ?
+		    "enabled" : "disabled");
 	}
 	if (!(flags & PCIEM_FLAGS_SLOT))
 		return;

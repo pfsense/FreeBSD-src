@@ -330,50 +330,71 @@ ipopts_match(struct ip *ip, ipfw_insn *cmd)
 	return (flags_match(cmd, bits));
 }
 
+/*
+ * Parse TCP options. The logic copied from tcp_dooptions().
+ */
 static int
-tcpopts_match(struct tcphdr *tcp, ipfw_insn *cmd)
+tcpopts_parse(const struct tcphdr *tcp, uint16_t *mss)
 {
+	const u_char *cp = (const u_char *)(tcp + 1);
 	int optlen, bits = 0;
-	u_char *cp = (u_char *)(tcp + 1);
-	int x = (tcp->th_off << 2) - sizeof(struct tcphdr);
+	int cnt = (tcp->th_off << 2) - sizeof(struct tcphdr);
 
-	for (; x > 0; x -= optlen, cp += optlen) {
+	for (; cnt > 0; cnt -= optlen, cp += optlen) {
 		int opt = cp[0];
 		if (opt == TCPOPT_EOL)
 			break;
 		if (opt == TCPOPT_NOP)
 			optlen = 1;
 		else {
+			if (cnt < 2)
+				break;
 			optlen = cp[1];
-			if (optlen <= 0)
+			if (optlen < 2 || optlen > cnt)
 				break;
 		}
 
 		switch (opt) {
-
 		default:
 			break;
 
 		case TCPOPT_MAXSEG:
+			if (optlen != TCPOLEN_MAXSEG)
+				break;
 			bits |= IP_FW_TCPOPT_MSS;
+			if (mss != NULL)
+				*mss = be16dec(cp + 2);
 			break;
 
 		case TCPOPT_WINDOW:
-			bits |= IP_FW_TCPOPT_WINDOW;
+			if (optlen == TCPOLEN_WINDOW)
+				bits |= IP_FW_TCPOPT_WINDOW;
 			break;
 
 		case TCPOPT_SACK_PERMITTED:
+			if (optlen == TCPOLEN_SACK_PERMITTED)
+				bits |= IP_FW_TCPOPT_SACK;
+			break;
+
 		case TCPOPT_SACK:
-			bits |= IP_FW_TCPOPT_SACK;
+			if (optlen > 2 && (optlen - 2) % TCPOLEN_SACK == 0)
+				bits |= IP_FW_TCPOPT_SACK;
 			break;
 
 		case TCPOPT_TIMESTAMP:
-			bits |= IP_FW_TCPOPT_TS;
+			if (optlen == TCPOLEN_TIMESTAMP)
+				bits |= IP_FW_TCPOPT_TS;
 			break;
-
 		}
 	}
-	return (flags_match(cmd, bits));
+	return (bits);
+}
+
+static int
+tcpopts_match(struct tcphdr *tcp, ipfw_insn *cmd)
+{
+
+	return (flags_match(cmd, tcpopts_parse(tcp, NULL)));
 }
 
 static int
@@ -1191,6 +1212,7 @@ set_match(struct ip_fw_args *args, int slot,
 	args->rule.slot = slot + 1; /* we use 0 as a marker */
 	args->rule.rule_id = 1 + chain->map[slot]->id;
 	args->rule.rulenum = chain->map[slot]->rulenum;
+	args->flags |= IPFW_ARGS_REF;
 }
 
 #ifndef LINEAR_SKIPTO
@@ -1376,17 +1398,12 @@ ipfw_chk(struct ip_fw_args *args)
 	 *	Only valid for IPv4 packets.
 	 */
 	uint8_t proto;
-	uint16_t src_port = 0, dst_port = 0;	/* NOTE: host format	*/
+	uint16_t src_port, dst_port;		/* NOTE: host format	*/
 	struct in_addr src_ip, dst_ip;		/* NOTE: network format	*/
 	int iplen = 0;
 	int pktlen;
-	uint16_t	etype = 0;	/* Host order stored ether type */
+	uint16_t etype;			/* Host order stored ether type */
 
-	/*
-	 * dyn_dir = MATCH_UNKNOWN when rules unchecked,
-	 * 	MATCH_NONE when checked and not matched (q = NULL),
-	 *	MATCH_FORWARD or MATCH_REVERSE otherwise (q != NULL)
-	 */
 	struct ipfw_dyn_info dyn_info;
 	struct ip_fw *q = NULL;
 	struct ip_fw_chain *chain = &V_layer3_chain;
@@ -1420,10 +1437,8 @@ ipfw_chk(struct ip_fw_args *args)
 
 	dst_ip.s_addr = 0;		/* make sure it is initialized */
 	src_ip.s_addr = 0;		/* make sure it is initialized */
+	src_port = dst_port = 0;
 	pktlen = m->m_pkthdr.len;
-	args->f_id.fib = M_GETFIB(m); /* note mbuf not altered) */
-	proto = args->f_id.proto = 0;	/* mark f_id invalid */
-		/* XXX 0 is a valid proto: IP/IPv6 Hop-by-Hop Option */
 
 	DYN_INFO_INIT(&dyn_info);
 /*
@@ -1432,33 +1447,48 @@ ipfw_chk(struct ip_fw_args *args)
  * pointer might become stale after other pullups (but we never use it
  * this way).
  */
-#define PULLUP_TO(_len, p, T)	PULLUP_LEN(_len, p, sizeof(T))
-#define PULLUP_LEN(_len, p, T)					\
+#define	PULLUP_TO(_len, p, T)	PULLUP_LEN(_len, p, sizeof(T))
+#define	_PULLUP_LOCKED(_len, p, T, unlock)			\
 do {								\
 	int x = (_len) + T;					\
 	if ((m)->m_len < x) {					\
 		args->m = m = m_pullup(m, x);			\
-		if (m == NULL)					\
+		if (m == NULL) {				\
+			unlock;					\
 			goto pullup_failed;			\
+		}						\
 	}							\
 	p = (mtod(m, char *) + (_len));				\
+} while (0)
+
+#define	PULLUP_LEN(_len, p, T)	_PULLUP_LOCKED(_len, p, T, )
+#define	PULLUP_LEN_LOCKED(_len, p, T)	\
+    _PULLUP_LOCKED(_len, p, T, IPFW_PF_RUNLOCK(chain));	\
+    UPDATE_POINTERS()
+/*
+ * In case pointers got stale after pullups, update them.
+ */
+#define	UPDATE_POINTERS()			\
+do {						\
+	ip = mtod(m, struct ip *);		\
 } while (0)
 
 	/*
 	 * if we have an ether header,
 	 */
-	if (args->eh)
+	if (args->flags & IPFW_ARGS_ETHER)
 		etype = ntohs(args->eh->ether_type);
+	else
+		etype = 0;
 
 	/* Identify IP packets and fill up variables. */
 	if (pktlen >= sizeof(struct ip6_hdr) &&
-	    (args->eh == NULL || etype == ETHERTYPE_IPV6) && ip->ip_v == 6) {
+	    (etype == 0 || etype == ETHERTYPE_IPV6) && ip->ip_v == 6) {
 		struct ip6_hdr *ip6 = (struct ip6_hdr *)ip;
+
 		is_ipv6 = 1;
-		args->f_id.addr_type = 6;
 		hlen = sizeof(struct ip6_hdr);
 		proto = ip6->ip6_nxt;
-
 		/* Search extension headers to find upper layer protocols */
 		while (ulp == NULL && offset == 0) {
 			switch (proto) {
@@ -1603,12 +1633,10 @@ do {								\
 				break;
 
 			case IPPROTO_CARP:
-				PULLUP_TO(hlen, ulp, struct carp_header);
-				if (((struct carp_header *)ulp)->carp_version !=
-				    CARP_VERSION) 
-					return (IP_FW_DENY);
-				if (((struct carp_header *)ulp)->carp_type !=
-				    CARP_ADVERTISEMENT) 
+				PULLUP_TO(hlen, ulp, offsetof(
+				    struct carp_header, carp_counter));
+				if (CARP_ADVERTISEMENT !=
+				    ((struct carp_header *)ulp)->carp_type)
 					return (IP_FW_DENY);
 				break;
 
@@ -1633,20 +1661,18 @@ do {								\
 		}
 		ip = mtod(m, struct ip *);
 		ip6 = (struct ip6_hdr *)ip;
+		args->f_id.addr_type = 6;
 		args->f_id.src_ip6 = ip6->ip6_src;
 		args->f_id.dst_ip6 = ip6->ip6_dst;
-		args->f_id.src_ip = 0;
-		args->f_id.dst_ip = 0;
 		args->f_id.flow_id6 = ntohl(ip6->ip6_flow);
 		iplen = ntohs(ip6->ip6_plen) + sizeof(*ip6);
 	} else if (pktlen >= sizeof(struct ip) &&
-	    (args->eh == NULL || etype == ETHERTYPE_IP) && ip->ip_v == 4) {
-	    	is_ipv4 = 1;
+	    (etype == 0 || etype == ETHERTYPE_IP) && ip->ip_v == 4) {
+		is_ipv4 = 1;
 		hlen = ip->ip_hl << 2;
-		args->f_id.addr_type = 4;
-
 		/*
-		 * Collect parameters into local variables for faster matching.
+		 * Collect parameters into local variables for faster
+		 * matching.
 		 */
 		proto = ip->ip_p;
 		src_ip = ip->ip_src;
@@ -1696,26 +1722,38 @@ do {								\
 			default:
 				break;
 			}
+		} else {
+			if (offset == 1 && proto == IPPROTO_TCP) {
+				/* RFC 3128 */
+				goto pullup_failed;
+			}
 		}
 
 		ip = mtod(m, struct ip *);
+		args->f_id.addr_type = 4;
 		args->f_id.src_ip = ntohl(src_ip.s_addr);
 		args->f_id.dst_ip = ntohl(dst_ip.s_addr);
+	} else {
+		proto = 0;
+		dst_ip.s_addr = src_ip.s_addr = 0;
+
+		args->f_id.addr_type = 1; /* XXX */
 	}
 #undef PULLUP_TO
 	pktlen = iplen < pktlen ? iplen: pktlen;
-	if (proto) { /* we may have port numbers, store them */
-		args->f_id.proto = proto;
-		args->f_id.src_port = src_port = ntohs(src_port);
-		args->f_id.dst_port = dst_port = ntohs(dst_port);
-	}
+
+	/* Properly initialize the rest of f_id */
+	args->f_id.proto = proto;
+	args->f_id.src_port = src_port = ntohs(src_port);
+	args->f_id.dst_port = dst_port = ntohs(dst_port);
+	args->f_id.fib = M_GETFIB(m);
 
 	IPFW_PF_RLOCK(chain);
 	if (! V_ipfw_vnet_ready) { /* shutting down, leave NOW. */
 		IPFW_PF_RUNLOCK(chain);
 		return (IP_FW_PASS);	/* accept */
 	}
-	if (args->rule.slot) {
+	if (args->flags & IPFW_ARGS_REF) {
 		/*
 		 * Packet has already been tagged as a result of a previous
 		 * match on rule args->rule aka args->rule_id (PIPE, QUEUE,
@@ -1893,7 +1931,7 @@ do {								\
 				break;
 
 			case O_MACADDR2:
-				if (args->eh != NULL) {	/* have MAC header */
+				if (args->flags & IPFW_ARGS_ETHER) {
 					u_int32_t *want = (u_int32_t *)
 						((ipfw_insn_mac *)cmd)->addr;
 					u_int32_t *mask = (u_int32_t *)
@@ -1908,7 +1946,7 @@ do {								\
 				break;
 
 			case O_MAC_TYPE:
-				if (args->eh != NULL) {
+				if (args->flags & IPFW_ARGS_ETHER) {
 					u_int16_t *p =
 					    ((ipfw_insn_u16 *)cmd)->ports;
 					int i;
@@ -1929,19 +1967,21 @@ do {								\
 				break;
 
 			case O_LAYER2:
-				match = (args->eh != NULL);
+				match = (args->flags & IPFW_ARGS_ETHER);
 				break;
 
 			case O_DIVERTED:
-			    {
-				/* For diverted packets, args->rule.info
+				if ((args->flags & IPFW_ARGS_REF) == 0)
+					break;
+				/*
+				 * For diverted packets, args->rule.info
 				 * contains the divert port (in host format)
 				 * reason and direction.
 				 */
-				uint32_t i = args->rule.info;
-				match = (i&IPFW_IS_MASK) == IPFW_IS_DIVERT &&
-				    cmd->arg1 & ((i & IPFW_INFO_IN) ? 1 : 2);
-			    }
+				match = ((args->rule.info & IPFW_IS_MASK) ==
+				    IPFW_IS_DIVERT) && (
+				    ((args->rule.info & IPFW_INFO_IN) ?
+					1: 2) & cmd->arg1);
 				break;
 
 			case O_PROTO:
@@ -2126,7 +2166,8 @@ do {								\
 #ifdef INET6
 				/* FALLTHROUGH */
 			case O_IP6_SRC_ME:
-				match= is_ipv6 && ipfw_localip6(&args->f_id.src_ip6);
+				match = is_ipv6 &&
+				    ipfw_localip6(&args->f_id.src_ip6);
 #endif
 				break;
 
@@ -2162,7 +2203,8 @@ do {								\
 #ifdef INET6
 				/* FALLTHROUGH */
 			case O_IP6_DST_ME:
-				match= is_ipv6 && ipfw_localip6(&args->f_id.dst_ip6);
+				match = is_ipv6 &&
+				    ipfw_localip6(&args->f_id.dst_ip6);
 #endif
 				break;
 
@@ -2217,9 +2259,11 @@ do {								\
 				break;
 
 			case O_IPID:
-			case O_IPLEN:
 			case O_IPTTL:
-				if (is_ipv4) {	/* only for IP packets */
+				if (!is_ipv4)
+					break;
+			case O_IPLEN:
+				{	/* only for IP packets */
 				    uint16_t x;
 				    uint16_t *p;
 				    int i;
@@ -2322,7 +2366,7 @@ do {								\
 
 			case O_TCPOPTS:
 				if (proto == IPPROTO_TCP && offset == 0 && ulp){
-					PULLUP_LEN(hlen, ulp,
+					PULLUP_LEN_LOCKED(hlen, ulp,
 					    (TCP(ulp)->th_off << 2));
 					match = tcpopts_match(TCP(ulp), cmd);
 				}
@@ -2338,6 +2382,31 @@ do {								\
 				match = (proto == IPPROTO_TCP && offset == 0 &&
 				    ((ipfw_insn_u32 *)cmd)->d[0] ==
 					TCP(ulp)->th_ack);
+				break;
+
+			case O_TCPMSS:
+				if (proto == IPPROTO_TCP &&
+				    (args->f_id._flags & TH_SYN) != 0 &&
+				    ulp != NULL) {
+					uint16_t mss, *p;
+					int i;
+
+					PULLUP_LEN_LOCKED(hlen, ulp,
+					    (TCP(ulp)->th_off << 2));
+					if ((tcpopts_parse(TCP(ulp), &mss) &
+					    IP_FW_TCPOPT_MSS) == 0)
+						break;
+					if (cmdlen == 1) {
+						match = (cmd->arg1 == mss);
+						break;
+					}
+					/* Otherwise we have ranges. */
+					p = ((ipfw_insn_u16 *)cmd)->ports;
+					i = cmdlen - 1;
+					for (; !match && i > 0; i--, p += 2)
+						match = (mss >= p[0] &&
+						    mss <= p[1]);
+				}
 				break;
 
 			case O_TCPWIN:
@@ -2760,8 +2829,8 @@ do {								\
 
 			case O_DIVERT:
 			case O_TEE:
-				if (args->eh) /* not on layer 2 */
-				    break;
+				if (args->flags & IPFW_ARGS_ETHER)
+					break;	/* not on layer 2 */
 				/* otherwise this is terminal */
 				l = 0;		/* exit inner loop */
 				done = 1;	/* exit outer loop */
@@ -2965,32 +3034,22 @@ do {								\
 					 * table_value as next_hop6 address.
 					 */
 					if (is_ipv6) {
-						struct sockaddr_in6 *sa6;
+						struct ip_fw_nh6 *nh6;
 
-						sa6 = args->next_hop6 =
-						    &args->hopstore6;
-						sa6->sin6_family = AF_INET6;
-						sa6->sin6_len = sizeof(*sa6);
-						sa6->sin6_addr = TARG_VAL(
+						args->flags |= IPFW_ARGS_NH6;
+						nh6 = &args->hopstore6;
+						nh6->sin6_addr = TARG_VAL(
 						    chain, tablearg, nh6);
-						sa6->sin6_port = sa->sin_port;
-						/*
-						 * Set sin6_scope_id only for
-						 * link-local unicast addresses.
-						 */
-						if (IN6_IS_ADDR_LINKLOCAL(
-						    &sa6->sin6_addr))
-							sa6->sin6_scope_id =
-							    TARG_VAL(chain,
-								tablearg,
-								zoneid);
+						nh6->sin6_port = sa->sin_port;
+						nh6->sin6_scope_id = TARG_VAL(
+						    chain, tablearg, zoneid);
 					} else
 #endif
 					{
+						args->flags |= IPFW_ARGS_NH4;
 						args->hopstore.sin_port =
 						    sa->sin_port;
-						sa = args->next_hop =
-						    &args->hopstore;
+						sa = &args->hopstore;
 						sa->sin_family = AF_INET;
 						sa->sin_len = sizeof(*sa);
 						sa->sin_addr.s_addr = htonl(
@@ -2998,7 +3057,8 @@ do {								\
 						    nh4));
 					}
 				    } else {
-					args->next_hop = sa;
+					    args->flags |= IPFW_ARGS_NH4PTR;
+					    args->next_hop = sa;
 				    }
 				}
 				retval = IP_FW_PASS;
@@ -3013,6 +3073,7 @@ do {								\
 					struct sockaddr_in6 *sin6;
 
 					sin6 = &(((ipfw_insn_sa6 *)cmd)->sa);
+					args->flags |= IPFW_ARGS_NH6PTR;
 					args->next_hop6 = sin6;
 				}
 				retval = IP_FW_PASS;
@@ -3045,7 +3106,7 @@ do {								\
 				if (fib >= rt_numfibs)
 					fib = 0;
 				M_SETFIB(m, fib);
-				args->f_id.fib = fib;
+				args->f_id.fib = fib; /* XXX */
 				l = 0;		/* exit inner loop */
 				break;
 		        }
@@ -3096,6 +3157,7 @@ do {								\
 				struct cfg_nat *t;
 				int nat_id;
 
+				args->rule.info = 0;
 				set_match(args, f_pos, chain);
 				/* Check if this is 'global' nat rule */
 				if (cmd->arg1 == IP_FW_NAT44_GLOBAL) {
@@ -3152,6 +3214,7 @@ do {								\
 				    else
 					ip->ip_sum = in_cksum(m, hlen);
 				    retval = IP_FW_REASS;
+				    args->rule.info = 0;
 				    set_match(args, f_pos, chain);
 				}
 				done = 1;	/* exit outer loop */
@@ -3203,6 +3266,7 @@ do {								\
 
 		}	/* end of inner loop, scan opcodes */
 #undef PULLUP_LEN
+#undef PULLUP_LEN_LOCKED
 
 		if (done)
 			break;
@@ -3394,6 +3458,7 @@ vnet_ipfw_init(const void *unused)
 
 	/* fill and insert the default rule */
 	rule = ipfw_alloc_rule(chain, sizeof(struct ip_fw));
+	rule->flags |= IPFW_RULE_NOOPT;
 	rule->cmd_len = 1;
 	rule->cmd[0].len = 1;
 	rule->cmd[0].opcode = default_to_accept ? O_ACCEPT : O_DENY;

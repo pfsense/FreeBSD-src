@@ -9,8 +9,6 @@ CFLAGS+=-I${SRCTOP}/sys
 PROG=	bhyve
 PACKAGE=	bhyve
 
-DEBUG_FLAGS= -g -O0
-
 MAN=	bhyve.8
 
 BHYVE_SYSDIR?=${SRCTOP}
@@ -34,6 +32,8 @@ SRCS=	\
 	mem.c			\
 	mevent.c		\
 	mptbl.c			\
+	net_backends.c		\
+	net_utils.c		\
 	pci_ahci.c		\
 	pci_e82545.c		\
 	pci_emul.c		\

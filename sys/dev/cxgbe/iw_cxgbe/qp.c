@@ -65,7 +65,7 @@ struct cpl_set_tcb_rpl;
 
 #include "iw_cxgbe.h"
 #include "user.h"
-extern int use_dsgl;
+
 static int creds(struct toepcb *toep, struct inpcb *inp, size_t wrsize);
 static int max_fr_immd = T4_MAX_FR_IMMD;//SYSCTL parameter later...
 
@@ -266,7 +266,8 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.dcaen_to_eqsize = cpu_to_be32(
 		V_FW_RI_RES_WR_DCAEN(0) |
 		V_FW_RI_RES_WR_DCACPU(0) |
-		V_FW_RI_RES_WR_FBMIN(2) |
+		V_FW_RI_RES_WR_FBMIN(chip_id(sc) <= CHELSIO_T5 ?
+		    X_FETCHBURSTMIN_64B : X_FETCHBURSTMIN_64B_T6) |
 		V_FW_RI_RES_WR_FBMAX(3) |
 		V_FW_RI_RES_WR_CIDXFTHRESHO(0) |
 		V_FW_RI_RES_WR_CIDXFTHRESH(0) |
@@ -288,7 +289,8 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.dcaen_to_eqsize = cpu_to_be32(
 		V_FW_RI_RES_WR_DCAEN(0) |
 		V_FW_RI_RES_WR_DCACPU(0) |
-		V_FW_RI_RES_WR_FBMIN(2) |
+		V_FW_RI_RES_WR_FBMIN(chip_id(sc) <= CHELSIO_T5 ?
+		    X_FETCHBURSTMIN_64B : X_FETCHBURSTMIN_64B_T6) |
 		V_FW_RI_RES_WR_FBMAX(3) |
 		V_FW_RI_RES_WR_CIDXFTHRESHO(0) |
 		V_FW_RI_RES_WR_CIDXFTHRESH(0) |
@@ -576,7 +578,7 @@ static void free_qp_work(struct work_struct *work)
 	ucontext = qhp->ucontext;
 	rhp = qhp->rhp;
 
-	CTR3(KTR_IW_CXGBE, "%s qhp %p ucontext %p\n", __func__,
+	CTR3(KTR_IW_CXGBE, "%s qhp %p ucontext %p", __func__,
 			qhp, ucontext);
 	destroy_qp(&rhp->rdev, &qhp->wq,
 		   ucontext ? &ucontext->uctx : &rhp->rdev.uctx);
@@ -687,8 +689,8 @@ static void build_tpte_memreg(struct fw_ri_fr_nsmr_tpte_wr *fr,
 	fr->tpte.nosnoop_pbladdr = cpu_to_be32(V_FW_RI_TPTE_PBLADDR(
 			      PBL_OFF(&mhp->rhp->rdev, mhp->attr.pbl_addr)>>3));
 	fr->tpte.dca_mwbcnt_pstag = cpu_to_be32(0);
-	fr->tpte.len_hi = cpu_to_be32(0);
-	fr->tpte.len_lo = cpu_to_be32(mhp->ibmr.length);
+	fr->tpte.len_hi = cpu_to_be32(mhp->ibmr.length >> 32);
+	fr->tpte.len_lo = cpu_to_be32(mhp->ibmr.length & 0xffffffff);
 	fr->tpte.va_hi = cpu_to_be32(mhp->ibmr.iova >> 32);
 	fr->tpte.va_lo_fbo = cpu_to_be32(mhp->ibmr.iova & 0xffffffff);
 
@@ -715,12 +717,11 @@ static int build_memreg(struct t4_sq *sq, union t4_wr *wqe,
 	wqe->fr.pgsz_shift = ilog2(wr->mr->page_size) - 12;
 	wqe->fr.addr_type = FW_RI_VA_BASED_TO;
 	wqe->fr.mem_perms = c4iw_ib_to_tpt_access(wr->access);
-	wqe->fr.len_hi = 0;
-	wqe->fr.len_lo = cpu_to_be32(mhp->ibmr.length);
+	wqe->fr.len_hi = cpu_to_be32(mhp->ibmr.length >> 32);
+	wqe->fr.len_lo = cpu_to_be32(mhp->ibmr.length & 0xffffffff);
 	wqe->fr.stag = cpu_to_be32(wr->key);
 	wqe->fr.va_hi = cpu_to_be32(mhp->ibmr.iova >> 32);
-	wqe->fr.va_lo_fbo = cpu_to_be32(mhp->ibmr.iova &
-			0xffffffff);
+	wqe->fr.va_lo_fbo = cpu_to_be32(mhp->ibmr.iova & 0xffffffff);
 
 	if (dsgl_supported && use_dsgl && (pbllen > max_fr_immd)) {
 		struct fw_ri_dsgl *sglp;
@@ -1415,7 +1416,7 @@ static int rdma_init(struct c4iw_dev *rhp, struct c4iw_qp *qhp)
 	ret = c4iw_wait_for_reply(rdev, &ep->com.wr_wait, ep->hwtid,
 			qhp->wq.sq.qid, ep->com.so, __func__);
 
-	toep->ulp_mode = ULP_MODE_RDMA;
+	toep->params.ulp_mode = ULP_MODE_RDMA;
 	free_ird(rhp, qhp->attr.max_ird);
 
 	return ret;
@@ -1474,6 +1475,22 @@ int c4iw_modify_qp(struct c4iw_dev *rhp, struct c4iw_qp *qhp,
 		goto out;
 	if (qhp->attr.state == attrs->next_state)
 		goto out;
+
+	/* Return EINPROGRESS if QP is already in transition state.
+	 * Eg: CLOSING->IDLE transition or *->ERROR transition.
+	 * This can happen while connection is switching(due to rdma_fini)
+	 * from iWARP/RDDP to TOE mode and any inflight RDMA RX data will
+	 * reach TOE driver -> TCP stack -> iWARP driver. In this way
+	 * iWARP driver keep receiving inflight RDMA RX data until socket
+	 * is closed or aborted. And if iWARP CM is in FPDU sate, then
+	 * it tries to put QP in TERM state and disconnects endpoint.
+	 * But as QP is already in transition state, this event is ignored.
+	 */
+	if ((qhp->attr.state >= C4IW_QP_STATE_ERROR) &&
+		(attrs->next_state == C4IW_QP_STATE_TERMINATE)) {
+		ret = -EINPROGRESS;
+		goto out;
+	}
 
 	switch (qhp->attr.state) {
 	case C4IW_QP_STATE_IDLE:
@@ -1862,10 +1879,10 @@ c4iw_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 	qhp->ibqp.qp_num = qhp->wq.sq.qid;
 	init_timer(&(qhp->timer));
 
-	CTR5(KTR_IW_CXGBE, "%s sq id %u size %u memsize %zu num_entries %u\n",
+	CTR5(KTR_IW_CXGBE, "%s sq id %u size %u memsize %zu num_entries %u",
 		 __func__, qhp->wq.sq.qid,
 		 qhp->wq.sq.size, qhp->wq.sq.memsize, attrs->cap.max_send_wr);
-	CTR5(KTR_IW_CXGBE, "%s rq id %u size %u memsize %zu num_entries %u\n",
+	CTR5(KTR_IW_CXGBE, "%s rq id %u size %u memsize %zu num_entries %u",
 		 __func__, qhp->wq.rq.qid,
 		 qhp->wq.rq.size, qhp->wq.rq.memsize, attrs->cap.max_recv_wr);
 	return &qhp->ibqp;

@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -474,7 +474,6 @@ AcpiDmDumpCsrt (
                 {
                     return;
                 }
-                SubSubOffset += InfoLength;
             }
 
             /* Point to next sub-subtable */
@@ -1106,9 +1105,26 @@ AcpiDmDumpGtdt (
         return;
     }
 
-    /* Subtables */
+    /* Rev 3 fields */
 
     Subtable = ACPI_ADD_PTR (ACPI_GTDT_HEADER, Table, Offset);
+
+    if (Table->Revision > 2)
+    {
+        SubtableLength = sizeof (ACPI_GTDT_EL2);
+        Status = AcpiDmDumpTable (Length, Offset, Subtable,
+            SubtableLength, AcpiDmTableInfoGtdtEl2);
+        if (ACPI_FAILURE (Status))
+        {
+            return;
+        }
+        Offset += SubtableLength;
+    }
+
+    Subtable = ACPI_ADD_PTR (ACPI_GTDT_HEADER, Table, Offset);
+
+    /* Subtables */
+
     while (Offset < Table->Length)
     {
         /* Common subtable header */
@@ -1384,7 +1400,6 @@ AcpiDmDumpHmat (
     while (Offset < Table->Length)
     {
         AcpiOsPrintf ("\n");
-        SubtableOffset = 0;
 
         /* Dump HMAT structure header */
 
@@ -1406,7 +1421,7 @@ AcpiDmDumpHmat (
         case ACPI_HMAT_TYPE_ADDRESS_RANGE:
 
             InfoTable = AcpiDmTableInfoHmat0;
-            Length = sizeof (ACPI_HMAT_ADDRESS_RANGE);
+            Length = sizeof (ACPI_HMAT_PROXIMITY_DOMAIN);
             break;
 
         case ACPI_HMAT_TYPE_LOCALITY:
@@ -1467,6 +1482,11 @@ AcpiDmDumpHmat (
                 Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
                     4, AcpiDmTableInfoHmat1a);
+                if (ACPI_FAILURE (Status))
+                {
+                    return;
+                }
+
                 SubtableOffset += 4;
             }
 
@@ -1483,6 +1503,11 @@ AcpiDmDumpHmat (
                 Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
                     4, AcpiDmTableInfoHmat1b);
+                if (ACPI_FAILURE (Status))
+                {
+                    return;
+                }
+
                 SubtableOffset += 4;
             }
 
@@ -1502,6 +1527,11 @@ AcpiDmDumpHmat (
                     Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
                         ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
                         2, AcpiDmTableInfoHmat1c);
+                    if (ACPI_FAILURE(Status))
+                    {
+                        return;
+                    }
+
                     SubtableOffset += 2;
                 }
             }
@@ -1525,6 +1555,11 @@ AcpiDmDumpHmat (
                 Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
                     2, AcpiDmTableInfoHmat2a);
+                if (ACPI_FAILURE (Status))
+                {
+                    return;
+                }
+
                 SubtableOffset += 2;
             }
             break;

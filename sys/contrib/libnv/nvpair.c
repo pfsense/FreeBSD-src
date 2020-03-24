@@ -108,7 +108,7 @@ struct nvpair_header {
 
 
 void
-nvpair_assert(const nvpair_t *nvp)
+nvpair_assert(const nvpair_t *nvp __unused)
 {
 
 	NVPAIR_ASSERT(nvp);
@@ -235,7 +235,8 @@ nvpair_remove_nvlist_array(nvpair_t *nvp)
 }
 
 void
-nvpair_remove(struct nvl_head *head, nvpair_t *nvp, const nvlist_t *nvl)
+nvpair_remove(struct nvl_head *head, nvpair_t *nvp,
+    const nvlist_t *nvl __unused)
 {
 
 	NVPAIR_ASSERT(nvp);
@@ -359,7 +360,7 @@ nvpair_pack_header(const nvpair_t *nvp, unsigned char *ptr, size_t *leftp)
 }
 
 unsigned char *
-nvpair_pack_null(const nvpair_t *nvp, unsigned char *ptr,
+nvpair_pack_null(const nvpair_t *nvp __unused, unsigned char *ptr,
     size_t *leftp __unused)
 {
 
@@ -1276,11 +1277,6 @@ nvpair_create_descriptor(const char *name, int value)
 {
 	nvpair_t *nvp;
 
-	if (value < 0 || !fd_is_valid(value)) {
-		ERRNO_SET(EBADF);
-		return (NULL);
-	}
-
 	value = fcntl(value, F_DUPFD_CLOEXEC, 0);
 	if (value < 0)
 		return (NULL);
@@ -1517,11 +1513,6 @@ nvpair_create_descriptor_array(const char *name, const int *value,
 		if (value[ii] == -1) {
 			fds[ii] = -1;
 		} else {
-			if (!fd_is_valid(value[ii])) {
-				ERRNO_SET(EBADF);
-				goto fail;
-			}
-
 			fds[ii] = fcntl(value[ii], F_DUPFD_CLOEXEC, 0);
 			if (fds[ii] == -1)
 				goto fail;
@@ -2035,10 +2026,6 @@ nvpair_append_descriptor_array(nvpair_t *nvp, const int value)
 
 	NVPAIR_ASSERT(nvp);
 	PJDLOG_ASSERT(nvp->nvp_type == NV_TYPE_DESCRIPTOR_ARRAY);
-	if (value < 0 || !fd_is_valid(value)) {
-		ERRNO_SET(EBADF);
-		return -1;
-	}
 	fd = fcntl(value, F_DUPFD_CLOEXEC, 0);
 	if (fd == -1) {
 		return (-1);

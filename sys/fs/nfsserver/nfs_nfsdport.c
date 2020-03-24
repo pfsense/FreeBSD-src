@@ -277,7 +277,8 @@ nfsvno_getattr(struct vnode *vp, struct nfsvattr *nvap,
 	}
 
 	/*
-	 * Acquire the Change, Size and TimeModify attributes, as required.
+	 * Acquire the Change, Size, TimeAccess, TimeModify and SpaceUsed
+	 * attributes, as required.
 	 * This needs to be done for regular files if:
 	 * - non-NFSv4 RPCs or
 	 * - when attrbitp == NULL or
@@ -292,7 +293,8 @@ nfsvno_getattr(struct vnode *vp, struct nfsvattr *nvap,
 	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_CHANGE) ||
 	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_SIZE) ||
 	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_TIMEACCESS) ||
-	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_TIMEMODIFY))) {
+	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_TIMEMODIFY) ||
+	    NFSISSET_ATTRBIT(attrbitp, NFSATTRBIT_SPACEUSED))) {
 		error = nfsrv_proxyds(nd, vp, 0, 0, nd->nd_cred, p,
 		    NFSPROC_GETATTR, NULL, NULL, NULL, &na, NULL);
 		if (error == 0)
@@ -312,6 +314,7 @@ nfsvno_getattr(struct vnode *vp, struct nfsvattr *nvap,
 		nvap->na_mtime = na.na_mtime;
 		nvap->na_filerev = na.na_filerev;
 		nvap->na_size = na.na_size;
+		nvap->na_bytes = na.na_bytes;
 	}
 	NFSD_DEBUG(4, "nfsvno_getattr: gotattr=%d err=%d chg=%ju\n", gotattr,
 	    error, (uintmax_t)na.na_filerev);
@@ -2123,7 +2126,7 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 		if (error)
 			goto nfsmout;
 		NFSSET_ATTRBIT(&savbits, &attrbits);
-		NFSCLRNOTFILLABLE_ATTRBIT(&attrbits);
+		NFSCLRNOTFILLABLE_ATTRBIT(&attrbits, nd);
 		NFSZERO_ATTRBIT(&rderrbits);
 		NFSSETBIT_ATTRBIT(&rderrbits, NFSATTRBIT_RDATTRERROR);
 	} else {
@@ -2422,10 +2425,22 @@ again:
 						}
 					}
 				}
-				if (!r) {
-				    if (refp == NULL &&
-					((nd->nd_flag & ND_NFSV3) ||
-					 NFSNONZERO_ATTRBIT(&attrbits))) {
+
+				/*
+				 * If we failed to look up the entry, then it
+				 * has become invalid, most likely removed.
+				 */
+				if (r != 0) {
+					if (needs_unbusy)
+						vfs_unbusy(new_mp);
+					goto invalid;
+				}
+				KASSERT(refp != NULL || nvp != NULL,
+				    ("%s: undetected lookup error", __func__));
+
+				if (refp == NULL &&
+				    ((nd->nd_flag & ND_NFSV3) ||
+				     NFSNONZERO_ATTRBIT(&attrbits))) {
 					r = nfsvno_getfh(nvp, &nfh, p);
 					if (!r)
 					    r = nfsvno_getattr(nvp, nvap, nd, p,
@@ -2446,17 +2461,25 @@ again:
 					    if (new_mp == mp)
 						new_mp = nvp->v_mount;
 					}
-				    }
-				} else {
-				    nvp = NULL;
 				}
-				if (r) {
+
+				/*
+				 * If we failed to get attributes of the entry,
+				 * then just skip it for NFSv3 (the traditional
+				 * behavior in the old NFS server).
+				 * For NFSv4 the behavior is controlled by
+				 * RDATTRERROR: we either ignore the error or
+				 * fail the request.
+				 * Note that RDATTRERROR is never set for NFSv3.
+				 */
+				if (r != 0) {
 					if (!NFSISSET_ATTRBIT(&attrbits,
 					    NFSATTRBIT_RDATTRERROR)) {
-						if (nvp != NULL)
-							vput(nvp);
+						vput(nvp);
 						if (needs_unbusy != 0)
 							vfs_unbusy(new_mp);
+						if ((nd->nd_flag & ND_NFSV3))
+							goto invalid;
 						nd->nd_repstat = r;
 						break;
 					}
@@ -2525,6 +2548,7 @@ again:
 			if (dirlen <= cnt)
 				entrycnt++;
 		}
+invalid:
 		cpos += dp->d_reclen;
 		dp = (struct dirent *)cpos;
 		cookiep++;
@@ -2675,10 +2699,12 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 	int attrsum = 0;
 	int i, j;
 	int error, attrsize, bitpos, aclsize, aceerr, retnotsup = 0;
-	int toclient = 0;
+	int moderet, toclient = 0;
 	u_char *cp, namestr[NFSV4_SMALLSTR + 1];
 	uid_t uid;
 	gid_t gid;
+	u_short mode, mask;		/* Same type as va_mode. */
+	struct vattr va;
 
 	error = nfsrv_getattrbits(nd, attrbitp, NULL, &retnotsup);
 	if (error)
@@ -2696,6 +2722,7 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 	} else {
 		bitpos = 0;
 	}
+	moderet = 0;
 	for (; bitpos < NFSATTRBIT_MAX; bitpos++) {
 	    if (attrsum > attrsize) {
 		error = NFSERR_BADXDR;
@@ -2745,6 +2772,7 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			attrsum += (NFSX_UNSIGNED + NFSM_RNDUP(i));
 			break;
 		case NFSATTRBIT_MODE:
+			moderet = NFSERR_INVAL;	/* Can't do MODESETMASKED. */
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 			nvap->na_mode = nfstov_mode(*tl);
 			attrsum += NFSX_UNSIGNED;
@@ -2847,6 +2875,32 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			    if (!toclient)
 				nvap->na_vaflags |= VA_UTIMES_NULL;
 			}
+			break;
+		case NFSATTRBIT_MODESETMASKED:
+			NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
+			mode = fxdr_unsigned(u_short, *tl++);
+			mask = fxdr_unsigned(u_short, *tl);
+			/*
+			 * vp == NULL implies an Open/Create operation.
+			 * This attribute can only be used for Setattr and
+			 * only for NFSv4.1 or higher.
+			 * If moderet != 0, a mode attribute has also been
+			 * specified and this attribute cannot be done in the
+			 * same Setattr operation.
+			 */
+			if ((nd->nd_flag & ND_NFSV41) == 0)
+				nd->nd_repstat = NFSERR_ATTRNOTSUPP;
+			else if ((mode & ~07777) != 0 || (mask & ~07777) != 0 ||
+			    vp == NULL)
+				nd->nd_repstat = NFSERR_INVAL;
+			else if (moderet == 0)
+				moderet = VOP_GETATTR(vp, &va, nd->nd_cred);
+			if (moderet == 0)
+				nvap->na_mode = (mode & mask) |
+				    (va.va_mode & ~mask);
+			else
+				nd->nd_repstat = moderet;
+			attrsum += 2 * NFSX_UNSIGNED;
 			break;
 		default:
 			nd->nd_repstat = NFSERR_ATTRNOTSUPP;
@@ -3594,8 +3648,7 @@ nfssvc_srvcall(struct thread *p, struct nfssvc_args *uap, struct ucred *cred)
 			error = EPERM;
 		if (!error) {
 		    len = sizeof (struct nfsd_dumpclients) * dumplist.ndl_size;
-		    dumpclients = (struct nfsd_dumpclients *)malloc(len,
-			M_TEMP, M_WAITOK);
+		    dumpclients = malloc(len, M_TEMP, M_WAITOK | M_ZERO);
 		    nfsrv_dumpclients(dumpclients, dumplist.ndl_size);
 		    error = copyout(dumpclients,
 			CAST_USER_ADDR_T(dumplist.ndl_list), len);
@@ -3613,8 +3666,7 @@ nfssvc_srvcall(struct thread *p, struct nfssvc_args *uap, struct ucred *cred)
 		if (!error) {
 			len = sizeof (struct nfsd_dumplocks) *
 				dumplocklist.ndllck_size;
-			dumplocks = (struct nfsd_dumplocks *)malloc(len,
-				M_TEMP, M_WAITOK);
+			dumplocks = malloc(len, M_TEMP, M_WAITOK | M_ZERO);
 			nfsrv_dumplocks(nd.ni_vp, dumplocks,
 			    dumplocklist.ndllck_size, p);
 			vput(nd.ni_vp);
@@ -3831,6 +3883,7 @@ nfsrv_dscreate(struct vnode *dvp, struct vattr *vap, struct vattr *nvap,
 					dsa->dsa_size = va.va_size;
 					dsa->dsa_atime = va.va_atime;
 					dsa->dsa_mtime = va.va_mtime;
+					dsa->dsa_bytes = va.va_bytes;
 				}
 			}
 			if (error == 0) {
@@ -4355,6 +4408,7 @@ nfsrv_proxyds(struct nfsrv_descript *nd, struct vnode *vp, off_t off, int cnt,
 	struct vnode *dvp[NFSDEV_MAXMIRRORS];
 	struct nfsdevice *ds;
 	struct pnfsdsattr dsattr;
+	struct opnfsdsattr odsattr;
 	char *buf;
 	int buflen, error, failpos, i, mirrorcnt, origmircnt, trycnt;
 
@@ -4379,15 +4433,31 @@ nfsrv_proxyds(struct nfsrv_descript *nd, struct vnode *vp, off_t off, int cnt,
 		error = vn_extattr_get(vp, IO_NODELOCKED,
 		    EXTATTR_NAMESPACE_SYSTEM, "pnfsd.dsattr", &buflen, buf,
 		    p);
-		if (error == 0 && buflen != sizeof(dsattr))
-			error = ENXIO;
 		if (error == 0) {
-			NFSBCOPY(buf, &dsattr, buflen);
-			nap->na_filerev = dsattr.dsa_filerev;
-			nap->na_size = dsattr.dsa_size;
-			nap->na_atime = dsattr.dsa_atime;
-			nap->na_mtime = dsattr.dsa_mtime;
-
+			if (buflen == sizeof(odsattr)) {
+				NFSBCOPY(buf, &odsattr, buflen);
+				nap->na_filerev = odsattr.dsa_filerev;
+				nap->na_size = odsattr.dsa_size;
+				nap->na_atime = odsattr.dsa_atime;
+				nap->na_mtime = odsattr.dsa_mtime;
+				/*
+				 * Fake na_bytes by rounding up na_size.
+				 * Since we don't know the block size, just
+				 * use BLKDEV_IOSIZE.
+				 */
+				nap->na_bytes = (odsattr.dsa_size +
+				    BLKDEV_IOSIZE - 1) & ~(BLKDEV_IOSIZE - 1);
+			} else if (buflen == sizeof(dsattr)) {
+				NFSBCOPY(buf, &dsattr, buflen);
+				nap->na_filerev = dsattr.dsa_filerev;
+				nap->na_size = dsattr.dsa_size;
+				nap->na_atime = dsattr.dsa_atime;
+				nap->na_mtime = dsattr.dsa_mtime;
+				nap->na_bytes = dsattr.dsa_bytes;
+			} else
+				error = ENXIO;
+		}
+		if (error == 0) {
 			/*
 			 * If nfsrv_pnfsgetdsattr is 0 or nfsrv_checkdsattr()
 			 * returns 0, just return now.  nfsrv_checkdsattr()
@@ -4759,6 +4829,7 @@ nfsrv_setextattr(struct vnode *vp, struct nfsvattr *nap, NFSPROC_T *p)
 	dsattr.dsa_size = nap->na_size;
 	dsattr.dsa_atime = nap->na_atime;
 	dsattr.dsa_mtime = nap->na_mtime;
+	dsattr.dsa_bytes = nap->na_bytes;
 	error = vn_extattr_set(vp, IO_NODELOCKED, EXTATTR_NAMESPACE_SYSTEM,
 	    "pnfsd.dsattr", sizeof(dsattr), (char *)&dsattr, p);
 	if (error != 0)
@@ -4934,12 +5005,13 @@ nfsrv_writedsdorpc(struct nfsmount *nmp, fhandle_t *fhp, off_t off, int len,
 	nd->nd_bpos = mtod(m, char *) + m->m_len;
 	NFSD_DEBUG(4, "nfsrv_writedsdorpc: lastmb len=%d\n", m->m_len);
 
-	/* Do a Getattr for Size, Change and Modify Time. */
+	/* Do a Getattr for the attributes that change upon writing. */
 	NFSZERO_ATTRBIT(&attrbits);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_SIZE);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_CHANGE);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEACCESS);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEMODIFY);
+	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_SPACEUSED);
 	NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
 	*tl = txdr_unsigned(NFSV4OP_GETATTR);
 	(void) nfsrv_putattrbit(nd, &attrbits);
@@ -5118,12 +5190,13 @@ nfsrv_setattrdsdorpc(fhandle_t *fhp, struct ucred *cred, NFSPROC_T *p,
 	nfsm_stateidtom(nd, &st, NFSSTATEID_PUTSTATEID);
 	nfscl_fillsattr(nd, &nap->na_vattr, vp, NFSSATTR_FULL, 0);
 
-	/* Do a Getattr for Size, Change, Access Time and Modify Time. */
+	/* Do a Getattr for the attributes that change due to writing. */
 	NFSZERO_ATTRBIT(&attrbits);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_SIZE);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_CHANGE);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEACCESS);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEMODIFY);
+	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_SPACEUSED);
 	NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
 	*tl = txdr_unsigned(NFSV4OP_GETATTR);
 	(void) nfsrv_putattrbit(nd, &attrbits);
@@ -5420,7 +5493,7 @@ nfsrv_setacldsrpc(fhandle_t *fhp, struct ucred *cred, NFSPROC_T *p,
 }
 
 /*
- * Getattr call to the DS for the Modify, Size and Change attributes.
+ * Getattr call to the DS for the attributes that change due to writing.
  */
 static int
 nfsrv_getattrdsrpc(fhandle_t *fhp, struct ucred *cred, NFSPROC_T *p,
@@ -5439,6 +5512,7 @@ nfsrv_getattrdsrpc(fhandle_t *fhp, struct ucred *cred, NFSPROC_T *p,
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_CHANGE);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEACCESS);
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEMODIFY);
+	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_SPACEUSED);
 	(void) nfsrv_putattrbit(nd, &attrbits);
 	error = newnfs_request(nd, nmp, NULL, &nmp->nm_sockreq, NULL, p, cred,
 	    NFS_PROG, NFS_VER4, NULL, 1, NULL, NULL);

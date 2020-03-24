@@ -331,6 +331,8 @@ static const struct ctl_page_index log_page_index_template[] = {
 	 CTL_PAGE_FLAG_ALL, NULL, NULL},
 	{SLS_SUPPORTED_PAGES_PAGE, SLS_SUPPORTED_SUBPAGES_SUBPAGE, 0, NULL,
 	 CTL_PAGE_FLAG_ALL, NULL, NULL},
+	{SLS_TEMPERATURE, 0, 0, NULL,
+	 CTL_PAGE_FLAG_DIRECT, ctl_temp_log_sense_handler, NULL},
 	{SLS_LOGICAL_BLOCK_PROVISIONING, 0, 0, NULL,
 	 CTL_PAGE_FLAG_DIRECT, ctl_lbp_log_sense_handler, NULL},
 	{SLS_STAT_AND_PERF, 0, 0, NULL,
@@ -351,6 +353,7 @@ struct ctl_log_pages {
 		struct scsi_log_idle_time it;
 		struct scsi_log_time_interval ti;
 	} stat_page;
+	struct scsi_log_temperature	temp_page[2];
 	struct scsi_log_informational_exceptions	ie_page;
 	struct ctl_page_index		index[CTL_NUM_LOG_PAGES];
 };
@@ -390,7 +393,6 @@ struct ctl_lun {
 	sbintime_t			last_busy;
 #endif
 	TAILQ_HEAD(ctl_ooaq, ctl_io_hdr)  ooa_queue;
-	TAILQ_HEAD(ctl_blockq,ctl_io_hdr) blocked_queue;
 	STAILQ_ENTRY(ctl_lun)		links;
 	struct scsi_sense_data		**pending_sense;
 	ctl_ua_type			**pending_ua;
@@ -403,9 +405,6 @@ struct ctl_lun {
 	struct callout			ie_callout;	/* INTERVAL TIMER */
 	struct ctl_mode_pages		mode_pages;
 	struct ctl_log_pages		log_pages;
-#ifdef CTL_LEGACY_STATS
-	struct ctl_lun_io_stats		legacy_stats;
-#endif /* CTL_LEGACY_STATS */
 	struct ctl_io_stats		stats;
 	uint32_t			res_idx;
 	uint32_t			pr_generation;

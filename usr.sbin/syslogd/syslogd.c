@@ -1609,6 +1609,7 @@ iovlist_append(struct iovlist *il, const char *str)
 	}
 }
 
+#if defined(INET) || defined(INET6)
 static void
 iovlist_truncate(struct iovlist *il, size_t size)
 {
@@ -1629,6 +1630,7 @@ iovlist_truncate(struct iovlist *il, size_t size)
 		}
 	}
 }
+#endif
 
 static void
 fprintlog_write(struct filed *f, struct iovlist *il, int flags)
@@ -2947,7 +2949,11 @@ timedout(int sig __unused)
  * Returns -1 on error, 0 if the argument was valid.
  */
 static int
+#if defined(INET) || defined(INET6)
 allowaddr(char *s)
+#else
+allowaddr(char *s __unused)
+#endif
 {
 #if defined(INET) || defined(INET6)
 	char *cp1, *cp2;
@@ -3109,13 +3115,13 @@ allowaddr(char *s)
 		}
 		printf("port = %d\n", ap->port);
 	}
-#endif
 
 	return (0);
 err:
 	if (res != NULL)
 		freeaddrinfo(res);
 	free(ap);
+#endif
 	return (-1);
 }
 
@@ -3202,8 +3208,8 @@ validate(struct sockaddr *sa, const char *hname)
 					dprintf("rejected in rule %d due to scope mismatch.\n", i);
 					continue;
 				}
-				if (IN6_ARE_MASKED_ADDR_EQUAL(&sin6->sin6_addr,
-				    &a6p->sin6_addr, &m6p->sin6_addr) != 0) {
+				if (!IN6_ARE_MASKED_ADDR_EQUAL(&sin6->sin6_addr,
+				    &a6p->sin6_addr, &m6p->sin6_addr)) {
 					dprintf("rejected in rule %d due to IP mismatch.\n", i);
 					continue;
 				}

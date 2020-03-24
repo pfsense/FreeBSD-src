@@ -79,7 +79,7 @@ de_vncmpf(struct vnode *vp, void *arg)
 
 	a = arg;
 	de = VTODE(vp);
-	return (de->de_inode != *a);
+	return (de->de_inode != *a) || (de->de_refcnt <= 0);
 }
 
 /*
@@ -124,8 +124,9 @@ deget(struct msdosfsmount *pmp, u_long dirclust, u_long diroffset,
 	 * address of "." entry. For root dir (if not FAT32) use cluster
 	 * MSDOSFSROOT, offset MSDOSFSROOT_OFS
 	 *
-	 * NOTE: The check for de_refcnt > 0 below insures the denode being
-	 * examined does not represent an unlinked but still open file.
+	 * NOTE: de_vncmpf will explicitly skip any denodes that do not have
+	 * a de_refcnt > 0.  This insures that that we do not attempt to use
+	 * a denode that represents an unlinked but still open file.
 	 * These files are not to be accessible even when the directory
 	 * entry that represented the file happens to be reused while the
 	 * deleted file is still open.
@@ -405,19 +406,21 @@ detrunc(struct denode *dep, u_long length, int flags, struct ucred *cred)
 			bn = cntobn(pmp, eofentry);
 			error = bread(pmp->pm_devvp, bn, pmp->pm_bpcluster,
 			    NOCRED, &bp);
-			if (error) {
-				brelse(bp);
-#ifdef MSDOSFS_DEBUG
-				printf("detrunc(): bread fails %d\n", error);
-#endif
-				return (error);
-			}
-			memset(bp->b_data + boff, 0, pmp->pm_bpcluster - boff);
-			if (flags & IO_SYNC)
-				bwrite(bp);
-			else
-				bdwrite(bp);
+		} else {
+			error = bread(DETOV(dep), de_cluster(pmp, length),
+			    pmp->pm_bpcluster, cred, &bp);
 		}
+		if (error) {
+#ifdef MSDOSFS_DEBUG
+			printf("detrunc(): bread fails %d\n", error);
+#endif
+			return (error);
+		}
+		memset(bp->b_data + boff, 0, pmp->pm_bpcluster - boff);
+		if ((flags & IO_SYNC) != 0)
+			bwrite(bp);
+		else
+			bdwrite(bp);
 	}
 
 	/*
@@ -427,7 +430,7 @@ detrunc(struct denode *dep, u_long length, int flags, struct ucred *cred)
 	dep->de_FileSize = length;
 	if (!isadir)
 		dep->de_flag |= DE_UPDATE | DE_MODIFIED;
-	allerror = vtruncbuf(DETOV(dep), cred, length, pmp->pm_bpcluster);
+	allerror = vtruncbuf(DETOV(dep), length, pmp->pm_bpcluster);
 #ifdef MSDOSFS_DEBUG
 	if (allerror)
 		printf("detrunc(): vtruncbuf error %d\n", allerror);

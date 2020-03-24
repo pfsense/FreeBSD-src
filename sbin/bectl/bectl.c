@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2017 Kyle J. Kneitinger <kyle@kneit.in>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include "bectl.h"
 
 static int bectl_cmd_activate(int argc, char *argv[]);
+static int bectl_cmd_check(int argc, char *argv[]);
 static int bectl_cmd_create(int argc, char *argv[]);
 static int bectl_cmd_destroy(int argc, char *argv[]);
 static int bectl_cmd_export(int argc, char *argv[]);
@@ -67,11 +67,12 @@ usage(bool explicit)
 
 	fp =  explicit ? stdout : stderr;
 	fprintf(fp, "%s",
-	    "usage:\tbectl {-h | -? | subcommand [args...]}\n"
+	    "Usage:\tbectl {-h | -? | subcommand [args...]}\n"
 #if SOON
 	    "\tbectl add (path)*\n"
 #endif
 	    "\tbectl activate [-t] beName\n"
+	    "\tbectl check\n"
 	    "\tbectl create [-r] [-e {nonActiveBe | beName@snapshot}] beName\n"
 	    "\tbectl create [-r] beName@snapshot\n"
 	    "\tbectl destroy [-F] {beName | beName@snapshot}\n"
@@ -80,7 +81,7 @@ usage(bool explicit)
 	    "\tbectl jail {-b | -U} [{-o key=value | -u key}]... "
 	    "{jailID | jailName}\n"
 	    "\t      bootenv [utility [argument ...]]\n"
-	    "\tbectl list [-DHas]\n"
+	    "\tbectl list [-DHas] [{-c property | -C property}]\n"
 	    "\tbectl mount beName [mountpoint]\n"
 	    "\tbectl rename origBeName newBeName\n"
 	    "\tbectl {ujail | unjail} {jailID | jailName} bootenv\n"
@@ -97,40 +98,40 @@ usage(bool explicit)
 struct command_map_entry {
 	const char *command;
 	int (*fn)(int argc, char *argv[]);
+	/* True if libbe_print_on_error should be disabled */
+	bool silent;
 };
 
 static struct command_map_entry command_map[] =
 {
-	{ "activate", bectl_cmd_activate },
-	{ "create",   bectl_cmd_create   },
-	{ "destroy",  bectl_cmd_destroy  },
-	{ "export",   bectl_cmd_export   },
-	{ "import",   bectl_cmd_import   },
+	{ "activate", bectl_cmd_activate,false   },
+	{ "create",   bectl_cmd_create,  false   },
+	{ "destroy",  bectl_cmd_destroy, false   },
+	{ "export",   bectl_cmd_export,  false   },
+	{ "import",   bectl_cmd_import,  false   },
 #if SOON
-	{ "add",      bectl_cmd_add      },
+	{ "add",      bectl_cmd_add,     false   },
 #endif
-	{ "jail",     bectl_cmd_jail     },
-	{ "list",     bectl_cmd_list     },
-	{ "mount",    bectl_cmd_mount    },
-	{ "rename",   bectl_cmd_rename   },
-	{ "unjail",   bectl_cmd_unjail   },
-	{ "unmount",  bectl_cmd_unmount  },
+	{ "jail",     bectl_cmd_jail,    false   },
+	{ "list",     bectl_cmd_list,    false   },
+	{ "mount",    bectl_cmd_mount,   false   },
+	{ "rename",   bectl_cmd_rename,  false   },
+	{ "unjail",   bectl_cmd_unjail,  false   },
+	{ "unmount",  bectl_cmd_unmount, false   },
+	{ "check",    bectl_cmd_check,   true    },
 };
 
-static int
-get_cmd_index(const char *cmd, int *idx)
+static struct command_map_entry *
+get_cmd_info(const char *cmd)
 {
-	int map_size;
+	size_t i;
 
-	map_size = nitems(command_map);
-	for (int i = 0; i < map_size; ++i) {
-		if (strcmp(cmd, command_map[i].command) == 0) {
-			*idx = i;
-			return (0);
-		}
+	for (i = 0; i < nitems(command_map); ++i) {
+		if (strcmp(cmd, command_map[i].command) == 0)
+			return (&command_map[i]);
 	}
 
-	return (1);
+	return (NULL);
 }
 
 
@@ -165,10 +166,10 @@ bectl_cmd_activate(int argc, char *argv[])
 	/* activate logic goes here */
 	if ((err = be_activate(be, argv[0], temp)) != 0)
 		/* XXX TODO: more specific error msg based on err */
-		printf("did not successfully activate boot environment %s\n",
+		printf("Did not successfully activate boot environment %s\n",
 		    argv[0]);
 	else
-		printf("successfully activated boot environment %s\n", argv[0]);
+		printf("Successfully activated boot environment %s\n", argv[0]);
 
 	if (temp)
 		printf("for next boot\n");
@@ -184,7 +185,8 @@ bectl_cmd_activate(int argc, char *argv[])
 static int
 bectl_cmd_create(int argc, char *argv[])
 {
-	char *atpos, *bootenv, *snapname, *source;
+	char snapshot[BE_MAXPATHLEN];
+	char *atpos, *bootenv, *snapname;
 	int err, opt;
 	bool recursive;
 
@@ -214,6 +216,8 @@ bectl_cmd_create(int argc, char *argv[])
 	}
 
 	bootenv = *argv;
+
+	err = BE_ERR_SUCCESS;
 	if ((atpos = strchr(bootenv, '@')) != NULL) {
 		/*
 		 * This is the "create a snapshot variant". No new boot
@@ -221,24 +225,22 @@ bectl_cmd_create(int argc, char *argv[])
 		 */
 		*atpos++ = '\0';
 		err = be_snapshot(be, bootenv, atpos, recursive, NULL);
-	} else if (snapname != NULL) {
-		if (strchr(snapname, '@') != NULL)
-			err = be_create_from_existing_snap(be, bootenv,
-			    snapname);
-		else
-			err = be_create_from_existing(be, bootenv, snapname);
 	} else {
-		if ((snapname = strchr(bootenv, '@')) != NULL) {
-			*(snapname++) = '\0';
-			if ((err = be_snapshot(be, be_active_path(be),
-			    snapname, true, NULL)) != BE_ERR_SUCCESS)
-				fprintf(stderr, "failed to create snapshot\n");
-			asprintf(&source, "%s@%s", be_active_path(be), snapname);
-			err = be_create_from_existing_snap(be, bootenv,
-			    source);
-			return (err);
-		} else
-			err = be_create(be, bootenv);
+		if (snapname == NULL)
+			/* Create from currently booted BE */
+			err = be_snapshot(be, be_active_path(be), NULL,
+			    recursive, snapshot);
+		else if (strchr(snapname, '@') != NULL)
+			/* Create from given snapshot */
+			strlcpy(snapshot, snapname, sizeof(snapshot));
+		else
+			/* Create from given BE */
+			err = be_snapshot(be, snapname, NULL, recursive,
+			    snapshot);
+
+		if (err == BE_ERR_SUCCESS)
+			err = be_create_depth(be, bootenv, snapshot,
+					      recursive == true ? -1 : 0);
 	}
 
 	switch (err) {
@@ -247,14 +249,14 @@ bectl_cmd_create(int argc, char *argv[])
 	default:
 		if (atpos != NULL)
 			fprintf(stderr,
-			    "failed to create a snapshot '%s' of '%s'\n",
+			    "Failed to create a snapshot '%s' of '%s'\n",
 			    atpos, bootenv);
 		else if (snapname == NULL)
 			fprintf(stderr,
-			    "failed to create bootenv %s\n", bootenv);
+			    "Failed to create bootenv %s\n", bootenv);
 		else
 			fprintf(stderr,
-			    "failed to create bootenv %s from snapshot %s\n",
+			    "Failed to create bootenv %s from snapshot %s\n",
 			    bootenv, snapname);
 	}
 
@@ -341,15 +343,18 @@ bectl_cmd_add(int argc, char *argv[])
 static int
 bectl_cmd_destroy(int argc, char *argv[])
 {
-	char *target;
-	int opt, err;
-	bool force;
+	nvlist_t *props;
+	char *origin, *target, targetds[BE_MAXPATHLEN];
+	int err, flags, opt;
 
-	force = false;
-	while ((opt = getopt(argc, argv, "F")) != -1) {
+	flags = 0;
+	while ((opt = getopt(argc, argv, "Fo")) != -1) {
 		switch (opt) {
 		case 'F':
-			force = true;
+			flags |= BE_DESTROY_FORCE;
+			break;
+		case 'o':
+			flags |= BE_DESTROY_ORIGIN;
 			break;
 		default:
 			fprintf(stderr, "bectl destroy: unknown option '-%c'\n",
@@ -368,7 +373,26 @@ bectl_cmd_destroy(int argc, char *argv[])
 
 	target = argv[0];
 
-	err = be_destroy(be, target, force);
+	/* We'll emit a notice if there's an origin to be cleaned up */
+	if ((flags & BE_DESTROY_ORIGIN) == 0 && strchr(target, '@') == NULL) {
+		flags |= BE_DESTROY_AUTOORIGIN;
+		if (be_root_concat(be, target, targetds) != 0)
+			goto destroy;
+		if (be_prop_list_alloc(&props) != 0)
+			goto destroy;
+		if (be_get_dataset_props(be, targetds, props) != 0) {
+			be_prop_list_free(props);
+			goto destroy;
+		}
+		if (nvlist_lookup_string(props, "origin", &origin) == 0 &&
+		    !be_is_auto_snapshot_name(be, origin))
+			fprintf(stderr, "bectl destroy: leaving origin '%s' intact\n",
+			    origin);
+		be_prop_list_free(props);
+	}
+
+destroy:
+	err = be_destroy(be, target, flags);
 
 	return (err);
 }
@@ -378,8 +402,10 @@ bectl_cmd_mount(int argc, char *argv[])
 {
 	char result_loc[BE_MAXPATHLEN];
 	char *bootenv, *mountpoint;
-	int err;
+	int err, mntflags;
 
+	/* XXX TODO: Allow shallow */
+	mntflags = BE_MNT_DEEP;
 	if (argc < 2) {
 		fprintf(stderr, "bectl mount: missing argument(s)\n");
 		return (usage(false));
@@ -393,16 +419,16 @@ bectl_cmd_mount(int argc, char *argv[])
 	bootenv = argv[1];
 	mountpoint = ((argc == 3) ? argv[2] : NULL);
 
-	err = be_mount(be, bootenv, mountpoint, 0, result_loc);
+	err = be_mount(be, bootenv, mountpoint, mntflags, result_loc);
 
 	switch (err) {
 	case BE_ERR_SUCCESS:
-		printf("successfully mounted %s at %s\n", bootenv, result_loc);
+		printf("Successfully mounted %s at %s\n", bootenv, result_loc);
 		break;
 	default:
 		fprintf(stderr,
-		    (argc == 3) ? "failed to mount bootenv %s at %s\n" :
-		    "failed to mount bootenv %s at temporary path %s\n",
+		    (argc == 3) ? "Failed to mount bootenv %s at %s\n" :
+		    "Failed to mount bootenv %s at temporary path %s\n",
 		    bootenv, mountpoint);
 	}
 
@@ -435,7 +461,7 @@ bectl_cmd_rename(int argc, char *argv[])
 	case BE_ERR_SUCCESS:
 		break;
 	default:
-		fprintf(stderr, "failed to rename bootenv %s to %s\n",
+		fprintf(stderr, "Failed to rename bootenv %s to %s\n",
 		    src, dest);
 	}
 
@@ -480,20 +506,34 @@ bectl_cmd_unmount(int argc, char *argv[])
 	case BE_ERR_SUCCESS:
 		break;
 	default:
-		fprintf(stderr, "failed to unmount bootenv %s\n", bootenv);
+		fprintf(stderr, "Failed to unmount bootenv %s\n", bootenv);
 	}
 
 	return (err);
 }
 
+static int
+bectl_cmd_check(int argc, char *argv[] __unused)
+{
+
+	/* The command is left as argv[0] */
+	if (argc != 1) {
+		fprintf(stderr, "bectl check: wrong number of arguments\n");
+		return (usage(false));
+	}
+
+	return (0);
+}
 
 int
 main(int argc, char *argv[])
 {
+	struct command_map_entry *cmd;
 	const char *command;
 	char *root;
-	int command_index, rc;
+	int rc;
 
+	cmd = NULL;
 	root = NULL;
 	if (argc < 2)
 		return (usage(false));
@@ -521,18 +561,17 @@ main(int argc, char *argv[])
 	if ((strcmp(command, "-?") == 0) || (strcmp(command, "-h") == 0))
 		return (usage(true));
 
-	if (get_cmd_index(command, &command_index)) {
-		fprintf(stderr, "unknown command: %s\n", command);
+	if ((cmd = get_cmd_info(command)) == NULL) {
+		fprintf(stderr, "Unknown command: %s\n", command);
 		return (usage(false));
 	}
-
 
 	if ((be = libbe_init(root)) == NULL)
 		return (-1);
 
-	libbe_print_on_error(be, true);
+	libbe_print_on_error(be, !cmd->silent);
 
-	rc = command_map[command_index].fn(argc, argv);
+	rc = cmd->fn(argc, argv);
 
 	libbe_close(be);
 	return (rc);

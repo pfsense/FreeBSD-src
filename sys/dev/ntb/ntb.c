@@ -205,6 +205,13 @@ ntb_print_child(device_t dev, device_t child)
 	return (retval);
 }
 
+bus_dma_tag_t
+ntb_get_dma_tag(device_t bus, device_t child)
+{
+
+	return (bus_get_dma_tag(bus));
+}
+
 void
 ntb_link_event(device_t dev)
 {
@@ -241,6 +248,30 @@ ntb_db_event(device_t dev, uint32_t vec)
 			nc->ctx_ops->db_event(nc->ctx, vec);
 		rm_runlock(&nc->ctx_lock, &ctx_tracker);
 	}
+}
+
+int
+ntb_port_number(device_t ntb)
+{
+	return (NTB_PORT_NUMBER(device_get_parent(ntb)));
+}
+
+int
+ntb_peer_port_count(device_t ntb)
+{
+	return (NTB_PEER_PORT_COUNT(device_get_parent(ntb)));
+}
+
+int
+ntb_peer_port_number(device_t ntb, int pidx)
+{
+	return (NTB_PEER_PORT_NUMBER(device_get_parent(ntb), pidx));
+}
+
+int
+ntb_peer_port_idx(device_t ntb, int port)
+{
+	return (NTB_PEER_PORT_IDX(device_get_parent(ntb), port));
 }
 
 bool

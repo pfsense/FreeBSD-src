@@ -4,9 +4,10 @@
 
 PROG_CXX=	clang
 
-SRCDIR=		tools/clang/tools/driver
+SRCDIR=		clang/tools/driver
 SRCS+=		cc1_main.cpp
 SRCS+=		cc1as_main.cpp
+SRCS+=		cc1gen_reproducer_main.cpp
 SRCS+=		driver.cpp
 
 .if ${MK_SHARED_TOOLCHAIN} == "no"

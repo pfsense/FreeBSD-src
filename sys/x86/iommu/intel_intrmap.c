@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 #include <x86/include/busdma_impl.h>
 #include <x86/iommu/intel_reg.h>
 #include <x86/iommu/busdma_dmar.h>
+#include <dev/pci/pcireg.h>
 #include <x86/iommu/intel_dmar.h>
 #include <dev/pci/pcivar.h>
 #include <x86/iommu/iommu_intrmap.h>
@@ -251,7 +252,7 @@ dmar_ir_find(device_t src, uint16_t *rid, int *is_dmar)
 	} else if (src_class == devclass_find("hpet")) {
 		unit = dmar_find_hpet(src, rid);
 	} else {
-		unit = dmar_find(src);
+		unit = dmar_find(src, bootverbose);
 		if (unit != NULL && rid != NULL)
 			dmar_get_requester(src, rid);
 	}
@@ -270,9 +271,11 @@ dmar_ir_program_irte(struct dmar_unit *unit, u_int idx, uint64_t low,
 	irte = &(unit->irt[idx]);
 	high = DMAR_IRTE2_SVT_RID | DMAR_IRTE2_SQ_RID |
 	    DMAR_IRTE2_SID_RID(rid);
-	device_printf(unit->dev,
-	    "programming irte[%d] rid %#x high %#jx low %#jx\n",
-	    idx, rid, (uintmax_t)high, (uintmax_t)low);
+	if (bootverbose) {
+		device_printf(unit->dev,
+		    "programming irte[%d] rid %#x high %#jx low %#jx\n",
+		    idx, rid, (uintmax_t)high, (uintmax_t)low);
+	}
 	DMAR_LOCK(unit);
 	if ((irte->irte1 & DMAR_IRTE1_P) != 0) {
 		/*

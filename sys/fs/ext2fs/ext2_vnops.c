@@ -51,6 +51,8 @@
 #include <sys/kernel.h>
 #include <sys/fcntl.h>
 #include <sys/filio.h>
+#include <sys/limits.h>
+#include <sys/sdt.h>
 #include <sys/stat.h>
 #include <sys/bio.h>
 #include <sys/buf.h>
@@ -91,6 +93,14 @@
 #include <fs/ext2fs/ext2_mount.h>
 #include <fs/ext2fs/ext2_extattr.h>
 #include <fs/ext2fs/ext2_extents.h>
+
+SDT_PROVIDER_DECLARE(ext2fs);
+/*
+ * ext2fs trace probe:
+ * arg0: verbosity. Higher numbers give more verbose messages
+ * arg1: Textual message
+ */
+SDT_PROBE_DEFINE2(ext2fs, , vnops, trace, "int", "char*");
 
 static int ext2_makeinode(int mode, struct vnode *, struct vnode **, struct componentname *);
 static void ext2_itimes_locked(struct vnode *);
@@ -813,7 +823,8 @@ abortit:
 	 * not call us in that case.  Temporarily just warn if they do.
 	 */
 	if (fvp == tvp) {
-		printf("ext2_rename: fvp == tvp (can't happen)\n");
+		SDT_PROBE2(ext2fs, , vnops, trace, 1,
+		    "rename: fvp == tvp (can't happen)");
 		error = 0;
 		goto abortit;
 	}
@@ -1920,6 +1931,11 @@ ext2_vinit(struct mount *mntp, struct vop_vector *fifoops, struct vnode **vpp)
 	vp = *vpp;
 	ip = VTOI(vp);
 	vp->v_type = IFTOVT(ip->i_mode);
+	/*
+	 * Only unallocated inodes should be of type VNON.
+	 */
+	if (ip->i_mode != 0 && vp->v_type == VNON)
+		return (EINVAL);
 	if (vp->v_type == VFIFO)
 		vp->v_op = fifoops;
 

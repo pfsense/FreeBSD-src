@@ -104,6 +104,29 @@ sfence_vma_page(uintptr_t addr)
 	__asm __volatile("sfence.vma %0" :: "r" (addr) : "memory");
 }
 
+#define	rdcycle()			csr_read64(cycle)
+#define	rdtime()			csr_read64(time)
+#define	rdinstret()			csr_read64(instret)
+#define	rdhpmcounter(n)			csr_read64(hpmcounter##n)
+
+extern int64_t dcache_line_size;
+extern int64_t icache_line_size;
+
+#define	cpu_dcache_wbinv_range(a, s)
+#define	cpu_dcache_inv_range(a, s)
+#define	cpu_dcache_wb_range(a, s)
+
+#define	cpu_idcache_wbinv_range(a, s)
+#define	cpu_icache_sync_range(a, s)
+#define	cpu_icache_sync_range_checked(a, s)
+
+static __inline void
+load_satp(uint64_t val)
+{
+
+	__asm __volatile("csrw satp, %0" :: "r"(val));
+}
+
 #define	cpufunc_nullop()		riscv_nullop()
 
 void riscv_nullop(void);

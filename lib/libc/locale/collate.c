@@ -84,7 +84,8 @@ destruct_collate(void *t)
 void *
 __collate_load(const char *encoding, __unused locale_t unused)
 {
-	if (strcmp(encoding, "C") == 0 || strcmp(encoding, "POSIX") == 0) {
+	if (strcmp(encoding, "C") == 0 || strcmp(encoding, "POSIX") == 0 ||
+	    strncmp(encoding, "C.", 2) == 0) {
 		return &__xlocale_C_collate;
 	}
 	struct xlocale_collate *table = calloc(sizeof(struct xlocale_collate), 1);
@@ -108,7 +109,7 @@ __collate_load_tables(const char *encoding)
 	return (__collate_load_tables_l(encoding, &__xlocale_global_collate));
 }
 
-int
+static int
 __collate_load_tables_l(const char *encoding, struct xlocale_collate *table)
 {
 	int i, chains, z;
@@ -122,7 +123,8 @@ __collate_load_tables_l(const char *encoding, struct xlocale_collate *table)
 	table->__collate_load_error = 1;
 
 	/* 'encoding' must be already checked. */
-	if (strcmp(encoding, "C") == 0 || strcmp(encoding, "POSIX") == 0) {
+	if (strcmp(encoding, "C") == 0 || strcmp(encoding, "POSIX") == 0 ||
+	    strncmp(encoding, "C.", 2) == 0) {
 		return (_LDP_CACHE);
 	}
 
@@ -145,7 +147,7 @@ __collate_load_tables_l(const char *encoding, struct xlocale_collate *table)
 	}
 	map = mmap(NULL, sbuf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	(void) _close(fd);
-	if ((TMP = map) == NULL) {
+	if ((TMP = map) == MAP_FAILED) {
 		return (_LDP_ERROR);
 	}
 
@@ -179,6 +181,11 @@ __collate_load_tables_l(const char *encoding, struct xlocale_collate *table)
 		return (_LDP_ERROR);
 	}
 
+	if (table->map && (table->maplen > 0)) {
+		(void) munmap(table->map, table->maplen);
+	}
+	table->map = map;
+	table->maplen = sbuf.st_size;
 	table->info = info;
 	table->char_pri_table = (void *)TMP;
 	TMP += sizeof (collate_char_t) * (UCHAR_MAX + 1);

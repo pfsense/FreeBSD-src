@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2001-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -79,7 +79,7 @@
  * systems that require something different.
  *
  * Note: we do not use SGTTY unless it's defined by the configuration.  We
- * may eventually opt to remove it's use entirely.
+ * may eventually opt to remove its use entirely.
  */
 
 # if !defined(TERMIOS) && !defined(TERMIO) && !defined(SGTTY)
@@ -99,6 +99,12 @@
 #   undef  SGTTY
 #  endif
 
+# endif
+
+# if defined(OPENSSL_SYS_VXWORKS)
+#  undef TERMIOS
+#  undef TERMIO
+#  undef SGTTY
 # endif
 
 # ifdef TERMIOS

@@ -1,10 +1,10 @@
 /* $FreeBSD$ */
 /*===------- llvm/Config/llvm-config.h - llvm configuration -------*- C -*-===*/
 /*                                                                            */
-/*                     The LLVM Compiler Infrastructure                       */
-/*                                                                            */
-/* This file is distributed under the University of Illinois Open Source      */
-/* License. See LICENSE.TXT for details.                                      */
+/* Part of the LLVM Project, under the Apache License v2.0 with LLVM          */
+/* Exceptions.                                                                */
+/* See https://llvm.org/LICENSE.txt for license information.                  */
+/* SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception                    */
 /*                                                                            */
 /*===----------------------------------------------------------------------===*/
 
@@ -57,17 +57,17 @@
 /* Define if this is Unixish platform */
 #define LLVM_ON_UNIX 1
 
-/* Define if this is Win32ish platform */
-/* #undef LLVM_ON_WIN32 */
-
 /* Define if we have the Intel JIT API runtime support library */
 #define LLVM_USE_INTEL_JITEVENTS 0
 
 /* Define if we have the oprofile JIT-support library */
 #define LLVM_USE_OPROFILE 0
 
+/* Define if we have the perf JIT-support library */
+#define LLVM_USE_PERF 0
+
 /* Major version of the LLVM API */
-#define LLVM_VERSION_MAJOR 6
+#define LLVM_VERSION_MAJOR 9
 
 /* Minor version of the LLVM API */
 #define LLVM_VERSION_MINOR 0
@@ -76,6 +76,11 @@
 #define LLVM_VERSION_PATCH 1
 
 /* LLVM version string */
-#define LLVM_VERSION_STRING "6.0.1"
+#define LLVM_VERSION_STRING "9.0.1"
+
+/* Whether LLVM records statistics for use with GetStatistics(),
+ * PrintStatistics() or PrintStatisticsJSON()
+ */
+#define LLVM_FORCE_ENABLE_STATS 0
 
 #endif

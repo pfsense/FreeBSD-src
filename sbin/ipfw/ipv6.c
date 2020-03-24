@@ -143,6 +143,7 @@ fill_icmp6types(ipfw_insn_icmp6 *cmd, char *av, int cblen)
        uint8_t type;
 
        CHECK_LENGTH(cblen, F_INSN_SIZE(ipfw_insn_icmp6));
+       memset(cmd, 0, sizeof(*cmd));
        while (*av) {
 	       if (*av == ',')
 		       av++;
@@ -401,7 +402,7 @@ fill_ip6(ipfw_insn_ip6 *cmd, char *av, int cblen, struct tidx *tstate)
 				n2mask(&d[1], masklen);
 		}
 
-		APPLY_MASK(d, &d[1])   /* mask base address with mask */
+		APPLY_MASK(d, &d[1]);   /* mask base address with mask */
 
 		av = q;
 

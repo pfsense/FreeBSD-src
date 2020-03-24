@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2001-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -36,7 +36,21 @@ NON_EMPTY_TRANSLATION_UNIT
 # include <openssl/x509v3.h>
 # include <openssl/rand.h>
 
-# if defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_NO_SOCK) \
+#ifndef HAVE_FORK
+# if defined(OPENSSL_SYS_VMS) || defined(OPENSSL_SYS_WINDOWS)
+#  define HAVE_FORK 0
+# else
+#  define HAVE_FORK 1
+# endif
+#endif
+
+#if HAVE_FORK
+# undef NO_FORK
+#else
+# define NO_FORK
+#endif
+
+# if !defined(NO_FORK) && !defined(OPENSSL_NO_SOCK) \
      && !defined(OPENSSL_NO_POSIX_IO)
 #  define OCSP_DAEMON
 #  include <sys/types.h>
@@ -53,6 +67,20 @@ NON_EMPTY_TRANSLATION_UNIT
 #  define LOG_ERR       2
 # endif
 
+# if defined(OPENSSL_SYS_VXWORKS)
+/* not supported */
+int setpgid(pid_t pid, pid_t pgid)
+{
+    errno = ENOSYS;
+    return 0;
+}
+/* not supported */
+pid_t fork(void)
+{
+    errno = ENOSYS;
+    return (pid_t) -1;
+}
+# endif
 /* Maximum leeway in validity period: default 5 minutes */
 # define MAX_VALIDITY_PERIOD    (5 * 60)
 
@@ -613,8 +641,10 @@ redo_accept:
         goto end;
     }
 
-    if (req != NULL && add_nonce)
-        OCSP_request_add1_nonce(req, NULL, -1);
+    if (req != NULL && add_nonce) {
+        if (!OCSP_request_add1_nonce(req, NULL, -1))
+            goto end;
+    }
 
     if (signfile != NULL) {
         if (keyfile == NULL)
@@ -863,6 +893,7 @@ static void killall(int ret, pid_t *kidpids)
     for (i = 0; i < multi; ++i)
         if (kidpids[i] != 0)
             (void)kill(kidpids[i], SIGTERM);
+    OPENSSL_free(kidpids);
     sleep(1);
     exit(ret);
 }
@@ -1217,7 +1248,10 @@ static void make_ocsp_response(BIO *err, OCSP_RESPONSE **resp, OCSP_REQUEST *req
             goto end;
         }
     }
-    OCSP_basic_sign_ctx(bs, rcert, mctx, rother, flags);
+    if (!OCSP_basic_sign_ctx(bs, rcert, mctx, rother, flags)) {
+        *resp = OCSP_response_create(OCSP_RESPONSE_STATUS_INTERNALERROR, bs);
+        goto end;
+    }
 
     if (badsig) {
         const ASN1_OCTET_STRING *sig = OCSP_resp_get0_signature(bs);
@@ -1383,9 +1417,11 @@ static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
         *q = '\0';
 
         /*
-         * Skip "GET / HTTP..." requests often used by load-balancers
+         * Skip "GET / HTTP..." requests often used by load-balancers.  Note:
+         * 'p' was incremented above to point to the first byte *after* the
+         * leading slash, so with 'GET / ' it is now an empty string.
          */
-        if (p[1] == '\0')
+        if (p[0] == '\0')
             goto out;
 
         len = urldecode(p);

@@ -1,6 +1,6 @@
 # $FreeBSD$
 
-HAVE_ZFS=		${MK_ZFS}
+HAVE_ZFS=		${MK_LOADER_ZFS}
 
 LOADER_NET_SUPPORT?=	yes
 LOADER_NFS_SUPPORT?=	yes
@@ -47,7 +47,7 @@ HELP_FILES=	${.CURDIR}/help.i386
 CLEANFILES+=	${LOADER} ${LOADER}.bin
 
 CFLAGS+=	-Wall
-LDFLAGS+=	-static -Ttext 0x0
+LDFLAGS+=	-static -Ttext 0x0 -Wl,--gc-sections
 
 # i386 standalone support library
 LIBI386=	${BOOTOBJ}/i386/libi386/libi386.a
@@ -64,7 +64,7 @@ ${LOADER}: ${LOADER}.bin ${BTXLDR} ${BTXKERN}
 ${LOADER}.bin: ${LOADER}.sym
 	strip -R .comment -R .note -o ${.TARGET} ${.ALLSRC}
 
-.if ${MK_ZFS} == "yes" && ${LOADER_INTERP} == ${LOADER_DEFAULT_INTERP}
+.if ${MK_LOADER_ZFS} == "yes" && ${LOADER_INTERP} == ${LOADER_DEFAULT_INTERP}
 LINKS+=		${BINDIR}/${LOADER} ${BINDIR}/zfsloader
 .endif
 .if ${LOADER_INTERP} == ${LOADER_DEFAULT_INTERP}

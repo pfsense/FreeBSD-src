@@ -35,6 +35,8 @@
 
 #include <asm/atomic.h>
 
+typedef int vm_fault_t;
+
 struct vm_area_struct;
 struct task_struct;
 
@@ -53,6 +55,12 @@ mmdrop(struct mm_struct *mm)
 {
 	if (__predict_false(atomic_dec_and_test(&mm->mm_count)))
 		linux_mm_dtor(mm);
+}
+
+static inline bool
+mmget_not_zero(struct mm_struct *mm)
+{
+	return (atomic_inc_not_zero(&mm->mm_users));
 }
 
 static inline void

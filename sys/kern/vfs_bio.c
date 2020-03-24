@@ -148,7 +148,7 @@ struct bufdomain {
 
 static struct buf *buf;		/* buffer header pool */
 extern struct buf *swbuf;	/* Swap buffer header pool. */
-caddr_t unmapped_buf;
+caddr_t __read_mostly unmapped_buf;
 
 /* Used below and for softdep flushing threads in ufs/ffs/ffs_softdep.c */
 struct proc *bufdaemonproc;
@@ -1656,7 +1656,7 @@ buf_alloc(struct bufdomain *bd)
 	if (freebufs > 0)
 		bp = uma_zalloc(buf_zone, M_NOWAIT);
 	if (bp == NULL) {
-		atomic_fetchadd_int(&bd->bd_freebuffers, 1);
+		atomic_add_int(&bd->bd_freebuffers, 1);
 		bufspace_daemon_wakeup(bd);
 		counter_u64_add(numbufallocfails, 1);
 		return (NULL);
@@ -2083,7 +2083,10 @@ breada(struct vnode * vp, daddr_t * rablkno, int * rabsize, int cnt,
     struct ucred * cred, int flags, void (*ckhashfunc)(struct buf *))
 {
 	struct buf *rabp;
+	struct thread *td;
 	int i;
+
+	td = curthread;
 
 	for (i = 0; i < cnt; i++, rablkno++, rabsize++) {
 		if (inmem(vp, *rablkno))
@@ -2093,16 +2096,14 @@ breada(struct vnode * vp, daddr_t * rablkno, int * rabsize, int cnt,
 			brelse(rabp);
 			continue;
 		}
-		if (!TD_IS_IDLETHREAD(curthread)) {
 #ifdef RACCT
-			if (racct_enable) {
-				PROC_LOCK(curproc);
-				racct_add_buf(curproc, rabp, 0);
-				PROC_UNLOCK(curproc);
-			}
-#endif /* RACCT */
-			curthread->td_ru.ru_inblock++;
+		if (racct_enable) {
+			PROC_LOCK(curproc);
+			racct_add_buf(curproc, rabp, 0);
+			PROC_UNLOCK(curproc);
 		}
+#endif /* RACCT */
+		td->td_ru.ru_inblock++;
 		rabp->b_flags |= B_ASYNC;
 		rabp->b_flags &= ~B_INVAL;
 		if ((flags & GB_CKHASH) != 0) {
@@ -2158,16 +2159,14 @@ breadn_flags(struct vnode *vp, daddr_t blkno, int size, daddr_t *rablkno,
 	 */
 	readwait = 0;
 	if ((bp->b_flags & B_CACHE) == 0) {
-		if (!TD_IS_IDLETHREAD(td)) {
 #ifdef RACCT
-			if (racct_enable) {
-				PROC_LOCK(td->td_proc);
-				racct_add_buf(td->td_proc, bp, 0);
-				PROC_UNLOCK(td->td_proc);
-			}
-#endif /* RACCT */
-			td->td_ru.ru_inblock++;
+		if (racct_enable) {
+			PROC_LOCK(td->td_proc);
+			racct_add_buf(td->td_proc, bp, 0);
+			PROC_UNLOCK(td->td_proc);
 		}
+#endif /* RACCT */
+		td->td_ru.ru_inblock++;
 		bp->b_iocmd = BIO_READ;
 		bp->b_flags &= ~B_INVAL;
 		if ((flags & GB_CKHASH) != 0) {
@@ -2231,7 +2230,7 @@ bufwrite(struct buf *bp)
 	}
 
 	if (bp->b_flags & B_BARRIER)
-		barrierwrites++;
+		atomic_add_long(&barrierwrites, 1);
 
 	oldflags = bp->b_flags;
 
@@ -2268,16 +2267,14 @@ bufwrite(struct buf *bp)
 	bp->b_runningbufspace = bp->b_bufsize;
 	space = atomic_fetchadd_long(&runningbufspace, bp->b_runningbufspace);
 
-	if (!TD_IS_IDLETHREAD(curthread)) {
 #ifdef RACCT
-		if (racct_enable) {
-			PROC_LOCK(curproc);
-			racct_add_buf(curproc, bp, 1);
-			PROC_UNLOCK(curproc);
-		}
-#endif /* RACCT */
-		curthread->td_ru.ru_oublock++;
+	if (racct_enable) {
+		PROC_LOCK(curproc);
+		racct_add_buf(curproc, bp, 1);
+		PROC_UNLOCK(curproc);
 	}
+#endif /* RACCT */
+	curthread->td_ru.ru_oublock++;
 	if (oldflags & B_ASYNC)
 		BUF_KERNPROC(bp);
 	bp->b_iooffset = dbtob(bp->b_blkno);
@@ -2907,47 +2904,6 @@ vfs_vmio_iodone(struct buf *bp)
 }
 
 /*
- * Unwire a page held by a buf and either free it or update the page queues to
- * reflect its recent use.
- */
-static void
-vfs_vmio_unwire(struct buf *bp, vm_page_t m)
-{
-	bool freed;
-
-	vm_page_lock(m);
-	if (vm_page_unwire_noq(m)) {
-		if ((bp->b_flags & B_DIRECT) != 0)
-			freed = vm_page_try_to_free(m);
-		else
-			freed = false;
-		if (!freed) {
-			/*
-			 * Use a racy check of the valid bits to determine
-			 * whether we can accelerate reclamation of the page.
-			 * The valid bits will be stable unless the page is
-			 * being mapped or is referenced by multiple buffers,
-			 * and in those cases we expect races to be rare.  At
-			 * worst we will either accelerate reclamation of a
-			 * valid page and violate LRU, or unnecessarily defer
-			 * reclamation of an invalid page.
-			 *
-			 * The B_NOREUSE flag marks data that is not expected to
-			 * be reused, so accelerate reclamation in that case
-			 * too.  Otherwise, maintain LRU.
-			 */
-			if (m->valid == 0 || (bp->b_flags & B_NOREUSE) != 0)
-				vm_page_deactivate_noreuse(m);
-			else if (vm_page_active(m))
-				vm_page_reference(m);
-			else
-				vm_page_deactivate(m);
-		}
-	}
-	vm_page_unlock(m);
-}
-
-/*
  * Perform page invalidation when a buffer is released.  The fully invalid
  * pages will be reclaimed later in vfs_vmio_truncate().
  */
@@ -2956,7 +2912,7 @@ vfs_vmio_invalidate(struct buf *bp)
 {
 	vm_object_t obj;
 	vm_page_t m;
-	int i, resid, poffset, presid;
+	int flags, i, resid, poffset, presid;
 
 	if (buf_mapped(bp)) {
 		BUF_CHECK_MAPPED(bp);
@@ -2975,6 +2931,7 @@ vfs_vmio_invalidate(struct buf *bp)
 	 *
 	 * See man buf(9) for more information
 	 */
+	flags = (bp->b_flags & B_NOREUSE) != 0 ? VPR_NOREUSE : 0;
 	obj = bp->b_bufobj->bo_object;
 	resid = bp->b_bufsize;
 	poffset = bp->b_offset & PAGE_MASK;
@@ -2996,7 +2953,7 @@ vfs_vmio_invalidate(struct buf *bp)
 		}
 		if (pmap_page_wired_mappings(m) == 0)
 			vm_page_set_invalid(m, poffset, presid);
-		vfs_vmio_unwire(bp, m);
+		vm_page_release_locked(m, flags);
 		resid -= presid;
 		poffset = 0;
 	}
@@ -3012,7 +2969,7 @@ vfs_vmio_truncate(struct buf *bp, int desiredpages)
 {
 	vm_object_t obj;
 	vm_page_t m;
-	int i;
+	int flags, i;
 
 	if (bp->b_npages == desiredpages)
 		return;
@@ -3027,14 +2984,22 @@ vfs_vmio_truncate(struct buf *bp, int desiredpages)
 	/*
 	 * The object lock is needed only if we will attempt to free pages.
 	 */
-	obj = (bp->b_flags & B_DIRECT) != 0 ? bp->b_bufobj->bo_object : NULL;
-	if (obj != NULL)
+	flags = (bp->b_flags & B_NOREUSE) != 0 ? VPR_NOREUSE : 0;
+	if ((bp->b_flags & B_DIRECT) != 0) {
+		flags |= VPR_TRYFREE;
+		obj = bp->b_bufobj->bo_object;
 		VM_OBJECT_WLOCK(obj);
+	} else {
+		obj = NULL;
+	}
 	for (i = desiredpages; i < bp->b_npages; i++) {
 		m = bp->b_pages[i];
 		KASSERT(m != bogus_page, ("allocbuf: bogus page found"));
 		bp->b_pages[i] = NULL;
-		vfs_vmio_unwire(bp, m);
+		if (obj != NULL)
+			vm_page_release_locked(m, flags);
+		else
+			vm_page_release(m, flags);
 	}
 	if (obj != NULL)
 		VM_OBJECT_WUNLOCK(obj);
@@ -4029,9 +3994,6 @@ loop:
 		 */
 		if (flags & GB_NOCREAT)
 			return (EEXIST);
-		if (bdomain[bo->bo_domain].bd_freebuffers == 0 &&
-		    TD_IS_IDLETHREAD(curthread))
-			return (EBUSY);
 
 		bsize = vn_isdisk(vp, NULL) ? DEV_BSIZE : bo->bo_bsize;
 		KASSERT(bsize != 0, ("bsize == 0, check bo->bo_bsize"));
@@ -4434,7 +4396,7 @@ bufwait(struct buf *bp)
  *	read error occurred, or if the op was a write.  B_CACHE is never
  *	set if the buffer is invalid or otherwise uncacheable.
  *
- *	biodone does not mess with B_INVAL, allowing the I/O routine or the
+ *	bufdone does not mess with B_INVAL, allowing the I/O routine or the
  *	initiator to leave B_INVAL set to brelse the buffer out of existence
  *	in the biodone routine.
  */
@@ -4852,6 +4814,8 @@ b_io_dismiss(struct buf *bp, int ioflag, bool release)
 
 	if ((ioflag & IO_DIRECT) != 0)
 		bp->b_flags |= B_DIRECT;
+	if ((ioflag & IO_EXT) != 0)
+		bp->b_xflags |= BX_ALTDATA;
 	if ((ioflag & (IO_VMIO | IO_DIRECT)) != 0 && LIST_EMPTY(&bp->b_dep)) {
 		bp->b_flags |= B_RELBUF;
 		if ((ioflag & IO_NOREUSE) != 0)

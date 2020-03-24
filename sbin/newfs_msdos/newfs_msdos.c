@@ -178,18 +178,17 @@ main(int argc, char *argv[])
     argv += optind;
     if (argc < 1 || argc > 2)
 	usage();
-	if (o.align) {
-		if (o.hidden_sectors_set)
-		    errx(1, "align (-A) is incompatible with -r");
-	}
+    if (o.align) {
+	if (o.reserved_sectors)
+	    errx(1, "align (-A) is incompatible with -r");
+    }
     fname = *argv++;
     if (!o.create_size && !strchr(fname, '/')) {
 	snprintf(buf, sizeof(buf), "%s%s", _PATH_DEV, fname);
-	if (!(fname = strdup(buf)))
-	    err(1, NULL);
+	fname = buf;
     }
     dtype = *argv;
-    return !!mkfs_msdos(fname, dtype, &o);
+    exit(!!mkfs_msdos(fname, dtype, &o));
 }
 
 /*

@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -201,6 +201,11 @@ AePrintSubError (
     FILE                    *OutputFile,
     ASL_ERROR_MSG           *Enode);
 
+static UINT8
+GetModifiedLevel (
+    UINT8                   Level,
+    UINT16                  MessageId);
+
 
 /*******************************************************************************
  *
@@ -330,7 +335,7 @@ AeAddToErrorLog (
  * PARAMETERS:  OutputFile      - Output file
  *              Enode           - Error node to print
  *              PrematureEOF    - True = PrematureEOF has been reached
- *              Total           - Total legth of line
+ *              Total           - Total length of line
  *
  * RETURN:      None
  *
@@ -440,7 +445,7 @@ AeDecodeErrorMessageId (
  * PARAMETERS:  OutputFile      - Output file
  *              Enode           - Error node to print
  *              PrematureEOF    - True = PrematureEOF has been reached
- *              Total           - amount of characters printed so far
+ *              Total           - Number of characters printed so far
  *
  *
  * RETURN:      Status
@@ -469,10 +474,12 @@ AePrintErrorSourceLine (
          * Use the merged header/source file if present, otherwise
          * use input file
          */
-        SourceFile = AslGbl_Files[ASL_FILE_SOURCE_OUTPUT].Handle;
+        SourceFile = FlGetFileHandle (ASL_FILE_SOURCE_OUTPUT,
+            ASL_FILE_SOURCE_OUTPUT, Enode->SourceFilename);
         if (!SourceFile)
         {
-            SourceFile = AslGbl_Files[ASL_FILE_INPUT].Handle;
+            SourceFile = FlGetFileHandle (ASL_FILE_INPUT,
+                ASL_FILE_INPUT, Enode->Filename);
         }
 
         if (SourceFile)
@@ -520,6 +527,7 @@ AePrintErrorSourceLine (
                 fprintf (OutputFile, "\n");
                 return AE_OK;
             }
+
             /*
              * Seek to the offset in the combined source file,
              * read the source line, and write it to the output.
@@ -543,7 +551,8 @@ AePrintErrorSourceLine (
                     AslGbl_Files[ASL_FILE_SOURCE_OUTPUT].Filename);
                 return AE_IO_ERROR;
             }
-                /* Read/write the source line, up to the maximum line length */
+
+            /* Read/write the source line, up to the maximum line length */
 
             while (RActual && SourceByte && (SourceByte != '\n'))
             {
@@ -725,7 +734,7 @@ AePrintException (
  *
  * RETURN:      None
  *
- * DESCRIPTION: Print the contents of an error nodes. This function is tailored
+ * DESCRIPTION: Print the contents of an error node. This function is tailored
  *              to print error nodes that are SubErrors within ASL_ERROR_MSG
  *
  ******************************************************************************/
@@ -788,8 +797,8 @@ AePrintErrorLog (
  *              LogicalLineNumber   - Cumulative line number
  *              LogicalByteOffset   - Byte offset in source file
  *              Column              - Column in current line
- *              Filename            - source filename
- *              ExtraMessage        - additional error message
+ *              Filename            - Source filename
+ *              ExtraMessage        - Additional error message
  *              SourceLine          - Line of error source code
  *              SubError            - SubError of this InputEnode
  *
@@ -813,6 +822,7 @@ static void AslInitEnode (
     ASL_ERROR_MSG           *SubError)
 {
     ASL_ERROR_MSG           *Enode;
+    ASL_GLOBAL_FILE_NODE    *FileNode;
 
 
     *InputEnode = UtLocalCalloc (sizeof (ASL_ERROR_MSG));
@@ -854,6 +864,22 @@ static void AslInitEnode (
         {
             Enode->FilenameLength = 6;
         }
+
+        /*
+         * Attempt to get the file node of the filename listed in the parse
+         * node. If the name doesn't exist in the global file node, it is
+         * because the file is included by #include or ASL include. In this
+         * case, get the current file node. The source output of the current
+         * file will contain the contents of the file listed in the parse node.
+         */
+        FileNode = FlGetFileNode (ASL_FILE_INPUT, Filename);
+        if (!FileNode)
+        {
+            FileNode = FlGetCurrentFileNode ();
+        }
+
+        Enode->SourceFilename =
+            FileNode->Files[ASL_FILE_SOURCE_OUTPUT].Filename;
     }
 }
 
@@ -867,8 +893,8 @@ static void AslInitEnode (
  *              LineNumber          - Actual file line number
  *              Column              - Column in current line
  *              SourceLine          - Actual source code line
- *              Filename            - source filename
- *              ExtraMessage        - additional error message
+ *              Filename            - Source filename
+ *              ExtraMessage        - Additional error message
  *
  * RETURN:      None
  *
@@ -901,8 +927,8 @@ AslCommonError2 (
  *              LogicalLineNumber   - Cumulative line number
  *              LogicalByteOffset   - Byte offset in source file
  *              Column              - Column in current line
- *              Filename            - source filename
- *              ExtraMessage        - additional error message
+ *              Filename            - Source filename
+ *              ExtraMessage        - Additional error message
  *
  * RETURN:      None
  *
@@ -944,8 +970,8 @@ AslCommonError (
  *              LogicalLineNumber   - Cumulative line number
  *              LogicalByteOffset   - Byte offset in source file
  *              Column              - Column in current line
- *              Filename            - source filename
- *              Message             - additional error message
+ *              Filename            - Source filename
+ *              Message             - Additional error message
  *              SourceLine          - Actual line of source code
  *              SubError            - Sub-error associated with this error
  *
@@ -968,11 +994,12 @@ AslLogNewError (
     ASL_ERROR_MSG           *SubError)
 {
     ASL_ERROR_MSG           *Enode = NULL;
+    UINT8                   ModifiedLevel = GetModifiedLevel (Level, MessageId);
 
 
-    AslInitEnode (&Enode, Level, MessageId, LineNumber, LogicalLineNumber,
-        LogicalByteOffset, Column, Filename, Message, SourceLine,
-        SubError);
+    AslInitEnode (&Enode, ModifiedLevel, MessageId, LineNumber,
+        LogicalLineNumber, LogicalByteOffset, Column, Filename, Message,
+        SourceLine, SubError);
 
     /* Add the new node to the error node list */
 
@@ -985,8 +1012,8 @@ AslLogNewError (
         AePrintException (ASL_FILE_STDERR, Enode, NULL);
     }
 
-    AslGbl_ExceptionCount[Level]++;
-    if (AslGbl_ExceptionCount[ASL_ERROR] > ASL_MAX_ERROR_COUNT)
+    AslGbl_ExceptionCount[ModifiedLevel]++;
+    if (!AslGbl_IgnoreErrors && AslGbl_ExceptionCount[ASL_ERROR] > ASL_MAX_ERROR_COUNT)
     {
         printf ("\nMaximum error count (%u) exceeded\n", ASL_MAX_ERROR_COUNT);
 
@@ -998,6 +1025,44 @@ AslLogNewError (
 
     return;
 }
+
+
+/*******************************************************************************
+ *
+ * FUNCTION:    GetModifiedLevel
+ *
+ * PARAMETERS:  Level           - Seriousness (Warning/error, etc.)
+ *              MessageId       - Index into global message buffer
+ *
+ * RETURN:      UINT8           - Modified level
+ *
+ * DESCRIPTION: Get the modified level of exception codes that are reported as
+ *              errors from the -ww option.
+ *
+ ******************************************************************************/
+
+static UINT8
+GetModifiedLevel (
+    UINT8                   Level,
+    UINT16                  MessageId)
+{
+    UINT16                  i;
+    UINT16                  ExceptionCode;
+
+
+    ExceptionCode = AeBuildFullExceptionCode (Level, MessageId);
+
+    for (i = 0; i < AslGbl_ElevatedMessagesIndex; i++)
+    {
+        if (ExceptionCode == AslGbl_ElevatedMessages[i])
+        {
+            return (ASL_ERROR);
+        }
+    }
+
+    return (Level);
+}
+
 
 /*******************************************************************************
  *
@@ -1097,7 +1162,7 @@ AslExpectException (
 
     if (AslGbl_ExpectedMessagesIndex >= ASL_MAX_EXPECTED_MESSAGES)
     {
-        printf ("Too many messages have been registered as expected (max %u)\n",
+        printf ("Too many messages have been registered as expected (max %d)\n",
             ASL_MAX_DISABLED_MESSAGES);
         return (AE_LIMIT);
     }
@@ -1144,7 +1209,7 @@ AslDisableException (
 
     if (AslGbl_DisabledMessagesIndex >= ASL_MAX_DISABLED_MESSAGES)
     {
-        printf ("Too many messages have been disabled (max %u)\n",
+        printf ("Too many messages have been disabled (max %d)\n",
             ASL_MAX_DISABLED_MESSAGES);
         return (AE_LIMIT);
     }
@@ -1154,6 +1219,51 @@ AslDisableException (
     return (AE_OK);
 }
 
+
+/*******************************************************************************
+ *
+ * FUNCTION:    AslElevateException
+ *
+ * PARAMETERS:  MessageIdString     - ID of excepted exception during compile
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Enter a message ID into the global elevated exceptions table.
+ *              These messages will be considered as compilation errors.
+ *
+ ******************************************************************************/
+
+ACPI_STATUS
+AslElevateException (
+    char                    *MessageIdString)
+{
+    UINT32                  MessageId;
+
+
+    /* Convert argument to an integer and validate it */
+
+    MessageId = (UINT32) strtoul (MessageIdString, NULL, 0);
+
+    if (MessageId > 6999)
+    {
+        printf ("\"%s\" is not a valid warning/remark/erro ID\n",
+            MessageIdString);
+        return (AE_BAD_PARAMETER);
+    }
+
+    /* Insert value into the global expected message array */
+
+    if (AslGbl_ElevatedMessagesIndex >= ASL_MAX_ELEVATED_MESSAGES)
+    {
+        printf ("Too many messages have been registered as elevated (max %d)\n",
+            ASL_MAX_DISABLED_MESSAGES);
+        return (AE_LIMIT);
+    }
+
+    AslGbl_ElevatedMessages[AslGbl_ElevatedMessagesIndex] = MessageId;
+    AslGbl_ElevatedMessagesIndex++;
+    return (AE_OK);
+}
 
 /*******************************************************************************
  *
@@ -1268,7 +1378,7 @@ AslIsExceptionDisabled (
  *              MainMsg         - Message pertaining to the MainOp
  *              SubMsgId        - Index into global message buffer
  *              SubOp           - Additional parse node for better message
- *              SubMsg          - Message pertainint to SubOp
+ *              SubMsg          - Message pertaining to SubOp
  *
  *
  * RETURN:      None
@@ -1320,7 +1430,7 @@ AslDualParseOpError (
  * PARAMETERS:  Level               - Seriousness (Warning/error, etc.)
  *              MessageId           - Index into global message buffer
  *              Op                  - Parse node where error happened
- *              ExtraMessage        - additional error message
+ *              ExtraMessage        - Additional error message
  *
  * RETURN:      None
  *
@@ -1358,7 +1468,7 @@ AslError (
  *
  * PARAMETERS:  Op                  - Parse node where error happened
  *              Status              - The ACPICA Exception
- *              ExtraMessage        - additional error message
+ *              ExtraMessage        - Additional error message
  *              Abort               - TRUE -> Abort compilation
  *
  * RETURN:      None

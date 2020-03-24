@@ -1,9 +1,9 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 2018 Netflix
  * Copyright (c) 2014 Roger Pau Monné <roger.pau@citrix.com>
  * All rights reserved.
+ * Copyright (c) 2018 Netflix, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,8 @@
 
 #ifndef _SYS_BOOT_H_
 #define _SYS_BOOT_H_
+
+#define PATH_KERNEL	"/boot/kernel/kernel"
 
 int boot_env_to_howto(void);
 void boot_howto_to_env(int howto);

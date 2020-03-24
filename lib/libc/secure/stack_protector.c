@@ -40,11 +40,30 @@ __FBSDID("$FreeBSD$");
 #include <unistd.h>
 #include "libc_private.h"
 
+/*
+ * We give __guard_setup a defined priority early on so that statically linked
+ * applications have a defined priority at which __stack_chk_guard will be
+ * getting initialized.  This will not matter to most applications, because
+ * they're either not usually statically linked or they simply don't do things
+ * in constructors that would be adversely affected by their positioning with
+ * respect to this initialization.
+ *
+ * This conditional should be removed when GCC 4.2 is removed.
+ */
+#if __has_attribute(__constructor__) || __GNUC_PREREQ__(4, 3)
+#define	_GUARD_SETUP_CTOR_ATTR	 \
+    __attribute__((__constructor__ (200), __used__));
+#else
+#define	_GUARD_SETUP_CTOR_ATTR	\
+    __attribute__((__constructor__, __used__));
+#endif
+
+extern long __stack_chk_guard[8];
 extern int __sysctl(const int *name, u_int namelen, void *oldp,
     size_t *oldlenp, void *newp, size_t newlen);
 
 long __stack_chk_guard[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-static void __guard_setup(void) __attribute__((__constructor__, __used__));
+static void __guard_setup(void) _GUARD_SETUP_CTOR_ATTR;
 static void __fail(const char *);
 void __stack_chk_fail(void);
 void __chk_fail(void);
@@ -55,8 +74,8 @@ __guard_setup(void)
 {
 	static const int mib[2] = { CTL_KERN, KERN_ARND };
 	volatile long tmp_stack_chk_guard[nitems(__stack_chk_guard)];
-	size_t len;
-	int error, idx;
+	size_t idx, len;
+	int error;
 
 	if (__stack_chk_guard[0] != 0)
 		return;
@@ -66,7 +85,8 @@ __guard_setup(void)
 	 * data into a temporal array, then do manual volatile copy to
 	 * not allow optimizer to call memcpy() behind us.
 	 */
-	error = _elf_aux_info(AT_CANARY, (void *)tmp_stack_chk_guard,
+	error = _elf_aux_info(AT_CANARY,
+	    __DEQUALIFY(void *, tmp_stack_chk_guard),
 	    sizeof(tmp_stack_chk_guard));
 	if (error == 0 && tmp_stack_chk_guard[0] != 0) {
 		for (idx = 0; idx < nitems(__stack_chk_guard); idx++) {

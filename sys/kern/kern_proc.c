@@ -909,8 +909,6 @@ fill_kinfo_proc_only(struct proc *p, struct kinfo_proc *kp)
 	struct sigacts *ps;
 	struct timeval boottime;
 
-	/* For proc_realparent. */
-	sx_assert(&proctree_lock, SX_LOCKED);
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	bzero(kp, sizeof(*kp));
 
@@ -1044,7 +1042,7 @@ fill_kinfo_proc_only(struct proc *p, struct kinfo_proc *kp)
 	kp->ki_acflag = p->p_acflag;
 	kp->ki_lock = p->p_lock;
 	if (p->p_pptr) {
-		kp->ki_ppid = proc_realparent(p)->p_pid;
+		kp->ki_ppid = p->p_oppid;
 		if (p->p_flag & P_TRACED)
 			kp->ki_tracer = p->p_pptr->p_pid;
 	}
@@ -1465,11 +1463,9 @@ sysctl_kern_proc(SYSCTL_HANDLER_ARGS)
 		error = sysctl_wire_old_buffer(req, 0);
 		if (error)
 			return (error);
-		sx_slock(&proctree_lock);
 		error = pget((pid_t)name[0], PGET_CANSEE, &p);
 		if (error == 0)
 			error = sysctl_out_proc(p, req, flags);
-		sx_sunlock(&proctree_lock);
 		return (error);
 	}
 
@@ -1497,12 +1493,6 @@ sysctl_kern_proc(SYSCTL_HANDLER_ARGS)
 		error = sysctl_wire_old_buffer(req, 0);
 		if (error != 0)
 			return (error);
-		/*
-		 * This lock is only needed to safely grab the parent of a
-		 * traced process. Only grab it if we are producing any
-		 * data to begin with.
-		 */
-		sx_slock(&proctree_lock);
 	}
 	sx_slock(&allproc_lock);
 	for (doingzomb=0 ; doingzomb < 2 ; doingzomb++) {
@@ -1610,8 +1600,6 @@ sysctl_kern_proc(SYSCTL_HANDLER_ARGS)
 	}
 out:
 	sx_sunlock(&allproc_lock);
-	if (req->oldptr != NULL)
-		sx_sunlock(&proctree_lock);
 	return (error);
 }
 
@@ -2472,6 +2460,8 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 			kve->kve_flags |= KVME_FLAG_GROWS_UP;
 		if (entry->eflags & MAP_ENTRY_GROWS_DOWN)
 			kve->kve_flags |= KVME_FLAG_GROWS_DOWN;
+		if (entry->eflags & MAP_ENTRY_USER_WIRED)
+			kve->kve_flags |= KVME_FLAG_USER_WIRED;
 
 		last_timestamp = map->timestamp;
 		vm_map_unlock_read(map);
@@ -3134,8 +3124,8 @@ allproc_loop:
 			PROC_UNLOCK(p);
 			continue;
 		}
-		_PHOLD(p);
 		sx_xunlock(&allproc_lock);
+		_PHOLD(p);
 		r = thread_single(p, SINGLE_ALLPROC);
 		if (r != 0)
 			restart = true;

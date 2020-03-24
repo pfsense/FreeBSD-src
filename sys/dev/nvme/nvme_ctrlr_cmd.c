@@ -76,8 +76,7 @@ nvme_ctrlr_cmd_identify_namespace(struct nvme_controller *ctrlr, uint32_t nsid,
 
 void
 nvme_ctrlr_cmd_create_io_cq(struct nvme_controller *ctrlr,
-    struct nvme_qpair *io_que, uint16_t vector, nvme_cb_fn_t cb_fn,
-    void *cb_arg)
+    struct nvme_qpair *io_que, nvme_cb_fn_t cb_fn, void *cb_arg)
 {
 	struct nvme_request *req;
 	struct nvme_command *cmd;
@@ -93,7 +92,7 @@ nvme_ctrlr_cmd_create_io_cq(struct nvme_controller *ctrlr,
 	 */
 	cmd->cdw10 = htole32(((io_que->num_entries-1) << 16) | io_que->id);
 	/* 0x3 = interrupts enabled | physically contiguous */
-	cmd->cdw11 = htole32((vector << 16) | 0x3);
+	cmd->cdw11 = htole32((io_que->vector << 16) | 0x3);
 	cmd->prp1 = htole64(io_que->cpl_bus_addr);
 
 	nvme_ctrlr_submit_admin_request(ctrlr, req);
@@ -167,7 +166,8 @@ nvme_ctrlr_cmd_delete_io_sq(struct nvme_controller *ctrlr,
 
 void
 nvme_ctrlr_cmd_set_feature(struct nvme_controller *ctrlr, uint8_t feature,
-    uint32_t cdw11, void *payload, uint32_t payload_size,
+    uint32_t cdw11, uint32_t cdw12, uint32_t cdw13, uint32_t cdw14,
+    uint32_t cdw15, void *payload, uint32_t payload_size,
     nvme_cb_fn_t cb_fn, void *cb_arg)
 {
 	struct nvme_request *req;
@@ -179,6 +179,10 @@ nvme_ctrlr_cmd_set_feature(struct nvme_controller *ctrlr, uint8_t feature,
 	cmd->opc = NVME_OPC_SET_FEATURES;
 	cmd->cdw10 = htole32(feature);
 	cmd->cdw11 = htole32(cdw11);
+	cmd->cdw12 = htole32(cdw12);
+	cmd->cdw13 = htole32(cdw13);
+	cmd->cdw14 = htole32(cdw14);
+	cmd->cdw15 = htole32(cdw15);
 
 	nvme_ctrlr_submit_admin_request(ctrlr, req);
 }
@@ -209,7 +213,7 @@ nvme_ctrlr_cmd_set_num_queues(struct nvme_controller *ctrlr,
 
 	cdw11 = ((num_queues - 1) << 16) | (num_queues - 1);
 	nvme_ctrlr_cmd_set_feature(ctrlr, NVME_FEAT_NUMBER_OF_QUEUES, cdw11,
-	    NULL, 0, cb_fn, cb_arg);
+	    0, 0, 0, 0, NULL, 0, cb_fn, cb_arg);
 }
 
 void
@@ -220,8 +224,8 @@ nvme_ctrlr_cmd_set_async_event_config(struct nvme_controller *ctrlr,
 
 	cdw11 = state;
 	nvme_ctrlr_cmd_set_feature(ctrlr,
-	    NVME_FEAT_ASYNC_EVENT_CONFIGURATION, cdw11, NULL, 0, cb_fn,
-	    cb_arg);
+	    NVME_FEAT_ASYNC_EVENT_CONFIGURATION, cdw11, 0, 0, 0, 0, NULL, 0,
+	    cb_fn, cb_arg);
 }
 
 void
@@ -246,7 +250,7 @@ nvme_ctrlr_cmd_set_interrupt_coalescing(struct nvme_controller *ctrlr,
 
 	cdw11 = ((microseconds/100) << 8) | threshold;
 	nvme_ctrlr_cmd_set_feature(ctrlr, NVME_FEAT_INTERRUPT_COALESCING, cdw11,
-	    NULL, 0, cb_fn, cb_arg);
+	    0, 0, 0, 0, NULL, 0, cb_fn, cb_arg);
 }
 
 void

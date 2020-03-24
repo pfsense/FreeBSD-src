@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2006-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -15,6 +15,7 @@
 #include "internal/asn1_int.h"
 #include "internal/evp_int.h"
 #include "ec_lcl.h"
+#include "curve448/curve448_lcl.h"
 
 #define X25519_BITS          253
 #define X25519_SECURITY_BITS 128
@@ -531,7 +532,7 @@ static int ecd_item_sign25519(EVP_MD_CTX *ctx, const ASN1_ITEM *it, void *asn,
     X509_ALGOR_set0(alg1, OBJ_nid2obj(NID_ED25519), V_ASN1_UNDEF, NULL);
     if (alg2)
         X509_ALGOR_set0(alg2, OBJ_nid2obj(NID_ED25519), V_ASN1_UNDEF, NULL);
-    /* Algorithm idetifiers set: carry on as normal */
+    /* Algorithm identifiers set: carry on as normal */
     return 3;
 }
 

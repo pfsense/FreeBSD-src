@@ -134,10 +134,11 @@ static int
 iicbus_detach(device_t dev)
 {
 	struct iicbus_softc *sc = IICBUS_SOFTC(dev);
+	int err;
 
+	if ((err = device_delete_children(dev)) != 0)
+		return (err);
 	iicbus_reset(dev, IIC_FASTEST, 0, NULL);
-	bus_generic_detach(dev);
-	device_delete_children(dev);
 	mtx_destroy(&sc->lock);
 	return (0);
 }
@@ -194,9 +195,6 @@ iicbus_read_ivar(device_t bus, device_t child, int which, uintptr_t *result)
 	case IICBUS_IVAR_ADDR:
 		*result = devi->addr;
 		break;
-	case IICBUS_IVAR_NOSTOP:
-		*result = devi->nostop;
-		break;
 	}
 	return (0);
 }
@@ -213,9 +211,6 @@ iicbus_write_ivar(device_t bus, device_t child, int which, uintptr_t value)
 		if (devi->addr != 0)
 			return (EINVAL);
 		devi->addr = value;
-	case IICBUS_IVAR_NOSTOP:
-		devi->nostop = value;
-		break;
 	}
 	return (0);
 }
@@ -336,6 +331,8 @@ static device_method_t iicbus_methods[] = {
 	DEVMETHOD(device_probe,		iicbus_probe),
 	DEVMETHOD(device_attach,	iicbus_attach),
 	DEVMETHOD(device_detach,	iicbus_detach),
+	DEVMETHOD(device_suspend,	bus_generic_suspend),
+	DEVMETHOD(device_resume,	bus_generic_resume),
 
 	/* bus interface */
 	DEVMETHOD(bus_setup_intr,	bus_generic_setup_intr),

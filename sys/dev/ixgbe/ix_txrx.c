@@ -131,7 +131,7 @@ ixgbe_tx_ctx_setup(struct ixgbe_adv_tx_context_desc *TXD, if_pkt_info_t pi)
 
 	switch (pi->ipi_ipproto) {
 	case IPPROTO_TCP:
-		if (pi->ipi_csum_flags & (CSUM_IP_TCP | CSUM_IP6_TCP))
+		if (pi->ipi_csum_flags & (CSUM_IP_TCP | CSUM_IP6_TCP | CSUM_TSO))
 			type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_TCP;
 		else
 			offload = FALSE;
@@ -296,9 +296,11 @@ ixgbe_isc_txd_credits_update(void *arg, uint16_t txqid, bool clear)
 	prev = txr->tx_cidx_processed;
 	ntxd = scctx->isc_ntxd[0];
 	do {
+		MPASS(prev != cur);
 		delta = (int32_t)cur - (int32_t)prev;
 		if (delta < 0)
 			delta += ntxd;
+		MPASS(delta > 0);
 
 		processed += delta;
 		prev = cur;
@@ -462,6 +464,12 @@ ixgbe_isc_rxd_pkt_get(void *arg, if_rxd_info_t ri)
 
 	ri->iri_flowid = le32toh(rxd->wb.lower.hi_dword.rss);
 	ri->iri_rsstype = ixgbe_determine_rsstype(pkt_info);
+	if ((adapter->feat_en & IXGBE_FEATURE_RSS) == 0) {
+		if (ri->iri_rsstype == M_HASHTYPE_OPAQUE)
+			ri->iri_rsstype = M_HASHTYPE_NONE;
+		else
+			ri->iri_rsstype = M_HASHTYPE_OPAQUE_HASH;
+	}
 	ri->iri_vtag = vtag;
 	ri->iri_nfrags = i;
 	if (vtag)

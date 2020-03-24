@@ -33,6 +33,8 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_acpi.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -99,14 +101,15 @@ bus_dma_dflt_lock(void *arg, bus_dma_lock_op_t op)
  * to check for a match, if there is no filter callback then assume a match.
  */
 int
-bus_dma_run_filter(struct bus_dma_tag_common *tc, bus_addr_t paddr)
+bus_dma_run_filter(struct bus_dma_tag_common *tc, vm_paddr_t paddr)
 {
 	int retval;
 
 	retval = 0;
 	do {
-		if (((paddr > tc->lowaddr && paddr <= tc->highaddr) ||
-		    ((paddr & (tc->alignment - 1)) != 0)) &&
+		if ((paddr >= BUS_SPACE_MAXADDR ||
+		    (paddr > tc->lowaddr && paddr <= tc->highaddr) ||
+		    (paddr & (tc->alignment - 1)) != 0) &&
 		    (tc->filter == NULL ||
 		    (*tc->filter)(tc->filterarg, paddr) != 0))
 			retval = 1;
@@ -244,3 +247,17 @@ bus_dma_tag_destroy(bus_dma_tag_t dmat)
 	return (tc->impl->tag_destroy(dmat));
 }
 
+#ifndef ACPI_DMAR
+bool
+bus_dma_dmar_set_buswide(device_t dev)
+{
+	return (false);
+}
+
+int
+bus_dma_dmar_load_ident(bus_dma_tag_t dmat, bus_dmamap_t map,
+    vm_paddr_t start, vm_size_t length, int flags)
+{
+	return (0);
+}
+#endif

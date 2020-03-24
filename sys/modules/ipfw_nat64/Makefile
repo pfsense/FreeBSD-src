@@ -4,10 +4,11 @@
 
 KMOD=	ipfw_nat64
 SRCS=	ip_fw_nat64.c nat64_translate.c
+SRCS+=	nat64clat.c nat64clat_control.c
 SRCS+=	nat64lsn.c nat64lsn_control.c
 SRCS+=	nat64stl.c nat64stl_control.c
-SRCS+=	opt_ipfw.h
+SRCS+=	opt_ipstealth.h
 
-#CFLAGS+=	-DIPFIREWALL_NAT64_DIRECT_OUTPUT
+CFLAGS+= -I${SRCTOP}/sys/contrib/ck/include
 
 .include <bsd.kmod.mk>

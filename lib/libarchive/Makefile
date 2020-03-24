@@ -45,6 +45,8 @@ INCS=	archive.h archive_entry.h
 
 # Sources to be compiled.
 SRCS=	archive_acl.c					\
+	archive_blake2sp_ref.c				\
+	archive_blake2s_ref.c				\
 	archive_check_magic.c				\
 	archive_cmdline.c				\
 	archive_cryptor.c				\
@@ -64,6 +66,7 @@ SRCS=	archive_acl.c					\
 	archive_pack_dev.c				\
 	archive_pathmatch.c				\
 	archive_ppmd7.c					\
+	archive_ppmd8.c					\
 	archive_random.c				\
 	archive_rb.c					\
 	archive_read.c					\
@@ -106,6 +109,7 @@ SRCS=	archive_acl.c					\
 	archive_read_support_format_lha.c		\
 	archive_read_support_format_mtree.c		\
 	archive_read_support_format_rar.c		\
+	archive_read_support_format_rar5.c		\
 	archive_read_support_format_raw.c		\
 	archive_read_support_format_tar.c		\
 	archive_read_support_format_warc.c		\
@@ -164,6 +168,7 @@ SRCS=	archive_acl.c					\
 MAN=	archive_entry.3					\
 	archive_entry_acl.3				\
 	archive_entry_linkify.3				\
+	archive_entry_misc.3				\
 	archive_entry_paths.3				\
 	archive_entry_perms.3				\
 	archive_entry_stat.3				\

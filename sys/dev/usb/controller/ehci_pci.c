@@ -86,6 +86,7 @@ __FBSDID("$FreeBSD$");
 #define	PCI_EHCI_VENDORID_APPLE		0x106b
 #define	PCI_EHCI_VENDORID_ATI		0x1002
 #define	PCI_EHCI_VENDORID_CMDTECH	0x1095
+#define	PCI_EHCI_VENDORID_HYGON		0x1d94
 #define	PCI_EHCI_VENDORID_INTEL		0x8086
 #define	PCI_EHCI_VENDORID_NEC		0x1033
 #define	PCI_EHCI_VENDORID_OPTI		0x1045
@@ -181,7 +182,9 @@ ehci_pci_match(device_t self)
 	case 0x8d2d8086:
 		return ("Intel Wellsburg USB 2.0 controller");
 	case 0x9c268086:
-		return ("Intel Lynx Point LP USB 2.0 controller USB");
+		return ("Intel Lynx Point-LP USB 2.0 controller");
+	case 0x9ca68086:
+		return ("Intel Wildcat Point-LP USB 2.0 controller");
 
 	case 0x00e01033:
 		return ("NEC uPD 72010x USB 2.0 controller");
@@ -369,6 +372,9 @@ ehci_pci_attach(device_t self)
 		break;
 	case PCI_EHCI_VENDORID_CMDTECH:
 		sprintf(sc->sc_vendor, "CMDTECH");
+		break;
+	case PCI_EHCI_VENDORID_HYGON:
+		sprintf(sc->sc_vendor, "Hygon");
 		break;
 	case PCI_EHCI_VENDORID_INTEL:
 		sprintf(sc->sc_vendor, "Intel");

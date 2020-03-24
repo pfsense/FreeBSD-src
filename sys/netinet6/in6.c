@@ -84,6 +84,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/rmlock.h>
+#include <sys/sysctl.h>
 #include <sys/syslog.h>
 
 #include <net/if.h>
@@ -712,7 +713,8 @@ aifaddr_out:
 			ND6_WUNLOCK();
 			nd6_prefix_del(pr);
 		}
-		EVENTHANDLER_INVOKE(ifaddr_event, ifp);
+		EVENTHANDLER_INVOKE(ifaddr_event_ext, ifp, &ia->ia_ifa,
+		    IFADDR_EVENT_DEL);
 		break;
 	}
 
@@ -1456,7 +1458,10 @@ done:
 	WITNESS_WARN(WARN_GIANTOK | WARN_SLEEPOK, NULL,
 	    "Invoking IPv6 network device address event may sleep");
 
-	EVENTHANDLER_INVOKE(ifaddr_event, ifp);
+	ifa_ref(&ia->ia_ifa);
+	EVENTHANDLER_INVOKE(ifaddr_event_ext, ifp, &ia->ia_ifa,
+	    IFADDR_EVENT_ADD);
+	ifa_free(&ia->ia_ifa);
 
 	return (error);
 }
@@ -1939,26 +1944,14 @@ in6_if_up(struct ifnet *ifp)
 int
 in6if_do_dad(struct ifnet *ifp)
 {
+
 	if ((ifp->if_flags & IFF_LOOPBACK) != 0)
 		return (0);
-
-	if ((ND_IFINFO(ifp)->flags & ND6_IFF_IFDISABLED) ||
-	    (ND_IFINFO(ifp)->flags & ND6_IFF_NO_DAD))
+	if ((ifp->if_flags & IFF_MULTICAST) == 0)
 		return (0);
-
-	/*
-	 * Our DAD routine requires the interface up and running.
-	 * However, some interfaces can be up before the RUNNING
-	 * status.  Additionally, users may try to assign addresses
-	 * before the interface becomes up (or running).
-	 * This function returns EAGAIN in that case.
-	 * The caller should mark "tentative" on the address instead of
-	 * performing DAD immediately.
-	 */
-	if (!((ifp->if_flags & IFF_UP) &&
-	    (ifp->if_drv_flags & IFF_DRV_RUNNING)))
-		return (EAGAIN);
-
+	if ((ND_IFINFO(ifp)->flags &
+	    (ND6_IFF_IFDISABLED | ND6_IFF_NO_DAD)) != 0)
+		return (0);
 	return (1);
 }
 
@@ -2030,8 +2023,6 @@ in6_if2idlen(struct ifnet *ifp)
 		return (64);
 	}
 }
-
-#include <sys/sysctl.h>
 
 struct in6_llentry {
 	struct llentry		base;

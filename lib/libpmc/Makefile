@@ -19,17 +19,28 @@ EVENT_ARCH="x86"
 EVENT_ARCH="powerpc"
 .endif
 
+.if ${MK_DIRDEPS_BUILD} == "yes"
+# avoid circular dependency
+CFLAGS+= -I${SRCTOP}/${RELDIR:H}/libpmcstat
+GENDIRDEPS_FILTER+= N${RELDIR:H}/libpmcstat
+JEVENTS?= ${HOST_OBJTOP}/${RELDIR}/pmu-events/jevents
+.else
 JEVENTS= ${BTOOLSPATH:U.}/pmu-events/jevents
+
 # This file is built in a subdirectory so never try to rebuild it here.
 ${JEVENTS}: .PHONY
 .if make(*clean*)
 SUBDIR+= pmu-events
+.endif
 .endif
 
 libpmc_events.c: ${JEVENTS}
 	${JEVENTS} ${EVENT_ARCH} ${.CURDIR}/pmu-events/arch libpmc_events.c
 SRCS+= libpmc_events.c
 .endif
+
+# Silence warnings about usage of deprecated std::auto_ptr
+CXXWARNFLAGS+=	-Wno-deprecated-declarations
 
 MAN=	pmc.3
 MAN+=	pmc_allocate.3

@@ -755,10 +755,6 @@ zfsctl_common_pathconf(ap)
 		*ap->a_retval = (int)SPA_MINBLOCKSIZE;
 		return (0);
 
-	case _PC_ACL_EXTENDED:
-		*ap->a_retval = 0;
-		return (0);
-
 	case _PC_ACL_NFS4:
 		*ap->a_retval = 1;
 		return (0);
@@ -1098,6 +1094,8 @@ zfsctl_snapdir_readdir(ap)
 		strcpy(entry.d_name, snapname);
 		entry.d_namlen = strlen(entry.d_name);
 		entry.d_reclen = sizeof(entry);
+		/* NOTE: d_off is the offset for the *next* entry. */
+		entry.d_off = cookie + dots_offset;
 		dirent_terminate(&entry);
 		error = vfs_read_dirent(ap, &entry, uio->uio_offset);
 		if (error != 0) {

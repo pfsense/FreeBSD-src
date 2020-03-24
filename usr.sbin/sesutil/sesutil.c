@@ -112,28 +112,30 @@ usage(FILE *out, const char *subcmd)
 }
 
 static void
-do_led(int fd, unsigned int idx, bool onoff, bool setfault)
+do_led(int fd, unsigned int idx, elm_type_t type, bool onoff, bool setfault)
 {
+	int state = onoff ? 1 : 0;
 	encioc_elm_status_t o;
+	struct ses_ctrl_dev_slot *slot;
 
 	o.elm_idx = idx;
 	if (ioctl(fd, ENCIOC_GETELMSTAT, (caddr_t) &o) < 0) {
 		close(fd);
 		xo_err(EXIT_FAILURE, "ENCIOC_GETELMSTAT");
 	}
-	o.cstat[0] |= 0x80;
-	if (setfault) {
-		if (onoff)
-			o.cstat[3] |= 0x20;
+	slot = (struct ses_ctrl_dev_slot *) &o.cstat[0];
+	switch (type) {
+	case ELMTYP_DEVICE:
+	case ELMTYP_ARRAY_DEV:
+		ses_ctrl_common_set_select(&slot->common, 1);
+		if (setfault)
+			ses_ctrl_dev_slot_set_rqst_fault(slot, state);
 		else
-			o.cstat[3] &= 0xdf;
-	} else {
-		if (onoff)
-			o.cstat[2] |= 0x02;
-		else
-			o.cstat[2] &= 0xfd;
+			ses_ctrl_dev_slot_set_rqst_ident(slot, state);
+		break;
+	default:
+		return;
 	}
-
 	if (ioctl(fd, ENCIOC_SETELMSTAT, (caddr_t) &o) < 0) {
 		close(fd);
 		xo_err(EXIT_FAILURE, "ENCIOC_SETELMSTAT");
@@ -240,41 +242,45 @@ sesled(int argc, char **argv, bool setfault)
 		}
 
 		if (ioctl(fd, ENCIOC_GETELMMAP, (caddr_t) objp) < 0) {
+			free(objp);
 			close(fd);
 			xo_err(EXIT_FAILURE, "ENCIOC_GETELMMAP");
 		}
 
 		if (isses) {
-			if (sesid > nobj) {
+			if (sesid >= nobj) {
+				free(objp);
 				close(fd);
 				xo_errx(EXIT_FAILURE,
 				     "Requested SES ID does not exist");
 			}
-			do_led(fd, sesid, onoff, setfault);
+			do_led(fd, sesid, objp[sesid].elm_type, onoff, setfault);
 			ndisks++;
+			free(objp);
 			close(fd);
 			break;
 		}
 		for (j = 0; j < nobj; j++) {
+			const int devnames_size = 128;
+			char devnames[devnames_size];
+
 			if (all) {
-				do_led(fd, objp[j].elm_idx, onoff, setfault);
+				do_led(fd, objp[j].elm_idx, objp[j].elm_type,
+				    onoff, setfault);
 				continue;
 			}
 			memset(&objdn, 0, sizeof(objdn));
+			memset(devnames, 0, devnames_size);
 			objdn.elm_idx = objp[j].elm_idx;
-			objdn.elm_names_size = 128;
-			objdn.elm_devnames = calloc(128, sizeof(char));
-			if (objdn.elm_devnames == NULL) {
-				close(fd);
-				xo_err(EXIT_FAILURE, "calloc()");
-			}
+			objdn.elm_names_size = devnames_size;
+			objdn.elm_devnames = devnames;
 			if (ioctl(fd, ENCIOC_GETELMDEVNAMES,
 			    (caddr_t) &objdn) <0) {
 				continue;
 			}
 			if (objdn.elm_names_len > 0) {
 				if (disk_match(objdn.elm_devnames, disk, len)) {
-					do_led(fd, objdn.elm_idx,
+					do_led(fd, objdn.elm_idx, objp[j].elm_type,
 					    onoff, setfault);
 					ndisks++;
 					break;

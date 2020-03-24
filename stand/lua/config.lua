@@ -45,7 +45,6 @@ local MSG_FAILOPENCFG = "Failed to open config: '%s'"
 local MSG_FAILREADCFG = "Failed to read config: '%s'"
 local MSG_FAILPARSECFG = "Failed to parse config: '%s'"
 local MSG_FAILEXBEF = "Failed to execute '%s' before loading '%s'"
-local MSG_FAILEXMOD = "Failed to execute '%s'"
 local MSG_FAILEXAF = "Failed to execute '%s' after loading '%s'"
 local MSG_MALFORMED = "Malformed line (%d):\n\t'%s'"
 local MSG_DEFAULTKERNFAIL = "No kernel set, failed to load from module_path"
@@ -624,7 +623,7 @@ end
 function config.loadelf()
 	local xen_kernel = loader.getenv('xen_kernel')
 	local kernel = config.kernel_selected or config.kernel_loaded
-	local loaded
+	local loaded, status
 
 	if xen_kernel ~= nil then
 		print(MSG_XENKERNLOADING)
@@ -641,9 +640,12 @@ function config.loadelf()
 	end
 
 	print(MSG_MODLOADING)
-	return loadModule(modules, not config.verbose)
+	status = loadModule(modules, not config.verbose)
+	hook.runAll("modules.loaded")
+	return status
 end
 
 hook.registerType("config.loaded")
 hook.registerType("config.reloaded")
+hook.registerType("modules.loaded")
 return config

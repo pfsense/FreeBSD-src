@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2017 Kyle J. Kneitinger <kyle@kneit.in>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +32,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/ucred.h>
+#include <sys/queue.h>
+#include <sys/zfs_context.h>
+#include <sys/mntent.h>
 
 #include <ctype.h>
 #include <libgen.h>
@@ -45,11 +47,26 @@ __FBSDID("$FreeBSD$");
 #include "be.h"
 #include "be_impl.h"
 
+struct promote_entry {
+	char				name[BE_MAXPATHLEN];
+	SLIST_ENTRY(promote_entry)	link;
+};
+
+struct be_destroy_data {
+	libbe_handle_t			*lbh;
+	char				target_name[BE_MAXPATHLEN];
+	char				*snapname;
+	SLIST_HEAD(, promote_entry)	promotelist;
+};
+
 #if SOON
 static int be_create_child_noent(libbe_handle_t *lbh, const char *active,
     const char *child_path);
 static int be_create_child_cloned(libbe_handle_t *lbh, const char *active);
 #endif
+
+/* Arbitrary... should tune */
+#define	BE_SNAP_SERIAL_MAX	1024
 
 /*
  * Iterator function for locating the rootfs amongst the children of the
@@ -59,7 +76,7 @@ static int
 be_locate_rootfs(libbe_handle_t *lbh)
 {
 	struct statfs sfs;
-	struct extmnttab entry;
+	struct mnttab entry;
 	zfs_handle_t *zfs;
 
 	/*
@@ -90,6 +107,7 @@ be_locate_rootfs(libbe_handle_t *lbh)
 libbe_handle_t *
 libbe_init(const char *root)
 {
+	char altroot[MAXPATHLEN];
 	libbe_handle_t *lbh;
 	char *poolname, *pos;
 	int pnamelen;
@@ -140,6 +158,11 @@ libbe_init(const char *root)
 	    sizeof(lbh->bootfs), NULL, true) != 0)
 		goto err;
 
+	if (zpool_get_prop(lbh->active_phandle, ZPOOL_PROP_ALTROOT,
+	    altroot, sizeof(altroot), NULL, true) == 0 &&
+	    strcmp(altroot, "-") != 0)
+		lbh->altroot_len = strlen(altroot);
+
 	return (lbh);
 err:
 	if (lbh != NULL) {
@@ -177,81 +200,393 @@ be_nicenum(uint64_t num, char *buf, size_t buflen)
 	zfs_nicenum(num, buf, buflen);
 }
 
+static bool
+be_should_promote_clones(zfs_handle_t *zfs_hdl, struct be_destroy_data *bdd)
+{
+	char *atpos;
+
+	if (zfs_get_type(zfs_hdl) != ZFS_TYPE_SNAPSHOT)
+		return (false);
+
+	/*
+	 * If we're deleting a snapshot, we need to make sure we only promote
+	 * clones that are derived from one of the snapshots we're deleting,
+	 * rather than that of a snapshot we're not touching.  This keeps stuff
+	 * in a consistent state, making sure that we don't error out unless
+	 * we really need to.
+	 */
+	if (bdd->snapname == NULL)
+		return (true);
+
+	atpos = strchr(zfs_get_name(zfs_hdl), '@');
+	return (strcmp(atpos + 1, bdd->snapname) == 0);
+}
+
+/*
+ * This is executed from be_promote_dependent_clones via zfs_iter_dependents,
+ * It checks if the dependent type is a snapshot then attempts to find any
+ * clones associated with it. Any clones not related to the destroy target are
+ * added to the promote list.
+ */
+static int
+be_dependent_clone_cb(zfs_handle_t *zfs_hdl, void *data)
+{
+	int err;
+	bool found;
+	char *name;
+	struct nvlist *nvl;
+	struct nvpair *nvp;
+	struct be_destroy_data *bdd;
+	struct promote_entry *entry, *newentry;
+
+	nvp = NULL;
+	err = 0;
+	bdd = (struct be_destroy_data *)data;
+
+	if (be_should_promote_clones(zfs_hdl, bdd) &&
+	    (nvl = zfs_get_clones_nvl(zfs_hdl)) != NULL) {
+		while ((nvp = nvlist_next_nvpair(nvl, nvp)) != NULL) {
+			name = nvpair_name(nvp);
+
+			/*
+			 * Skip if the clone is equal to, or a child of, the
+			 * destroy target.
+			 */
+			if (strncmp(name, bdd->target_name,
+			    strlen(bdd->target_name)) == 0 ||
+			    strstr(name, bdd->target_name) == name) {
+				continue;
+			}
+
+			found = false;
+			SLIST_FOREACH(entry, &bdd->promotelist, link) {
+				if (strcmp(entry->name, name) == 0) {
+					found = true;
+					break;
+				}
+			}
+
+			if (found)
+				continue;
+
+			newentry = malloc(sizeof(struct promote_entry));
+			if (newentry == NULL) {
+				err = ENOMEM;
+				break;
+			}
+
+#define	BE_COPY_NAME(entry, src)	\
+	strlcpy((entry)->name, (src), sizeof((entry)->name))
+			if (BE_COPY_NAME(newentry, name) >=
+			    sizeof(newentry->name)) {
+				/* Shouldn't happen. */
+				free(newentry);
+				err = ENAMETOOLONG;
+				break;
+			}
+#undef BE_COPY_NAME
+
+			/*
+			 * We're building up a SLIST here to make sure both that
+			 * we get the order right and so that we don't
+			 * inadvertently observe the wrong state by promoting
+			 * datasets while we're still walking the tree.  The
+			 * latter can lead to situations where we promote a BE
+			 * then effectively demote it again.
+			 */
+			SLIST_INSERT_HEAD(&bdd->promotelist, newentry, link);
+		}
+		nvlist_free(nvl);
+	}
+	zfs_close(zfs_hdl);
+	return (err);
+}
+
+/*
+ * This is called before a destroy, so that any datasets(environments) that are
+ * dependent on this one get promoted before destroying the target.
+ */
+static int
+be_promote_dependent_clones(zfs_handle_t *zfs_hdl, struct be_destroy_data *bdd)
+{
+	int err;
+	zfs_handle_t *clone;
+	struct promote_entry *entry;
+
+	snprintf(bdd->target_name, BE_MAXPATHLEN, "%s/", zfs_get_name(zfs_hdl));
+	err = zfs_iter_dependents(zfs_hdl, true, be_dependent_clone_cb, bdd);
+
+	/*
+	 * Drain the list and walk away from it if we're only deleting a
+	 * snapshot.
+	 */
+	if (bdd->snapname != NULL && !SLIST_EMPTY(&bdd->promotelist))
+		err = BE_ERR_HASCLONES;
+	while (!SLIST_EMPTY(&bdd->promotelist)) {
+		entry = SLIST_FIRST(&bdd->promotelist);
+		SLIST_REMOVE_HEAD(&bdd->promotelist, link);
+
+#define	ZFS_GRAB_CLONE()	\
+	zfs_open(bdd->lbh->lzh, entry->name, ZFS_TYPE_FILESYSTEM)
+		/*
+		 * Just skip this part on error, we still want to clean up the
+		 * promotion list after the first error.  We'll then preserve it
+		 * all the way back.
+		 */
+		if (err == 0 && (clone = ZFS_GRAB_CLONE()) != NULL) {
+			err = zfs_promote(clone);
+			if (err != 0)
+				err = BE_ERR_DESTROYMNT;
+			zfs_close(clone);
+		}
+#undef ZFS_GRAB_CLONE
+		free(entry);
+	}
+
+	return (err);
+}
+
 static int
 be_destroy_cb(zfs_handle_t *zfs_hdl, void *data)
 {
+	char path[BE_MAXPATHLEN];
+	struct be_destroy_data *bdd;
+	zfs_handle_t *snap;
 	int err;
 
-	if ((err = zfs_iter_children(zfs_hdl, be_destroy_cb, data)) != 0)
+	bdd = (struct be_destroy_data *)data;
+	if (bdd->snapname == NULL) {
+		err = zfs_iter_children(zfs_hdl, be_destroy_cb, data);
+		if (err != 0)
+			return (err);
+		return (zfs_destroy(zfs_hdl, false));
+	}
+	/* If we're dealing with snapshots instead, delete that one alone */
+	err = zfs_iter_filesystems(zfs_hdl, be_destroy_cb, data);
+	if (err != 0)
 		return (err);
-	if ((err = zfs_destroy(zfs_hdl, false)) != 0)
-		return (err);
+	/*
+	 * This part is intentionally glossing over any potential errors,
+	 * because there's a lot less potential for errors when we're cleaning
+	 * up snapshots rather than a full deep BE.  The primary error case
+	 * here being if the snapshot doesn't exist in the first place, which
+	 * the caller will likely deem insignificant as long as it doesn't
+	 * exist after the call.  Thus, such a missing snapshot shouldn't jam
+	 * up the destruction.
+	 */
+	snprintf(path, sizeof(path), "%s@%s", zfs_get_name(zfs_hdl),
+	    bdd->snapname);
+	if (!zfs_dataset_exists(bdd->lbh->lzh, path, ZFS_TYPE_SNAPSHOT))
+		return (0);
+	snap = zfs_open(bdd->lbh->lzh, path, ZFS_TYPE_SNAPSHOT);
+	if (snap != NULL)
+		zfs_destroy(snap, false);
 	return (0);
 }
 
+#define	BE_DESTROY_WANTORIGIN	(BE_DESTROY_ORIGIN | BE_DESTROY_AUTOORIGIN)
 /*
  * Destroy the boot environment or snapshot specified by the name
  * parameter. Options are or'd together with the possible values:
  * BE_DESTROY_FORCE : forces operation on mounted datasets
+ * BE_DESTROY_ORIGIN: destroy the origin snapshot as well
  */
-int
-be_destroy(libbe_handle_t *lbh, const char *name, int options)
+static int
+be_destroy_internal(libbe_handle_t *lbh, const char *name, int options,
+    bool odestroyer)
 {
+	struct be_destroy_data bdd;
+	char origin[BE_MAXPATHLEN], path[BE_MAXPATHLEN];
 	zfs_handle_t *fs;
-	char path[BE_MAXPATHLEN];
-	char *p;
+	char *snapdelim;
 	int err, force, mounted;
+	size_t rootlen;
 
-	p = path;
+	bdd.lbh = lbh;
+	bdd.snapname = NULL;
+	SLIST_INIT(&bdd.promotelist);
 	force = options & BE_DESTROY_FORCE;
+	*origin = '\0';
 
 	be_root_concat(lbh, name, path);
 
-	if (strchr(name, '@') == NULL) {
+	if ((snapdelim = strchr(path, '@')) == NULL) {
 		if (!zfs_dataset_exists(lbh->lzh, path, ZFS_TYPE_FILESYSTEM))
 			return (set_error(lbh, BE_ERR_NOENT));
 
-		if (strcmp(path, lbh->rootfs) == 0)
+		if (strcmp(path, lbh->rootfs) == 0 ||
+		    strcmp(path, lbh->bootfs) == 0)
 			return (set_error(lbh, BE_ERR_DESTROYACT));
 
-		fs = zfs_open(lbh->lzh, p, ZFS_TYPE_FILESYSTEM);
-	} else {
+		fs = zfs_open(lbh->lzh, path, ZFS_TYPE_FILESYSTEM);
+		if (fs == NULL)
+			return (set_error(lbh, BE_ERR_ZFSOPEN));
 
+		/* Don't destroy a mounted dataset unless force is specified */
+		if ((mounted = zfs_is_mounted(fs, NULL)) != 0) {
+			if (force) {
+				zfs_unmount(fs, NULL, 0);
+			} else {
+				free(bdd.snapname);
+				return (set_error(lbh, BE_ERR_DESTROYMNT));
+			}
+		}
+	} else {
+		/*
+		 * If we're initially destroying a snapshot, origin options do
+		 * not make sense.  If we're destroying the origin snapshot of
+		 * a BE, we want to maintain the options in case we need to
+		 * fake success after failing to promote.
+		 */
+		if (!odestroyer)
+			options &= ~BE_DESTROY_WANTORIGIN;
 		if (!zfs_dataset_exists(lbh->lzh, path, ZFS_TYPE_SNAPSHOT))
 			return (set_error(lbh, BE_ERR_NOENT));
 
-		fs = zfs_open(lbh->lzh, p, ZFS_TYPE_SNAPSHOT);
+		bdd.snapname = strdup(snapdelim + 1);
+		if (bdd.snapname == NULL)
+			return (set_error(lbh, BE_ERR_NOMEM));
+		*snapdelim = '\0';
+		fs = zfs_open(lbh->lzh, path, ZFS_TYPE_DATASET);
+		if (fs == NULL) {
+			free(bdd.snapname);
+			return (set_error(lbh, BE_ERR_ZFSOPEN));
+		}
 	}
 
-	if (fs == NULL)
-		return (set_error(lbh, BE_ERR_ZFSOPEN));
+	/*
+	 * Whether we're destroying a BE or a single snapshot, we need to walk
+	 * the tree of what we're going to destroy and promote everything in our
+	 * path so that we can make it happen.
+	 */
+	if ((err = be_promote_dependent_clones(fs, &bdd)) != 0) {
+		free(bdd.snapname);
 
-	/* Check if mounted, unmount if force is specified */
-	if ((mounted = zfs_is_mounted(fs, NULL)) != 0) {
-		if (force)
-			zfs_unmount(fs, NULL, 0);
-		else
-			return (set_error(lbh, BE_ERR_DESTROYMNT));
+		/*
+		 * If we're just destroying the origin of some other dataset
+		 * we were invoked to destroy, then we just ignore
+		 * BE_ERR_HASCLONES and return success unless the caller wanted
+		 * to force the issue.
+		 */
+		if (odestroyer && err == BE_ERR_HASCLONES &&
+		    (options & BE_DESTROY_AUTOORIGIN) != 0)
+			return (0);
+		return (set_error(lbh, err));
 	}
 
-	if ((err = be_destroy_cb(fs, NULL)) != 0) {
+	/*
+	 * This was deferred until after we promote all of the derivatives so
+	 * that we grab the new origin after everything's settled down.
+	 */
+	if ((options & BE_DESTROY_WANTORIGIN) != 0 &&
+	    zfs_prop_get(fs, ZFS_PROP_ORIGIN, origin, sizeof(origin),
+	    NULL, NULL, 0, 1) != 0 &&
+	    (options & BE_DESTROY_ORIGIN) != 0)
+		return (set_error(lbh, BE_ERR_NOORIGIN));
+
+	/*
+	 * If the caller wants auto-origin destruction and the origin
+	 * name matches one of our automatically created snapshot names
+	 * (i.e. strftime("%F-%T") with a serial at the end), then
+	 * we'll set the DESTROY_ORIGIN flag and nuke it
+	 * be_is_auto_snapshot_name is exported from libbe(3) so that
+	 * the caller can determine if it needs to warn about the origin
+	 * not being destroyed or not.
+	 */
+	if ((options & BE_DESTROY_AUTOORIGIN) != 0 && *origin != '\0' &&
+	    be_is_auto_snapshot_name(lbh, origin))
+		options |= BE_DESTROY_ORIGIN;
+
+	err = be_destroy_cb(fs, &bdd);
+	zfs_close(fs);
+	free(bdd.snapname);
+	if (err != 0) {
 		/* Children are still present or the mount is referenced */
 		if (err == EBUSY)
 			return (set_error(lbh, BE_ERR_DESTROYMNT));
 		return (set_error(lbh, BE_ERR_UNKNOWN));
 	}
 
-	return (0);
+	if ((options & BE_DESTROY_ORIGIN) == 0)
+		return (0);
+
+	/* The origin can't possibly be shorter than the BE root */
+	rootlen = strlen(lbh->root);
+	if (*origin == '\0' || strlen(origin) <= rootlen + 1)
+		return (set_error(lbh, BE_ERR_INVORIGIN));
+
+	/*
+	 * We'll be chopping off the BE root and running this back through
+	 * be_destroy, so that we properly handle the origin snapshot whether
+	 * it be that of a deep BE or not.
+	 */
+	if (strncmp(origin, lbh->root, rootlen) != 0 || origin[rootlen] != '/')
+		return (0);
+
+	return (be_destroy_internal(lbh, origin + rootlen + 1,
+	    options & ~BE_DESTROY_ORIGIN, true));
 }
 
+int
+be_destroy(libbe_handle_t *lbh, const char *name, int options)
+{
+
+	/*
+	 * The consumer must not set both BE_DESTROY_AUTOORIGIN and
+	 * BE_DESTROY_ORIGIN.  Internally, we'll set the latter from the former.
+	 * The latter should imply that we must succeed at destroying the
+	 * origin, or complain otherwise.
+	 */
+	if ((options & BE_DESTROY_WANTORIGIN) == BE_DESTROY_WANTORIGIN)
+		return (set_error(lbh, BE_ERR_UNKNOWN));
+	return (be_destroy_internal(lbh, name, options, false));
+}
+
+static void
+be_setup_snapshot_name(libbe_handle_t *lbh, char *buf, size_t buflen)
+{
+	time_t rawtime;
+	int len, serial;
+
+	time(&rawtime);
+	len = strlen(buf);
+	len += strftime(buf + len, buflen - len, "@%F-%T", localtime(&rawtime));
+	/* No room for serial... caller will do its best */
+	if (buflen - len < 2)
+		return;
+
+	for (serial = 0; serial < BE_SNAP_SERIAL_MAX; ++serial) {
+		snprintf(buf + len, buflen - len, "-%d", serial);
+		if (!zfs_dataset_exists(lbh->lzh, buf, ZFS_TYPE_SNAPSHOT))
+			return;
+	}
+}
+
+bool
+be_is_auto_snapshot_name(libbe_handle_t *lbh, const char *name)
+{
+	const char *snap;
+	int day, hour, minute, month, second, serial, year;
+
+	if ((snap = strchr(name, '@')) == NULL)
+		return (false);
+	++snap;
+	/* We'll grab the individual components and do some light validation. */
+	if (sscanf(snap, "%d-%d-%d-%d:%d:%d-%d", &year, &month, &day, &hour,
+	    &minute, &second, &serial) != 7)
+		return (false);
+	return (year >= 1970) && (month >= 1 && month <= 12) &&
+	    (day >= 1 && day <= 31) && (hour >= 0 && hour <= 23) &&
+	    (minute >= 0 && minute <= 59) && (second >= 0 && second <= 60) &&
+	    serial >= 0;
+}
 
 int
 be_snapshot(libbe_handle_t *lbh, const char *source, const char *snap_name,
     bool recursive, char *result)
 {
 	char buf[BE_MAXPATHLEN];
-	time_t rawtime;
-	int len, err;
+	int err;
 
 	be_root_concat(lbh, source, buf);
 
@@ -269,15 +604,12 @@ be_snapshot(libbe_handle_t *lbh, const char *source, const char *snap_name,
 			snprintf(result, BE_MAXPATHLEN, "%s@%s", source,
 			    snap_name);
 	} else {
-		time(&rawtime);
-		len = strlen(buf);
-		strftime(buf + len, sizeof(buf) - len,
-		    "@%F-%T", localtime(&rawtime));
+		be_setup_snapshot_name(lbh, buf, sizeof(buf));
+
 		if (result != NULL && strlcpy(result, strrchr(buf, '/') + 1,
 		    sizeof(buf)) >= sizeof(buf))
 			return (set_error(lbh, BE_ERR_INVALIDNAME));
 	}
-
 	if ((err = zfs_snapshot(lbh->lzh, buf, recursive, NULL)) != 0) {
 		switch (err) {
 		case EZFS_INVALIDNAME:
@@ -313,7 +645,6 @@ be_create(libbe_handle_t *lbh, const char *name)
 	return (set_error(lbh, err));
 }
 
-
 static int
 be_deep_clone_prop(int prop, void *cb)
 {
@@ -338,59 +669,96 @@ be_deep_clone_prop(int prop, void *cb)
 		/* Just continue if we fail to read a property */
 		return (ZPROP_CONT);
 
-	/* Only copy locally defined properties */
-	if (src != ZPROP_SRC_LOCAL)
+	/*
+	 * Only copy locally defined or received properties.  This continues
+	 * to avoid temporary/default/local properties intentionally without
+	 * breaking received datasets.
+	 */
+	if (src != ZPROP_SRC_LOCAL && src != ZPROP_SRC_RECEIVED)
 		return (ZPROP_CONT);
 
 	/* Augment mountpoint with altroot, if needed */
 	val = pval;
-	if (prop == ZFS_PROP_MOUNTPOINT && *dccb->altroot != '\0') {
-		if (pval[strlen(dccb->altroot)] == '\0')
-			strlcpy(pval, "/", sizeof(pval));
-		else
-			val = pval + strlen(dccb->altroot);
-	}
+	if (prop == ZFS_PROP_MOUNTPOINT)
+		val = be_mountpoint_augmented(dccb->lbh, val);
+
 	nvlist_add_string(dccb->props, zfs_prop_to_name(prop), val);
 
 	return (ZPROP_CONT);
 }
 
+/*
+ * Return the corresponding boot environment path for a given
+ * dataset path, the constructed path is placed in 'result'.
+ *
+ * example: say our new boot environment name is 'bootenv' and
+ *          the dataset path is 'zroot/ROOT/default/data/set'.
+ *
+ * result should produce: 'zroot/ROOT/bootenv/data/set'
+ */
 static int
-be_deep_clone(zfs_handle_t *ds, void *data)
+be_get_path(struct libbe_deep_clone *ldc, const char *dspath, char *result, int result_size)
+{
+	char *pos;
+	char *child_dataset;
+
+	/* match the root path for the boot environments */
+	pos = strstr(dspath, ldc->lbh->root);
+
+	/* no match, different pools? */
+	if (pos == NULL)
+		return (BE_ERR_BADPATH);
+
+	/* root path of the new boot environment */
+	snprintf(result, result_size, "%s/%s", ldc->lbh->root, ldc->bename);
+
+        /* gets us to the parent dataset, the +1 consumes a trailing slash */
+	pos += strlen(ldc->lbh->root) + 1;
+
+	/* skip the parent dataset */
+	if ((child_dataset = strchr(pos, '/')) != NULL)
+		strlcat(result, child_dataset, result_size);
+
+	return (BE_ERR_SUCCESS);
+}
+
+static int
+be_clone_cb(zfs_handle_t *ds, void *data)
 {
 	int err;
 	char be_path[BE_MAXPATHLEN];
 	char snap_path[BE_MAXPATHLEN];
 	const char *dspath;
-	char *dsname;
 	zfs_handle_t *snap_hdl;
 	nvlist_t *props;
-	struct libbe_deep_clone *isdc, sdc;
+	struct libbe_deep_clone *ldc;
 	struct libbe_dccb dccb;
 
-	isdc = (struct libbe_deep_clone *)data;
+	ldc = (struct libbe_deep_clone *)data;
 	dspath = zfs_get_name(ds);
-	if ((dsname = strrchr(dspath, '/')) == NULL)
-		return (BE_ERR_UNKNOWN);
-	dsname++;
 
-	if (isdc->bename == NULL)
-		snprintf(be_path, sizeof(be_path), "%s/%s", isdc->be_root, dsname);
-	else
-		snprintf(be_path, sizeof(be_path), "%s/%s", isdc->be_root, isdc->bename);
+	snprintf(snap_path, sizeof(snap_path), "%s@%s", dspath, ldc->snapname);
 
-	snprintf(snap_path, sizeof(snap_path), "%s@%s", dspath, isdc->snapname);
+	/* construct the boot environment path from the dataset we're cloning */
+	if (be_get_path(ldc, dspath, be_path, sizeof(be_path)) != BE_ERR_SUCCESS)
+		return (set_error(ldc->lbh, BE_ERR_UNKNOWN));
 
-	if (zfs_dataset_exists(isdc->lbh->lzh, be_path, ZFS_TYPE_DATASET))
-		return (set_error(isdc->lbh, BE_ERR_EXISTS));
+	/* the dataset to be created (i.e. the boot environment) already exists */
+	if (zfs_dataset_exists(ldc->lbh->lzh, be_path, ZFS_TYPE_DATASET))
+		return (set_error(ldc->lbh, BE_ERR_EXISTS));
+
+	/* no snapshot found for this dataset, silently skip it */
+	if (!zfs_dataset_exists(ldc->lbh->lzh, snap_path, ZFS_TYPE_SNAPSHOT))
+		return (0);
 
 	if ((snap_hdl =
-	    zfs_open(isdc->lbh->lzh, snap_path, ZFS_TYPE_SNAPSHOT)) == NULL)
-		return (set_error(isdc->lbh, BE_ERR_ZFSOPEN));
+	    zfs_open(ldc->lbh->lzh, snap_path, ZFS_TYPE_SNAPSHOT)) == NULL)
+		return (set_error(ldc->lbh, BE_ERR_ZFSOPEN));
 
 	nvlist_alloc(&props, NV_UNIQUE_NAME, KM_SLEEP);
 	nvlist_add_string(props, "canmount", "noauto");
 
+	dccb.lbh = ldc->lbh;
 	dccb.zhp = ds;
 	dccb.props = props;
 	if (zpool_get_prop(isdc->lbh->active_phandle, ZPOOL_PROP_ALTROOT,
@@ -402,58 +770,55 @@ be_deep_clone(zfs_handle_t *ds, void *data)
 		return (-1);
 
 	if ((err = zfs_clone(snap_hdl, be_path, props)) != 0)
-		err = BE_ERR_ZFSCLONE;
+		return (set_error(ldc->lbh, BE_ERR_ZFSCLONE));
 
 	nvlist_free(props);
 	zfs_close(snap_hdl);
 
-	/* Failed to clone */
-	if (err != BE_ERR_SUCCESS)
-		return (set_error(isdc->lbh, err));
+	if (ldc->depth_limit == -1 || ldc->depth < ldc->depth_limit) {
+		ldc->depth++;
+		err = zfs_iter_filesystems(ds, be_clone_cb, ldc);
+		ldc->depth--;
+	}
 
-	sdc.lbh = isdc->lbh;
-	sdc.bename = NULL;
-	sdc.snapname = isdc->snapname;
-	sdc.be_root = (char *)&be_path;
-
-	err = zfs_iter_filesystems(ds, be_deep_clone, &sdc);
-
-	return (err);
+	return (set_error(ldc->lbh, err));
 }
 
 /*
- * Create the boot environment from pre-existing snapshot
- */
-int
-be_create_from_existing_snap(libbe_handle_t *lbh, const char *name,
-    const char *snap)
+ * Create a boot environment with a given name from a given snapshot.
+ * Snapshots can be in the format 'zroot/ROOT/default@snapshot' or
+ * 'default@snapshot'. In the latter case, 'default@snapshot' will be prepended
+ * with the root path that libbe was initailized with.
+*/
+static int
+be_clone(libbe_handle_t *lbh, const char *bename, const char *snapshot, int depth)
 {
 	int err;
-	char be_path[BE_MAXPATHLEN];
 	char snap_path[BE_MAXPATHLEN];
-	const char *bename;
 	char *parentname, *snapname;
 	zfs_handle_t *parent_hdl;
-	struct libbe_deep_clone sdc;
+	struct libbe_deep_clone ldc;
 
-	if ((err = be_validate_name(lbh, name)) != 0)
+        /* ensure the boot environment name is valid */
+	if ((err = be_validate_name(lbh, bename)) != 0)
 		return (set_error(lbh, err));
-	if ((err = be_root_concat(lbh, snap, snap_path)) != 0)
+
+	/*
+	 * prepend the boot environment root path if we're
+	 * given a partial snapshot name.
+	 */
+	if ((err = be_root_concat(lbh, snapshot, snap_path)) != 0)
 		return (set_error(lbh, err));
+
+	/* ensure the snapshot exists */
 	if ((err = be_validate_snap(lbh, snap_path)) != 0)
 		return (set_error(lbh, err));
 
-	if ((err = be_root_concat(lbh, name, be_path)) != 0)
-		return (set_error(lbh, err));
-
-	if ((bename = strrchr(name, '/')) == NULL)
-		bename = name;
-	else
-		bename++;
-
+        /* get a copy of the snapshot path so we can disect it */
 	if ((parentname = strdup(snap_path)) == NULL)
 		return (set_error(lbh, BE_ERR_UNKNOWN));
 
+        /* split dataset name from snapshot name */
 	snapname = strchr(parentname, '@');
 	if (snapname == NULL) {
 		free(parentname);
@@ -462,16 +827,40 @@ be_create_from_existing_snap(libbe_handle_t *lbh, const char *name,
 	*snapname = '\0';
 	snapname++;
 
-	sdc.lbh = lbh;
-	sdc.bename = bename;
-	sdc.snapname = snapname;
-	sdc.be_root = lbh->root;
+        /* set-up the boot environment */
+        ldc.lbh = lbh;
+        ldc.bename = bename;
+        ldc.snapname = snapname;
+	ldc.depth = 0;
+	ldc.depth_limit = depth;
 
+        /* the boot environment will be cloned from this dataset */
 	parent_hdl = zfs_open(lbh->lzh, parentname, ZFS_TYPE_DATASET);
-	err = be_deep_clone(parent_hdl, &sdc);
+
+        /* create the boot environment */
+	err = be_clone_cb(parent_hdl, &ldc);
 
 	free(parentname);
 	return (set_error(lbh, err));
+}
+
+/*
+ * Create a boot environment from pre-existing snapshot, specifying a depth.
+ */
+int be_create_depth(libbe_handle_t *lbh, const char *bename,
+		    const char *snap, int depth)
+{
+	return (be_clone(lbh, bename, snap, depth));
+}
+
+/*
+ * Create the boot environment from pre-existing snapshot
+ */
+int
+be_create_from_existing_snap(libbe_handle_t *lbh, const char *bename,
+    const char *snap)
+{
+	return (be_clone(lbh, bename, snap, -1));
 }
 
 
@@ -479,15 +868,15 @@ be_create_from_existing_snap(libbe_handle_t *lbh, const char *name,
  * Create a boot environment from an existing boot environment
  */
 int
-be_create_from_existing(libbe_handle_t *lbh, const char *name, const char *old)
+be_create_from_existing(libbe_handle_t *lbh, const char *bename, const char *old)
 {
 	int err;
-	char buf[BE_MAXPATHLEN];
+	char snap[BE_MAXPATHLEN];
 
-	if ((err = be_snapshot(lbh, old, NULL, true, (char *)&buf)) != 0)
+	if ((err = be_snapshot(lbh, old, NULL, true, snap)) != 0)
 		return (set_error(lbh, err));
 
-	err = be_create_from_existing_snap(lbh, name, (char *)buf);
+        err = be_clone(lbh, bename, snap, -1);
 
 	return (set_error(lbh, err));
 }
@@ -504,6 +893,9 @@ be_validate_snap(libbe_handle_t *lbh, const char *snap_name)
 
 	if (strlen(snap_name) >= BE_MAXPATHLEN)
 		return (BE_ERR_PATHLEN);
+
+	if (!zfs_name_valid(snap_name, ZFS_TYPE_SNAPSHOT))
+		return (BE_ERR_INVALIDNAME);
 
 	if (!zfs_dataset_exists(lbh->lzh, snap_name,
 	    ZFS_TYPE_SNAPSHOT))
@@ -558,12 +950,6 @@ be_root_concat(libbe_handle_t *lbh, const char *name, char *result)
 int
 be_validate_name(libbe_handle_t *lbh, const char *name)
 {
-	for (int i = 0; *name; i++) {
-		char c = *(name++);
-		if (isalnum(c) || (c == '-') || (c == '_') || (c == '.'))
-			continue;
-		return (BE_ERR_INVALIDNAME);
-	}
 
 	/*
 	 * Impose the additional restriction that the entire dataset name must
@@ -571,6 +957,10 @@ be_validate_name(libbe_handle_t *lbh, const char *name)
 	 */
 	if (strlen(lbh->root) + 1 + strlen(name) > MAXNAMELEN)
 		return (BE_ERR_PATHLEN);
+
+	if (!zfs_name_valid(name, ZFS_TYPE_DATASET))
+		return (BE_ERR_INVALIDNAME);
+
 	return (BE_ERR_SUCCESS);
 }
 
@@ -627,6 +1017,7 @@ be_export(libbe_handle_t *lbh, const char *bootenv, int fd)
 	char snap_name[BE_MAXPATHLEN];
 	char buf[BE_MAXPATHLEN];
 	zfs_handle_t *zfs;
+	sendflags_t flags = { 0 };
 	int err;
 
 	if ((err = be_snapshot(lbh, bootenv, NULL, true, snap_name)) != 0)
@@ -638,7 +1029,7 @@ be_export(libbe_handle_t *lbh, const char *bootenv, int fd)
 	if ((zfs = zfs_open(lbh->lzh, buf, ZFS_TYPE_DATASET)) == NULL)
 		return (set_error(lbh, BE_ERR_ZFSOPEN));
 
-	err = zfs_send_one(zfs, NULL, fd, 0);
+	err = zfs_send_one(zfs, NULL, fd, flags);
 	zfs_close(zfs);
 
 	return (err);
@@ -649,32 +1040,14 @@ int
 be_import(libbe_handle_t *lbh, const char *bootenv, int fd)
 {
 	char buf[BE_MAXPATHLEN];
-	time_t rawtime;
 	nvlist_t *props;
 	zfs_handle_t *zfs;
-	int err, len;
-	char nbuf[24];
+	recvflags_t flags = { .nomount = 1 };
+	int err;
 
-	/*
-	 * We don't need this to be incredibly random, just unique enough that
-	 * it won't conflict with an existing dataset name.  Chopping time
-	 * down to 32 bits is probably good enough for this.
-	 */
-	snprintf(nbuf, 24, "tmp%u",
-	    (uint32_t)(time(NULL) & 0xFFFFFFFF));
-	if ((err = be_root_concat(lbh, nbuf, buf)) != 0)
-		/*
-		 * Technically this is our problem, but we try to use short
-		 * enough names that we won't run into problems except in
-		 * worst-case BE root approaching MAXPATHLEN.
-		 */
-		return (set_error(lbh, BE_ERR_PATHLEN));
+	be_root_concat(lbh, bootenv, buf);
 
-	time(&rawtime);
-	len = strlen(buf);
-	strftime(buf + len, sizeof(buf) - len, "@%F-%T", localtime(&rawtime));
-
-	if ((err = lzc_receive(buf, NULL, NULL, false, fd)) != 0) {
+	if ((err = zfs_receive(lbh->lzh, buf, NULL, &flags, fd, NULL)) != 0) {
 		switch (err) {
 		case EINVAL:
 			return (set_error(lbh, BE_ERR_NOORIGIN));
@@ -687,39 +1060,22 @@ be_import(libbe_handle_t *lbh, const char *bootenv, int fd)
 		}
 	}
 
-	if ((zfs = zfs_open(lbh->lzh, buf, ZFS_TYPE_SNAPSHOT)) == NULL)
+	if ((zfs = zfs_open(lbh->lzh, buf, ZFS_TYPE_FILESYSTEM)) == NULL)
 		return (set_error(lbh, BE_ERR_ZFSOPEN));
 
 	nvlist_alloc(&props, NV_UNIQUE_NAME, KM_SLEEP);
 	nvlist_add_string(props, "canmount", "noauto");
-	nvlist_add_string(props, "mountpoint", "/");
+	nvlist_add_string(props, "mountpoint", "none");
 
-	be_root_concat(lbh, bootenv, buf);
-
-	err = zfs_clone(zfs, buf, props);
-	zfs_close(zfs);
+	err = zfs_prop_set_list(zfs, props);
 	nvlist_free(props);
 
-	if (err != 0)
-		return (set_error(lbh, BE_ERR_UNKNOWN));
-
-	/*
-	 * Finally, we open up the dataset we just cloned the snapshot so that
-	 * we may promote it.  This is necessary in order to clean up the ghost
-	 * snapshot that doesn't need to be seen after the operation is
-	 * complete.
-	 */
-	if ((zfs = zfs_open(lbh->lzh, buf, ZFS_TYPE_DATASET)) == NULL)
-		return (set_error(lbh, BE_ERR_ZFSOPEN));
-
-	err = zfs_promote(zfs);
 	zfs_close(zfs);
 
 	if (err != 0)
 		return (set_error(lbh, BE_ERR_UNKNOWN));
 
-	/* Clean up the temporary snapshot */
-	return (be_destroy(lbh, nbuf, 0));
+	return (0);
 }
 
 #if SOON

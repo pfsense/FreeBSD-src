@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -255,6 +255,14 @@ main (
         }
     }
 
+    /* ACPICA subsystem initialization */
+
+    Status = AdInitialize ();
+    if (ACPI_FAILURE (Status))
+    {
+        return (Status);
+    }
+
 
     /* Process each pathname/filename in the list, with possible wildcards */
 
@@ -274,10 +282,59 @@ main (
         if (ACPI_FAILURE (Status))
         {
             ReturnStatus = -1;
-            goto CleanupAndExit;
         }
 
         Index2++;
+    }
+
+    /*
+     * At this point, compilation of a data table or disassembly is complete.
+     * However, if there is a parse tree, perform compiler analysis and
+     * generate AML.
+     */
+    if (AslGbl_PreprocessOnly || AcpiGbl_DisasmFlag || !AslGbl_ParseTreeRoot)
+    {
+        goto CleanupAndExit;
+    }
+
+    CmDoAslMiddleAndBackEnd ();
+
+    /*
+     * At this point, all semantic analysis has been completed. Check
+     * expected error messages before cleanup or conversion.
+     */
+    AslCheckExpectedExceptions ();
+
+    /* ASL-to-ASL+ conversion - Perform immediate disassembly */
+
+    if (AslGbl_DoAslConversion)
+    {
+        /* re-initialize ACPICA subsystem for disassembler */
+
+        Status = AdInitialize ();
+        if (ACPI_FAILURE (Status))
+        {
+            return (Status);
+        }
+
+        /*
+         * New input file is the output AML file from above.
+         * New output is from the input ASL file from above.
+         */
+        AslGbl_OutputFilenamePrefix = AslGbl_Files[ASL_FILE_INPUT].Filename;
+        AslGbl_Files[ASL_FILE_INPUT].Filename =
+            AslGbl_Files[ASL_FILE_AML_OUTPUT].Filename;
+
+        CvDbgPrint ("Output filename: %s\n", AslGbl_OutputFilenamePrefix);
+        fprintf (stderr, "\n");
+
+        AcpiGbl_DisasmFlag = TRUE;
+        AslDoDisassembly ();
+        AcpiGbl_DisasmFlag = FALSE;
+
+        /* delete the AML file. This AML file should never be utilized by AML interpreters. */
+
+        FlDeleteFile (ASL_FILE_AML_OUTPUT);
     }
 
 
@@ -285,11 +342,16 @@ CleanupAndExit:
 
     UtFreeLineBuffers ();
     AslParserCleanup ();
+    AcpiDmClearExternalFileList();
+    (void) AcpiTerminate ();
 
-    if (AcpiGbl_ExternalFileList)
+    /* CmCleanupAndExit is intended for the compiler only */
+
+    if (!AcpiGbl_DisasmFlag)
     {
-        AcpiDmClearExternalFileList();
+        ReturnStatus = CmCleanupAndExit ();
     }
+
 
     return (ReturnStatus);
 }
@@ -329,7 +391,7 @@ AslSignalHandler (
 
     default:
 
-        printf (ASL_PREFIX "Unknown interrupt signal (%u)\n", Sig);
+        printf (ASL_PREFIX "Unknown interrupt signal (%d)\n", Sig);
         break;
     }
 
@@ -337,18 +399,21 @@ AslSignalHandler (
      * Close all open files
      * Note: the .pre file is the same as the input source file
      */
-    AslGbl_Files[ASL_FILE_PREPROCESSOR].Handle = NULL;
-
-    for (i = ASL_FILE_INPUT; i < ASL_MAX_FILE_TYPE; i++)
+    if (AslGbl_Files)
     {
-        FlCloseFile (i);
-    }
+        AslGbl_Files[ASL_FILE_PREPROCESSOR].Handle = NULL;
 
-    /* Delete any output files */
+        for (i = ASL_FILE_INPUT; i < ASL_MAX_FILE_TYPE; i++)
+        {
+            FlCloseFile (i);
+        }
 
-    for (i = ASL_FILE_AML_OUTPUT; i < ASL_MAX_FILE_TYPE; i++)
-    {
-        FlDeleteFile (i);
+        /* Delete any output files */
+
+        for (i = ASL_FILE_AML_OUTPUT; i < ASL_MAX_FILE_TYPE; i++)
+        {
+            FlDeleteFile (i);
+        }
     }
 
     printf (ASL_PREFIX "Terminating\n");
@@ -372,9 +437,6 @@ static void
 AslInitialize (
     void)
 {
-    UINT32                  i;
-
-
     AcpiGbl_DmOpt_Verbose = FALSE;
 
     /* Default integer width is 32 bits */
@@ -382,16 +444,4 @@ AslInitialize (
     AcpiGbl_IntegerBitWidth = 32;
     AcpiGbl_IntegerNybbleWidth = 8;
     AcpiGbl_IntegerByteWidth = 4;
-
-    for (i = 0; i < ASL_NUM_FILES; i++)
-    {
-        AslGbl_Files[i].Handle = NULL;
-        AslGbl_Files[i].Filename = NULL;
-    }
-
-    AslGbl_Files[ASL_FILE_STDOUT].Handle   = stdout;
-    AslGbl_Files[ASL_FILE_STDOUT].Filename = "STDOUT";
-
-    AslGbl_Files[ASL_FILE_STDERR].Handle   = stderr;
-    AslGbl_Files[ASL_FILE_STDERR].Filename = "STDERR";
 }

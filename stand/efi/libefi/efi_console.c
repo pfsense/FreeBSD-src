@@ -32,8 +32,10 @@ __FBSDID("$FreeBSD$");
 
 #include "bootstrap.h"
 
+static EFI_GUID simple_input_ex_guid = EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL_GUID;
 static SIMPLE_TEXT_OUTPUT_INTERFACE	*conout;
 static SIMPLE_INPUT_INTERFACE		*conin;
+static EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *coninex;
 
 #ifdef TERM_EMU
 #define	DEFAULT_FGCOLOR	EFI_LIGHTGRAY
@@ -51,7 +53,8 @@ void HO(void);
 void end_term(void);
 #endif
 
-static EFI_INPUT_KEY key_cur;
+#define	KEYBUFSZ 10
+static unsigned keybuf[KEYBUFSZ];	/* keybuf for extended codes */
 static int key_pending;
 
 static void efi_cons_probe(struct console *);
@@ -114,6 +117,8 @@ efi_cons_probe(struct console *cp)
 static int
 efi_cons_init(int arg)
 {
+	EFI_STATUS status;
+
 #ifdef TERM_EMU
 	conout->SetAttribute(conout, EFI_TEXT_ATTR(DEFAULT_FGCOLOR,
 	    DEFAULT_BGCOLOR));
@@ -124,7 +129,11 @@ efi_cons_init(int arg)
 	bg_c = DEFAULT_BGCOLOR;
 #endif
 	conout->EnableCursor(conout, TRUE);
-	return 0;
+	status = BS->OpenProtocol(ST->ConsoleInHandle, &simple_input_ex_guid,
+	    (void **)&coninex, IH, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+	if (status != EFI_SUCCESS)
+		coninex = NULL;
+	return (0);
 }
 
 static void
@@ -134,11 +143,13 @@ efi_cons_rawputchar(int c)
 	UINTN x, y;
 	conout->QueryMode(conout, conout->Mode->Mode, &x, &y);
 
-	if (c == '\t')
-		/* XXX lame tab expansion */
-		for (i = 0; i < 8; i++)
+	if (c == '\t') {
+		int n;
+
+		n = 8 - ((conout->Mode->CursorColumn + 8) % 8);
+		for (i = 0; i < n; i++)
 			efi_cons_rawputchar(' ');
-	else {
+	} else {
 #ifndef	TERM_EMU
 		if (c == '\n')
 			efi_cons_efiputchar('\r');
@@ -438,55 +449,179 @@ efi_cons_putchar(int c)
 #endif
 }
 
-int
-efi_cons_getchar()
+static int
+keybuf_getchar(void)
 {
-	EFI_INPUT_KEY key;
-	EFI_STATUS status;
-	UINTN junk;
+	int i, c = 0;
 
-	if (key_pending) {
-		key = key_cur;
-		key_pending = 0;
-	} else {
-		/* Try to read a key stroke. We wait for one if none is pending. */
-		status = conin->ReadKeyStroke(conin, &key);
-		while (status == EFI_NOT_READY) {
-			/* Some EFI implementation (u-boot for example) do not support WaitForKey */
-			if (conin->WaitForKey != NULL)
-				BS->WaitForEvent(1, &conin->WaitForKey, &junk);
-			status = conin->ReadKeyStroke(conin, &key);
+	for (i = 0; i < KEYBUFSZ; i++) {
+		if (keybuf[i] != 0) {
+			c = keybuf[i];
+			keybuf[i] = 0;
+			break;
 		}
 	}
 
-	switch (key.ScanCode) {
-	case 0x17: /* ESC */
-		return (0x1b);  /* esc */
-	}
+	return (c);
+}
 
-	/* this can return  */
-	return (key.UnicodeChar);
+static bool
+keybuf_ischar(void)
+{
+	int i;
+
+	for (i = 0; i < KEYBUFSZ; i++) {
+		if (keybuf[i] != 0)
+			return (true);
+	}
+	return (false);
+}
+
+/*
+ * We are not reading input before keybuf is empty, so we are safe
+ * just to fill keybuf from the beginning.
+ */
+static void
+keybuf_inschar(EFI_INPUT_KEY *key)
+{
+
+	switch (key->ScanCode) {
+	case SCAN_UP: /* UP */
+		keybuf[0] = 0x1b;	/* esc */
+		keybuf[1] = '[';
+		keybuf[2] = 'A';
+		break;
+	case SCAN_DOWN: /* DOWN */
+		keybuf[0] = 0x1b;	/* esc */
+		keybuf[1] = '[';
+		keybuf[2] = 'B';
+		break;
+	case SCAN_RIGHT: /* RIGHT */
+		keybuf[0] = 0x1b;	/* esc */
+		keybuf[1] = '[';
+		keybuf[2] = 'C';
+		break;
+	case SCAN_LEFT: /* LEFT */
+		keybuf[0] = 0x1b;	/* esc */
+		keybuf[1] = '[';
+		keybuf[2] = 'D';
+		break;
+	case SCAN_DELETE:
+		keybuf[0] = CHAR_BACKSPACE;
+		break;
+	case SCAN_ESC:
+		keybuf[0] = 0x1b;	/* esc */
+		break;
+	default:
+		keybuf[0] = key->UnicodeChar;
+		break;
+	}
+}
+
+static bool
+efi_readkey(void)
+{
+	EFI_STATUS status;
+	EFI_INPUT_KEY key;
+
+	status = conin->ReadKeyStroke(conin, &key);
+	if (status == EFI_SUCCESS) {
+		keybuf_inschar(&key);
+		return (true);
+	}
+	return (false);
+}
+
+static bool
+efi_readkey_ex(void)
+{
+	EFI_STATUS status;
+	EFI_INPUT_KEY *kp;
+	EFI_KEY_DATA  key_data;
+	uint32_t kss;
+
+	status = coninex->ReadKeyStrokeEx(coninex, &key_data);
+	if (status == EFI_SUCCESS) {
+		kss = key_data.KeyState.KeyShiftState;
+		kp = &key_data.Key;
+		if (kss & EFI_SHIFT_STATE_VALID) {
+
+			/*
+			 * quick mapping to control chars, replace with
+			 * map lookup later.
+			 */
+			if (kss & EFI_RIGHT_CONTROL_PRESSED ||
+			    kss & EFI_LEFT_CONTROL_PRESSED) {
+				if (kp->UnicodeChar >= 'a' &&
+				    kp->UnicodeChar <= 'z') {
+					kp->UnicodeChar -= 'a';
+					kp->UnicodeChar++;
+				}
+			}
+		}
+		/*
+		 * The shift state and/or toggle state may not be valid,
+		 * but we still can have ScanCode or UnicodeChar.
+		 */
+		if (kp->ScanCode == 0 && kp->UnicodeChar == 0)
+			return (false);
+		keybuf_inschar(kp);
+		return (true);
+	}
+	return (false);
 }
 
 int
-efi_cons_poll()
+efi_cons_getchar(void)
 {
-	EFI_INPUT_KEY key;
-	EFI_STATUS status;
+	int c;
 
-	if (conin->WaitForKey == NULL) {
-		if (key_pending)
-			return (1);
-		status = conin->ReadKeyStroke(conin, &key);
-		if (status == EFI_SUCCESS) {
-			key_cur = key;
-			key_pending = 1;
-		}
-		return (key_pending);
+	if ((c = keybuf_getchar()) != 0)
+		return (c);
+
+	key_pending = 0;
+
+	if (coninex == NULL) {
+		if (efi_readkey())
+			return (keybuf_getchar());
+	} else {
+		if (efi_readkey_ex())
+			return (keybuf_getchar());
 	}
 
-	/* This can clear the signaled state. */
-	return (BS->CheckEvent(conin->WaitForKey) == EFI_SUCCESS);
+	return (-1);
+}
+
+int
+efi_cons_poll(void)
+{
+	EFI_STATUS status;
+
+	if (keybuf_ischar() || key_pending)
+		return (1);
+
+	/*
+	 * Some EFI implementation (u-boot for example) do not support
+	 * WaitForKey().
+	 * CheckEvent() can clear the signaled state.
+	 */
+	if (coninex != NULL) {
+		if (coninex->WaitForKeyEx == NULL) {
+			key_pending = efi_readkey_ex();
+		} else {
+			status = BS->CheckEvent(coninex->WaitForKeyEx);
+			key_pending = status == EFI_SUCCESS;
+		}
+	} else {
+		if (conin->WaitForKey == NULL) {
+			key_pending = efi_readkey();
+		} else {
+			status = BS->CheckEvent(conin->WaitForKey);
+			key_pending = status == EFI_SUCCESS;
+		}
+	}
+
+	return (key_pending);
 }
 
 /* Plain direct access to EFI OutputString(). */

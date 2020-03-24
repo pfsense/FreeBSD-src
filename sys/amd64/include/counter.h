@@ -33,9 +33,7 @@
 
 #include <sys/pcpu.h>
 
-extern struct pcpu __pcpu[];
-
-#define	EARLY_COUNTER	&__pcpu[0].pc_early_dummy_counter
+#define	EARLY_COUNTER	&temp_bsp_pcpu.pc_early_dummy_counter
 
 #define	counter_enter()	do {} while (0)
 #define	counter_exit()	do {} while (0)
@@ -84,6 +82,7 @@ static inline void
 counter_u64_add(counter_u64_t c, int64_t inc)
 {
 
+	KASSERT(IS_BSP() || c != EARLY_COUNTER, ("EARLY_COUNTER used on AP"));
 	__asm __volatile("addq\t%1,%%gs:(%0)"
 	    :
 	    : "r" ((char *)c - (char *)&__pcpu[0]), "ri" (inc)

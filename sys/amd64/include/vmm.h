@@ -186,6 +186,7 @@ int vm_create(const char *name, struct vm **retvm);
 void vm_destroy(struct vm *vm);
 int vm_reinit(struct vm *vm);
 const char *vm_name(struct vm *vm);
+uint16_t vm_get_maxcpus(struct vm *vm);
 void vm_get_topology(struct vm *vm, uint16_t *sockets, uint16_t *cores,
     uint16_t *threads, uint16_t *maxcpus);
 int vm_set_topology(struct vm *vm, uint16_t sockets, uint16_t cores,
@@ -266,7 +267,7 @@ void vm_exit_reqidle(struct vm *vm, int vcpuid, uint64_t rip);
  * forward progress when the rendezvous is in progress.
  */
 typedef void (*vm_rendezvous_func_t)(struct vm *vm, int vcpuid, void *arg);
-void vm_smp_rendezvous(struct vm *vm, int vcpuid, cpuset_t dest,
+int vm_smp_rendezvous(struct vm *vm, int vcpuid, cpuset_t dest,
     vm_rendezvous_func_t func, void *arg);
 cpuset_t vm_active_cpus(struct vm *vm);
 cpuset_t vm_debug_cpus(struct vm *vm);
@@ -297,12 +298,12 @@ vcpu_reqidle(struct vm_eventinfo *info)
 int vcpu_debugged(struct vm *vm, int vcpuid);
 
 /*
- * Return 1 if device indicated by bus/slot/func is supposed to be a
+ * Return true if device indicated by bus/slot/func is supposed to be a
  * pci passthrough device.
  *
- * Return 0 otherwise.
+ * Return false otherwise.
  */
-int vmm_is_pptdev(int bus, int slot, int func);
+bool vmm_is_pptdev(int bus, int slot, int func);
 
 void *vm_iommu_domain(struct vm *vm);
 

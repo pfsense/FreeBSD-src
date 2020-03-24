@@ -88,6 +88,7 @@ static void	 do_mount_md(const char *, const char *);
 static void	 do_mount_tmpfs(const char *, const char *);
 static void	 do_mtptsetup(const char *, struct mtpt_info *);
 static void	 do_newfs(const char *);
+static void	 do_copy(const char *, const char *);
 static void	 extract_ugid(const char *, struct mtpt_info *);
 static int	 run(int *, const char *, ...) __printflike(2, 3);
 static void	 usage(void);
@@ -102,7 +103,7 @@ main(int argc, char **argv)
 	enum md_types mdtype;		/* The type of our memory disk. */
 	bool have_mdtype, mlmac;
 	bool detach, softdep, autounit, newfs;
-	const char *mtpoint, *size_arg, *unitstr;
+	const char *mtpoint, *size_arg, *skel, *unitstr;
 	char *p;
 	int ch, idx;
 	void *set;
@@ -116,6 +117,7 @@ main(int argc, char **argv)
 	mlmac = false;
 	newfs = true;
 	have_mdtype = false;
+	skel = NULL;
 	mdtype = MD_SWAP;
 	mdname = MD_NAME;
 	mdnamelen = strlen(mdname);
@@ -140,7 +142,7 @@ main(int argc, char **argv)
 	}
 
 	while ((ch = getopt(argc, argv,
-	    "a:b:Cc:Dd:E:e:F:f:hi:LlMm:NnO:o:Pp:Ss:tT:Uv:w:X")) != -1)
+	    "a:b:Cc:Dd:E:e:F:f:hi:k:LlMm:NnO:o:Pp:Ss:tT:Uv:w:X")) != -1)
 		switch (ch) {
 		case 'a':
 			argappend(&newfs_arg, "-a %s", optarg);
@@ -182,6 +184,9 @@ main(int argc, char **argv)
 		case 'i':
 			argappend(&newfs_arg, "-i %s", optarg);
 			break;
+		case 'k':
+			skel = optarg;
+			break;
 		case 'L':
 			loudsubs = true;
 			break;
@@ -194,6 +199,7 @@ main(int argc, char **argv)
 				usage();
 			mdtype = MD_MALLOC;
 			have_mdtype = true;
+			argappend(&mdconfig_arg, "-o reserve");
 			break;
 		case 'm':
 			argappend(&newfs_arg, "-m %s", optarg);
@@ -356,6 +362,8 @@ main(int argc, char **argv)
 	}
 
 	do_mtptsetup(mtpoint, &mi);
+	if (skel != NULL)
+		do_copy(mtpoint, skel);
 
 	return (0);
 }
@@ -441,7 +449,8 @@ static void
 do_mdconfig_attach_au(const char *args, const enum md_types mdtype)
 {
 	const char *ta;		/* Type arg. */
-	char *linep, *linebuf; 	/* Line pointer, line buffer. */
+	char *linep;
+	char linebuf[12];	/* 32-bit unit (10) + '\n' (1) + '\0' (1) */
 	int fd;			/* Standard output of mdconfig invocation. */
 	FILE *sfd;
 	int rv;
@@ -475,14 +484,15 @@ do_mdconfig_attach_au(const char *args, const enum md_types mdtype)
 	if (sfd == NULL)
 		err(1, "fdopen");
 	linep = fgetln(sfd, &linelen);
-	if (linep == NULL && linelen < mdnamelen + 1)
-		errx(1, "unexpected output from mdconfig (attach)");
 	/* If the output format changes, we want to know about it. */
-	assert(strncmp(linep, mdname, mdnamelen) == 0);
-	linebuf = malloc(linelen - mdnamelen + 1);
-	assert(linebuf != NULL);
+	if (linep == NULL || linelen <= mdnamelen + 1 ||
+	    linelen - mdnamelen >= sizeof(linebuf) ||
+	    strncmp(linep, mdname, mdnamelen) != 0)
+		errx(1, "unexpected output from mdconfig (attach)");
+	linep += mdnamelen;
+	linelen -= mdnamelen;
 	/* Can't use strlcpy because linep is not NULL-terminated. */
-	strncpy(linebuf, linep + mdnamelen, linelen);
+	strncpy(linebuf, linep, linelen);
 	linebuf[linelen] = '\0';
 	ul = strtoul(linebuf, &p, 10);
 	if (ul == ULONG_MAX || *p != '\n')
@@ -490,7 +500,6 @@ do_mdconfig_attach_au(const char *args, const enum md_types mdtype)
 	unit = ul;
 
 	fclose(sfd);
-	close(fd);
 }
 
 /*
@@ -604,6 +613,23 @@ do_newfs(const char *args)
 	rv = run(NULL, "%s%s /dev/%s%d", _PATH_NEWFS, args, mdname, unit);
 	if (rv)
 		errx(1, "newfs exited with error code %d", rv);
+}
+
+
+/*
+ * Copy skel into the mountpoint.
+ */
+static void
+do_copy(const char *mtpoint, const char *skel)
+{
+	int rv;
+
+	rv = chdir(skel);
+	if (rv != 0)
+		err(1, "chdir to %s", skel);
+	rv = run(NULL, "/bin/pax -rw -pe . %s", mtpoint);
+	if (rv != 0)
+		errx(1, "skel copy failed");
 }
 
 /*
@@ -781,8 +807,8 @@ usage(void)
 	fprintf(stderr,
 "usage: %s [-DLlMNnPStUX] [-a maxcontig] [-b block-size]\n"
 "\t[-c blocks-per-cylinder-group][-d max-extent-size] [-E path-mdconfig]\n"
-"\t[-e maxbpg] [-F file] [-f frag-size] [-i bytes] [-m percent-free]\n"
-"\t[-O optimization] [-o mount-options]\n"
+"\t[-e maxbpg] [-F file] [-f frag-size] [-i bytes] [-k skel]\n"
+"\t[-m percent-free] [-O optimization] [-o mount-options]\n"
 "\t[-p permissions] [-s size] [-v version] [-w user:group]\n"
 "\tmd-device mount-point\n", getprogname());
 	exit(1);

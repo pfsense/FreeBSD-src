@@ -152,6 +152,8 @@
         ..
         ppbus
         ..
+        pwm
+        ..
         smbus
         ..
         speaker
@@ -159,6 +161,8 @@
         tcp_log
         ..
         usb
+        ..
+        veriexec
         ..
         vkbd
         ..
@@ -353,6 +357,8 @@
         mac_mls
         ..
         mac_partition
+        ..
+        mac_veriexec
         ..
     ..
     ssp

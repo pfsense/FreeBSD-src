@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/bus.h>
 #include <sys/callout.h>
+#include <sys/domainset.h>
 #include <sys/file.h>
 #include <sys/interrupt.h>
 #include <sys/kernel.h>
@@ -128,7 +129,8 @@ SYSCTL_INT(_kern, OID_AUTO, pin_pcpu_swi, CTLFLAG_RDTUN | CTLFLAG_NOFETCH, &pin_
  * TODO:
  *	allocate more timeout table slots when table overflows.
  */
-u_int callwheelsize, callwheelmask;
+static u_int __read_mostly callwheelsize;
+static u_int __read_mostly callwheelmask;
 
 /*
  * The callout cpu exec entities represent informations necessary for
@@ -201,7 +203,7 @@ struct callout_cpu cc_cpu;
 #define	CC_UNLOCK(cc)	mtx_unlock_spin(&(cc)->cc_lock)
 #define	CC_LOCK_ASSERT(cc)	mtx_assert(&(cc)->cc_lock, MA_OWNED)
 
-static int timeout_cpu;
+static int __read_mostly timeout_cpu;
 
 static void	callout_cpu_init(struct callout_cpu *cc, int cpu);
 static void	softclock_call_cc(struct callout *c, struct callout_cpu *cc,
@@ -320,8 +322,9 @@ callout_cpu_init(struct callout_cpu *cc, int cpu)
 	mtx_init(&cc->cc_lock, "callout", NULL, MTX_SPIN | MTX_RECURSE);
 	SLIST_INIT(&cc->cc_callfree);
 	cc->cc_inited = 1;
-	cc->cc_callwheel = malloc(sizeof(struct callout_list) * callwheelsize,
-	    M_CALLOUT, M_WAITOK);
+	cc->cc_callwheel = malloc_domainset(sizeof(struct callout_list) *
+	    callwheelsize, M_CALLOUT,
+	    DOMAINSET_PREF(pcpu_find(cpu)->pc_domain), M_WAITOK);
 	for (i = 0; i < callwheelsize; i++)
 		LIST_INIT(&cc->cc_callwheel[i]);
 	TAILQ_INIT(&cc->cc_expireq);

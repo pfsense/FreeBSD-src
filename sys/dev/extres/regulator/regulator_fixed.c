@@ -80,6 +80,7 @@ static regnode_method_t regnode_fixed_methods[] = {
 	REGNODEMETHOD(regnode_enable,		regnode_fixed_enable),
 	REGNODEMETHOD(regnode_status,		regnode_fixed_status),
 	REGNODEMETHOD(regnode_stop,		regnode_fixed_stop),
+	REGNODEMETHOD(regnode_check_voltage,	regnode_method_check_voltage),
 	REGNODEMETHOD_END
 };
 DEFINE_CLASS_1(regnode_fixed, regnode_fixed_class, regnode_fixed_methods,
@@ -145,7 +146,6 @@ regnode_fixed_init(struct regnode *regnode)
 	struct regnode_fixed_sc *sc;
 	struct gpiobus_pin *pin;
 	uint32_t flags;
-	bool enable;
 	int rv;
 
 	sc = regnode_get_softc(regnode);
@@ -158,14 +158,15 @@ regnode_fixed_init(struct regnode *regnode)
 	flags = GPIO_PIN_OUTPUT;
 	if (sc->gpio_open_drain)
 		flags |= GPIO_PIN_OPENDRAIN;
-	enable = sc->param->boot_on || sc->param->always_on;
-	if (!sc->param->enable_active_high)
-		enable = !enable;
-	rv = GPIO_PIN_SET(pin->dev, pin->pin, enable);
-	if (rv != 0) {
-		device_printf(dev, "Cannot set GPIO pin: %d\n", pin->pin);
-		return (rv);
+	if (sc->param->boot_on || sc->param->always_on) {
+		rv = GPIO_PIN_SET(pin->dev, pin->pin, sc->param->enable_active_high);
+		if (rv != 0) {
+			device_printf(dev, "Cannot set GPIO pin: %d\n",
+			    pin->pin);
+			return (rv);
+		}
 	}
+
 	rv = GPIO_PIN_SETFLAGS(pin->dev, pin->pin, flags);
 	if (rv != 0) {
 		device_printf(dev, "Cannot configure GPIO pin: %d\n", pin->pin);

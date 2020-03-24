@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -154,6 +154,7 @@
 #include <contrib/dev/acpica/include/acnamesp.h>
 #include <contrib/dev/acpica/include/acdebug.h>
 #include <contrib/dev/acpica/include/acpredef.h>
+#include <contrib/dev/acpica/include/acinterp.h>
 
 
 #define _COMPONENT          ACPI_CA_DEBUGGER
@@ -557,7 +558,7 @@ AcpiDbFindNameInNamespace (
     char                    *AcpiNamePtr = AcpiName;
 
 
-    if (strlen (NameArg) > ACPI_NAME_SIZE)
+    if (strlen (NameArg) > ACPI_NAMESEG_SIZE)
     {
         AcpiOsPrintf ("Name must be no longer than 4 characters\n");
         return (AE_OK);
@@ -724,6 +725,90 @@ AcpiDbWalkForObjectCounts (
 
 /*******************************************************************************
  *
+ * FUNCTION:    AcpiDbWalkForFields
+ *
+ * PARAMETERS:  Callback from WalkNamespace
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Display short info about objects in the namespace
+ *
+ ******************************************************************************/
+
+static ACPI_STATUS
+AcpiDbWalkForFields (
+    ACPI_HANDLE             ObjHandle,
+    UINT32                  NestingLevel,
+    void                    *Context,
+    void                    **ReturnValue)
+{
+    ACPI_OBJECT             *RetValue;
+    ACPI_REGION_WALK_INFO   *Info = (ACPI_REGION_WALK_INFO *) Context;
+    ACPI_BUFFER             Buffer;
+    ACPI_STATUS             Status;
+    ACPI_NAMESPACE_NODE     *Node = AcpiNsValidateHandle (ObjHandle);
+
+
+    if (!Node)
+    {
+       return (AE_OK);
+    }
+    if (Node->Object->Field.RegionObj->Region.SpaceId != Info->AddressSpaceId)
+    {
+       return (AE_OK);
+    }
+
+    Info->Count++;
+
+    /* Get and display the full pathname to this object */
+
+    Buffer.Length = ACPI_ALLOCATE_LOCAL_BUFFER;
+    Status = AcpiNsHandleToPathname (ObjHandle, &Buffer, TRUE);
+    if (ACPI_FAILURE (Status))
+    {
+        AcpiOsPrintf ("Could Not get pathname for object %p\n", ObjHandle);
+        return (AE_OK);
+    }
+
+    AcpiOsPrintf ("%s ", (char *) Buffer.Pointer);
+    ACPI_FREE (Buffer.Pointer);
+
+    Buffer.Length = ACPI_ALLOCATE_LOCAL_BUFFER;
+    AcpiEvaluateObject (ObjHandle, NULL, NULL, &Buffer);
+
+    /*
+     * Since this is a field unit, surround the output in braces
+     */
+    AcpiOsPrintf ("{");
+
+    RetValue = (ACPI_OBJECT *) Buffer.Pointer;
+    switch (RetValue->Type)
+    {
+        case ACPI_TYPE_INTEGER:
+
+            AcpiOsPrintf ("%8.8X%8.8X", ACPI_FORMAT_UINT64 (RetValue->Integer.Value));
+            break;
+
+        case ACPI_TYPE_BUFFER:
+
+            AcpiUtDumpBuffer (RetValue->Buffer.Pointer,
+                RetValue->Buffer.Length, DB_DISPLAY_DATA_ONLY | DB_BYTE_DISPLAY, 0);
+            break;
+
+        default:
+
+            break;
+    }
+
+    AcpiOsPrintf ("}\n");
+
+    ACPI_FREE (Buffer.Pointer);
+    return (AE_OK);
+}
+
+
+/*******************************************************************************
+ *
  * FUNCTION:    AcpiDbWalkForSpecificObjects
  *
  * PARAMETERS:  Callback from WalkNamespace
@@ -853,6 +938,42 @@ AcpiDbDisplayObjects (
         Info.Count, AcpiUtGetTypeName (Type));
 
     AcpiDbSetOutputDestination (ACPI_DB_CONSOLE_OUTPUT);
+    return (AE_OK);
+}
+
+
+/*******************************************************************************
+ *
+ * FUNCTION:    AcpiDbDisplayFields
+ *
+ * PARAMETERS:  ObjTypeArg          - Type of object to display
+ *              DisplayCountArg     - Max depth to display
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Display objects in the namespace of the requested type
+ *
+ ******************************************************************************/
+
+ACPI_STATUS
+AcpiDbDisplayFields (
+    UINT32                  AddressSpaceId)
+{
+    ACPI_REGION_WALK_INFO  Info;
+
+
+    Info.Count = 0;
+    Info.OwnerId = ACPI_OWNER_ID_MAX;
+    Info.DebugLevel = ACPI_UINT32_MAX;
+    Info.DisplayType = ACPI_DISPLAY_SUMMARY | ACPI_DISPLAY_SHORT;
+    Info.AddressSpaceId = AddressSpaceId;
+
+    /* Walk the namespace from the root */
+
+    (void) AcpiWalkNamespace (ACPI_TYPE_LOCAL_REGION_FIELD, ACPI_ROOT_OBJECT,
+          ACPI_UINT32_MAX, AcpiDbWalkForFields, NULL,
+          (void *) &Info, NULL);
+
     return (AE_OK);
 }
 
@@ -1175,7 +1296,7 @@ AcpiDbBusWalk (
  *
  * RETURN:      None
  *
- * DESCRIPTION: Display info about system busses.
+ * DESCRIPTION: Display info about system buses.
  *
  ******************************************************************************/
 

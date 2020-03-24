@@ -50,6 +50,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/pmckern.h>
 #include <sys/cpuctl.h>
 
+#include <vm/vm.h>
+#include <vm/vm_param.h>
+#include <vm/pmap.h>
+
 #include <machine/cpufunc.h>
 #include <machine/md_var.h>
 #include <machine/specialreg.h>
@@ -330,9 +334,26 @@ cpuctl_do_update(int cpu, cpuctl_update_args_t *data, struct thread *td)
 	return (ret);
 }
 
+struct ucode_update_data {
+	void *ptr;
+	int cpu;
+	int ret;
+};
+
+static void
+ucode_intel_load_rv(void *arg)
+{
+	struct ucode_update_data *d;
+
+	d = arg;
+	if (PCPU_GET(cpuid) == d->cpu)
+		d->ret = ucode_intel_load(d->ptr, true, NULL, NULL);
+}
+
 static int
 update_intel(int cpu, cpuctl_update_args_t *args, struct thread *td)
 {
+	struct ucode_update_data d;
 	void *ptr;
 	int is_bound, oldcpu, ret;
 
@@ -360,12 +381,11 @@ update_intel(int cpu, cpuctl_update_args_t *args, struct thread *td)
 	oldcpu = td->td_oncpu;
 	is_bound = cpu_sched_is_bound(td);
 	set_cpu(cpu, td);
-	critical_enter();
-
-	ret = ucode_intel_load(ptr, true, NULL, NULL);
-
-	critical_exit();
+	d.ptr = ptr;
+	d.cpu = cpu;
+	smp_rendezvous(NULL, ucode_intel_load_rv, NULL, &d);
 	restore_cpu(oldcpu, is_bound, td);
+	ret = d.ret;
 
 	/*
 	 * Replace any existing update.  This ensures that the new update
@@ -521,7 +541,12 @@ cpuctl_do_eval_cpu_features(int cpu, struct thread *td)
 	hw_ibrs_recalculate();
 	restore_cpu(oldcpu, is_bound, td);
 	hw_ssb_recalculate(true);
+#ifdef __amd64__
+	amd64_syscall_ret_flush_l1d_recalc();
+	pmap_allow_2m_x_ept_recalculate();
+#endif
 	hw_mds_recalculate();
+	x86_taa_recalculate();
 	printcpuinfo();
 	return (0);
 }

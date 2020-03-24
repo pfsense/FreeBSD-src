@@ -433,10 +433,10 @@ arprequest(struct ifnet *ifp, const struct in_addr *sip,
 /*
  * Resolve an IP address into an ethernet address - heavy version.
  * Used internally by arpresolve().
- * We have already checked than  we can't use existing lle without
- * modification so we have to acquire LLE_EXCLUSIVE lle lock.
+ * We have already checked that we can't use an existing lle without
+ * modification so we have to acquire an LLE_EXCLUSIVE lle lock.
  *
- * On success, desten and flags are filled in and the function returns 0;
+ * On success, desten and pflags are filled in and the function returns 0;
  * If the packet must be held pending resolution, we return EWOULDBLOCK
  * On other errors, we return the corresponding error code.
  * Note that m_freem() handles NULL.
@@ -1345,6 +1345,8 @@ garp_rexmit(void *arg)
 		return;
 	}
 
+	CURVNET_SET(ia->ia_ifa.ifa_ifp->if_vnet);
+
 	/*
 	 * Drop lock while the ARP request is generated.
 	 */
@@ -1372,6 +1374,8 @@ garp_rexmit(void *arg)
 			ifa_free(&ia->ia_ifa);
 		}
 	}
+
+	CURVNET_RESTORE();
 }
 
 /*

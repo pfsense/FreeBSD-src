@@ -150,9 +150,9 @@ cdev_pager_allocate(void *handle, enum obj_type tp, struct cdev_pager_ops *ops,
 	 * of the page size.  Do a check to avoid wrap.
 	 */
 	size = round_page(size);
-	pindex = UOFF_TO_IDX(foff) + UOFF_TO_IDX(size);
-	if (pindex > OBJ_MAX_SIZE || pindex < UOFF_TO_IDX(foff) ||
-	    pindex < UOFF_TO_IDX(size))
+	pindex = OFF_TO_IDX(foff) + OFF_TO_IDX(size);
+	if (pindex > OBJ_MAX_SIZE || pindex < OFF_TO_IDX(foff) ||
+	    pindex < OFF_TO_IDX(size))
 		return (NULL);
 
 	if (ops->cdev_pg_ctor(handle, size, prot, foff, cred, &color) != 0)
@@ -236,7 +236,7 @@ cdev_pager_free_page(vm_object_t object, vm_page_t m)
 		KASSERT((m->oflags & VPO_UNMANAGED) == 0, ("unmanaged %p", m));
 		pmap_remove_all(m);
 		vm_page_lock(m);
-		vm_page_remove(m);
+		(void)vm_page_remove(m);
 		vm_page_unlock(m);
 	} else if (object->type == OBJT_DEVICE)
 		dev_pager_free_page(object, m);

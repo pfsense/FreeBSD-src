@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Netflix, Inc
+ * Copyright (c) 2016 Netflix, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -150,8 +150,6 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 
 	ctrlr = sim2ctrlr(sim);
 
-	mtx_assert(&ctrlr->lock, MA_OWNED);
-
 	switch (ccb->ccb_h.func_code) {
 	case XPT_CALC_GEOMETRY:		/* Calculate Geometry Totally nuts ? XXX */
 		/* 
@@ -214,7 +212,7 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 		struct ccb_trans_settings_nvme	*nvmep;
 		struct ccb_trans_settings_nvme	*nvmex;
 		device_t dev;
-		uint32_t status, caps;
+		uint32_t status, caps, flags;
 
 		dev = ctrlr->dev;
 		cts = &ccb->cts;
@@ -223,12 +221,16 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 
 		status = pcie_read_config(dev, PCIER_LINK_STA, 2);
 		caps = pcie_read_config(dev, PCIER_LINK_CAP, 2);
-		nvmex->valid = CTS_NVME_VALID_SPEC | CTS_NVME_VALID_LINK;
+		flags = pcie_read_config(dev, PCIER_FLAGS, 2);
 		nvmex->spec = nvme_mmio_read_4(ctrlr, vs);
-		nvmex->speed = status & PCIEM_LINK_STA_SPEED;
-		nvmex->lanes = (status & PCIEM_LINK_STA_WIDTH) >> 4;
-		nvmex->max_speed = caps & PCIEM_LINK_CAP_MAX_SPEED;
-		nvmex->max_lanes = (caps & PCIEM_LINK_CAP_MAX_WIDTH) >> 4;
+		nvmex->valid = CTS_NVME_VALID_SPEC;
+		if ((flags & PCIEM_FLAGS_TYPE) == PCIEM_TYPE_ENDPOINT) {
+			nvmex->valid |= CTS_NVME_VALID_LINK;
+			nvmex->speed = status & PCIEM_LINK_STA_SPEED;
+			nvmex->lanes = (status & PCIEM_LINK_STA_WIDTH) >> 4;
+			nvmex->max_speed = caps & PCIEM_LINK_CAP_MAX_SPEED;
+			nvmex->max_lanes = (caps & PCIEM_LINK_CAP_MAX_WIDTH) >> 4;
+		}
 
 		/* XXX these should be something else maybe ? */
 		nvmep->valid = 1;
@@ -289,7 +291,7 @@ nvme_sim_new_controller(struct nvme_controller *ctrlr)
 
 	sc->s_sim = cam_sim_alloc(nvme_sim_action, nvme_sim_poll,
 	    "nvme", sc, device_get_unit(ctrlr->dev),
-	    &ctrlr->lock, max_trans, max_trans, devq);
+	    NULL, max_trans, max_trans, devq);
 	if (sc->s_sim == NULL) {
 		printf("Failed to allocate a sim\n");
 		cam_simq_free(devq);
@@ -320,10 +322,7 @@ static void *
 nvme_sim_new_ns(struct nvme_namespace *ns, void *sc_arg)
 {
 	struct nvme_sim_softc *sc = sc_arg;
-	struct nvme_controller *ctrlr = sc->s_ctrlr;
 	union ccb *ccb;
-
-	mtx_lock(&ctrlr->lock);
 
 	ccb = xpt_alloc_ccb_nowait();
 	if (ccb == NULL) {
@@ -340,8 +339,6 @@ nvme_sim_new_ns(struct nvme_namespace *ns, void *sc_arg)
 
 	xpt_rescan(ccb);
 
-	mtx_unlock(&ctrlr->lock);
-
 	return (ns);
 }
 
@@ -349,14 +346,11 @@ static void
 nvme_sim_controller_fail(void *ctrlr_arg)
 {
 	struct nvme_sim_softc *sc = ctrlr_arg;
-	struct nvme_controller *ctrlr = sc->s_ctrlr;
 
-	mtx_lock(&ctrlr->lock);
 	xpt_async(AC_LOST_DEVICE, sc->s_path, NULL);
 	xpt_free_path(sc->s_path);
 	xpt_bus_deregister(cam_sim_path(sc->s_sim));
 	cam_sim_free(sc->s_sim, /*free_devq*/TRUE);
-	mtx_unlock(&ctrlr->lock);
 	free(sc, M_NVME);
 }
 

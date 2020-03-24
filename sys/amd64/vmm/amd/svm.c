@@ -102,9 +102,6 @@ SYSCTL_INT(_hw_vmm_svm, OID_AUTO, vmcb_clean, CTLFLAG_RDTUN, &vmcb_clean,
 static MALLOC_DEFINE(M_SVM, "svm", "svm");
 static MALLOC_DEFINE(M_SVM_VLAPIC, "svm-vlapic", "svm-vlapic");
 
-/* Per-CPU context area. */
-extern struct pcpu __pcpu[];
-
 static uint32_t svm_feature = ~0U;	/* AMD SVM features. */
 SYSCTL_UINT(_hw_vmm_svm, OID_AUTO, features, CTLFLAG_RDTUN, &svm_feature, 0,
     "SVM features advertised by CPUID.8000000AH:EDX");
@@ -524,6 +521,7 @@ svm_vminit(struct vm *vm, pmap_t pmap)
 	struct svm_vcpu *vcpu;
 	vm_paddr_t msrpm_pa, iopm_pa, pml4_pa;
 	int i;
+	uint16_t maxcpus;
 
 	svm_sc = malloc(sizeof (*svm_sc), M_SVM, M_WAITOK | M_ZERO);
 	if (((uintptr_t)svm_sc & PAGE_MASK) != 0)
@@ -577,7 +575,8 @@ svm_vminit(struct vm *vm, pmap_t pmap)
 	iopm_pa = vtophys(svm_sc->iopm_bitmap);
 	msrpm_pa = vtophys(svm_sc->msr_bitmap);
 	pml4_pa = svm_sc->nptp;
-	for (i = 0; i < VM_MAXCPU; i++) {
+	maxcpus = vm_get_maxcpus(svm_sc->vm);
+	for (i = 0; i < maxcpus; i++) {
 		vcpu = svm_get_vcpu(svm_sc, i);
 		vcpu->nextrip = ~0;
 		vcpu->lastcpu = NOCPU;
@@ -2052,7 +2051,7 @@ svm_vmrun(void *arg, int vcpu, register_t rip, pmap_t pmap,
 		/* Launch Virtual Machine. */
 		VCPU_CTR1(vm, vcpu, "Resume execution at %#lx", state->rip);
 		svm_dr_enter_guest(gctx);
-		svm_launch(vmcb_pa, gctx, &__pcpu[curcpu]);
+		svm_launch(vmcb_pa, gctx, get_pcpu());
 		svm_dr_leave_guest(gctx);
 
 		CPU_CLR_ATOMIC(curcpu, &pmap->pm_active);
@@ -2281,20 +2280,20 @@ svm_vlapic_cleanup(void *arg, struct vlapic *vlapic)
 }
 
 struct vmm_ops vmm_ops_amd = {
-	svm_init,
-	svm_cleanup,
-	svm_restore,
-	svm_vminit,
-	svm_vmrun,
-	svm_vmcleanup,
-	svm_getreg,
-	svm_setreg,
-	vmcb_getdesc,
-	vmcb_setdesc,
-	svm_getcap,
-	svm_setcap,
-	svm_npt_alloc,
-	svm_npt_free,
-	svm_vlapic_init,
-	svm_vlapic_cleanup	
+	.init		= svm_init,
+	.cleanup	= svm_cleanup,
+	.resume		= svm_restore,
+	.vminit		= svm_vminit,
+	.vmrun		= svm_vmrun,
+	.vmcleanup	= svm_vmcleanup,
+	.vmgetreg	= svm_getreg,
+	.vmsetreg	= svm_setreg,
+	.vmgetdesc	= vmcb_getdesc,
+	.vmsetdesc	= vmcb_setdesc,
+	.vmgetcap	= svm_getcap,
+	.vmsetcap	= svm_setcap,
+	.vmspace_alloc	= svm_npt_alloc,
+	.vmspace_free	= svm_npt_free,
+	.vlapic_init	= svm_vlapic_init,
+	.vlapic_cleanup	= svm_vlapic_cleanup,
 };

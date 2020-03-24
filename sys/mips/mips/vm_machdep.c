@@ -455,13 +455,20 @@ cpu_set_upcall(struct thread *td, void (*entry)(void *), void *arg,
 	 */
 }
 
-/*
- * Implement the pre-zeroed page mechanism.
- * This routine is called from the idle loop.
- */
+bool
+cpu_exec_vmspace_reuse(struct proc *p __unused, vm_map_t map __unused)
+{
 
-#define	ZIDLE_LO(v)	((v) * 2 / 3)
-#define	ZIDLE_HI(v)	((v) * 4 / 5)
+	return (true);
+}
+
+int
+cpu_procctl(struct thread *td __unused, int idtype __unused, id_t id __unused,
+    int com __unused, void *data __unused)
+{
+
+	return (EINVAL);
+}
 
 /*
  * Software interrupt handler for queued VM system processing.

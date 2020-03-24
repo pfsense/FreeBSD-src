@@ -398,6 +398,7 @@ device		wpifw
 device		if_ntb		# Virtual NTB network interface
 device		ntb_transport	# NTB packet transport driver
 device		ntb		# NTB hardware interface
+device		ntb_hw_amd	# AMD NTB hardware driver
 device		ntb_hw_intel	# Intel NTB hardware driver
 device		ntb_hw_plx	# PLX NTB hardware driver
 
@@ -571,11 +572,13 @@ device		ioat		# Intel I/OAT DMA engine
 # amdsbwd: AMD SB7xx watchdog timer
 # viawd: VIA south bridge watchdog timer
 # wbwd: Winbond watchdog timer
+# itwd: ITE Super I/O watchdog timer
 #
 device		ichwd
 device		amdsbwd
 device		viawd
 device		wbwd
+device		itwd
 
 #
 # Temperature sensors:
@@ -591,6 +594,11 @@ device		amdtemp
 # microcode update feature.
 #
 device		cpuctl
+
+#
+# SuperIO driver.
+#
+device		superio
 
 #
 # System Management Bus (SMB)

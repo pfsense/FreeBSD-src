@@ -47,6 +47,25 @@
 #define IIC_INTR	0x2
 #define IIC_INTRWAIT	(IIC_INTR | IIC_WAIT)
 #define IIC_RECURSIVE	0x4
+#define IIC_REQBUS_DEV	0x8	/* See struct iic_reqbus_data, below. */
+
+/*
+ * The original iicbus->bridge callback api took a pointer to an int containing
+ * flags.  The new api allows a pointer to this struct, with IIC_REQBUS_DEV set
+ * in the flags to let the implementation know the pointer is actually to this
+ * struct which has the flags word first, followed by the device_t of the
+ * requesting bus and device.
+ *
+ * Note that the requesting device may not be a i2c slave device which is a
+ * child of the requested bus -- it may be a mux device which is electrically
+ * part of the bus hierarchy, but whose driver belongs to some other bus
+ * hierarchy such as gpio.
+ */
+struct iic_reqbus_data {
+	int      flags;      /* Flags from the set defined above. */
+	device_t bus;        /* The iicbus being requested. */
+	device_t dev;        /* The device requesting the bus. */
+};
 
 /*
  * i2c modes
@@ -96,12 +115,14 @@
 #define IIC_ENOTSUPP	0x8	/* request not supported */
 #define IIC_ENOADDR	0x9	/* no address assigned to the interface */
 #define IIC_ERESOURCE	0xa	/* resources (memory, whatever) unavailable */
+#define IIC_ERRNO	__INT_MIN /* marker bit: errno is in low-order bits */
 
 /*
  * Note that all iicbus functions return IIC_Exxxxx status values,
  * except iic2errno() (obviously) and iicbus_started() (returns bool).
  */
 extern int iic2errno(int);
+extern int errno2iic(int);
 extern int iicbus_request_bus(device_t, device_t, int);
 extern int iicbus_release_bus(device_t, device_t);
 extern device_t iicbus_alloc_bus(device_t);

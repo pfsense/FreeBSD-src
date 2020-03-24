@@ -1,4 +1,4 @@
- Updating Information for FreeBSD current users.
+ Updating Information for FreeBSD stable/12 users.
 
 This file is maintained and copyrighted by M. Warner Losh <imp@freebsd.org>.
 See end of file for further details.  For commonly done items, please see the
@@ -16,146 +16,113 @@ from older versions of FreeBSD, try WITHOUT_CLANG and WITH_GCC to bootstrap to
 the tip of head, and then rebuild without this option. The bootstrap process
 from older version of current across the gcc/clang cutover is a bit fragile.
 
-20190820	p10	FreeBSD-EN-19:16.bhyve
-			FreeBSD-SA-19:22.mbuf
-			FreeBSD-SA-19:23.midi
-			FreeBSD-SA-19:24.mqueuefs
+20200107:
+	Clang, llvm, lld, lldb, compiler-rt, libc++, libunwind and openmp have
+	been upgraded to 9.0.1.  Please see the 20141231 entry below for
+	information about prerequisites and upgrading, if you are not already
+	using clang 3.5.0 or higher.
 
-	Bhyve instruction emulation improvements (opcode 03H and F7H).
-						[EN-19:16.bhyve]
+20191107:
+	The nctgpio and wbwd drivers have been moved to the superio bus.
+	If you have one of these drivers in a kernel configuration, then
+	you should add device superio to it.  If you use one of these drivers
+	as a module and you compile a custom set of modules, then you should
+	add superio to the set.
 
-	Fix IPv6 remote denial of service. [SA-19:22.mbuf]
+20191024:
+	The tap(4) driver has been folded into tun(4), and the module has been
+	renamed to tuntap.  You should update any kld_list="if_tap" or
+	kld_list="if_tun" entries in /etc/rc.conf, if_tap_load="YES" or
+	if_tun_load="YES" entries in /boot/loader.conf to load the if_tuntap
+	module instead, and "device tap" or "device tun" entries in kernel
+	config files to select the tuntap device instead.
 
-	Fix kernel memory disclosure from /dev/midistat. [SA-19:23.midi]
+20190913:
+	ntpd no longer by default locks its pages in memory, allowing them
+	to be paged out by the kernel. Use rlimit memlock to restore
+	historic BSD behaviour. For example, add "rlimit memlock 32"
+	to ntp.conf to lock up to 32 MB of ntpd address space in memory.
 
-	Fix reference count overflow in mqueuefs. [SA-19:24.mqueuefs]
+20190914:
+	The vfs.fusefs.sync_unmount and vfs.fusefs.init_backgrounded sysctls
+	and the "-o sync_unmount" and "-o init_backgrounded" mount options have
+	been removed from mount_fusefs(8).  You can safely remove them from
+	your scripts, because they had no effect.
 
-20190806	p9	FreeBSD-EN-19:14.epoch
-			FreeBSD-EN-19:15.libunwind
-			FreeBSD-SA-19:18.bzip2
-			FreeBSD-SA-19:19.mldv2
-			FreeBSD-SA-19:20.bsnmp
-			FreeBSD-SA-19:21.bhyve
+	The vfs.fusefs.fix_broken_io, vfs.fusefs.sync_resize,
+	vfs.fusefs.refresh_size, vfs.fusefs.mmap_enable,
+	vfs.fusefs.reclaim_revoked, and vfs.fusefs.data_cache_invalidate
+	sysctls have been removed.  If you felt the need to set any of them to
+	a non-default value, please tell asomers@FreeBSD.org why.
 
-	Fix incorrect locking in epoch(9). [EN-19:14.epoch]
+20190906:
+	The fuse(4) module has been renamed to fusefs(4) for consistency with
+	other filesystems.  You should update any kld_load="fuse" entries in
+	/etc/rc.conf, fuse_load="YES" entries in /boot/loader.conf, and
+	"options FUSE" enties in kernel config files.
 
-	Fix incorrect exception handling. [EN-19:15.libunwind]
+20190811:
+	Default permissions on the /var/account/acct file (and copies of it 
+	rotated by periodic daily scripts) are changed from 0644 to 0640 
+	because the file contains sensitive information that should not be 
+	world-readable.  If the /var/account directory must be created by 
+	rc.d/accounting, the mode used is now 0750.  Admins who use the 
+	accounting feature are encouraged to change the mode of an existing 
+	/var/account directory to 0750 or 0700.  
 
-	Fix multiple vulnerabilities in bzip2. [SA-19:18.bzip2]
+20190723:
+	Clang, llvm, lld, lldb, compiler-rt, libc++, libunwind and openmp have
+	been upgraded to 8.0.1.  Please see the 20141231 entry below for
+	information about prerequisites and upgrading, if you are not already
+	using clang 3.5.0 or higher.
 
-	Fix ICMPv6 / MLDv2 out-of-bounds memory access. [SA-19:19.mldv2]
+20190413:
+	Now Clang 8 has been merged (see the 20190412 entry below), the ifunc
+	functionality needed for the RETPOLINE option should work properly
+	again.  The RETPOLINE option has been removed from BROKEN_OPTIONS.
 
-	Fix insufficient message length validation in bsnmp library.
-						[SA-19:20.bsnmp]
+20190412:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	8.0.0.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
 
-	Fix insufficient validation of guest-supplied data (e1000 device).
-						[SA-19:21.bhyve]
+20190307:
+	The RETPOLINE option produces non-functional ifunc-using binaries
+	with Clang 7.0.1, and has been forced off (via BROKEN_OPTIONS).
+	Once Clang 8 is merged it may be enabled again.
 
-20190724	p8	FreeBSD-EN-19:13.mds
-			FreeBSD-SA-19:12.telnet
-			FreeBSD-SA-19:13.pts
-			FreeBSD-SA-19:15.mqueuefs
-			FreeBSD-SA-19:16.bhyve
-			FreeBSD-SA-19:17.fd
+20190216:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	7.0.1.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
 
-	Fix panic from Intel CPU vulnerability mitigation. [EN-19:13.mds]
+20190226:
+	geom_uzip(4) depends on the new module xz.  If geom_uzip is statically
+	compiled into your custom kernel, add 'device xz' statement to the
+	kernel config.
 
-	Fix multiple telnet client vulnerabilities. [SA-19:12.telnet]
+20190214:
+	Iflib is no longer unconditionally compiled into the kernel.  Drivers
+	using iflib and statically compiled into the kernel, now require
+	the 'device iflib' config option.  For the same drivers loaded as
+	modules on kernels not having 'device iflib', the iflib.ko module
+	is loaded automatically.
 
-	Fix pts write-after-free. [SA-19:13.pts]
+20181228:
+	r342561 modifies the NFSv4 server so that it obeys vfs.nfsd.nfs_privport
+	in the same as it is applied to NFSv2 and 3.  This implies that NFSv4
+	servers that have vfs.nfsd.nfs_privport set will only allow mounts
+	from clients using a reserved port#. Since both the FreeBSD and Linux
+	NFSv4 clients use reserved port#s by default, this should not affect
+	most NFSv4 mounts.
 
-	Fix reference count overflow in mqueuefs. [SA-19:15.mqueuefs]
-
-	Fix byhve out-of-bounds read in XHCI device. [SA-19:16.bhyve]
-
-	Fix file descriptor reference count leak. [SA-19:17.fd]
-
-20190702	p7	FreeBSD-EN-19:12.tzdata
-			FreeBSD-SA-19:09.iconv
-			FreeBSD-SA-19:10.ufs
-			FreeBSD-SA-19:11.cd_ioctl
-
-	Import tzdata 2019b. [EN-19:12.tzdata]
-
-	Fix iconv buffer overflow. [SA-19:09.iconv]
-
-	Fix kernel stack disclosure in UFS/FFS. [SA-19:10.ufs]
-
-	Fix privilege escalation in cd(4) driver. [SA-19:11.cd_ioctl]
-
-20190619	p6	FreeBSD-EN-19:11.net
-			FreeBSD-SA-19:08.rack
-
-	Fix incorrect locking in networking stack [EN-19:11.net]
-
-	Add ability to limit split map entries to prevent resource exhaustion
-	in non-default RACK TCP stack [SA-19:08.rack]
-
-20190515	p5	FreeBSD-SA-19:07.mds [revised]
-
-	Fixed error in patch causing panic on i386 architecture. [SA-19:07.mds]
-
-
-20190514	p4	FreeBSD-EN-19:08.tzdata
-			FreeBSD-EN-19:09.xinstall
-			FreeBSD-EN-19:10.scp
-			FreeBSD-SA-19:03.wpa
-			FreeBSD-SA-19:04.ntp
-			FreeBSD-SA-19:05.pf
-			FreeBSD-SA-19:06.pf
-			FreeBSD-SA-19:07.mds
-
-	Import tzdata 2019a. [EN-19:08.tzdata]
-
-	Fix install with partially matching relative paths. [EN-19:09.xinstall]
-
-	Fix filename validation in scp. [EN-19:10.scp]
-
-	Fix multiple vulnerabilities in hostapd/wpa_supplicant. [SA-19:03.wpa]
-
-	Fix authenticated denial of service in ntpd. [SA-19:04.ntp]
-
-	Fix IPv6 fragment reassembly in pf. [SA-19:05.pf]
-
-	Fix ICMP/ICMP6 packet filter bypass in pf. [SA-19:06.pf]
-
-	Add mitigations for Microarchitectural Data Sampling. [SA-19:07.mds]
-
-
-20190205:	p3	FreeBSD-SA-19:01.syscall
-			FreeBSD-SA-19:02.fd
-			FreeBSD-EN-19:06.dtrace
-			FreeBSD-EN-19:07.lle
-
-	amd64: clear callee-preserved registers on syscall exit
-							[SA-19:01.syscall]
-
-	Avoid leaking fp references when truncating SCM_RIGHTS control messages.
-							[SA-19:02.fd]
-
-	dtrace: fix userspace access on boxes with SMAP [EN-19:06.dtrace]
-
-	Fix an LLE lookup race [EN-19:07.lle]
-
-20190109:	p2	FreeBSD-EN-19:01.cc_cubic
-			FreeBSD-EN-19:02.tcp
-			FreeBSD-EN-19:03.sqlite
-			FreeBSD-EN-19:04.tzdata
-
-	Revert CC Cubic: fix underflow for cubic_cwnd() [EN-19:01.cc_cubic]
-
-	Fix a TCP handling of received segments. [EN-19:02.tcp]
-
-	Update sqlite3-3.23.1 --> sqlite3-3.26.0 (3260000) [EN-19:03.sqlite]
-
-	Import tzdata 2018h, 2018i [EN-19:04.tzdata]
-
-20181219:	p1	FreeBSD-SA-18:15.bootpd
-
-	bootpd: validate hardware type [SA-18:15.bootpd]
-
-20181211:
-	12.0-RELEASE.
+20181129:
+	On amd64, arm64 and armv7 (architectures that install LLVM's ld.lld
+	linker as /usr/bin/ld) GNU ld is no longer installed as ld.bfd, as
+	it produces broken binaries when ifuncs are in use.  Users needing
+	GNU ld should install the binutils port or package.
 
 20181115:
 	The set of CTM commands (ctm, ctm_smail, ctm_rmail, ctm_dequeue)
@@ -1976,12 +1943,13 @@ COMMON ITEMS:
 	can be deleted by "make delete-old-libs", but you have to make
 	sure that no program is using those libraries anymore.
 
-	[8] In order to have a kernel that can run the 4.x binaries needed to
-	do an installworld, you must include the COMPAT_FREEBSD4 option in
-	your kernel.  Failure to do so may leave you with a system that is
-	hard to boot to recover. A similar kernel option COMPAT_FREEBSD5 is
-	required to run the 5.x binaries on more recent kernels.  And so on
-	for COMPAT_FREEBSD6 and COMPAT_FREEBSD7.
+	[8] The new kernel must be able to run existing binaries used by
+	an installworld.  When upgrading across major versions, the new
+	kernel's configuration must include the correct COMPAT_FREEBSD<n>
+	option for existing binaries (e.g. COMPAT_FREEBSD11 to run 11.x
+	binaries).  Failure to do so may leave you with a system that is
+	hard to boot to recover.  A GENERIC kernel will include suitable
+	compatibility options to run binaries from older branches.
 
 	Make sure that you merge any new devices from GENERIC since the
 	last time you updated your kernel config file.

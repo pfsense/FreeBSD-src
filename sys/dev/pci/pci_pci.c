@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/pciio.h>
 #include <sys/rman.h>
 #include <sys/sysctl.h>
 #include <sys/systm.h>
@@ -80,6 +81,7 @@ static void		pcib_pcie_dll_timeout(void *arg);
 #endif
 static int		pcib_request_feature_default(device_t pcib, device_t dev,
 			    enum pci_feature feature);
+static int		pcib_reset_child(device_t dev, device_t child, int flags);
 
 static device_method_t pcib_methods[] = {
     /* Device interface */
@@ -106,6 +108,7 @@ static device_method_t pcib_methods[] = {
     DEVMETHOD(bus_deactivate_resource,	bus_generic_deactivate_resource),
     DEVMETHOD(bus_setup_intr,		bus_generic_setup_intr),
     DEVMETHOD(bus_teardown_intr,	bus_generic_teardown_intr),
+    DEVMETHOD(bus_reset_child,		pcib_reset_child),
 
     /* pcib interface */
     DEVMETHOD(pcib_maxslots,		pcib_ari_maxslots),
@@ -1164,9 +1167,11 @@ pcib_pcie_intr_hotplug(void *arg)
 {
 	struct pcib_softc *sc;
 	device_t dev;
+	uint16_t old_slot_sta;
 
 	sc = arg;
 	dev = sc->dev;
+	old_slot_sta = sc->pcie_slot_sta;
 	sc->pcie_slot_sta = pcie_read_config(dev, PCIER_SLOT_STA, 2);
 
 	/* Clear the events just reported. */
@@ -1182,7 +1187,8 @@ pcib_pcie_intr_hotplug(void *arg)
 			    "Attention Button Pressed: Detach Cancelled\n");
 			sc->flags &= ~PCIB_DETACH_PENDING;
 			callout_stop(&sc->pcie_ab_timer);
-		} else {
+		} else if (old_slot_sta & PCIEM_SLOT_STA_PDS) {
+			/* Only initiate detach sequence if device present. */
 			device_printf(dev,
 		    "Attention Button Pressed: Detaching in 5 seconds\n");
 			sc->flags |= PCIB_DETACH_PENDING;
@@ -2907,4 +2913,32 @@ pcib_request_feature_default(device_t pcib, device_t dev,
 	 */
 	bus = device_get_parent(pcib);
 	return (PCIB_REQUEST_FEATURE(device_get_parent(bus), dev, feature));
+}
+
+static int
+pcib_reset_child(device_t dev, device_t child, int flags)
+{
+	struct pci_devinfo *pdinfo;
+	int error;
+
+	error = 0;
+	if (dev == NULL || device_get_parent(child) != dev)
+		goto out;
+	error = ENXIO;
+	if (device_get_devclass(child) != devclass_find("pci"))
+		goto out;
+	pdinfo = device_get_ivars(dev);
+	if (pdinfo->cfg.pcie.pcie_location != 0 &&
+	    (pdinfo->cfg.pcie.pcie_type == PCIEM_TYPE_DOWNSTREAM_PORT ||
+	    pdinfo->cfg.pcie.pcie_type == PCIEM_TYPE_ROOT_PORT)) {
+		error = bus_helper_reset_prepare(child, flags);
+		if (error == 0) {
+			error = pcie_link_reset(dev,
+			    pdinfo->cfg.pcie.pcie_location);
+			/* XXXKIB call _post even if error != 0 ? */
+			bus_helper_reset_post(child, flags);
+		}
+	}
+out:
+	return (error);
 }

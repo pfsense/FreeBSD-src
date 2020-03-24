@@ -323,7 +323,7 @@ pmap_pte_cache_bits(vm_paddr_t pa, vm_page_t m)
 		ma = VM_MEMATTR_UNCACHEABLE;
 	return PTE_C(ma);
 }
-#define PMAP_PTE_SET_CACHE_BITS(pte, ps, m) {	\
+#define PMAP_PTE_SET_CACHE_BITS(pte, pa, m) {	\
 	pte &= ~PTE_C_MASK;			\
 	pte |= pmap_pte_cache_bits(pa, m);	\
 }
@@ -1553,7 +1553,7 @@ free_pv_chunk(struct pv_chunk *pc)
 	/* entire chunk is free, return it */
 	m = PHYS_TO_VM_PAGE(MIPS_DIRECT_TO_PHYS((vm_offset_t)pc));
 	dump_drop_page(m->phys_addr);
-	vm_page_unwire(m, PQ_NONE);
+	vm_page_unwire_noq(m);
 	vm_page_free(m);
 }
 

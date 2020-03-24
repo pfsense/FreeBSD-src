@@ -20,10 +20,13 @@ DTS=	\
 	sun8i-h3-nanopi-m1-plus.dts \
 	sun8i-h3-nanopi-neo.dts \
 	sun8i-h3-orangepi-one.dts \
+	sun8i-h3-orangepi-pc.dts \
 	sun8i-h3-orangepi-plus2e.dts
 
 DTSO=	sun8i-a83t-sid.dtso \
-	sun8i-h3-sid.dtso
+	sun8i-h3-i2c0.dtso \
+	sun8i-h3-sid.dtso \
+	sun8i-h3-ths.dtso
 
 LINKS= \
 	${DTBDIR}/sun4i-a10-cubieboard.dtb ${DTBDIR}/cubieboard.dtb \
@@ -39,14 +42,24 @@ LINKS= \
 DTS=	\
 	allwinner/sun50i-a64-nanopi-a64.dts \
 	allwinner/sun50i-a64-olinuxino.dts \
+	allwinner/sun50i-a64-pine64-lts.dts \
 	allwinner/sun50i-a64-pine64-plus.dts \
 	allwinner/sun50i-a64-pine64.dts \
+	allwinner/sun50i-a64-pinebook.dts \
 	allwinner/sun50i-a64-sopine-baseboard.dts \
-	allwinner/sun50i-h5-orangepi-pc2.dts
+	allwinner/sun50i-h5-orangepi-pc2.dts \
+	allwinner/sun50i-h5-nanopi-neo2.dts
 
-DTSO=	sun50i-a64-sid.dtso \
+DTSO=	sun50i-a64-opp.dtso \
+	sun50i-a64-pwm.dtso \
+	sun50i-a64-rpwm.dtso \
+	sun50i-a64-sid.dtso \
 	sun50i-a64-ths.dtso \
-	sun50i-a64-timer.dtso
+	sun50i-a64-timer.dtso \
+	sun50i-h5-opp.dtso \
+	sun50i-h5-sid.dtso \
+	sun50i-h5-ths.dtso \
+	sun50i-h5-nanopi-neo2-opp.dtso
 
 .endif
 

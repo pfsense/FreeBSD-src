@@ -62,14 +62,14 @@ static MALLOC_DEFINE(M_MTXPOOL, "mtx_pool", "mutex pool");
 
 /* Pool sizes must be a power of two */
 #ifndef MTX_POOL_SLEEP_SIZE
-#define MTX_POOL_SLEEP_SIZE		128
+#define MTX_POOL_SLEEP_SIZE		1024
 #endif
 
 struct mtxpool_header {
 	int		mtxpool_size;
 	int		mtxpool_mask;
 	int		mtxpool_shift;
-	int		mtxpool_next;
+	int		mtxpool_next __aligned(CACHE_LINE_SIZE);
 };
 
 struct mtx_pool {
@@ -82,7 +82,7 @@ struct mtx_pool {
 #define mtx_pool_shift	mtx_pool_header.mtxpool_shift
 #define mtx_pool_next	mtx_pool_header.mtxpool_next
 
-struct mtx_pool *mtxpool_sleep;
+struct mtx_pool __read_frequently *mtxpool_sleep;
 
 #if UINTPTR_MAX == UINT64_MAX	/* 64 bits */
 # define POINTER_BITS		64

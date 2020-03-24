@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/local/bin/python2
 #
 # Copyright (c) 2014 The FreeBSD Foundation
 # Copyright 2014 John-Mark Gurney
@@ -35,6 +35,7 @@ import array
 import dpkt
 from fcntl import ioctl
 import os
+import platform
 import signal
 from struct import pack as _pack
 
@@ -106,14 +107,19 @@ class CryptAEAD(dpkt.Packet):
 # h2py.py can't handle multiarg macros
 CRIOGET = 3221513060
 CIOCGSESSION = 3224396645
-CIOCGSESSION2 = 3225445226
 CIOCFSESSION = 2147771238
-CIOCCRYPT = 3224396647
 CIOCKEY = 3230688104
 CIOCASYMFEAT = 1074029417
 CIOCKEY2 = 3230688107
 CIOCFINDDEV = 3223610220
-CIOCCRYPTAEAD = 3225445229
+if platform.architecture()[0] == '64bit':
+    CIOCGSESSION2 = 3225445226
+    CIOCCRYPT = 3224396647
+    CIOCCRYPTAEAD = 3225445229
+else:
+    CIOCGSESSION2 = 3224396650
+    CIOCCRYPT = 3223085927
+    CIOCCRYPTAEAD = 3223872365
 
 def _getdev():
 	fd = os.open('/dev/crypto', os.O_RDWR)
@@ -151,8 +157,9 @@ class Crypto:
 		return _findop(crid, '')[1]
 
 	def __init__(self, cipher=0, key=None, mac=0, mackey=None,
-	    crid=CRYPTOCAP_F_SOFTWARE | CRYPTOCAP_F_HARDWARE):
+	    crid=CRYPTOCAP_F_SOFTWARE | CRYPTOCAP_F_HARDWARE, maclen=None):
 		self._ses = None
+		self._maclen = maclen
 		ses = SessionOp2()
 		ses.cipher = cipher
 		ses.mac = mac
@@ -168,9 +175,6 @@ class Crypto:
 			ses.mackeylen = len(mackey)
 			mk = array.array('B', mackey)
 			ses.mackey = mk.buffer_info()[0]
-			self._maclen = 16	# parameterize?
-		else:
-			self._maclen = None
 
 		if not cipher and not mac:
 			raise ValueError('one of cipher or mac MUST be specified.')
@@ -382,6 +386,112 @@ class KATParser:
 				raise ValueError('not all fields found: %r' % repr(remain))
 
 			yield values
+
+# The CCM files use a bit of a different syntax that doesn't quite fit
+# the generic KATParser.  In particular, some keys are set globally at
+# the start of the file, and some are set globally at the start of a
+# section.
+class KATCCMParser:
+	def __init__(self, fname):
+		self.fp = open(fname)
+		self._pending = None
+		self.read_globals()
+
+	def read_globals(self):
+		self.global_values = {}
+		while True:
+			line = self.fp.readline()
+			if not line:
+				return
+			if line[0] == '#' or not line.strip():
+				continue
+			if line[0] == '[':
+				self._pending = line
+				return
+
+			try:
+				f, v = line.split(' =')
+			except:
+				print('line:', repr(line))
+				raise
+
+			v = v.strip()
+
+			if f in self.global_values:
+				raise ValueError('already present: %r' % repr(f))
+			self.global_values[f] = v
+
+	def read_section_values(self, kwpairs):
+		self.section_values = self.global_values.copy()
+		for pair in kwpairs.split(', '):
+			f, v = pair.split(' = ')
+			if f in self.section_values:
+				raise ValueError('already present: %r' % repr(f))
+			self.section_values[f] = v
+
+		while True:
+			line = self.fp.readline()
+			if not line:
+				return
+			if line[0] == '#' or not line.strip():
+				continue
+			if line[0] == '[':
+				self._pending = line
+				return
+
+			try:
+				f, v = line.split(' =')
+			except:
+				print('line:', repr(line))
+				raise
+
+			if f == 'Count':
+				self._pending = line
+				return
+
+			v = v.strip()
+
+			if f in self.section_values:
+				raise ValueError('already present: %r' % repr(f))
+			self.section_values[f] = v
+
+	def __iter__(self):
+		while True:
+			if self._pending:
+				line = self._pending
+				self._pending = None
+			else:
+				line = self.fp.readline()
+				if not line:
+					return
+
+			if (line and line[0] == '#') or not line.strip():
+				continue
+
+			if line[0] == '[':
+				section = line[1:].split(']', 1)[0]
+				self.read_section_values(section)
+				continue
+
+			values = self.section_values.copy()
+
+			while True:
+				try:
+					f, v = line.split(' =')
+				except:
+					print('line:', repr(line))
+					raise
+				v = v.strip()
+
+				if f in values:
+					raise ValueError('already present: %r' % repr(f))
+				values[f] = v
+				line = self.fp.readline().strip()
+				if not line:
+					break
+
+			yield values
+
 
 def _spdechex(s):
 	return ''.join(s.split()).decode('hex')

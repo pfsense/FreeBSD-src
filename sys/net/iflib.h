@@ -69,6 +69,9 @@ typedef struct if_rxd_frag {
 	uint16_t irf_len;
 } *if_rxd_frag_t;
 
+/* bnxt supports 64 with hardware LRO enabled */
+#define IFLIB_MAX_RX_SEGS		64
+
 typedef struct if_rxd_info {
 	/* set by iflib */
 	uint16_t iri_qsidx;		/* qset index */
@@ -76,7 +79,7 @@ typedef struct if_rxd_info {
 	/* XXX redundant with the new irf_len field */
 	uint16_t iri_len;		/* packet length */
 	qidx_t iri_cidx;		/* consumer index of cq */
-	struct ifnet *iri_ifp;		/* some drivers >1 interface per softc */
+	if_t iri_ifp;			/* driver may have >1 iface per softc */
 
 	/* updated by driver */
 	if_rxd_frag_t iri_frags;
@@ -245,7 +248,7 @@ struct if_shared_ctx {
 
 	/* fields necessary for probe */
 	pci_vendor_info_t *isc_vendor_info;
-	char *isc_driver_version;
+	const char *isc_driver_version;
 	/* optional function to transform the read values to match the table*/
 	void (*isc_parse_devinfo) (uint16_t *device_id, uint16_t *subvendor_id,
 				   uint16_t *subdevice_id, uint16_t *rev_id);
@@ -358,6 +361,11 @@ typedef enum {
  * Interface needs admin task to ignore interface up/down status
  */
 #define IFLIB_ADMIN_ALWAYS_RUN	0x10000
+/*
+ * When using a single hardware interrupt for the interface, only process RX
+ * interrupts instead of doing combined RX/TX processing.
+ */
+#define	IFLIB_SINGLE_IRQ_RX_ONLY	0x40000
 
 
 /*
@@ -378,6 +386,8 @@ void iflib_set_mac(if_ctx_t ctx, uint8_t mac[ETHER_ADDR_LEN]);
 void iflib_request_reset(if_ctx_t ctx);
 uint8_t iflib_in_detach(if_ctx_t ctx);
 
+uint32_t iflib_get_rx_mbuf_sz(if_ctx_t ctx);
+
 /*
  * If the driver can plug cleanly in to newbus use these
  */
@@ -387,6 +397,13 @@ int iflib_device_detach(device_t);
 int iflib_device_suspend(device_t);
 int iflib_device_resume(device_t);
 int iflib_device_shutdown(device_t);
+
+/*
+ * Use this instead of iflib_device_probe if the driver should report
+ * BUS_PROBE_VENDOR instead of BUS_PROBE_DEFAULT. (For example, an out-of-tree
+ * driver based on iflib).
+ */
+int iflib_device_probe_vendor(device_t);
 
 
 int iflib_device_iov_init(device_t, uint16_t, const nvlist_t *);
@@ -428,6 +445,7 @@ void iflib_iov_intr_deferred(if_ctx_t ctx);
 void iflib_link_state_change(if_ctx_t ctx, int linkstate, uint64_t baudrate);
 
 int iflib_dma_alloc(if_ctx_t ctx, int size, iflib_dma_info_t dma, int mapflags);
+int iflib_dma_alloc_align(if_ctx_t ctx, int size, int align, iflib_dma_info_t dma, int mapflags);
 void iflib_dma_free(iflib_dma_info_t dma);
 
 int iflib_dma_alloc_multi(if_ctx_t ctx, int *sizes, iflib_dma_info_t *dmalist, int mapflags, int count);

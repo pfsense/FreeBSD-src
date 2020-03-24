@@ -42,6 +42,7 @@ typedef struct {
 } atomic_long_t;
 
 #define	atomic_long_add(i, v)		atomic_long_add_return((i), (v))
+#define	atomic_long_sub(i, v)		atomic_long_add_return(-(i), (v))
 #define	atomic_long_inc_return(v)	atomic_long_add_return(1, (v))
 #define	atomic_long_inc_not_zero(v)	atomic_long_add_unless((v), 1, 0)
 
@@ -78,7 +79,15 @@ atomic_long_dec(atomic_long_t *v)
 static inline long
 atomic_long_xchg(atomic_long_t *v, long val)
 {
+#if defined(__i386__) || defined(__amd64__) || defined(__aarch64__)
 	return atomic_swap_long(&v->counter, val);
+#else
+	long ret = atomic_long_read(v);
+
+	while (!atomic_fcmpset_long(&v->counter, &ret, val))
+		;
+	return (ret);
+#endif
 }
 
 static inline long

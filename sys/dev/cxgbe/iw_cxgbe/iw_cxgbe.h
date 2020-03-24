@@ -70,6 +70,9 @@
 #define KTR_IW_CXGBE	KTR_SPARE3
 
 extern int c4iw_debug;
+extern int use_dsgl;
+extern int inline_threshold;
+
 #define PDBG(fmt, args...) \
 do { \
 	if (c4iw_debug) \
@@ -856,11 +859,9 @@ struct c4iw_ep {
 	unsigned int mpa_pkt_len;
 	u32 ird;
 	u32 ord;
-	u32 smac_idx;
 	u32 tx_chan;
 	u32 mtu;
 	u16 mss;
-	u16 emss;
 	u16 plen;
 	u16 rss_qid;
 	u16 txq_idx;

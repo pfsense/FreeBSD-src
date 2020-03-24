@@ -451,6 +451,7 @@ ip_direct_input(struct mbuf *m)
 void
 ip_input(struct mbuf *m)
 {
+	struct rm_priotracker in_ifa_tracker;
 	struct ip *ip = NULL;
 	struct in_ifaddr *ia = NULL;
 	struct ifaddr *ifa;
@@ -503,10 +504,10 @@ ip_input(struct mbuf *m)
 
 	IP_PROBE(receive, NULL, NULL, ip, m->m_pkthdr.rcvif, ip, NULL);
 
-	/* 127/8 must not appear on wire - RFC1122 */
+	/* IN_LOOPBACK must not appear on the wire - RFC1122 */
 	ifp = m->m_pkthdr.rcvif;
-	if ((ntohl(ip->ip_dst.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET ||
-	    (ntohl(ip->ip_src.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET) {
+	if (IN_LOOPBACK(ntohl(ip->ip_dst.s_addr)) ||
+	    IN_LOOPBACK(ntohl(ip->ip_src.s_addr))) {
 		if ((ifp->if_flags & IFF_LOOPBACK) == 0) {
 			IPSTAT_INC(ips_badaddr);
 			goto bad;
@@ -684,7 +685,7 @@ passin:
 	/*
 	 * Check for exact addresses in the hash bucket.
 	 */
-	/* IN_IFADDR_RLOCK(); */
+	IN_IFADDR_RLOCK(&in_ifa_tracker);
 	LIST_FOREACH(ia, INADDR_HASH(ip->ip_dst.s_addr), ia_hash) {
 		/*
 		 * If the address matches, verify that the packet
@@ -696,11 +697,11 @@ passin:
 			counter_u64_add(ia->ia_ifa.ifa_ipackets, 1);
 			counter_u64_add(ia->ia_ifa.ifa_ibytes,
 			    m->m_pkthdr.len);
-			/* IN_IFADDR_RUNLOCK(); */
+			IN_IFADDR_RUNLOCK(&in_ifa_tracker);
 			goto ours;
 		}
 	}
-	/* IN_IFADDR_RUNLOCK(); */
+	IN_IFADDR_RUNLOCK(&in_ifa_tracker);
 
 	/*
 	 * Check for broadcast addresses.

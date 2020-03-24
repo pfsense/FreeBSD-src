@@ -1,9 +1,8 @@
 # $FreeBSD$
 
 PROG_CXX=	llvm-objdump
-MAN=
 
-SRCDIR=		tools/llvm-objdump
+SRCDIR=		llvm/tools/llvm-objdump
 SRCS+=		COFFDump.cpp
 SRCS+=		ELFDump.cpp
 SRCS+=		MachODump.cpp

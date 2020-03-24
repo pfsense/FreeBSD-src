@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -363,7 +363,6 @@ AcpiEvPciConfigRegionSetup (
                          * root bridge. Still need to return a context object
                          * for the new PCI_Config operation region, however.
                          */
-                        Status = AE_OK;
                     }
                     else
                     {
@@ -722,24 +721,6 @@ AcpiEvInitializeRegion (
             case ACPI_TYPE_THERMAL:
 
                 HandlerObj = ObjDesc->CommonNotify.Handler;
-                break;
-
-            case ACPI_TYPE_METHOD:
-                /*
-                 * If we are executing module level code, the original
-                 * Node's object was replaced by this Method object and we
-                 * saved the handler in the method object.
-                 *
-                 * Note: Only used for the legacy MLC support. Will
-                 * be removed in the future.
-                 *
-                 * See AcpiNsExecModuleCode
-                 */
-                if (!AcpiGbl_ExecuteTablesAsMethods &&
-                    ObjDesc->Method.InfoFlags & ACPI_METHOD_MODULE_LEVEL)
-                {
-                    HandlerObj = ObjDesc->Method.Dispatch.Handler;
-                }
                 break;
 
             default:

@@ -1,7 +1,7 @@
-/*	$Id: man_term.c,v 1.211 2018/06/10 15:12:35 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.232 2019/07/23 17:53:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,13 +32,12 @@
 #include "man.h"
 #include "out.h"
 #include "term.h"
+#include "tag.h"
 #include "main.h"
 
 #define	MAXMARGINS	  64 /* maximum number of indented scopes */
 
 struct	mtermp {
-	int		  fl;
-#define	MANT_LITERAL	 (1 << 0)
 	int		  lmargin[MAXMARGINS]; /* margins (incl. vis. page) */
 	int		  lmargincur; /* index of current margin */
 	int		  lmarginsz; /* actual number of nested margins */
@@ -51,7 +50,7 @@ struct	mtermp {
 			  struct roff_node *n, \
 			  const struct roff_meta *meta
 
-struct	termact {
+struct	man_term_act {
 	int		(*pre)(DECL_ARGS);
 	void		(*post)(DECL_ARGS);
 	int		  flags;
@@ -78,8 +77,10 @@ static	int		  pre_PP(DECL_ARGS);
 static	int		  pre_RS(DECL_ARGS);
 static	int		  pre_SH(DECL_ARGS);
 static	int		  pre_SS(DECL_ARGS);
+static	int		  pre_SY(DECL_ARGS);
 static	int		  pre_TP(DECL_ARGS);
 static	int		  pre_UR(DECL_ARGS);
+static	int		  pre_abort(DECL_ARGS);
 static	int		  pre_alternate(DECL_ARGS);
 static	int		  pre_ign(DECL_ARGS);
 static	int		  pre_in(DECL_ARGS);
@@ -89,18 +90,21 @@ static	void		  post_IP(DECL_ARGS);
 static	void		  post_HP(DECL_ARGS);
 static	void		  post_RS(DECL_ARGS);
 static	void		  post_SH(DECL_ARGS);
-static	void		  post_SS(DECL_ARGS);
+static	void		  post_SY(DECL_ARGS);
 static	void		  post_TP(DECL_ARGS);
 static	void		  post_UR(DECL_ARGS);
 
-static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
+static	void		  tag_man(struct termp *, struct roff_node *);
+
+static const struct man_term_act man_term_acts[MAN_MAX - MAN_TH] = {
 	{ NULL, NULL, 0 }, /* TH */
 	{ pre_SH, post_SH, 0 }, /* SH */
-	{ pre_SS, post_SS, 0 }, /* SS */
+	{ pre_SS, post_SH, 0 }, /* SS */
 	{ pre_TP, post_TP, 0 }, /* TP */
-	{ pre_PP, NULL, 0 }, /* LP */
+	{ pre_TP, post_TP, 0 }, /* TQ */
+	{ pre_abort, NULL, 0 }, /* LP */
 	{ pre_PP, NULL, 0 }, /* PP */
-	{ pre_PP, NULL, 0 }, /* P */
+	{ pre_abort, NULL, 0 }, /* P */
 	{ pre_IP, post_IP, 0 }, /* IP */
 	{ pre_HP, post_HP, 0 }, /* HP */
 	{ NULL, NULL, 0 }, /* SM */
@@ -114,8 +118,6 @@ static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
 	{ pre_I, NULL, 0 }, /* I */
 	{ pre_alternate, NULL, 0 }, /* IR */
 	{ pre_alternate, NULL, 0 }, /* RI */
-	{ pre_literal, NULL, 0 }, /* nf */
-	{ pre_literal, NULL, 0 }, /* fi */
 	{ NULL, NULL, 0 }, /* RE */
 	{ pre_RS, post_RS, 0 }, /* RS */
 	{ pre_DT, NULL, 0 }, /* DT */
@@ -123,6 +125,8 @@ static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
 	{ pre_PD, NULL, MAN_NOTEXT }, /* PD */
 	{ pre_ign, NULL, 0 }, /* AT */
 	{ pre_in, NULL, MAN_NOTEXT }, /* in */
+	{ pre_SY, post_SY, 0 }, /* SY */
+	{ NULL, NULL, 0 }, /* YS */
 	{ pre_OP, NULL, 0 }, /* OP */
 	{ pre_literal, NULL, 0 }, /* EX */
 	{ pre_literal, NULL, 0 }, /* EE */
@@ -131,15 +135,22 @@ static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
 	{ pre_UR, post_UR, 0 }, /* MT */
 	{ NULL, NULL, 0 }, /* ME */
 };
-static	const struct termact *termacts = __termacts - MAN_TH;
+static const struct man_term_act *man_term_act(enum roff_tok);
 
+
+static const struct man_term_act *
+man_term_act(enum roff_tok tok)
+{
+	assert(tok >= MAN_TH && tok <= MAN_MAX);
+	return man_term_acts + (tok - MAN_TH);
+}
 
 void
-terminal_man(void *arg, const struct roff_man *man)
+terminal_man(void *arg, const struct roff_meta *man)
 {
-	struct termp		*p;
-	struct roff_node	*n;
 	struct mtermp		 mt;
+	struct termp		*p;
+	struct roff_node	*n, *nc, *nn;
 	size_t			 save_defindent;
 
 	p = (struct termp *)arg;
@@ -151,31 +162,35 @@ terminal_man(void *arg, const struct roff_man *man)
 	term_tab_set(p, "T");
 	term_tab_set(p, ".5i");
 
-	memset(&mt, 0, sizeof(struct mtermp));
+	memset(&mt, 0, sizeof(mt));
 	mt.lmargin[mt.lmargincur] = term_len(p, p->defindent);
 	mt.offset = term_len(p, p->defindent);
 	mt.pardist = 1;
 
 	n = man->first->child;
 	if (p->synopsisonly) {
-		while (n != NULL) {
-			if (n->tok == MAN_SH &&
-			    n->child->child->type == ROFFT_TEXT &&
-			    !strcmp(n->child->child->string, "SYNOPSIS")) {
-				if (n->child->next->child != NULL)
-					print_man_nodelist(p, &mt,
-					    n->child->next->child,
-					    &man->meta);
-				term_newln(p);
+		for (nn = NULL; n != NULL; n = n->next) {
+			if (n->tok != MAN_SH)
+				continue;
+			nc = n->child->child;
+			if (nc->type != ROFFT_TEXT)
+				continue;
+			if (strcmp(nc->string, "SYNOPSIS") == 0)
 				break;
-			}
-			n = n->next;
+			if (nn == NULL && strcmp(nc->string, "NAME") == 0)
+				nn = n;
 		}
+		if (n == NULL)
+			n = nn;
+		p->flags |= TERMP_NOSPACE;
+		if (n != NULL && (n = n->child->next->child) != NULL)
+			print_man_nodelist(p, &mt, n, man);
+		term_newln(p);
 	} else {
-		term_begin(p, print_man_head, print_man_foot, &man->meta);
+		term_begin(p, print_man_head, print_man_foot, man);
 		p->flags |= TERMP_NOSPACE;
 		if (n != NULL)
-			print_man_nodelist(p, &mt, n, &man->meta);
+			print_man_nodelist(p, &mt, n, man);
 		term_end(p);
 	}
 	p->defindent = save_defindent;
@@ -196,12 +211,12 @@ print_bvspace(struct termp *p, const struct roff_node *n, int pardist)
 
 	term_newln(p);
 
-	if (n->body && n->body->child)
+	if (n->body != NULL && n->body->child != NULL)
 		if (n->body->child->type == ROFFT_TBL)
 			return;
 
 	if (n->parent->type == ROFFT_ROOT || n->parent->tok != MAN_RS)
-		if (NULL == n->prev)
+		if (n->prev == NULL)
 			return;
 
 	for (i = 0; i < pardist; i++)
@@ -210,16 +225,20 @@ print_bvspace(struct termp *p, const struct roff_node *n, int pardist)
 
 
 static int
+pre_abort(DECL_ARGS)
+{
+	abort();
+}
+
+static int
 pre_ign(DECL_ARGS)
 {
-
 	return 0;
 }
 
 static int
 pre_I(DECL_ARGS)
 {
-
 	term_fontrepl(p, TERMFONT_UNDER);
 	return 1;
 }
@@ -227,13 +246,7 @@ pre_I(DECL_ARGS)
 static int
 pre_literal(DECL_ARGS)
 {
-
 	term_newln(p);
-
-	if (n->tok == MAN_nf || n->tok == MAN_EX)
-		mt->fl |= MANT_LITERAL;
-	else
-		mt->fl &= ~MANT_LITERAL;
 
 	/*
 	 * Unlike .IP and .TP, .HP does not have a HEAD.
@@ -247,7 +260,6 @@ pre_literal(DECL_ARGS)
 		p->flags &= ~(TERMP_NOBREAK | TERMP_BRIND);
 		p->flags |= TERMP_NOSPACE;
 	}
-
 	return 0;
 }
 
@@ -272,7 +284,7 @@ pre_alternate(DECL_ARGS)
 {
 	enum termfont		 font[2];
 	struct roff_node	*nn;
-	int			 savelit, i;
+	int			 i;
 
 	switch (n->tok) {
 	case MAN_RB:
@@ -302,29 +314,21 @@ pre_alternate(DECL_ARGS)
 	default:
 		abort();
 	}
-
-	savelit = MANT_LITERAL & mt->fl;
-	mt->fl &= ~MANT_LITERAL;
-
-	for (i = 0, nn = n->child; nn; nn = nn->next, i = 1 - i) {
+	for (i = 0, nn = n->child; nn != NULL; nn = nn->next, i = 1 - i) {
 		term_fontrepl(p, font[i]);
-		if (savelit && NULL == nn->next)
-			mt->fl |= MANT_LITERAL;
 		assert(nn->type == ROFFT_TEXT);
 		term_word(p, nn->string);
 		if (nn->flags & NODE_EOS)
-                	p->flags |= TERMP_SENTENCE;
-		if (nn->next)
+			p->flags |= TERMP_SENTENCE;
+		if (nn->next != NULL)
 			p->flags |= TERMP_NOSPACE;
 	}
-
 	return 0;
 }
 
 static int
 pre_B(DECL_ARGS)
 {
-
 	term_fontrepl(p, TERMFONT_BOLD);
 	return 1;
 }
@@ -332,20 +336,19 @@ pre_B(DECL_ARGS)
 static int
 pre_OP(DECL_ARGS)
 {
-
 	term_word(p, "[");
-	p->flags |= TERMP_NOSPACE;
+	p->flags |= TERMP_KEEP | TERMP_NOSPACE;
 
-	if (NULL != (n = n->child)) {
+	if ((n = n->child) != NULL) {
 		term_fontrepl(p, TERMFONT_BOLD);
 		term_word(p, n->string);
 	}
-	if (NULL != n && NULL != n->next) {
+	if (n != NULL && n->next != NULL) {
 		term_fontrepl(p, TERMFONT_UNDER);
 		term_word(p, n->next->string);
 	}
-
 	term_fontrepl(p, TERMFONT_NONE);
+	p->flags &= ~TERMP_KEEP;
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, "]");
 	return 0;
@@ -369,9 +372,9 @@ pre_in(DECL_ARGS)
 	cp = n->child->string;
 	less = 0;
 
-	if ('-' == *cp)
+	if (*cp == '-')
 		less = -1;
-	else if ('+' == *cp)
+	else if (*cp == '+')
 		less = 1;
 	else
 		cp--;
@@ -413,13 +416,18 @@ pre_HP(DECL_ARGS)
 	case ROFFT_BLOCK:
 		print_bvspace(p, n, mt->pardist);
 		return 1;
+	case ROFFT_HEAD:
+		return 0;
 	case ROFFT_BODY:
 		break;
 	default:
-		return 0;
+		abort();
 	}
 
-	if ( ! (MANT_LITERAL & mt->fl)) {
+	if (n->child == NULL)
+		return 0;
+
+	if ((n->child->flags & NODE_NOFILL) == 0) {
 		p->flags |= TERMP_NOBREAK | TERMP_BRIND;
 		p->trailspace = 2;
 	}
@@ -445,8 +453,10 @@ pre_HP(DECL_ARGS)
 static void
 post_HP(DECL_ARGS)
 {
-
 	switch (n->type) {
+	case ROFFT_BLOCK:
+	case ROFFT_HEAD:
+		break;
 	case ROFFT_BODY:
 		term_newln(p);
 
@@ -466,25 +476,27 @@ post_HP(DECL_ARGS)
 		p->tcol->rmargin = p->maxrmargin;
 		break;
 	default:
-		break;
+		abort();
 	}
 }
 
 static int
 pre_PP(DECL_ARGS)
 {
-
 	switch (n->type) {
 	case ROFFT_BLOCK:
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		print_bvspace(p, n, mt->pardist);
 		break;
-	default:
+	case ROFFT_HEAD:
+		return 0;
+	case ROFFT_BODY:
 		p->tcol->offset = mt->offset;
 		break;
+	default:
+		abort();
 	}
-
-	return n->type != ROFFT_HEAD;
+	return 1;
 }
 
 static int
@@ -492,21 +504,21 @@ pre_IP(DECL_ARGS)
 {
 	struct roffsu		 su;
 	const struct roff_node	*nn;
-	int			 len, savelit;
+	int			 len;
 
 	switch (n->type) {
-	case ROFFT_BODY:
-		p->flags |= TERMP_NOSPACE;
-		break;
+	case ROFFT_BLOCK:
+		print_bvspace(p, n, mt->pardist);
+		return 1;
 	case ROFFT_HEAD:
 		p->flags |= TERMP_NOBREAK;
 		p->trailspace = 1;
 		break;
-	case ROFFT_BLOCK:
-		print_bvspace(p, n, mt->pardist);
-		/* FALLTHROUGH */
+	case ROFFT_BODY:
+		p->flags |= TERMP_NOSPACE;
+		break;
 	default:
-		return 1;
+		abort();
 	}
 
 	/* Calculate the offset from the optional second argument. */
@@ -526,33 +538,27 @@ pre_IP(DECL_ARGS)
 	case ROFFT_HEAD:
 		p->tcol->offset = mt->offset;
 		p->tcol->rmargin = mt->offset + len;
-
-		savelit = MANT_LITERAL & mt->fl;
-		mt->fl &= ~MANT_LITERAL;
-
-		if (n->child)
+		if (n->child != NULL) {
 			print_man_node(p, mt, n->child, meta);
-
-		if (savelit)
-			mt->fl |= MANT_LITERAL;
-
+			tag_man(p, n->child);
+		}
 		return 0;
 	case ROFFT_BODY:
 		p->tcol->offset = mt->offset + len;
 		p->tcol->rmargin = p->maxrmargin;
 		break;
 	default:
-		break;
+		abort();
 	}
-
 	return 1;
 }
 
 static void
 post_IP(DECL_ARGS)
 {
-
 	switch (n->type) {
+	case ROFFT_BLOCK:
+		break;
 	case ROFFT_HEAD:
 		term_flushln(p);
 		p->flags &= ~TERMP_NOBREAK;
@@ -564,7 +570,7 @@ post_IP(DECL_ARGS)
 		p->tcol->offset = mt->offset;
 		break;
 	default:
-		break;
+		abort();
 	}
 }
 
@@ -573,9 +579,13 @@ pre_TP(DECL_ARGS)
 {
 	struct roffsu		 su;
 	struct roff_node	*nn;
-	int			 len, savelit;
+	int			 len;
 
 	switch (n->type) {
+	case ROFFT_BLOCK:
+		if (n->tok == MAN_TP)
+			print_bvspace(p, n, mt->pardist);
+		return 1;
 	case ROFFT_HEAD:
 		p->flags |= TERMP_NOBREAK | TERMP_BRTRSP;
 		p->trailspace = 1;
@@ -583,11 +593,8 @@ pre_TP(DECL_ARGS)
 	case ROFFT_BODY:
 		p->flags |= TERMP_NOSPACE;
 		break;
-	case ROFFT_BLOCK:
-		print_bvspace(p, n, mt->pardist);
-		/* FALLTHROUGH */
 	default:
-		return 1;
+		abort();
 	}
 
 	/* Calculate offset. */
@@ -609,21 +616,27 @@ pre_TP(DECL_ARGS)
 		p->tcol->offset = mt->offset;
 		p->tcol->rmargin = mt->offset + len;
 
-		savelit = MANT_LITERAL & mt->fl;
-		mt->fl &= ~MANT_LITERAL;
-
 		/* Don't print same-line elements. */
 		nn = n->child;
-		while (NULL != nn && 0 == (NODE_LINE & nn->flags))
+		while (nn != NULL && (nn->flags & NODE_LINE) == 0)
 			nn = nn->next;
 
-		while (NULL != nn) {
+		if (nn == NULL)
+			return 0;
+
+		if (nn->type == ROFFT_TEXT)
+			tag_man(p, nn);
+		else if (nn->child != NULL &&
+		    nn->child->type == ROFFT_TEXT &&
+		    (nn->tok == MAN_B || nn->tok == MAN_BI ||
+		     nn->tok == MAN_BR || nn->tok == MAN_I ||
+		     nn->tok == MAN_IB || nn->tok == MAN_IR))
+			tag_man(p, nn->child);
+
+		while (nn != NULL) {
 			print_man_node(p, mt, nn, meta);
 			nn = nn->next;
 		}
-
-		if (savelit)
-			mt->fl |= MANT_LITERAL;
 		return 0;
 	case ROFFT_BODY:
 		p->tcol->offset = mt->offset + len;
@@ -632,17 +645,17 @@ pre_TP(DECL_ARGS)
 		p->flags &= ~(TERMP_NOBREAK | TERMP_BRTRSP);
 		break;
 	default:
-		break;
+		abort();
 	}
-
 	return 1;
 }
 
 static void
 post_TP(DECL_ARGS)
 {
-
 	switch (n->type) {
+	case ROFFT_BLOCK:
+		break;
 	case ROFFT_HEAD:
 		term_flushln(p);
 		break;
@@ -651,7 +664,7 @@ post_TP(DECL_ARGS)
 		p->tcol->offset = mt->offset;
 		break;
 	default:
-		break;
+		abort();
 	}
 }
 
@@ -662,7 +675,6 @@ pre_SS(DECL_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		mt->fl &= ~MANT_LITERAL;
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		mt->offset = term_len(p, p->defindent);
 
@@ -674,7 +686,7 @@ pre_SS(DECL_ARGS)
 		do {
 			n = n->prev;
 		} while (n != NULL && n->tok >= MAN_TH &&
-		    termacts[n->tok].flags & MAN_NOTEXT);
+		    man_term_act(n->tok)->flags & MAN_NOTEXT);
 		if (n == NULL || n->type == ROFFT_COMMENT ||
 		    (n->tok == MAN_SS && n->body->child == NULL))
 			break;
@@ -698,24 +710,7 @@ pre_SS(DECL_ARGS)
 	default:
 		break;
 	}
-
 	return 1;
-}
-
-static void
-post_SS(DECL_ARGS)
-{
-
-	switch (n->type) {
-	case ROFFT_HEAD:
-		term_newln(p);
-		break;
-	case ROFFT_BODY:
-		term_newln(p);
-		break;
-	default:
-		break;
-	}
 }
 
 static int
@@ -725,7 +720,6 @@ pre_SH(DECL_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		mt->fl &= ~MANT_LITERAL;
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		mt->offset = term_len(p, p->defindent);
 
@@ -737,7 +731,7 @@ pre_SH(DECL_ARGS)
 		do {
 			n = n->prev;
 		} while (n != NULL && n->tok >= MAN_TH &&
-		    termacts[n->tok].flags & MAN_NOTEXT);
+		    man_term_act(n->tok)->flags & MAN_NOTEXT);
 		if (n == NULL || n->type == ROFFT_COMMENT ||
 		    (n->tok == MAN_SH && n->body->child == NULL))
 			break;
@@ -759,25 +753,23 @@ pre_SH(DECL_ARGS)
 		p->flags &= ~(TERMP_NOBREAK | TERMP_BRIND);
 		break;
 	default:
-		break;
+		abort();
 	}
-
 	return 1;
 }
 
 static void
 post_SH(DECL_ARGS)
 {
-
 	switch (n->type) {
-	case ROFFT_HEAD:
-		term_newln(p);
+	case ROFFT_BLOCK:
 		break;
+	case ROFFT_HEAD:
 	case ROFFT_BODY:
 		term_newln(p);
 		break;
 	default:
-		break;
+		abort();
 	}
 }
 
@@ -792,8 +784,10 @@ pre_RS(DECL_ARGS)
 		return 1;
 	case ROFFT_HEAD:
 		return 0;
-	default:
+	case ROFFT_BODY:
 		break;
+	default:
+		abort();
 	}
 
 	n = n->parent->head;
@@ -821,42 +815,99 @@ pre_RS(DECL_ARGS)
 static void
 post_RS(DECL_ARGS)
 {
-
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		return;
 	case ROFFT_HEAD:
 		return;
-	default:
-		term_newln(p);
+	case ROFFT_BODY:
 		break;
+	default:
+		abort();
 	}
-
+	term_newln(p);
 	mt->offset -= n->parent->head->aux;
 	p->tcol->offset = mt->offset;
-
 	if (--mt->lmarginsz < MAXMARGINS)
 		mt->lmargincur = mt->lmarginsz;
 }
 
 static int
+pre_SY(DECL_ARGS)
+{
+	const struct roff_node	*nn;
+	int			 len;
+
+	switch (n->type) {
+	case ROFFT_BLOCK:
+		if (n->prev == NULL || n->prev->tok != MAN_SY)
+			print_bvspace(p, n, mt->pardist);
+		return 1;
+	case ROFFT_HEAD:
+	case ROFFT_BODY:
+		break;
+	default:
+		abort();
+	}
+
+	nn = n->parent->head->child;
+	len = nn == NULL ? 1 : term_strlen(p, nn->string) + 1;
+
+	switch (n->type) {
+	case ROFFT_HEAD:
+		p->tcol->offset = mt->offset;
+		p->tcol->rmargin = mt->offset + len;
+		if (n->next->child == NULL ||
+		    (n->next->child->flags & NODE_NOFILL) == 0)
+			p->flags |= TERMP_NOBREAK;
+		term_fontrepl(p, TERMFONT_BOLD);
+		break;
+	case ROFFT_BODY:
+		mt->lmargin[mt->lmargincur] = len;
+		p->tcol->offset = mt->offset + len;
+		p->tcol->rmargin = p->maxrmargin;
+		p->flags |= TERMP_NOSPACE;
+		break;
+	default:
+		abort();
+	}
+	return 1;
+}
+
+static void
+post_SY(DECL_ARGS)
+{
+	switch (n->type) {
+	case ROFFT_BLOCK:
+		break;
+	case ROFFT_HEAD:
+		term_flushln(p);
+		p->flags &= ~TERMP_NOBREAK;
+		break;
+	case ROFFT_BODY:
+		term_newln(p);
+		p->tcol->offset = mt->offset;
+		break;
+	default:
+		abort();
+	}
+}
+
+static int
 pre_UR(DECL_ARGS)
 {
-
 	return n->type != ROFFT_HEAD;
 }
 
 static void
 post_UR(DECL_ARGS)
 {
-
 	if (n->type != ROFFT_BLOCK)
 		return;
 
 	term_word(p, "<");
 	p->flags |= TERMP_NOSPACE;
 
-	if (NULL != n->child->child)
+	if (n->child->child != NULL)
 		print_man_node(p, mt, n->child->child, meta);
 
 	p->flags |= TERMP_NOSPACE;
@@ -866,7 +917,8 @@ post_UR(DECL_ARGS)
 static void
 print_man_node(DECL_ARGS)
 {
-	int		 c;
+	const struct man_term_act *act;
+	int c;
 
 	switch (n->type) {
 	case ROFFT_TEXT:
@@ -884,6 +936,8 @@ print_man_node(DECL_ARGS)
 		} else if (*n->string == ' ' && n->flags & NODE_LINE &&
 		    (p->flags & TERMP_NONEWLINE) == 0)
 			term_newln(p);
+		else if (n->flags & NODE_DELIMC)
+			p->flags |= TERMP_NOSPACE;
 
 		term_word(p, n->string);
 		goto out;
@@ -910,20 +964,20 @@ print_man_node(DECL_ARGS)
 		return;
 	}
 
-	assert(n->tok >= MAN_TH && n->tok <= MAN_MAX);
-	if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
+	act = man_term_act(n->tok);
+	if ((act->flags & MAN_NOTEXT) == 0 && n->tok != MAN_SM)
 		term_fontrepl(p, TERMFONT_NONE);
 
 	c = 1;
-	if (termacts[n->tok].pre)
-		c = (*termacts[n->tok].pre)(p, mt, n, meta);
+	if (act->pre != NULL)
+		c = (*act->pre)(p, mt, n, meta);
 
-	if (c && n->child)
+	if (c && n->child != NULL)
 		print_man_nodelist(p, mt, n->child, meta);
 
-	if (termacts[n->tok].post)
-		(*termacts[n->tok].post)(p, mt, n, meta);
-	if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
+	if (act->post != NULL)
+		(*act->post)(p, mt, n, meta);
+	if ((act->flags & MAN_NOTEXT) == 0 && n->tok != MAN_SM)
 		term_fontrepl(p, TERMFONT_NONE);
 
 out:
@@ -934,7 +988,7 @@ out:
 	 * -man doesn't have nested macros, we don't need to be
 	 * more specific than this.
 	 */
-	if (mt->fl & MANT_LITERAL &&
+	if (n->flags & NODE_NOFILL &&
 	    ! (p->flags & (TERMP_NOBREAK | TERMP_NONEWLINE)) &&
 	    (n->next == NULL || n->next->flags & NODE_LINE)) {
 		p->flags |= TERMP_BRNEVER | TERMP_NOSPACE;
@@ -949,15 +1003,13 @@ out:
 			p->tcol->rmargin = p->maxrmargin;
 		}
 	}
-	if (NODE_EOS & n->flags)
+	if (n->flags & NODE_EOS)
 		p->flags |= TERMP_SENTENCE;
 }
-
 
 static void
 print_man_nodelist(DECL_ARGS)
 {
-
 	while (n != NULL) {
 		print_man_node(p, mt, n, meta);
 		n = n->next;
@@ -992,7 +1044,7 @@ print_man_foot(struct termp *p, const struct roff_meta *meta)
 		}
 		mandoc_asprintf(&title, "%s(%s)",
 		    meta->title, meta->msec);
-	} else if (meta->os) {
+	} else if (meta->os != NULL) {
 		title = mandoc_strdup(meta->os);
 	} else {
 		title = mandoc_strdup("");
@@ -1113,4 +1165,61 @@ print_man_head(struct termp *p, const struct roff_meta *meta)
 		term_vspace(p);
 	}
 	free(title);
+}
+
+/*
+ * Skip leading whitespace, dashes, backslashes, and font escapes,
+ * then create a tag if the first following byte is a letter.
+ * Priority is high unless whitespace is present.
+ */
+static void
+tag_man(struct termp *p, struct roff_node *n)
+{
+	const char	*cp, *arg;
+	int		 prio, sz;
+
+	assert(n->type == ROFFT_TEXT);
+	cp = n->string;
+	prio = 1;
+	for (;;) {
+		switch (*cp) {
+		case ' ':
+		case '\t':
+			prio = INT_MAX;
+			/* FALLTHROUGH */
+		case '-':
+			cp++;
+			break;
+		case '\\':
+			cp++;
+			switch (mandoc_escape(&cp, &arg, &sz)) {
+			case ESCAPE_FONT:
+			case ESCAPE_FONTROMAN:
+			case ESCAPE_FONTITALIC:
+			case ESCAPE_FONTBOLD:
+			case ESCAPE_FONTPREV:
+			case ESCAPE_FONTBI:
+				break;
+			case ESCAPE_SPECIAL:
+				if (sz != 1)
+					return;
+				switch (*arg) {
+				case '&':
+				case '-':
+				case 'e':
+					break;
+				default:
+					return;
+				}
+				break;
+			default:
+				return;
+			}
+			break;
+		default:
+			if (isalpha((unsigned char)*cp))
+				tag_put(cp, prio, p->line);
+			return;
+		}
+	}
 }

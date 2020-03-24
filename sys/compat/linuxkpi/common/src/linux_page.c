@@ -63,6 +63,14 @@ __FBSDID("$FreeBSD$");
 #include <linux/preempt.h>
 #include <linux/fs.h>
 
+void
+si_meminfo(struct sysinfo *si)
+{
+	si->totalram = physmem;
+	si->totalhigh = 0;
+	si->mem_unit = PAGE_SIZE;
+}
+
 void *
 linux_page_address(struct page *page)
 {
@@ -83,9 +91,10 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 
 	if (PMAP_HAS_DMAP) {
 		unsigned long npages = 1UL << order;
-		int req = (flags & M_ZERO) ? (VM_ALLOC_ZERO | VM_ALLOC_NOOBJ |
-		    VM_ALLOC_NORMAL) : (VM_ALLOC_NOOBJ | VM_ALLOC_NORMAL);
+		int req = VM_ALLOC_NOOBJ | VM_ALLOC_WIRED | VM_ALLOC_NORMAL;
 
+		if ((flags & M_ZERO) != 0)
+			req |= VM_ALLOC_ZERO;
 		if (order == 0 && (flags & GFP_DMA32) == 0) {
 			page = vm_page_alloc(NULL, 0, req);
 			if (page == NULL)
@@ -146,7 +155,8 @@ linux_free_pages(vm_page_t page, unsigned int order)
 			vm_page_t pgo = page + x;
 
 			vm_page_lock(pgo);
-			vm_page_free(pgo);
+			if (vm_page_unwire_noq(pgo))
+				vm_page_free(pgo);
 			vm_page_unlock(pgo);
 		}
 	} else {
@@ -303,7 +313,7 @@ linux_shmem_read_mapping_page_gfp(vm_object_t obj, int pindex, gfp_t gfp)
 			rv = vm_pager_get_pages(obj, &page, 1, NULL, NULL);
 			if (rv != VM_PAGER_OK) {
 				vm_page_lock(page);
-				vm_page_unwire(page, PQ_NONE);
+				vm_page_unwire_noq(page);
 				vm_page_free(page);
 				vm_page_unlock(page);
 				VM_OBJECT_WUNLOCK(obj);

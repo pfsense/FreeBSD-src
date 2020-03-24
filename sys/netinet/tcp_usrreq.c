@@ -344,23 +344,25 @@ tcp6_usr_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	int error = 0;
 	struct inpcb *inp;
 	struct tcpcb *tp = NULL;
-	struct sockaddr_in6 *sin6p;
+	struct sockaddr_in6 *sin6;
+	u_char vflagsav;
 
-	sin6p = (struct sockaddr_in6 *)nam;
-	if (nam->sa_len != sizeof (*sin6p))
+	sin6 = (struct sockaddr_in6 *)nam;
+	if (nam->sa_len != sizeof (*sin6))
 		return (EINVAL);
 	/*
 	 * Must check for multicast addresses and disallow binding
 	 * to them.
 	 */
-	if (sin6p->sin6_family == AF_INET6 &&
-	    IN6_IS_ADDR_MULTICAST(&sin6p->sin6_addr))
+	if (sin6->sin6_family == AF_INET6 &&
+	    IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr))
 		return (EAFNOSUPPORT);
 
 	TCPDEBUG0;
 	inp = sotoinpcb(so);
 	KASSERT(inp != NULL, ("tcp6_usr_bind: inp == NULL"));
 	INP_WLOCK(inp);
+	vflagsav = inp->inp_vflag;
 	if (inp->inp_flags & (INP_TIMEWAIT | INP_DROPPED)) {
 		error = EINVAL;
 		goto out;
@@ -372,12 +374,12 @@ tcp6_usr_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	inp->inp_vflag |= INP_IPV6;
 #ifdef INET
 	if ((inp->inp_flags & IN6P_IPV6_V6ONLY) == 0) {
-		if (IN6_IS_ADDR_UNSPECIFIED(&sin6p->sin6_addr))
+		if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr))
 			inp->inp_vflag |= INP_IPV4;
-		else if (IN6_IS_ADDR_V4MAPPED(&sin6p->sin6_addr)) {
+		else if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) {
 			struct sockaddr_in sin;
 
-			in6_sin6_2_sin(&sin, sin6p);
+			in6_sin6_2_sin(&sin, sin6);
 			if (IN_MULTICAST(ntohl(sin.sin_addr.s_addr))) {
 				error = EAFNOSUPPORT;
 				INP_HASH_WUNLOCK(&V_tcbinfo);
@@ -395,6 +397,8 @@ tcp6_usr_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	error = in6_pcbbind(inp, nam, td->td_ucred);
 	INP_HASH_WUNLOCK(&V_tcbinfo);
 out:
+	if (error != 0)
+		inp->inp_vflag = vflagsav;
 	TCPDEBUG2(PRU_BIND);
 	TCP_PROBE2(debug__user, tp, PRU_BIND);
 	INP_WUNLOCK(inp);
@@ -457,6 +461,7 @@ tcp6_usr_listen(struct socket *so, int backlog, struct thread *td)
 	int error = 0;
 	struct inpcb *inp;
 	struct tcpcb *tp = NULL;
+	u_char vflagsav;
 
 	TCPDEBUG0;
 	inp = sotoinpcb(so);
@@ -466,6 +471,7 @@ tcp6_usr_listen(struct socket *so, int backlog, struct thread *td)
 		error = EINVAL;
 		goto out;
 	}
+	vflagsav = inp->inp_vflag;
 	tp = intotcpcb(inp);
 	TCPDEBUG1();
 	SOCK_LOCK(so);
@@ -490,6 +496,9 @@ tcp6_usr_listen(struct socket *so, int backlog, struct thread *td)
 
 	if (IS_FASTOPEN(tp->t_flags))
 		tp->t_tfo_pending = tcp_fastopen_alloc_counter();
+
+	if (error != 0)
+		inp->inp_vflag = vflagsav;
 
 out:
 	TCPDEBUG2(PRU_LISTEN);
@@ -566,23 +575,27 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	int error = 0;
 	struct inpcb *inp;
 	struct tcpcb *tp = NULL;
-	struct sockaddr_in6 *sin6p;
+	struct sockaddr_in6 *sin6;
+	u_int8_t incflagsav;
+	u_char vflagsav;
 
 	TCPDEBUG0;
 
-	sin6p = (struct sockaddr_in6 *)nam;
-	if (nam->sa_len != sizeof (*sin6p))
+	sin6 = (struct sockaddr_in6 *)nam;
+	if (nam->sa_len != sizeof (*sin6))
 		return (EINVAL);
 	/*
 	 * Must disallow TCP ``connections'' to multicast addresses.
 	 */
-	if (sin6p->sin6_family == AF_INET6
-	    && IN6_IS_ADDR_MULTICAST(&sin6p->sin6_addr))
+	if (sin6->sin6_family == AF_INET6
+	    && IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr))
 		return (EAFNOSUPPORT);
 
 	inp = sotoinpcb(so);
 	KASSERT(inp != NULL, ("tcp6_usr_connect: inp == NULL"));
 	INP_WLOCK(inp);
+	vflagsav = inp->inp_vflag;
+	incflagsav = inp->inp_inc.inc_flags;
 	if (inp->inp_flags & INP_TIMEWAIT) {
 		error = EADDRINUSE;
 		goto out;
@@ -599,7 +612,7 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	 * therefore probably require the hash lock, which isn't held here.
 	 * Is this a significant problem?
 	 */
-	if (IN6_IS_ADDR_V4MAPPED(&sin6p->sin6_addr)) {
+	if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) {
 		struct sockaddr_in sin;
 
 		if ((inp->inp_flags & IN6P_IPV6_V6ONLY) != 0) {
@@ -611,16 +624,16 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 			goto out;
 		}
 
-		in6_sin6_2_sin(&sin, sin6p);
+		in6_sin6_2_sin(&sin, sin6);
 		if (IN_MULTICAST(ntohl(sin.sin_addr.s_addr))) {
 			error = EAFNOSUPPORT;
 			goto out;
 		}
-		inp->inp_vflag |= INP_IPV4;
-		inp->inp_vflag &= ~INP_IPV6;
 		if ((error = prison_remote_ip4(td->td_ucred,
 		    &sin.sin_addr)) != 0)
 			goto out;
+		inp->inp_vflag |= INP_IPV4;
+		inp->inp_vflag &= ~INP_IPV6;
 		if ((error = tcp_connect(tp, (struct sockaddr *)&sin, td)) != 0)
 			goto out;
 #ifdef TCP_OFFLOAD
@@ -638,11 +651,11 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 		}
 	}
 #endif
+	if ((error = prison_remote_ip6(td->td_ucred, &sin6->sin6_addr)) != 0)
+		goto out;
 	inp->inp_vflag &= ~INP_IPV4;
 	inp->inp_vflag |= INP_IPV6;
 	inp->inp_inc.inc_flags |= INC_ISIPV6;
-	if ((error = prison_remote_ip6(td->td_ucred, &sin6p->sin6_addr)) != 0)
-		goto out;
 	if ((error = tcp6_connect(tp, nam, td)) != 0)
 		goto out;
 #ifdef TCP_OFFLOAD
@@ -655,6 +668,15 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	error = tp->t_fb->tfb_tcp_output(tp);
 
 out:
+	/*
+	 * If the implicit bind in the connect call fails, restore
+	 * the flags we modified.
+	 */
+	if (error != 0 && inp->inp_lport == 0) {
+		inp->inp_vflag = vflagsav;
+		inp->inp_inc.inc_flags = incflagsav;
+	}
+
 	TCPDEBUG2(PRU_CONNECT);
 	TCP_PROBE2(debug__user, tp, PRU_CONNECT);
 	INP_WUNLOCK(inp);
@@ -910,6 +932,9 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 #ifdef INET6
 	int isipv6;
 #endif
+	u_int8_t incflagsav;
+	u_char vflagsav;
+	bool restoreflags;
 	TCPDEBUG0;
 
 	/*
@@ -921,6 +946,9 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 	inp = sotoinpcb(so);
 	KASSERT(inp != NULL, ("tcp_usr_send: inp == NULL"));
 	INP_WLOCK(inp);
+	vflagsav = inp->inp_vflag;
+	incflagsav = inp->inp_inc.inc_flags;
+	restoreflags = false;
 	if (inp->inp_flags & (INP_TIMEWAIT | INP_DROPPED)) {
 		if (control)
 			m_freem(control);
@@ -972,22 +1000,22 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 #ifdef INET6
 		case AF_INET6:
 		{
-			struct sockaddr_in6 *sin6p;
+			struct sockaddr_in6 *sin6;
 
-			sin6p = (struct sockaddr_in6 *)nam;
-			if (sin6p->sin6_len != sizeof(struct sockaddr_in6)) {
+			sin6 = (struct sockaddr_in6 *)nam;
+			if (sin6->sin6_len != sizeof(*sin6)) {
 				if (m)
 					m_freem(m);
 				error = EINVAL;
 				goto out;
 			}
-			if (IN6_IS_ADDR_MULTICAST(&sin6p->sin6_addr)) {
+			if (IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr)) {
 				if (m)
 					m_freem(m);
 				error = EAFNOSUPPORT;
 				goto out;
 			}
-			if (IN6_IS_ADDR_V4MAPPED(&sin6p->sin6_addr)) {
+			if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) {
 #ifdef INET
 				if ((inp->inp_flags & IN6P_IPV6_V6ONLY) != 0) {
 					error = EINVAL;
@@ -1001,9 +1029,10 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 						m_freem(m);
 					goto out;
 				}
+				restoreflags = true;
 				inp->inp_vflag &= ~INP_IPV6;
 				sinp = &sin;
-				in6_sin6_2_sin(sinp, sin6p);
+				in6_sin6_2_sin(sinp, sin6);
 				if (IN_MULTICAST(
 				    ntohl(sinp->sin_addr.s_addr))) {
 					error = EAFNOSUPPORT;
@@ -1031,10 +1060,11 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 					error = EAFNOSUPPORT;
 					goto out;
 				}
+				restoreflags = true;
 				inp->inp_vflag &= ~INP_IPV4;
 				inp->inp_inc.inc_flags |= INC_ISIPV6;
 				if ((error = prison_remote_ip6(td->td_ucred,
-				    &sin6p->sin6_addr))) {
+				    &sin6->sin6_addr))) {
 					if (m)
 						m_freem(m);
 					goto out;
@@ -1081,6 +1111,14 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 				error = tcp_connect(tp,
 				    (struct sockaddr *)sinp, td);
 #endif
+			/*
+			 * The bind operation in tcp_connect succeeded. We
+			 * no longer want to restore the flags if later
+			 * operations fail.
+			 */
+			if (error == 0 || inp->inp_lport != 0)
+				restoreflags = false;
+
 			if (error)
 				goto out;
 			if (IS_FASTOPEN(tp->t_flags))
@@ -1151,6 +1189,14 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 				error = tcp_connect(tp,
 				    (struct sockaddr *)sinp, td);
 #endif
+			/*
+			 * The bind operation in tcp_connect succeeded. We
+			 * no longer want to restore the flags if later
+			 * operations fail.
+			 */
+			if (error == 0 || inp->inp_lport != 0)
+				restoreflags = false;
+
 			if (error)
 				goto out;
 			tp->snd_wnd = TTCP_CLIENT_SND_WND;
@@ -1169,6 +1215,14 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 	    TCP_LOG_USERSEND, error,
 	    0, NULL, false);
 out:
+	/*
+	 * If the request was unsuccessful and we changed flags,
+	 * restore the original flags.
+	 */
+	if (error != 0 && restoreflags) {
+		inp->inp_vflag = vflagsav;
+		inp->inp_inc.inc_flags = incflagsav;
+	}
 	TCPDEBUG2((flags & PRUS_OOB) ? PRU_SENDOOB :
 		  ((flags & PRUS_EOF) ? PRU_SEND_EOF : PRU_SEND));
 	TCP_PROBE2(debug__user, tp, (flags & PRUS_OOB) ? PRU_SENDOOB :
@@ -1578,11 +1632,9 @@ tcp_ctloutput(struct socket *so, struct sockopt *sopt)
 	error = 0;
 	inp = sotoinpcb(so);
 	KASSERT(inp != NULL, ("tcp_ctloutput: inp == NULL"));
-	INP_WLOCK(inp);
 	if (sopt->sopt_level != IPPROTO_TCP) {
 #ifdef INET6
 		if (inp->inp_vflag & INP_IPV6PROTO) {
-			INP_WUNLOCK(inp);
 			error = ip6_ctloutput(so, sopt);
 			/*
 			 * In case of the IPV6_USE_MIN_MTU socket option,
@@ -1627,12 +1679,12 @@ tcp_ctloutput(struct socket *so, struct sockopt *sopt)
 #endif
 #ifdef INET
 		{
-			INP_WUNLOCK(inp);
 			error = ip_ctloutput(so, sopt);
 		}
 #endif
 		return (error);
 	}
+	INP_WLOCK(inp);
 	if (inp->inp_flags & (INP_TIMEWAIT | INP_DROPPED)) {
 		INP_WUNLOCK(inp);
 		return (ECONNRESET);
@@ -1769,6 +1821,8 @@ tcp_default_ctloutput(struct socket *so, struct sockopt *sopt, struct inpcb *inp
 	switch (sopt->sopt_name) {
 	case TCP_CCALGOOPT:
 		INP_WUNLOCK(inp);
+		if (sopt->sopt_valsize > CC_ALGOOPT_LIMIT)
+			return (EINVAL);
 		pbuf = malloc(sopt->sopt_valsize, M_TEMP, M_WAITOK | M_ZERO);
 		error = sooptcopyin(sopt, pbuf, sopt->sopt_valsize,
 		    sopt->sopt_valsize);

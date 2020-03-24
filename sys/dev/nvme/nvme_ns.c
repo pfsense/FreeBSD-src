@@ -82,6 +82,14 @@ nvme_ns_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int flag,
 		pt = (struct nvme_pt_command *)arg;
 		return (nvme_ctrlr_passthrough_cmd(ctrlr, pt, ns->id, 
 		    1 /* is_user_buffer */, 0 /* is_admin_cmd */));
+	case NVME_GET_NSID:
+	{
+		struct nvme_get_nsid *gnsid = (struct nvme_get_nsid *)arg;
+		strncpy(gnsid->cdev, device_get_nameunit(ctrlr->dev),
+		    sizeof(gnsid->cdev));
+		gnsid->nsid = ns->id;
+		break;
+	}
 	case DIOCGMEDIASIZE:
 		*(off_t *)arg = (off_t)nvme_ns_get_size(ns);
 		break;
@@ -223,7 +231,11 @@ uint32_t
 nvme_ns_get_stripesize(struct nvme_namespace *ns)
 {
 
-	return (ns->stripesize);
+	if (((ns->data.nsfeat >> NVME_NS_DATA_NSFEAT_NPVALID_SHIFT) &
+	    NVME_NS_DATA_NSFEAT_NPVALID_MASK) != 0 && ns->data.npwg != 0) {
+		return ((ns->data.npwg + 1) * nvme_ns_get_sector_size(ns));
+	}
+	return (ns->boundary);
 }
 
 static void
@@ -357,10 +369,8 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 	caddr_t		data;
 	uint32_t	rem_bcount;
 	int		i;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 	struct vm_page	**ma;
 	uint32_t	ma_offset;
-#endif
 
 	*num_bios = nvme_get_num_segments(bp->bio_offset, bp->bio_bcount,
 	    alignment);
@@ -373,10 +383,8 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 	cur_offset = bp->bio_offset;
 	rem_bcount = bp->bio_bcount;
 	data = bp->bio_data;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 	ma_offset = bp->bio_ma_offset;
 	ma = bp->bio_ma;
-#endif
 
 	for (i = 0; i < *num_bios; i++) {
 		child = child_bios[i];
@@ -386,7 +394,6 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 		child->bio_bcount = min(rem_bcount,
 		    alignment - (cur_offset & (alignment - 1)));
 		child->bio_flags = bp->bio_flags;
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 		if (bp->bio_flags & BIO_UNMAPPED) {
 			child->bio_ma_offset = ma_offset;
 			child->bio_ma = ma;
@@ -398,9 +405,7 @@ nvme_construct_child_bios(struct bio *bp, uint32_t alignment, int *num_bios)
 			ma += child->bio_ma_n;
 			if (ma_offset != 0)
 				ma -= 1;
-		} else
-#endif
-		{
+		} else {
 			child->bio_data = data;
 			data += child->bio_bcount;
 		}
@@ -446,12 +451,12 @@ nvme_ns_bio_process(struct nvme_namespace *ns, struct bio *bp,
 
 	bp->bio_driver1 = cb_fn;
 
-	if (ns->stripesize > 0 &&
+	if (ns->boundary > 0 &&
 	    (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE)) {
 		num_bios = nvme_get_num_segments(bp->bio_offset,
-		    bp->bio_bcount, ns->stripesize);
+		    bp->bio_bcount, ns->boundary);
 		if (num_bios > 1)
-			return (nvme_ns_split_bio(ns, bp, ns->stripesize));
+			return (nvme_ns_split_bio(ns, bp, ns->boundary));
 	}
 
 	switch (bp->bio_cmd) {
@@ -491,6 +496,13 @@ nvme_ns_bio_process(struct nvme_namespace *ns, struct bio *bp,
 }
 
 int
+nvme_ns_ioctl_process(struct nvme_namespace *ns, u_long cmd, caddr_t arg,
+    int flag, struct thread *td)
+{
+	return (nvme_ns_ioctl(ns->cdev, cmd, arg, flag, td));
+}
+
+int
 nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
     struct nvme_controller *ctrlr)
 {
@@ -498,31 +510,11 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	struct nvme_completion_poll_status	status;
 	int                                     res;
 	int					unit;
-	uint16_t				oncs;
-	uint8_t					dsm;
 	uint8_t					flbas_fmt;
 	uint8_t					vwc_present;
 
 	ns->ctrlr = ctrlr;
 	ns->id = id;
-	ns->stripesize = 0;
-
-	/*
-	 * Older Intel devices advertise in vendor specific space an alignment
-	 * that improves performance.  If present use for the stripe size.  NVMe
-	 * 1.3 standardized this as NOIOB, and newer Intel drives use that.
-	 */
-	switch (pci_get_devid(ctrlr->dev)) {
-	case 0x09538086:		/* Intel DC PC3500 */
-	case 0x0a538086:		/* Intel DC PC3520 */
-	case 0x0a548086:		/* Intel DC PC4500 */
-		if (ctrlr->cdata.vs[3] != 0)
-			ns->stripesize =
-			    (1 << ctrlr->cdata.vs[3]) * ctrlr->min_page_size;
-		break;
-	default:
-		break;
-	}
 
 	/*
 	 * Namespaces are reconstructed after a controller reset, so check
@@ -535,11 +527,10 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	if (!mtx_initialized(&ns->lock))
 		mtx_init(&ns->lock, "nvme ns lock", NULL, MTX_DEF);
 
-	status.done = FALSE;
+	status.done = 0;
 	nvme_ctrlr_cmd_identify_namespace(ctrlr, id, &ns->data,
 	    nvme_completion_poll_cb, &status);
-	while (status.done == FALSE)
-		DELAY(5);
+	nvme_completion_poll(&status);
 	if (nvme_completion_is_error(&status.cpl)) {
 		nvme_printf(ctrlr, "nvme_identify_namespace failed\n");
 		return (ENXIO);
@@ -569,9 +560,28 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 		return (ENXIO);
 	}
 
-	oncs = ctrlr->cdata.oncs;
-	dsm = (oncs >> NVME_CTRLR_DATA_ONCS_DSM_SHIFT) & NVME_CTRLR_DATA_ONCS_DSM_MASK;
-	if (dsm)
+	/*
+	 * Older Intel devices advertise in vendor specific space an alignment
+	 * that improves performance.  If present use for the stripe size.  NVMe
+	 * 1.3 standardized this as NOIOB, and newer Intel drives use that.
+	 */
+	switch (pci_get_devid(ctrlr->dev)) {
+	case 0x09538086:		/* Intel DC PC3500 */
+	case 0x0a538086:		/* Intel DC PC3520 */
+	case 0x0a548086:		/* Intel DC PC4500 */
+	case 0x0a558086:		/* Dell Intel P4600 */
+		if (ctrlr->cdata.vs[3] != 0)
+			ns->boundary =
+			    (1 << ctrlr->cdata.vs[3]) * ctrlr->min_page_size;
+		else
+			ns->boundary = 0;
+		break;
+	default:
+		ns->boundary = ns->data.noiob * nvme_ns_get_sector_size(ns);
+		break;
+	}
+
+	if (nvme_ctrlr_has_dataset_mgmt(&ctrlr->cdata))
 		ns->flags |= NVME_NS_DEALLOCATE_SUPPORTED;
 
 	vwc_present = (ctrlr->cdata.vwc >> NVME_CTRLR_DATA_VWC_PRESENT_SHIFT) &
@@ -602,9 +612,7 @@ nvme_ns_construct(struct nvme_namespace *ns, uint32_t id,
 	if (res != 0)
 		return (ENXIO);
 
-#ifdef NVME_UNMAPPED_BIO_SUPPORT
 	ns->cdev->si_flags |= SI_UNMAPPED;
-#endif
 
 	return (0);
 }

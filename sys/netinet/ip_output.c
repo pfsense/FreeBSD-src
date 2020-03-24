@@ -588,9 +588,9 @@ sendit:
 		}
 	}
 
-	/* 127/8 must not appear on wire - RFC1122. */
-	if ((ntohl(ip->ip_dst.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET ||
-	    (ntohl(ip->ip_src.s_addr) >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET) {
+	/* IN_LOOPBACK must not appear on the wire - RFC1122. */
+	if (IN_LOOPBACK(ntohl(ip->ip_dst.s_addr)) ||
+	    IN_LOOPBACK(ntohl(ip->ip_src.s_addr))) {
 		if ((ifp->if_flags & IFF_LOOPBACK) == 0) {
 			IPSTAT_INC(ips_badaddr);
 			error = EADDRNOTAVAIL;
@@ -653,6 +653,7 @@ sendit:
 				in_pcboutput_txrtlmt(inp, ifp, m);
 			/* stamp send tag on mbuf */
 			m->m_pkthdr.snd_tag = inp->inp_snd_tag;
+			m->m_pkthdr.csum_flags |= CSUM_SND_TAG;
 		} else {
 			m->m_pkthdr.snd_tag = NULL;
 		}
@@ -705,6 +706,7 @@ sendit:
 					in_pcboutput_txrtlmt(inp, ifp, m);
 				/* stamp send tag on mbuf */
 				m->m_pkthdr.snd_tag = inp->inp_snd_tag;
+				m->m_pkthdr.csum_flags |= CSUM_SND_TAG;
 			} else {
 				m->m_pkthdr.snd_tag = NULL;
 			}
@@ -1262,7 +1264,8 @@ ip_ctloutput(struct socket *so, struct sockopt *sopt)
 			if (inp->inp_options) {
 				struct mbuf *options;
 
-				options = m_dup(inp->inp_options, M_NOWAIT);
+				options = m_copym(inp->inp_options, 0,
+				    M_COPYALL, M_NOWAIT);
 				INP_RUNLOCK(inp);
 				if (options != NULL) {
 					error = sooptcopyout(sopt,

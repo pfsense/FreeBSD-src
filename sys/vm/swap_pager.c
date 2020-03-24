@@ -83,6 +83,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bio.h>
 #include <sys/buf.h>
 #include <sys/disk.h>
+#include <sys/disklabel.h>
 #include <sys/fcntl.h>
 #include <sys/mount.h>
 #include <sys/namei.h>
@@ -374,6 +375,10 @@ static boolean_t
 static void	swap_pager_init(void);
 static void	swap_pager_unswapped(vm_page_t);
 static void	swap_pager_swapoff(struct swdevt *sp);
+static void	swap_pager_update_writecount(vm_object_t object,
+    vm_offset_t start, vm_offset_t end);
+static void	swap_pager_release_writecount(vm_object_t object,
+    vm_offset_t start, vm_offset_t end);
 
 struct pagerops swappagerops = {
 	.pgo_init =	swap_pager_init,	/* early system initialization of pager	*/
@@ -384,6 +389,8 @@ struct pagerops swappagerops = {
 	.pgo_putpages =	swap_pager_putpages,	/* pageout				*/
 	.pgo_haspage =	swap_pager_haspage,	/* get backing store status for page	*/
 	.pgo_pageunswapped = swap_pager_unswapped,	/* remove swap related to page		*/
+	.pgo_update_writecount = swap_pager_update_writecount,
+	.pgo_release_writecount = swap_pager_release_writecount,
 };
 
 /*
@@ -547,12 +554,12 @@ swap_pager_swap_init(void)
 	mtx_unlock(&pbuf_mtx);
 
 	/*
-	 * Initialize our zone, guessing on the number we need based
-	 * on the number of pages in the system.
+	 * Initialize our zone, taking the user's requested size or
+	 * estimating the number we need based on the number of pages
+	 * in the system.
 	 */
-	n = vm_cnt.v_page_count / 2;
-	if (maxswzone && n > maxswzone / sizeof(struct swblk))
-		n = maxswzone / sizeof(struct swblk);
+	n = maxswzone != 0 ? maxswzone / sizeof(struct swblk) :
+	    vm_cnt.v_page_count / 2;
 	swpctrie_zone = uma_zcreate("swpctrie", pctrie_node_size(), NULL, NULL,
 	    pctrie_zone_init, NULL, UMA_ALIGN_PTR, UMA_ZONE_VM);
 	if (swpctrie_zone == NULL)
@@ -580,8 +587,9 @@ swap_pager_swap_init(void)
 	n = uma_zone_get_max(swblk_zone);
 
 	if (n < n2)
-		printf("Swap blk zone entries reduced from %lu to %lu.\n",
+		printf("Swap blk zone entries changed from %lu to %lu.\n",
 		    n2, n);
+	/* absolute maximum we can handle assuming 100% efficiency */
 	swap_maxpages = n * SWAP_META_PAGES;
 	swzone = n * sizeof(struct swblk);
 	if (!uma_zone_reserve_kva(swpctrie_zone, n))
@@ -609,6 +617,7 @@ swap_pager_alloc_init(void *handle, struct ucred *cred, vm_ooffset_t size,
 	object = vm_object_allocate(OBJT_SWAP, OFF_TO_IDX(offset +
 	    PAGE_MASK + size));
 
+	object->un_pager.swp.writemappings = 0;
 	object->handle = handle;
 	if (cred != NULL) {
 		object->cred = cred;
@@ -1652,53 +1661,140 @@ swap_pager_nswapdev(void)
 	return (nswapdev);
 }
 
-/*
- * SWP_PAGER_FORCE_PAGEIN() - force a swap block to be paged in
- *
- *	This routine dissociates the page at the given index within an object
- *	from its backing store, paging it in if it does not reside in memory.
- *	If the page is paged in, it is marked dirty and placed in the laundry
- *	queue.  The page is marked dirty because it no longer has backing
- *	store.  It is placed in the laundry queue because it has not been
- *	accessed recently.  Otherwise, it would already reside in memory.
- *
- *	We also attempt to swap in all other pages in the swap block.
- *	However, we only guarantee that the one at the specified index is
- *	paged in.
- *
- *	XXX - The code to page the whole block in doesn't work, so we
- *	      revert to the one-by-one behavior for now.  Sigh.
- */
-static inline void
-swp_pager_force_pagein(vm_object_t object, vm_pindex_t pindex)
+static void
+swp_pager_force_dirty(vm_page_t m)
 {
-	vm_page_t m;
 
-	vm_object_pip_add(object, 1);
-	m = vm_page_grab(object, pindex, VM_ALLOC_NORMAL);
-	if (m->valid == VM_PAGE_BITS_ALL) {
-		vm_object_pip_wakeup(object);
-		vm_page_dirty(m);
+	vm_page_dirty(m);
 #ifdef INVARIANTS
-		vm_page_lock(m);
-		if (m->wire_count == 0 && m->queue == PQ_NONE)
-			panic("page %p is neither wired nor queued", m);
-		vm_page_unlock(m);
+	vm_page_lock(m);
+	if (!vm_page_wired(m) && m->queue == PQ_NONE)
+		panic("page %p is neither wired nor queued", m);
+	vm_page_unlock(m);
 #endif
-		vm_page_xunbusy(m);
-		vm_pager_page_unswapped(m);
-		return;
-	}
+	vm_page_xunbusy(m);
+	swap_pager_unswapped(m);
+}
 
-	if (swap_pager_getpages(object, &m, 1, NULL, NULL) != VM_PAGER_OK)
-		panic("swap_pager_force_pagein: read from swap failed");/*XXX*/
-	vm_object_pip_wakeup(object);
+static void
+swp_pager_force_launder(vm_page_t m)
+{
+
 	vm_page_dirty(m);
 	vm_page_lock(m);
 	vm_page_launder(m);
 	vm_page_unlock(m);
 	vm_page_xunbusy(m);
-	vm_pager_page_unswapped(m);
+	swap_pager_unswapped(m);
+}
+
+/*
+ * SWP_PAGER_FORCE_PAGEIN() - force swap blocks to be paged in
+ *
+ *	This routine dissociates pages starting at the given index within an
+ *	object from their backing store, paging them in if they do not reside
+ *	in memory.  Pages that are paged in are marked dirty and placed in the
+ *	laundry queue.  Pages are marked dirty because they no longer have
+ *	backing store.  They are placed in the laundry queue because they have
+ *	not been accessed recently.  Otherwise, they would already reside in
+ *	memory.
+ */
+static void
+swp_pager_force_pagein(vm_object_t object, vm_pindex_t pindex, int npages)
+{
+	vm_page_t ma[npages];
+	int i, j;
+
+	KASSERT(npages > 0, ("%s: No pages", __func__));
+	KASSERT(npages <= MAXPHYS / PAGE_SIZE,
+	    ("%s: Too many pages: %d", __func__, npages));
+	vm_object_pip_add(object, npages);
+	vm_page_grab_pages(object, pindex, VM_ALLOC_NORMAL, ma, npages);
+	for (i = j = 0;; i++) {
+		/* Count nonresident pages, to page-in all at once. */
+		if (i < npages && ma[i]->valid != VM_PAGE_BITS_ALL)
+			continue;
+		if (j < i) {
+			/* Page-in nonresident pages. Mark for laundering. */
+			if (swap_pager_getpages(object, &ma[j], i - j, NULL,
+			    NULL) != VM_PAGER_OK)
+				panic("%s: read from swap failed", __func__);
+			do {
+				swp_pager_force_launder(ma[j]);
+			} while (++j < i);
+		}
+		if (i == npages)
+			break;
+		/* Mark dirty a resident page. */
+		swp_pager_force_dirty(ma[j++]);
+	}
+	vm_object_pip_wakeupn(object, npages);
+}
+
+/*
+ *	swap_pager_swapoff_object:
+ *
+ *	Page in all of the pages that have been paged out for an object
+ *	to a swap device.
+ */
+static void
+swap_pager_swapoff_object(struct swdevt *sp, vm_object_t object)
+{
+	struct swblk *sb;
+	vm_pindex_t pi, s_pindex;
+	daddr_t blk, n_blks, s_blk;
+	int i;
+
+	n_blks = 0;
+	for (pi = 0; (sb = SWAP_PCTRIE_LOOKUP_GE(
+	    &object->un_pager.swp.swp_blks, pi)) != NULL; ) {
+		for (i = 0; i < SWAP_META_PAGES; i++) {
+			blk = sb->d[i];
+			if (!swp_pager_isondev(blk, sp))
+				blk = SWAPBLK_NONE;
+
+			/*
+			 * If there are no blocks/pages accumulated, start a new
+			 * accumulation here.
+			 */
+			if (n_blks == 0) {
+				if (blk != SWAPBLK_NONE) {
+					s_blk = blk;
+					s_pindex = sb->p + i;
+					n_blks = 1;
+				}
+				continue;
+			}
+
+			/*
+			 * If the accumulation can be extended without breaking
+			 * the sequence of consecutive blocks and pages that
+			 * swp_pager_force_pagein() depends on, do so.
+			 */
+			if (n_blks < MAXPHYS / PAGE_SIZE &&
+			    s_blk + n_blks == blk &&
+			    s_pindex + n_blks == sb->p + i) {
+				++n_blks;
+				continue;
+			}
+
+			/*
+			 * The sequence of consecutive blocks and pages cannot
+			 * be extended, so page them all in here.  Then,
+			 * because doing so involves releasing and reacquiring
+			 * a lock that protects the swap block pctrie, do not
+			 * rely on the current swap block.  Break this loop and
+			 * re-fetch the same pindex from the pctrie again.
+			 */
+			swp_pager_force_pagein(object, s_pindex, n_blks);
+			n_blks = 0;
+			break;
+		}
+		if (i == SWAP_META_PAGES)
+			pi = sb->p + SWAP_META_PAGES;
+	}
+	if (n_blks > 0)
+		swp_pager_force_pagein(object, s_pindex, n_blks);
 }
 
 /*
@@ -1714,10 +1810,8 @@ swp_pager_force_pagein(vm_object_t object, vm_pindex_t pindex)
 static void
 swap_pager_swapoff(struct swdevt *sp)
 {
-	struct swblk *sb;
 	vm_object_t object;
-	vm_pindex_t pi;
-	int i, retries;
+	int retries;
 
 	sx_assert(&swdev_syscall_lock, SA_XLOCKED);
 
@@ -1747,17 +1841,7 @@ full_rescan:
 		if (object->type != OBJT_SWAP)
 			goto next_obj;
 
-		for (pi = 0; (sb = SWAP_PCTRIE_LOOKUP_GE(
-		    &object->un_pager.swp.swp_blks, pi)) != NULL; ) {
-			pi = sb->p + SWAP_META_PAGES;
-			for (i = 0; i < SWAP_META_PAGES; i++) {
-				if (sb->d[i] == SWAPBLK_NONE)
-					continue;
-				if (swp_pager_isondev(sb->d[i], sp))
-					swp_pager_force_pagein(object,
-					    sb->p + i);
-			}
-		}
+		swap_pager_swapoff_object(sp, object);
 next_obj:
 		VM_OBJECT_WUNLOCK(object);
 		mtx_lock(&vm_object_list_mtx);
@@ -1844,6 +1928,7 @@ swp_pager_meta_build(vm_object_t object, vm_pindex_t pindex, daddr_t swapblk)
 		atomic_thread_fence_rel();
 
 		object->type = OBJT_SWAP;
+		object->un_pager.swp.writemappings = 0;
 		KASSERT(object->handle == NULL, ("default pager with handle"));
 	}
 
@@ -2183,17 +2268,12 @@ done:
 static void
 swapon_check_swzone(void)
 {
-	unsigned long maxpages, npages;
-
-	npages = swap_total;
-	/* absolute maximum we can handle assuming 100% efficiency */
-	maxpages = uma_zone_get_max(swblk_zone) * SWAP_META_PAGES;
 
 	/* recommend using no more than half that amount */
-	if (npages > maxpages / 2) {
+	if (swap_total > swap_maxpages / 2) {
 		printf("warning: total configured swap (%lu pages) "
 		    "exceeds maximum recommended amount (%lu pages).\n",
-		    npages, maxpages / 2);
+		    swap_total, swap_maxpages / 2);
 		printf("warning: increase kern.maxswzone "
 		    "or reduce amount of swap.\n");
 	}
@@ -2232,7 +2312,6 @@ swaponsomething(struct vnode *vp, void *id, u_long nblks,
 	sp->sw_vp = vp;
 	sp->sw_id = id;
 	sp->sw_dev = dev;
-	sp->sw_flags = 0;
 	sp->sw_nblks = nblks;
 	sp->sw_used = 0;
 	sp->sw_strategy = strategy;
@@ -2241,10 +2320,11 @@ swaponsomething(struct vnode *vp, void *id, u_long nblks,
 
 	sp->sw_blist = blist_create(nblks, M_WAITOK);
 	/*
-	 * Do not free the first two block in order to avoid overwriting
+	 * Do not free the first blocks in order to avoid overwriting
 	 * any bsd label at the front of the partition
 	 */
-	blist_free(sp->sw_blist, 2, nblks - 2);
+	blist_free(sp->sw_blist, howmany(BBSIZE, PAGE_SIZE),
+	    nblks - howmany(BBSIZE, PAGE_SIZE));
 
 	dvbase = 0;
 	mtx_lock(&sw_dev_mtx);
@@ -2262,7 +2342,7 @@ swaponsomething(struct vnode *vp, void *id, u_long nblks,
 	sp->sw_end = dvbase + nblks;
 	TAILQ_INSERT_TAIL(&swtailq, sp, sw_list);
 	nswapdev++;
-	swap_pager_avail += nblks - 2;
+	swap_pager_avail += nblks - howmany(BBSIZE, PAGE_SIZE);
 	swap_total += nblks;
 	swapon_check_swzone();
 	swp_sizecheck();
@@ -2475,10 +2555,23 @@ struct xswdev11 {
 };
 #endif
 
+#if defined(__amd64__) && defined(COMPAT_FREEBSD32)
+struct xswdev32 {
+	u_int	xsw_version;
+	u_int	xsw_dev1, xsw_dev2;
+	int	xsw_flags;
+	int	xsw_nblks;
+	int     xsw_used;
+};
+#endif
+
 static int
 sysctl_vm_swap_info(SYSCTL_HANDLER_ARGS)
 {
 	struct xswdev xs;
+#if defined(__amd64__) && defined(COMPAT_FREEBSD32)
+	struct xswdev32 xs32;
+#endif
 #if defined(COMPAT_FREEBSD11)
 	struct xswdev11 xs11;
 #endif
@@ -2489,6 +2582,18 @@ sysctl_vm_swap_info(SYSCTL_HANDLER_ARGS)
 	error = swap_dev_info(*(int *)arg1, &xs, NULL, 0);
 	if (error != 0)
 		return (error);
+#if defined(__amd64__) && defined(COMPAT_FREEBSD32)
+	if (req->oldlen == sizeof(xs32)) {
+		xs32.xsw_version = XSWDEV_VERSION;
+		xs32.xsw_dev1 = xs.xsw_dev;
+		xs32.xsw_dev2 = xs.xsw_dev >> 32;
+		xs32.xsw_flags = xs.xsw_flags;
+		xs32.xsw_nblks = xs.xsw_nblks;
+		xs32.xsw_used = xs.xsw_used;
+		error = SYSCTL_OUT(req, &xs32, sizeof(xs32));
+		return (error);
+	}
+#endif
 #if defined(COMPAT_FREEBSD11)
 	if (req->oldlen == sizeof(xs11)) {
 		xs11.xsw_version = XSWDEV_VERSION_11;
@@ -2497,9 +2602,10 @@ sysctl_vm_swap_info(SYSCTL_HANDLER_ARGS)
 		xs11.xsw_nblks = xs.xsw_nblks;
 		xs11.xsw_used = xs.xsw_used;
 		error = SYSCTL_OUT(req, &xs11, sizeof(xs11));
-	} else
+		return (error);
+	}
 #endif
-		error = SYSCTL_OUT(req, &xs, sizeof(xs));
+	error = SYSCTL_OUT(req, &xs, sizeof(xs));
 	return (error);
 }
 
@@ -2902,4 +3008,28 @@ sysctl_swap_async_max(SYSCTL_HANDLER_ARGS)
 	mtx_unlock(&pbuf_mtx);
 
 	return (0);
+}
+
+static void
+swap_pager_update_writecount(vm_object_t object, vm_offset_t start,
+    vm_offset_t end)
+{
+
+	VM_OBJECT_WLOCK(object);
+	KASSERT((object->flags & OBJ_NOSPLIT) != 0,
+	    ("Splittable object with writecount"));
+	object->un_pager.swp.writemappings += (vm_ooffset_t)end - start;
+	VM_OBJECT_WUNLOCK(object);
+}
+
+static void
+swap_pager_release_writecount(vm_object_t object, vm_offset_t start,
+    vm_offset_t end)
+{
+
+	VM_OBJECT_WLOCK(object);
+	KASSERT((object->flags & OBJ_NOSPLIT) != 0,
+	    ("Splittable object with writecount"));
+	object->un_pager.swp.writemappings -= (vm_ooffset_t)end - start;
+	VM_OBJECT_WUNLOCK(object);
 }

@@ -86,7 +86,7 @@ END(cpu_throw)
  */
 ENTRY(cpu_switch)
 	/* Switch to new thread.  First, save context. */
-	movq	TD_PCB(%rdi),%r8
+	leaq	TD_MD_PCB(%rdi),%r8
 
 	movq	(%rsp),%rax			/* Hardware registers */
 	movq	%r15,PCB_R15(%r8)
@@ -152,7 +152,7 @@ ctx_switch_xsave:
 	callq	pmap_activate_sw
 	SETLK	%r15,TD_LOCK(%r13)		/* Release the old thread */
 sw1:
-	movq	TD_PCB(%r12),%r8
+	leaq	TD_MD_PCB(%r12),%r8
 #if defined(SCHED_ULE) && defined(SMP)
 	/* Wait for the new thread to become unblocked */
 	movq	$blocked_lock, %rdx
@@ -207,16 +207,14 @@ do_kthread:
 	cmpq	%rax,%rdx
 	jne	do_tss
 done_tss:
-	movq	%r8,PCPU(RSP0)
+	movq	TD_MD_STACK_BASE(%r12),%r9
+	movq	%r9,PCPU(RSP0)
 	movq	%r8,PCPU(CURPCB)
-	/* Update the TSS_RSP0 pointer for the next interrupt */
-	cmpq	$~0,PCPU(UCR3)
-	je	1f
 	movq	PCPU(PTI_RSP0),%rax
+	cmpq	$~0,PCPU(UCR3)
+	cmove	%r9,%rax
 	movq	%rax,TSS_RSP0(%rdx)
-	jmp	2f
-1:	movq	%r8,TSS_RSP0(%rdx)
-2:	movq	%r12,PCPU(CURTHREAD)		/* into next thread */
+	movq	%r12,PCPU(CURTHREAD)		/* into next thread */
 
 	/* Test if debug registers should be restored. */
 	testl	$PCB_DBREGS,PCB_FLAGS(%r8)

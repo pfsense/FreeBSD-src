@@ -376,7 +376,12 @@ extern struct mtx_padalign pa_lock[];
 /*
  * Page flags.  If changed at any other time than page allocation or
  * freeing, the modification must be protected by the vm_page lock.
+ *
+ * The PG_PCPU_CACHE flag is set at allocation time if the page was
+ * allocated from a per-CPU cache.  It is cleared the next time that the
+ * page is allocated from the physical memory allocator.
  */
+#define	PG_PCPU_CACHE	0x0001		/* was allocated from per-CPU caches */
 #define	PG_FICTITIOUS	0x0004		/* physical page doesn't exist */
 #define	PG_ZERO		0x0008		/* page is zeroed */
 #define	PG_MARKER	0x0010		/* special queue marker page */
@@ -549,7 +554,6 @@ void vm_page_launder(vm_page_t m);
 vm_page_t vm_page_lookup (vm_object_t, vm_pindex_t);
 vm_page_t vm_page_next(vm_page_t m);
 int vm_page_pa_tryrelock(pmap_t, vm_paddr_t, vm_paddr_t *);
-struct vm_pagequeue *vm_page_pagequeue(vm_page_t m);
 vm_page_t vm_page_prev(vm_page_t m);
 bool vm_page_ps_test(vm_page_t m, int flags, vm_page_t skip_m);
 void vm_page_putfake(vm_page_t m);
@@ -559,8 +563,12 @@ bool vm_page_reclaim_contig(int req, u_long npages, vm_paddr_t low,
 bool vm_page_reclaim_contig_domain(int domain, int req, u_long npages,
     vm_paddr_t low, vm_paddr_t high, u_long alignment, vm_paddr_t boundary);
 void vm_page_reference(vm_page_t m);
-void vm_page_remove (vm_page_t);
-int vm_page_rename (vm_page_t, vm_object_t, vm_pindex_t);
+#define	VPR_TRYFREE	0x01
+#define	VPR_NOREUSE	0x02
+void vm_page_release(vm_page_t m, int flags);
+void vm_page_release_locked(vm_page_t m, int flags);
+bool vm_page_remove(vm_page_t);
+int vm_page_rename(vm_page_t, vm_object_t, vm_pindex_t);
 vm_page_t vm_page_replace(vm_page_t mnew, vm_object_t object,
     vm_pindex_t pindex);
 void vm_page_requeue(vm_page_t m);
@@ -571,7 +579,6 @@ void vm_page_set_valid_range(vm_page_t m, int base, int size);
 int vm_page_sleep_if_busy(vm_page_t m, const char *msg);
 vm_offset_t vm_page_startup(vm_offset_t vaddr);
 void vm_page_sunbusy(vm_page_t m);
-bool vm_page_try_to_free(vm_page_t m);
 int vm_page_trysbusy(vm_page_t m);
 void vm_page_unhold_pages(vm_page_t *ma, int count);
 void vm_page_unswappable(vm_page_t m);
@@ -818,6 +825,13 @@ vm_page_held(vm_page_t m)
 {
 
 	return (m->hold_count > 0 || m->wire_count > 0);
+}
+
+static inline bool
+vm_page_wired(vm_page_t m)
+{
+
+	return (m->wire_count > 0);
 }
 
 #endif				/* _KERNEL */

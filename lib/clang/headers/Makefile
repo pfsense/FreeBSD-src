@@ -1,17 +1,25 @@
+
 # $FreeBSD$
 
 .include "../clang.pre.mk"
 
 .PATH:		${CLANG_SRCS}/lib/Headers
 
-INCSDIR=	${LIBDIR}/clang/6.0.1/include
+INCSGROUPS=	INCS CUDA OMP PPC
+INCSDIR=	${LIBDIR}/clang/9.0.1/include
+CUDADIR=	${INCSDIR}/cuda_wrappers
+OMPDIR=		${INCSDIR}/openmp_wrappers
+PPCDIR=		${INCSDIR}/ppc_wrappers
 
+GENINCS+=	arm_fp16.h
 GENINCS+=	arm_neon.h
 
 INCS+=		__clang_cuda_builtin_vars.h
 INCS+=		__clang_cuda_cmath.h
 INCS+=		__clang_cuda_complex_builtins.h
+INCS+=		__clang_cuda_device_functions.h
 INCS+=		__clang_cuda_intrinsics.h
+INCS+=		__clang_cuda_libdevice_declares.h
 INCS+=		__clang_cuda_math_forward_declares.h
 INCS+=		__clang_cuda_runtime_wrapper.h
 INCS+=		__stddef_max_align_t.h
@@ -24,6 +32,7 @@ INCS+=		arm64intr.h
 INCS+=		arm_acle.h
 INCS+=		armintr.h
 INCS+=		avx2intrin.h
+INCS+=		avx512bf16intrin.h
 INCS+=		avx512bitalgintrin.h
 INCS+=		avx512bwintrin.h
 INCS+=		avx512cdintrin.h
@@ -36,6 +45,7 @@ INCS+=		avx512pfintrin.h
 INCS+=		avx512vbmi2intrin.h
 INCS+=		avx512vbmiintrin.h
 INCS+=		avx512vbmivlintrin.h
+INCS+=		avx512vlbf16intrin.h
 INCS+=		avx512vlbitalgintrin.h
 INCS+=		avx512vlbwintrin.h
 INCS+=		avx512vlcdintrin.h
@@ -43,18 +53,22 @@ INCS+=		avx512vldqintrin.h
 INCS+=		avx512vlintrin.h
 INCS+=		avx512vlvbmi2intrin.h
 INCS+=		avx512vlvnniintrin.h
+INCS+=		avx512vlvp2intersectintrin.h
 INCS+=		avx512vnniintrin.h
+INCS+=		avx512vp2intersectintrin.h
 INCS+=		avx512vpopcntdqintrin.h
 INCS+=		avx512vpopcntdqvlintrin.h
 INCS+=		avxintrin.h
 INCS+=		bmi2intrin.h
 INCS+=		bmiintrin.h
 INCS+=		cetintrin.h
+INCS+=		cldemoteintrin.h
 INCS+=		clflushoptintrin.h
 INCS+=		clwbintrin.h
 INCS+=		clzerointrin.h
 INCS+=		cpuid.h
 INCS+=		emmintrin.h
+INCS+=		enqcmdintrin.h
 INCS+=		f16cintrin.h
 INCS+=		fma4intrin.h
 INCS+=		fmaintrin.h
@@ -64,23 +78,29 @@ INCS+=		htmintrin.h
 INCS+=		htmxlintrin.h
 INCS+=		ia32intrin.h
 INCS+=		immintrin.h
+INCS+=		invpcidintrin.h
 INCS+=		lwpintrin.h
 INCS+=		lzcntintrin.h
 INCS+=		mm3dnow.h
 INCS+=		mm_malloc.h
 INCS+=		mmintrin.h
 INCS+=		module.modulemap
+INCS+=		movdirintrin.h
 INCS+=		msa.h
 INCS+=		mwaitxintrin.h
 INCS+=		nmmintrin.h
+INCS+=		opencl-c-base.h
 INCS+=		opencl-c.h
+INCS+=		pconfigintrin.h
 INCS+=		pkuintrin.h
 INCS+=		pmmintrin.h
 INCS+=		popcntintrin.h
 INCS+=		prfchwintrin.h
+INCS+=		ptwriteintrin.h
 INCS+=		rdseedintrin.h
 INCS+=		rtmintrin.h
 INCS+=		s390intrin.h
+INCS+=		sgxintrin.h
 INCS+=		shaintrin.h
 INCS+=		smmintrin.h
 INCS+=		tbmintrin.h
@@ -89,6 +109,8 @@ INCS+=		vadefs.h
 INCS+=		vaesintrin.h
 INCS+=		vecintrin.h
 INCS+=		vpclmulqdqintrin.h
+INCS+=		waitpkgintrin.h
+INCS+=		wbnoinvdintrin.h
 INCS+=		wmmintrin.h
 INCS+=		x86intrin.h
 INCS+=		xmmintrin.h
@@ -119,10 +141,29 @@ INCS+=		unwind.h
 INCS+=		varargs.h
 .endif
 
+CUDA+=		cuda_wrappers/algorithm
+CUDA+=		cuda_wrappers/complex
+CUDA+=		cuda_wrappers/new
+
+OMP+=		openmp_wrappers/__clang_openmp_math.h
+OMP+=		openmp_wrappers/__clang_openmp_math_declares.h
+OMP+=		openmp_wrappers/cmath
+OMP+=		openmp_wrappers/math.h
+
+PPC+=		ppc_wrappers/emmintrin.h
+PPC+=		ppc_wrappers/mm_malloc.h
+PPC+=		ppc_wrappers/mmintrin.h
+PPC+=		ppc_wrappers/xmmintrin.h
+
+arm_fp16.h: ${CLANG_SRCS}/include/clang/Basic/arm_fp16.td
+	${CLANG_TBLGEN} -gen-arm-fp16 \
+	    -I ${CLANG_SRCS}/include/clang/Basic -d ${.TARGET:C/$/.d/} \
+	    -o ${.TARGET} ${CLANG_SRCS}/include/clang/Basic/arm_fp16.td
+
 arm_neon.h: ${CLANG_SRCS}/include/clang/Basic/arm_neon.td
 	${CLANG_TBLGEN} -gen-arm-neon \
-	    -d ${.TARGET:C/$/.d/} -o ${.TARGET} \
-	    ${CLANG_SRCS}/include/clang/Basic/arm_neon.td
+	    -I ${CLANG_SRCS}/include/clang/Basic -d ${.TARGET:C/$/.d/} \
+	    -o ${.TARGET} ${CLANG_SRCS}/include/clang/Basic/arm_neon.td
 
 CLEANFILES=	${GENINCS} ${GENINCS:C/$/.d/}
 

@@ -56,7 +56,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/uma.h>
 
 extern int nfscl_ticks;
-extern int nfsrv_nfsuserd;
+extern nfsuserd_state nfsrv_nfsuserd;
 extern struct nfssockreq nfsrv_nfsuserdsock;
 extern void (*nfsd_call_recall)(struct vnode *, int, struct ucred *,
     struct thread *);
@@ -631,30 +631,24 @@ nfssvc_call(struct thread *p, struct nfssvc_args *uap, struct ucred *cred)
 		goto out;
 	} else if (uap->flag & NFSSVC_NFSUSERDPORT) {
 		u_short sockport;
-		struct sockaddr *sad;
-		struct sockaddr_un *sun;
+		struct nfsuserd_args nargs;
 
-		if ((uap->flag & NFSSVC_NEWSTRUCT) != 0) {
-			/* New nfsuserd using an AF_LOCAL socket. */
-			sun = malloc(sizeof(struct sockaddr_un), M_SONAME,
-			    M_WAITOK | M_ZERO);
-			error = copyinstr(uap->argp, sun->sun_path,
-			    sizeof(sun->sun_path), NULL);
-			if (error != 0) {
-				free(sun, M_SONAME);
-				return (error);
-			}
-		        sun->sun_family = AF_LOCAL;
-		        sun->sun_len = SUN_LEN(sun);
-			sockport = 0;
-			sad = (struct sockaddr *)sun;
-		} else {
+		if ((uap->flag & NFSSVC_NEWSTRUCT) == 0) {
 			error = copyin(uap->argp, (caddr_t)&sockport,
 			    sizeof (u_short));
-			sad = NULL;
+			if (error == 0) {
+				nargs.nuserd_family = AF_INET;
+				nargs.nuserd_port = sockport;
+			}
+		} else {
+			/*
+			 * New nfsuserd_args structure, which indicates
+			 * which IP version to use along with the port#.
+			 */
+			error = copyin(uap->argp, &nargs, sizeof(nargs));
 		}
-		if (error == 0)
-			error = nfsrv_nfsuserdport(sad, sockport, p);
+		if (!error)
+			error = nfsrv_nfsuserdport(&nargs, p);
 	} else if (uap->flag & NFSSVC_NFSUSERDDELPORT) {
 		nfsrv_nfsuserddelport();
 		error = 0;
@@ -780,7 +774,7 @@ nfscommon_modevent(module_t mod, int type, void *data)
 		break;
 
 	case MOD_UNLOAD:
-		if (newnfs_numnfsd != 0 || nfsrv_nfsuserd != 0 ||
+		if (newnfs_numnfsd != 0 || nfsrv_nfsuserd != NOTRUNNING ||
 		    nfs_numnfscbd != 0) {
 			error = EBUSY;
 			break;

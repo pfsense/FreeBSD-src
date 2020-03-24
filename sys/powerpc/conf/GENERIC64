@@ -141,6 +141,8 @@ device		scc
 device		uart
 device		uart_z8530
 
+device		iflib
+
 # Ethernet hardware
 device		em		# Intel PRO/1000 Gigabit Ethernet Family
 device		ix		# Intel PRO/10GbE PCIE PF Ethernet Family
@@ -163,7 +165,7 @@ device		loop		# Network loopback
 device		random		# Entropy device
 device		ether		# Ethernet support
 device		vlan		# 802.1Q VLAN support
-device		tun		# Packet tunnel.
+device		tuntap		# Packet tunnel.
 device		md		# Memory "disks"
 device		ofwd		# Open Firmware disks
 device		gif		# IPv6 and IPv4 tunneling
@@ -225,5 +227,10 @@ device		pmu
 # Sound support
 device		sound		# Generic sound driver (required)
 device		snd_ai2s	# Apple I2S audio
+device		snd_hda		# Intel High Definition Audio
 device		snd_uaudio	# USB Audio
 
+# evdev interface
+options 	EVDEV_SUPPORT		# evdev support in legacy drivers
+device		evdev			# input event device support
+device		uinput			# install /dev/uinput cdev

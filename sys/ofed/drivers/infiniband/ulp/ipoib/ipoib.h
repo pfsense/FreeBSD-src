@@ -133,8 +133,8 @@ enum {
 
 	IPOIB_NUM_WC		  = 4,
 
-	IPOIB_MAX_PATH_REC_QUEUE  = 3,
-	IPOIB_MAX_MCAST_QUEUE	  = 3,
+	IPOIB_MAX_PATH_REC_QUEUE  = 16,
+	IPOIB_MAX_MCAST_QUEUE	  = 16,
 
 	IPOIB_FLAG_OPER_UP	  = 0,
 	IPOIB_FLAG_INITIALIZED	  = 1,
@@ -518,7 +518,7 @@ void ipoib_path_iter_read(struct ipoib_path_iter *iter,
 			  struct ipoib_path *path);
 #endif
 
-int ipoib_change_mtu(struct ipoib_dev_priv *priv, int new_mtu);
+int ipoib_change_mtu(struct ipoib_dev_priv *priv, int new_mtu, bool propagate);
 
 int ipoib_mcast_attach(struct ipoib_dev_priv *priv, u16 mlid,
 		       union ib_gid *mgid, int set_qkey);
@@ -536,7 +536,7 @@ void ipoib_drain_cq(struct ipoib_dev_priv *priv);
 
 int ipoib_dma_map_tx(struct ib_device *ca, struct ipoib_tx_buf *tx_req, int max);
 void ipoib_dma_unmap_tx(struct ib_device *ca, struct ipoib_tx_buf *tx_req);
-int ipoib_poll_tx(struct ipoib_dev_priv *priv);
+int ipoib_poll_tx(struct ipoib_dev_priv *priv, bool do_start);
 
 void ipoib_dma_unmap_rx(struct ipoib_dev_priv *priv, struct ipoib_rx_buf *rx_req);
 void ipoib_dma_mb(struct ipoib_dev_priv *priv, struct mbuf *mb, unsigned int length);
@@ -763,5 +763,7 @@ extern int ipoib_debug_level;
 #endif /* CONFIG_INFINIBAND_IPOIB_DEBUG_DATA */
 
 #define IPOIB_QPN(ha) (be32_to_cpup((__be32 *) ha) & 0xffffff)
+
+void ipoib_start_locked(struct ifnet *, struct ipoib_dev_priv *);
 
 #endif /* _IPOIB_H */

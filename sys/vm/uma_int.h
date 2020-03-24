@@ -170,8 +170,8 @@ SLIST_HEAD(slabhead, uma_slab);
 
 struct uma_hash {
 	struct slabhead	*uh_slab_hash;	/* Hash table for slabs */
-	int		uh_hashsize;	/* Current size of the hash table */
-	int		uh_hashmask;	/* Mask used during hashing */
+	u_int		uh_hashsize;	/* Current size of the hash table */
+	u_int		uh_hashmask;	/* Mask used during hashing */
 };
 
 /*
@@ -304,6 +304,10 @@ typedef struct uma_klink *uma_klink_t;
 
 struct uma_zone_domain {
 	LIST_HEAD(,uma_bucket)	uzd_buckets;	/* full buckets */
+	long		uzd_nitems;	/* total item count */
+	long		uzd_imax;	/* maximum item count this period */
+	long		uzd_imin;	/* minimum item count this period */
+	long		uzd_wss;	/* working set size estimate */
 };
 
 typedef struct uma_zone_domain * uma_zone_domain_t;
@@ -423,11 +427,12 @@ void uma_large_free(uma_slab_t slab);
 			mtx_init(&(z)->uz_lock, (z)->uz_name,	\
 			    "UMA zone", MTX_DEF | MTX_DUPOK);	\
 	} while (0)
-	    
+
 #define	ZONE_LOCK(z)	mtx_lock((z)->uz_lockptr)
 #define	ZONE_TRYLOCK(z)	mtx_trylock((z)->uz_lockptr)
 #define	ZONE_UNLOCK(z)	mtx_unlock((z)->uz_lockptr)
 #define	ZONE_LOCK_FINI(z)	mtx_destroy(&(z)->uz_lock)
+#define	ZONE_LOCK_ASSERT(z)	mtx_assert((z)->uz_lockptr, MA_OWNED)
 
 /*
  * Find a slab within a hash table.  This is used for OFFPAGE zones to lookup
@@ -444,7 +449,7 @@ static __inline uma_slab_t
 hash_sfind(struct uma_hash *hash, uint8_t *data)
 {
         uma_slab_t slab;
-        int hval;
+        u_int hval;
 
         hval = UMA_HASH(hash, data);
 

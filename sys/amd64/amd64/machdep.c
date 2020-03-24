@@ -228,9 +228,10 @@ vm_paddr_t dump_avail[PHYSMAP_SIZE + 2];
 struct kva_md_info kmi;
 
 static struct trapframe proc0_tf;
-struct region_descriptor r_gdt, r_idt;
+struct region_descriptor r_idt;
 
-struct pcpu __pcpu[MAXCPU];
+struct pcpu *__pcpu;
+struct pcpu temp_bsp_pcpu;
 
 struct mtx icu_lock;
 
@@ -811,6 +812,7 @@ struct soft_segment_descriptor gdt_segs[] = {
 	.ssd_def32 = 0,
 	.ssd_gran = 0		},
 };
+_Static_assert(nitems(gdt_segs) == NGDT, "Stale NGDT");
 
 void
 setidt(int idx, inthand_t *func, int typ, int dpl, int ist)
@@ -1559,16 +1561,72 @@ amd64_conf_fast_syscall(void)
 	wrmsr(MSR_SF_MASK, PSL_NT | PSL_T | PSL_I | PSL_C | PSL_D | PSL_AC);
 }
 
+void
+amd64_bsp_pcpu_init1(struct pcpu *pc)
+{
+
+	PCPU_SET(prvspace, pc);
+	PCPU_SET(curthread, &thread0);
+	PCPU_SET(tssp, &common_tss[0]);
+	PCPU_SET(commontssp, &common_tss[0]);
+	PCPU_SET(tss, (struct system_segment_descriptor *)&gdt[GPROC0_SEL]);
+	PCPU_SET(ldt, (struct system_segment_descriptor *)&gdt[GUSERLDT_SEL]);
+	PCPU_SET(fs32p, &gdt[GUFS32_SEL]);
+	PCPU_SET(gs32p, &gdt[GUGS32_SEL]);
+}
+
+void
+amd64_bsp_pcpu_init2(uint64_t rsp0)
+{
+
+	PCPU_SET(rsp0, rsp0);
+	PCPU_SET(pti_rsp0, ((vm_offset_t)PCPU_PTR(pti_stack) +
+	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful);
+	PCPU_SET(curpcb, thread0.td_pcb);
+}
+
+void
+amd64_bsp_ist_init(struct pcpu *pc)
+{
+	struct nmi_pcpu *np;
+
+	/* doublefault stack space, runs on ist1 */
+	common_tss[0].tss_ist1 = (long)&dblfault_stack[sizeof(dblfault_stack)];
+
+	/*
+	 * NMI stack, runs on ist2.  The pcpu pointer is stored just
+	 * above the start of the ist2 stack.
+	 */
+	np = ((struct nmi_pcpu *)&nmi0_stack[sizeof(nmi0_stack)]) - 1;
+	np->np_pcpu = (register_t)pc;
+	common_tss[0].tss_ist2 = (long)np;
+
+	/*
+	 * MC# stack, runs on ist3.  The pcpu pointer is stored just
+	 * above the start of the ist3 stack.
+	 */
+	np = ((struct nmi_pcpu *)&mce0_stack[sizeof(mce0_stack)]) - 1;
+	np->np_pcpu = (register_t)pc;
+	common_tss[0].tss_ist3 = (long)np;
+
+	/*
+	 * DB# stack, runs on ist4.
+	 */
+	np = ((struct nmi_pcpu *)&dbg0_stack[sizeof(dbg0_stack)]) - 1;
+	np->np_pcpu = (register_t)pc;
+	common_tss[0].tss_ist4 = (long)np;
+}
+
 u_int64_t
 hammer_time(u_int64_t modulep, u_int64_t physfree)
 {
 	caddr_t kmdp;
 	int gsel_tss, x;
 	struct pcpu *pc;
-	struct nmi_pcpu *np;
 	struct xstate_hdr *xhdr;
 	u_int64_t rsp0;
 	char *env;
+	struct region_descriptor r_gdt;
 	size_t kstack0_sz;
 	int late_console;
 
@@ -1581,6 +1639,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 
 	identify_cpu1();
 	identify_hypervisor();
+	identify_cpu_fixup_bsp();
 	identify_cpu2();
 	initializecpucache();
 
@@ -1617,6 +1676,13 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	physfree += kstack0_sz;
 
 	/*
+	 * Initialize enough of thread0 for delayed invalidation to
+	 * work very early.  Rely on thread0.td_base_pri
+	 * zero-initialization, it is reset to PVM at proc0_init().
+	 */
+	pmap_thread_init_invl_gen(&thread0);
+
+	/*
 	 * make gdt memory segments
 	 */
 	for (x = 0; x < NGDT; x++) {
@@ -1631,7 +1697,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	r_gdt.rd_limit = NGDT * sizeof(gdt[0]) - 1;
 	r_gdt.rd_base =  (long) gdt;
 	lgdt(&r_gdt);
-	pc = &__pcpu[0];
+	pc = &temp_bsp_pcpu;
 
 	wrmsr(MSR_FSBASE, 0);		/* User value */
 	wrmsr(MSR_GSBASE, (u_int64_t)pc);
@@ -1640,15 +1706,8 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	pcpu_init(pc, 0, sizeof(struct pcpu));
 	dpcpu_init((void *)(physfree + KERNBASE), 0);
 	physfree += DPCPU_SIZE;
-	PCPU_SET(prvspace, pc);
-	PCPU_SET(curthread, &thread0);
+	amd64_bsp_pcpu_init1(pc);
 	/* Non-late cninit() and printf() can be moved up to here. */
-	PCPU_SET(tssp, &common_tss[0]);
-	PCPU_SET(commontssp, &common_tss[0]);
-	PCPU_SET(tss, (struct system_segment_descriptor *)&gdt[GPROC0_SEL]);
-	PCPU_SET(ldt, (struct system_segment_descriptor *)&gdt[GUSERLDT_SEL]);
-	PCPU_SET(fs32p, &gdt[GUFS32_SEL]);
-	PCPU_SET(gs32p, &gdt[GUGS32_SEL]);
 
 	/*
 	 * Initialize mutexes.
@@ -1728,34 +1787,17 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	    != NULL)
 		vty_set_preferred(VTY_VT);
 
+	TUNABLE_INT_FETCH("hw.ibrs_disable", &hw_ibrs_disable);
+	TUNABLE_INT_FETCH("hw.spec_store_bypass_disable", &hw_ssb_disable);
+	TUNABLE_INT_FETCH("machdep.syscall_ret_l1d_flush",
+	    &syscall_ret_l1d_flush_mode);
+	TUNABLE_INT_FETCH("hw.mds_disable", &hw_mds_disable);
+	TUNABLE_INT_FETCH("machdep.mitigations.taa.enable", &x86_taa_enable);
+
 	finishidentcpu();	/* Final stage of CPU initialization */
 	initializecpu();	/* Initialize CPU registers */
 
-	/* doublefault stack space, runs on ist1 */
-	common_tss[0].tss_ist1 = (long)&dblfault_stack[sizeof(dblfault_stack)];
-
-	/*
-	 * NMI stack, runs on ist2.  The pcpu pointer is stored just
-	 * above the start of the ist2 stack.
-	 */
-	np = ((struct nmi_pcpu *) &nmi0_stack[sizeof(nmi0_stack)]) - 1;
-	np->np_pcpu = (register_t) pc;
-	common_tss[0].tss_ist2 = (long) np;
-
-	/*
-	 * MC# stack, runs on ist3.  The pcpu pointer is stored just
-	 * above the start of the ist3 stack.
-	 */
-	np = ((struct nmi_pcpu *) &mce0_stack[sizeof(mce0_stack)]) - 1;
-	np->np_pcpu = (register_t) pc;
-	common_tss[0].tss_ist3 = (long) np;
-
-	/*
-	 * DB# stack, runs on ist4.
-	 */
-	np = ((struct nmi_pcpu *) &dbg0_stack[sizeof(dbg0_stack)]) - 1;
-	np->np_pcpu = (register_t) pc;
-	common_tss[0].tss_ist4 = (long) np;
+	amd64_bsp_ist_init(pc);
 	
 	/* Set the IO permission bitmap (empty due to tss seg limit) */
 	common_tss[0].tss_iobase = sizeof(struct amd64tss) + IOPERM_BITMAP_SIZE;
@@ -1766,12 +1808,12 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	amd64_conf_fast_syscall();
 
 	/*
-	 * Temporary forge some valid pointer to PCB, for exception
-	 * handlers.  It is reinitialized properly below after FPU is
-	 * set up.  Also set up td_critnest to short-cut the page
-	 * fault handler.
+	 * We initialize the PCB pointer early so that exception
+	 * handlers will work.  Also set up td_critnest to short-cut
+	 * the page fault handler.
 	 */
 	cpu_max_ext_state_size = sizeof(struct savefpu);
+	set_top_of_stack_td(&thread0);
 	thread0.td_pcb = get_pcb_td(&thread0);
 	thread0.td_critnest = 1;
 
@@ -1827,11 +1869,10 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	fpuinit();
 
 	/*
-	 * Set up thread0 pcb after fpuinit calculated pcb + fpu save
+	 * Set up thread0 pcb save area after fpuinit calculated fpu save
 	 * area size.  Zero out the extended state header in fpu save
 	 * area.
 	 */
-	thread0.td_pcb = get_pcb_td(&thread0);
 	thread0.td_pcb->pcb_save = get_pcb_user_save_td(&thread0);
 	bzero(get_pcb_user_save_td(&thread0), cpu_max_ext_state_size);
 	if (use_xsave) {
@@ -1840,14 +1881,11 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 		xhdr->xstate_bv = xsave_mask;
 	}
 	/* make an initial tss so cpu can get interrupt stack on syscall! */
-	rsp0 = (vm_offset_t)thread0.td_pcb;
+	rsp0 = thread0.td_md.md_stack_base;
 	/* Ensure the stack is aligned to 16 bytes */
 	rsp0 &= ~0xFul;
 	common_tss[0].tss_rsp0 = rsp0;
-	PCPU_SET(rsp0, rsp0);
-	PCPU_SET(pti_rsp0, ((vm_offset_t)PCPU_PTR(pti_stack) +
-	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful);
-	PCPU_SET(curpcb, thread0.td_pcb);
+	amd64_bsp_pcpu_init2(rsp0);
 
 	/* transfer to user mode */
 
@@ -1876,14 +1914,10 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 #endif
 	thread0.td_critnest = 0;
 
-	TUNABLE_INT_FETCH("hw.ibrs_disable", &hw_ibrs_disable);
-	TUNABLE_INT_FETCH("hw.spec_store_bypass_disable", &hw_ssb_disable);
-	TUNABLE_INT_FETCH("hw.mds_disable", &hw_mds_disable);
-
 	TSEXIT();
 
 	/* Location of kernel stack for locore */
-	return ((u_int64_t)thread0.td_pcb);
+	return (thread0.td_md.md_stack_base);
 }
 
 void
@@ -2629,15 +2663,14 @@ set_pcb_flags_raw(struct pcb *pcb, const u_int flags)
  * the PCB_FULL_IRET flag is set.  We disable interrupts to sync with
  * context switches.
  */
-void
-set_pcb_flags(struct pcb *pcb, const u_int flags)
+static void
+set_pcb_flags_fsgsbase(struct pcb *pcb, const u_int flags)
 {
 	register_t r;
 
 	if (curpcb == pcb &&
 	    (flags & PCB_FULL_IRET) != 0 &&
-	    (pcb->pcb_flags & PCB_FULL_IRET) == 0 &&
-	    (cpu_stdext_feature & CPUID_STDEXT_FSGSBASE) != 0) {
+	    (pcb->pcb_flags & PCB_FULL_IRET) == 0) {
 		r = intr_disable();
 		if ((pcb->pcb_flags & PCB_FULL_IRET) == 0) {
 			if (rfs() == _ufssel)
@@ -2650,6 +2683,13 @@ set_pcb_flags(struct pcb *pcb, const u_int flags)
 	} else {
 		set_pcb_flags_raw(pcb, flags);
 	}
+}
+
+DEFINE_IFUNC(, void, set_pcb_flags, (struct pcb *, const u_int), static)
+{
+
+	return ((cpu_stdext_feature & CPUID_STDEXT_FSGSBASE) != 0 ?
+	    set_pcb_flags_fsgsbase : set_pcb_flags_raw);
 }
 
 void
@@ -2696,25 +2736,31 @@ DEFINE_IFUNC(, void *, memset, (void *, int, size_t), static)
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
-		memset_erms : memset_std);
+	    memset_erms : memset_std);
 }
 
-void    *memmove_std(void * _Nonnull dst, const void * _Nonnull src, size_t len);
-void    *memmove_erms(void * _Nonnull dst, const void * _Nonnull src, size_t len);
-DEFINE_IFUNC(, void *, memmove, (void * _Nonnull, const void * _Nonnull, size_t), static)
+void    *memmove_std(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+void    *memmove_erms(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+DEFINE_IFUNC(, void *, memmove, (void * _Nonnull, const void * _Nonnull,
+    size_t), static)
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
-		memmove_erms : memmove_std);
+	    memmove_erms : memmove_std);
 }
 
-void    *memcpy_std(void * _Nonnull dst, const void * _Nonnull src, size_t len);
-void    *memcpy_erms(void * _Nonnull dst, const void * _Nonnull src, size_t len);
-DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull, size_t), static)
+void    *memcpy_std(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+void    *memcpy_erms(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull,size_t),
+    static)
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
-		memcpy_erms : memcpy_std);
+	    memcpy_erms : memcpy_std);
 }
 
 void	pagezero_std(void *addr);
@@ -2723,5 +2769,5 @@ DEFINE_IFUNC(, void , pagezero, (void *), static)
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
-		pagezero_erms : pagezero_std);
+	    pagezero_erms : pagezero_std);
 }

@@ -74,13 +74,14 @@ static vfs_extattrctl_t	nullfs_extattrctl;
 static int
 nullfs_mount(struct mount *mp)
 {
-	int error = 0;
-	struct vnode *lowerrootvp, *vp;
+	struct vnode *lowerrootvp;
 	struct vnode *nullm_rootvp;
 	struct null_mount *xmp;
+	struct null_node *nn;
+	struct nameidata nd, *ndp;
 	char *target;
-	int isvnunlocked = 0, len;
-	struct nameidata nd, *ndp = &nd;
+	int error, len;
+	bool isvnunlocked;
 
 	NULLFSDEBUG("nullfs_mount(mp = %p)\n", (void *)mp);
 
@@ -110,14 +111,18 @@ nullfs_mount(struct mount *mp)
 	/*
 	 * Unlock lower node to avoid possible deadlock.
 	 */
-	if ((mp->mnt_vnodecovered->v_op == &null_vnodeops) &&
+	if (mp->mnt_vnodecovered->v_op == &null_vnodeops &&
 	    VOP_ISLOCKED(mp->mnt_vnodecovered) == LK_EXCLUSIVE) {
 		VOP_UNLOCK(mp->mnt_vnodecovered, 0);
-		isvnunlocked = 1;
+		isvnunlocked = true;
+	} else {
+		isvnunlocked = false;
 	}
+
 	/*
 	 * Find lower node
 	 */
+	ndp = &nd;
 	NDINIT(ndp, LOOKUP, FOLLOW|LOCKLEAF, UIO_SYSSPACE, target, curthread);
 	error = namei(ndp);
 
@@ -140,45 +145,36 @@ nullfs_mount(struct mount *mp)
 	/*
 	 * Check multi null mount to avoid `lock against myself' panic.
 	 */
-	if (lowerrootvp == VTONULL(mp->mnt_vnodecovered)->null_lowervp) {
-		NULLFSDEBUG("nullfs_mount: multi null mount?\n");
-		vput(lowerrootvp);
-		return (EDEADLK);
+	if (mp->mnt_vnodecovered->v_op == &null_vnodeops) {
+		nn = VTONULL(mp->mnt_vnodecovered);
+		if (nn == NULL || lowerrootvp == nn->null_lowervp) {
+			NULLFSDEBUG("nullfs_mount: multi null mount?\n");
+			vput(lowerrootvp);
+			return (EDEADLK);
+		}
 	}
 
 	xmp = (struct null_mount *) malloc(sizeof(struct null_mount),
 	    M_NULLFSMNT, M_WAITOK | M_ZERO);
 
 	/*
-	 * Save reference to underlying FS
+	 * Save pointer to underlying FS and the reference to the
+	 * lower root vnode.
 	 */
 	xmp->nullm_vfs = lowerrootvp->v_mount;
+	vref(lowerrootvp);
+	xmp->nullm_lowerrootvp = lowerrootvp;
+	mp->mnt_data = xmp;
 
 	/*
-	 * Save reference.  Each mount also holds
-	 * a reference on the root vnode.
+	 * Make sure the node alias worked.
 	 */
-	error = null_nodeget(mp, lowerrootvp, &vp);
-	/*
-	 * Make sure the node alias worked
-	 */
-	if (error) {
+	error = null_nodeget(mp, lowerrootvp, &nullm_rootvp);
+	if (error != 0) {
+		vrele(lowerrootvp);
 		free(xmp, M_NULLFSMNT);
 		return (error);
 	}
-
-	/*
-	 * Keep a held reference to the root vnode.
-	 * It is vrele'd in nullfs_unmount.
-	 */
-	nullm_rootvp = vp;
-	nullm_rootvp->v_vflag |= VV_ROOT;
-	xmp->nullm_rootvp = nullm_rootvp;
-
-	/*
-	 * Unlock the node (either the lower or the alias)
-	 */
-	VOP_UNLOCK(vp, 0);
 
 	if (NULLVPTOLOWERVP(nullm_rootvp)->v_mount->mnt_flag & MNT_LOCAL) {
 		MNT_ILOCK(mp);
@@ -201,7 +197,6 @@ nullfs_mount(struct mount *mp)
 	mp->mnt_kern_flag |= lowerrootvp->v_mount->mnt_kern_flag &
 	    (MNTK_USES_BCACHE | MNTK_NO_IOPF | MNTK_UNMAPPED_BUFS);
 	MNT_IUNLOCK(mp);
-	mp->mnt_data = xmp;
 	vfs_getnewfsid(mp);
 	if ((xmp->nullm_flags & NULLM_CACHE) != 0) {
 		MNT_ILOCK(xmp->nullm_vfs);
@@ -211,6 +206,7 @@ nullfs_mount(struct mount *mp)
 	}
 
 	vfs_mountedfrom(mp, target);
+	vput(nullm_rootvp);
 
 	NULLFSDEBUG("nullfs_mount: lower %s, alias at %s\n",
 		mp->mnt_stat.f_mntfromname, mp->mnt_stat.f_mntonname);
@@ -236,10 +232,20 @@ nullfs_unmount(mp, mntflags)
 	else
 		flags = 0;
 
-	/* There is 1 extra root vnode reference (nullm_rootvp). */
-	error = vflush(mp, 1, flags, curthread);
-	if (error)
-		return (error);
+	for (;;) {
+		/* There is 1 extra root vnode reference (nullm_rootvp). */
+		error = vflush(mp, 0, flags, curthread);
+		if (error)
+			return (error);
+		MNT_ILOCK(mp);
+		if (mp->mnt_nvnodelistsize == 0) {
+			MNT_IUNLOCK(mp);
+			break;
+		}
+		MNT_IUNLOCK(mp);
+		if ((mntflags & MNT_FORCE) == 0)
+			return (EBUSY);
+	}
 
 	/*
 	 * Finally, throw away the null_mount structure
@@ -255,6 +261,7 @@ nullfs_unmount(mp, mntflags)
 		TAILQ_REMOVE(&ump->mnt_uppers, mp, mnt_upper_link);
 		MNT_IUNLOCK(ump);
 	}
+	vrele(mntdata->nullm_lowerrootvp);
 	mp->mnt_data = NULL;
 	free(mntdata, M_NULLFSMNT);
 	return (0);
@@ -267,21 +274,24 @@ nullfs_root(mp, flags, vpp)
 	struct vnode **vpp;
 {
 	struct vnode *vp;
+	struct null_mount *mntdata;
+	int error;
 
-	NULLFSDEBUG("nullfs_root(mp = %p, vp = %p->%p)\n", (void *)mp,
-	    (void *)MOUNTTONULLMOUNT(mp)->nullm_rootvp,
-	    (void *)NULLVPTOLOWERVP(MOUNTTONULLMOUNT(mp)->nullm_rootvp));
+	mntdata = MOUNTTONULLMOUNT(mp);
+	NULLFSDEBUG("nullfs_root(mp = %p, vp = %p)\n", mp,
+	    mntdata->nullm_lowerrootvp);
 
-	/*
-	 * Return locked reference to root.
-	 */
-	vp = MOUNTTONULLMOUNT(mp)->nullm_rootvp;
-	VREF(vp);
-
-	ASSERT_VOP_UNLOCKED(vp, "root vnode is locked");
-	vn_lock(vp, flags | LK_RETRY);
-	*vpp = vp;
-	return 0;
+	error = vget(mntdata->nullm_lowerrootvp, (flags & ~LK_TYPE_MASK) |
+	    LK_EXCLUSIVE, curthread);
+	if (error == 0) {
+		error = null_nodeget(mp, mntdata->nullm_lowerrootvp, &vp);
+		if (error == 0) {
+			if ((flags & LK_TYPE_MASK) == LK_SHARED)
+				vn_lock(vp, LK_DOWNGRADE | LK_RETRY);
+			*vpp = vp;
+		}
+	}
+	return (error);
 }
 
 static int

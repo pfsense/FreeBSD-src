@@ -2,12 +2,10 @@
 
 PROG_CXX=	llvm-pdbutil
 
-SRCDIR=		tools/llvm-pdbutil
-SRCS+=		Analyze.cpp
+SRCDIR=		llvm/tools/llvm-pdbutil
 SRCS+=		BytesOutputStyle.cpp
-SRCS+=		Diff.cpp
-SRCS+=		DiffPrinter.cpp
 SRCS+=		DumpOutputStyle.cpp
+SRCS+=		ExplainOutputStyle.cpp
 SRCS+=		FormatUtil.cpp
 SRCS+=		InputFile.cpp
 SRCS+=		LinePrinter.cpp
@@ -25,6 +23,7 @@ SRCS+=		PrettyTypeDumper.cpp
 SRCS+=		PrettyTypedefDumper.cpp
 SRCS+=		PrettyVariableDumper.cpp
 SRCS+=		StreamUtil.cpp
+SRCS+=		TypeReferenceTracker.cpp
 SRCS+=		YAMLOutputStyle.cpp
 SRCS+=		llvm-pdbutil.cpp
 

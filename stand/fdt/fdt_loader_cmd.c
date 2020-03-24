@@ -67,6 +67,8 @@ static struct fdt_header *fdt_to_load = NULL;
 static struct fdt_header *fdtp = NULL;
 /* Size of FDT blob */
 static size_t fdtp_size = 0;
+/* Have we loaded all the needed overlays */
+static int fdt_overlays_applied = 0;
 
 static int fdt_load_dtb(vm_offset_t va);
 static void fdt_print_overlay_load_error(int err, const char *filename);
@@ -425,7 +427,10 @@ fdt_check_overlay_compatible(void *base_fdt, void *overlay_fdt)
 	return (1);
 }
 
-void
+/*
+ * Returns the number of overlays successfully applied
+ */
+int
 fdt_apply_overlays()
 {
 	struct preloaded_file *fp;
@@ -434,10 +439,13 @@ fdt_apply_overlays()
 	void *current_fdtp;
 	void *next_fdtp;
 	void *overlay;
-	int rv;
+	int overlays_applied, rv;
 
 	if ((fdtp == NULL) || (fdtp_size == 0))
-		return;
+		return (0);
+
+	if (fdt_overlays_applied)
+		return (0);
 
 	max_overlay_size = 0;
 	for (fp = file_findfile(NULL, "dtbo"); fp != NULL; fp = fp->f_next) {
@@ -447,15 +455,16 @@ fdt_apply_overlays()
 
 	/* Nothing to apply */
 	if (max_overlay_size == 0)
-		return;
+		return (0);
 
 	overlay = malloc(max_overlay_size);
 	if (overlay == NULL) {
 		printf("failed to allocate memory for DTB blob with overlays\n");
-		return;
+		return (0);
 	}
 	current_fdtp = fdtp;
 	current_fdtp_size = fdtp_size;
+	overlays_applied = 0;
 	for (fp = file_findfile(NULL, "dtbo"); fp != NULL; fp = fp->f_next) {
 		COPYOUT(fp->f_addr, overlay, fp->f_size);
 		/* Check compatible first to avoid unnecessary allocation */
@@ -488,7 +497,9 @@ fdt_apply_overlays()
 			if (current_fdtp != fdtp)
 				free(current_fdtp);
 			current_fdtp = next_fdtp;
-			current_fdtp_size = next_fdtp_size;
+			fdt_pack(current_fdtp);
+			current_fdtp_size = fdt_totalsize(current_fdtp);
+			overlays_applied++;
 		} else {
 			/*
 			 * Assume here that the base we tried to apply on is
@@ -507,6 +518,37 @@ fdt_apply_overlays()
 		fdtp_size = current_fdtp_size;
 	}
 	free(overlay);
+	fdt_overlays_applied = 1;
+	return (overlays_applied);
+}
+
+int
+fdt_pad_dtb(size_t padding)
+{
+	void *padded_fdtp;
+	size_t padded_fdtp_size;
+
+	padded_fdtp_size = fdtp_size + padding;
+	padded_fdtp = malloc(padded_fdtp_size);
+	if (padded_fdtp == NULL)
+		return (1);
+	if (fdt_open_into(fdtp, padded_fdtp, padded_fdtp_size) != 0) {
+		free(padded_fdtp);
+		return (1);
+	}
+	fdtp = padded_fdtp;
+	fdtp_size = padded_fdtp_size;
+	return (0);
+}
+
+int
+fdt_is_setup(void)
+{
+
+	if (fdtp != NULL)
+		return (1);
+
+	return (0);
 }
 
 int
@@ -522,6 +564,7 @@ fdt_setup_fdtp()
 		if (fdt_load_dtb(bfp->f_addr) == 0) {
 			printf("Using DTB from loaded file '%s'.\n", 
 			    bfp->f_name);
+			fdt_platform_load_overlays();
 			return (0);
 		}
 	}
@@ -531,12 +574,15 @@ fdt_setup_fdtp()
 		if (fdt_load_dtb_addr(fdt_to_load) == 0) {
 			printf("Using DTB from memory address %p.\n",
 			    fdt_to_load);
+			fdt_platform_load_overlays();
 			return (0);
 		}
 	}
 
-	if (fdt_platform_load_dtb() == 0)
+	if (fdt_platform_load_dtb() == 0) {
+		fdt_platform_load_overlays();
 		return (0);
+	}
 
 	/* If there is a dtb compiled into the kernel, use it. */
 	if ((va = fdt_find_static_dtb()) != 0) {
@@ -1844,4 +1890,66 @@ fdt_cmd_nyi(int argc, char *argv[])
 
 	printf("command not yet implemented\n");
 	return (CMD_ERROR);
+}
+
+const char *
+fdt_devmatch_next(int *tag, int *compatlen)
+{
+	const struct fdt_property *p;
+	const struct fdt_property *status;
+	int o, len = -1;
+	static int depth = 0;
+
+	if (fdtp == NULL) {
+		fdt_setup_fdtp();
+		fdt_apply_overlays();
+	}
+
+	if (*tag != 0) {
+		o = *tag;
+		/* We are at the end of the DTB */
+		if (o < 0)
+			return (NULL);
+	} else {
+		o = fdt_path_offset(fdtp, "/");
+		if (o < 0) {
+			printf("Can't find dtb\n");
+			return (NULL);
+		}
+		depth = 0;
+	}
+
+	/* Find the next node with a compatible property */
+	while (1) {
+		p = NULL;
+		if (o >= 0 && depth >= 0) {
+			/* skip disabled nodes */
+			status = fdt_get_property(fdtp, o, "status", &len);
+			if (len > 0) {
+				if (strcmp(status->data, "disabled") == 0) {
+					o = fdt_next_node(fdtp, o, &depth);
+					if (o < 0) /* End of tree */
+						return (NULL);
+					continue;
+				}
+			}
+
+			p = fdt_get_property(fdtp, o, "compatible", &len);
+		}
+		if (p)
+			break;
+		o = fdt_next_node(fdtp, o, &depth);
+		if (o < 0) /* End of tree */
+			return (NULL);
+	}
+
+	/* Prepare next node for next call */
+	o = fdt_next_node(fdtp, o, &depth);
+	*tag = o;
+
+	if (len >= 0) {
+		*compatlen = len;
+		return (p->data);
+	}
+	return (NULL);
 }

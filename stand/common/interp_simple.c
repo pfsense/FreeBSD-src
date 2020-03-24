@@ -96,6 +96,14 @@ interp_include(const char *filename)
 		return(CMD_ERROR);
 	}
 
+#ifdef LOADER_VERIEXEC
+	if (verify_file(fd, filename, 0, VE_GUESS) < 0) {
+		close(fd);
+		sprintf(command_errbuf,"can't verify '%s'", filename);
+		return(CMD_ERROR);
+	}
+#endif
+
 	/*
 	 * Read the script into memory.
 	 */
@@ -106,7 +114,7 @@ interp_include(const char *filename)
 		line++;
 		flags = 0;
 		/* Discard comments */
-		if (strncmp(input+strspn(input, " "), "\\ ", 2) == 0)
+		if (strncmp(input+strspn(input, " "), "\\", 1) == 0)
 			continue;
 		cp = input;
 		/* Echo? */

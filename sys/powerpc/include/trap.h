@@ -127,7 +127,7 @@
 /* Macros to extract register information */
 #define EXC_ALI_RST(dsisr) ((dsisr >> 5) & 0x1f)   /* source or target */
 #define EXC_ALI_RA(dsisr) (dsisr & 0x1f)
-#define	EXC_ALI_SPE_REG(instr)	((instr >> 21) & 0x1f)
+#define	EXC_ALI_INST_RST(instr)	((instr >> 21) & 0x1f)
 
 /*
  * SRR1 bits for program exception traps. These identify what caused
@@ -149,9 +149,10 @@
 
 #ifndef LOCORE
 struct	trapframe;
-struct	pcb;
+struct	thread;
+extern int	(*hmi_handler)(struct trapframe *);
 void    trap(struct trapframe *);
-int	ppc_instr_emulate(struct trapframe *, struct pcb *);
+int	ppc_instr_emulate(struct trapframe *, struct thread *);
 #endif
 
 #endif	/* _POWERPC_TRAP_H_ */

@@ -35,6 +35,7 @@
 
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#include "opt_rss.h"
 
 #include "ixgbe.h"
 #include "ifdi_if.h"
@@ -144,11 +145,9 @@ static driver_t ixv_driver = {
 devclass_t ixv_devclass;
 DRIVER_MODULE(ixv, pci, ixv_driver, ixv_devclass, 0, 0);
 IFLIB_PNP_INFO(pci, ixv_driver, ixv_vendor_info_array);
+MODULE_DEPEND(ixv, iflib, 1, 1, 1);
 MODULE_DEPEND(ixv, pci, 1, 1, 1);
 MODULE_DEPEND(ixv, ether, 1, 1, 1);
-#ifdef DEV_NETMAP
-MODULE_DEPEND(ixv, netmap, 1, 1, 1);
-#endif /* DEV_NETMAP */
 
 static device_method_t ixv_if_methods[] = {
 	DEVMETHOD(ifdi_attach_pre, ixv_if_attach_pre),
@@ -222,6 +221,7 @@ static struct if_shared_ctx ixv_sctx_init = {
 	.isc_vendor_info = ixv_vendor_info_array,
 	.isc_driver_version = ixv_driver_version,
 	.isc_driver = &ixv_if_driver,
+	.isc_flags = IFLIB_IS_VF | IFLIB_TSO_INIT_IP,
 
 	.isc_nrxd_min = {MIN_RXD},
 	.isc_ntxd_min = {MIN_TXD},
@@ -496,7 +496,7 @@ ixv_if_attach_pre(if_ctx_t ctx)
 	scctx->isc_tx_csum_flags = CSUM_IP | CSUM_TCP | CSUM_UDP | CSUM_TSO |
 	    CSUM_IP6_TCP | CSUM_IP6_UDP | CSUM_IP6_TSO;
 	scctx->isc_tx_nsegments = IXGBE_82599_SCATTER;
-	scctx->isc_msix_bar = PCIR_BAR(MSIX_82598_BAR);
+	scctx->isc_msix_bar = pci_msix_table_bar(dev);
 	scctx->isc_tx_tso_segments_max = scctx->isc_tx_nsegments;
 	scctx->isc_tx_tso_size_max = IXGBE_TSO_SIZE;
 	scctx->isc_tx_tso_segsize_max = PAGE_SIZE;
@@ -630,14 +630,7 @@ ixv_if_init(if_ctx_t ctx)
 	/* Setup Multicast table */
 	ixv_if_multi_set(ctx);
 
-	/*
-	 * Determine the correct mbuf pool
-	 * for doing jumbo/headersplit
-	 */
-	if (ifp->if_mtu > ETHERMTU)
-		adapter->rx_mbuf_sz = MJUMPAGESIZE;
-	else
-		adapter->rx_mbuf_sz = MCLBYTES;
+	adapter->rx_mbuf_sz = iflib_get_rx_mbuf_sz(ctx);
 
 	/* Configure RX settings */
 	ixv_initialize_receive_units(ctx);
@@ -1132,7 +1125,7 @@ ixv_free_pci_resources(if_ctx_t ctx)
 	struct ix_rx_queue *que = adapter->rx_queues;
 	device_t           dev = iflib_get_dev(ctx);
 
-	/* Release all msix queue resources */
+	/* Release all MSI-X queue resources */
 	if (adapter->intr_type == IFLIB_INTR_MSIX)
 		iflib_irq_free(ctx, &adapter->irq);
 
@@ -1142,10 +1135,9 @@ ixv_free_pci_resources(if_ctx_t ctx)
 		}
 	}
 
-	/* Clean the Legacy or Link interrupt last */
 	if (adapter->pci_mem != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY,
-				     PCIR_BAR(0), adapter->pci_mem);
+		    rman_get_rid(adapter->pci_mem), adapter->pci_mem);
 } /* ixv_free_pci_resources */
 
 /************************************************************************
@@ -1228,7 +1220,13 @@ ixv_initialize_transmit_units(if_ctx_t ctx)
 		/* Set Tx Tail register */
 		txr->tail = IXGBE_VFTDT(j);
 
-		txr->tx_rs_cidx = txr->tx_rs_pidx = txr->tx_cidx_processed = 0;
+		txr->tx_rs_cidx = txr->tx_rs_pidx;
+		/* Initialize the last processed descriptor to be the end of
+		 * the ring, rather than the start, so that we avoid an
+		 * off-by-one error when calculating how many descriptors are
+		 * done in the credits_update function.
+		 */
+		txr->tx_cidx_processed = scctx->isc_ntxd[0] - 1;
 		for (int k = 0; k < scctx->isc_ntxd[0]; k++)
 			txr->tx_rsq[k] = QIDX_INVALID;
 
@@ -1460,7 +1458,12 @@ ixv_initialize_receive_units(if_ctx_t ctx)
 			    scctx->isc_nrxd[0] - 1);
 	}
 
-	ixv_initialize_rss_mapping(adapter);
+	/*
+	 * Do not touch RSS and RETA settings for older hardware
+	 * as those are shared among PF and all VF.
+	 */
+	if (adapter->hw.mac.type >= ixgbe_mac_X550_vf)
+		ixv_initialize_rss_mapping(adapter);
 } /* ixv_initialize_receive_units */
 
 /************************************************************************
@@ -1895,7 +1898,6 @@ ixv_init_device_features(struct adapter *adapter)
 {
 	adapter->feat_cap = IXGBE_FEATURE_NETMAP
 	                  | IXGBE_FEATURE_VF
-	                  | IXGBE_FEATURE_RSS
 	                  | IXGBE_FEATURE_LEGACY_TX;
 
 	/* A tad short on feature flags for VFs, atm. */
@@ -1908,6 +1910,7 @@ ixv_init_device_features(struct adapter *adapter)
 	case ixgbe_mac_X550EM_x_vf:
 	case ixgbe_mac_X550EM_a_vf:
 		adapter->feat_cap |= IXGBE_FEATURE_NEEDS_CTXD;
+		adapter->feat_cap |= IXGBE_FEATURE_RSS;
 		break;
 	default:
 		break;

@@ -43,14 +43,20 @@ void fdt_fixup_cpubusfreqs(unsigned long, unsigned long);
 void fdt_fixup_ethernet(const char *, char *, int);
 void fdt_fixup_memory(struct fdt_mem_region *, size_t);
 void fdt_fixup_stdout(const char *);
-void fdt_apply_overlays(void);
+int fdt_apply_overlays(void);
+int fdt_pad_dtb(size_t);
 int fdt_load_dtb_addr(struct fdt_header *);
 int fdt_load_dtb_file(const char *);
 void fdt_load_dtb_overlays(const char *);
 int fdt_setup_fdtp(void);
+int fdt_is_setup(void);
 
 /* The platform library needs to implement these functions */
 int fdt_platform_load_dtb(void);
+void fdt_platform_load_overlays(void);
 void fdt_platform_fixups(void);
+
+/* Devmatch/pnp function */
+const char *fdt_devmatch_next(int *tag, int *compatlen);
 
 #endif /* FDT_PLATFORM_H */

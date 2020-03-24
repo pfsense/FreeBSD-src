@@ -378,9 +378,7 @@ static keyboard_switch_t kbdmuxsw = {
 	.clear_state =	kbdmux_clear_state,
 	.get_state =	kbdmux_get_state,
 	.set_state =	kbdmux_set_state,
-	.get_fkeystr =	genkbd_get_fkeystr,
 	.poll =		kbdmux_poll,
-	.diag =		genkbd_diag,
 };
 
 #ifdef EVDEV_SUPPORT
@@ -505,7 +503,7 @@ kbdmux_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 		evdev_support_led(evdev, LED_CAPSL);
 		evdev_support_led(evdev, LED_SCROLLL);
 
-		if (evdev_register(evdev))
+		if (evdev_register_mtx(evdev, &Giant))
 			evdev_free(evdev);
 		else
 			state->ks_evdev = evdev;

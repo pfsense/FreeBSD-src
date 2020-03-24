@@ -137,9 +137,8 @@ mlx5e_rl_create_sq(struct mlx5e_priv *priv, struct mlx5e_sq *sq,
 	sq->mkey_be = cpu_to_be32(priv->mr.key);
 	sq->ifp = priv->ifp;
 	sq->priv = priv;
-	sq->max_inline = priv->params.tx_max_inline;
-	sq->min_inline_mode = priv->params.tx_min_inline_mode;
-	sq->vlan_inline_cap = MLX5_CAP_ETH(mdev, wqe_vlan_insert);
+
+	mlx5e_update_sq_inline(sq);
 
 	return (0);
 
@@ -157,6 +156,7 @@ mlx5e_rl_destroy_sq(struct mlx5e_sq *sq)
 
 	mlx5e_free_sq_db(sq);
 	mlx5_wq_destroy(&sq->wq_ctrl);
+	bus_dma_tag_destroy(sq->dma_tag);
 }
 
 static int
@@ -176,6 +176,8 @@ mlx5e_rl_open_sq(struct mlx5e_priv *priv, struct mlx5e_sq *sq,
 	err = mlx5e_modify_sq(sq, MLX5_SQC_STATE_RST, MLX5_SQC_STATE_RDY);
 	if (err)
 		goto err_disable_sq;
+
+	WRITE_ONCE(sq->running, 1);
 
 	return (0);
 
@@ -421,7 +423,6 @@ mlx5e_rlw_channel_set_rate_locked(struct mlx5e_rl_worker *rlw,
 
 		if (rate == 0) {
 			/* rate doesn't exist, fallback to unlimited */
-			error = EINVAL;
 			index = 0;
 			rate = 0;
 			atomic_add_64(&rlw->priv->rl.stats.tx_modify_rate_failure, 1ULL);
@@ -460,9 +461,9 @@ mlx5e_rlw_channel_set_rate_locked(struct mlx5e_rl_worker *rlw,
 		    howmany(rate, 1000), burst);
 	}
 
-	/* set new rate */
+	/* set new rate, if SQ is running */
 	sq = channel->sq;
-	if (sq != NULL) {
+	if (sq != NULL && READ_ONCE(sq->running) != 0) {
 		error = mlx5e_rl_modify_sq(sq, index);
 		if (error != 0)
 			atomic_add_64(&rlw->priv->rl.stats.tx_modify_rate_failure, 1ULL);
@@ -517,7 +518,7 @@ mlx5e_rl_worker(void *arg)
 
 		MLX5E_RL_WORKER_LOCK(rlw);
 		if (error != 0) {
-			if_printf(priv->ifp,
+			mlx5_en_err(priv->ifp,
 			    "mlx5e_rl_open_channel failed: %d\n", error);
 			break;
 		}
@@ -550,7 +551,7 @@ mlx5e_rl_worker(void *arg)
 					MLX5E_RL_RUNLOCK(&priv->rl);
 
 					if (error != 0) {
-						if_printf(priv->ifp,
+						mlx5_en_err(priv->ifp,
 						    "mlx5e_rl_open_channel failed: %d\n", error);
 					} else {
 						atomic_add_64(&rlw->priv->rl.stats.tx_open_queues, 1ULL);
@@ -564,7 +565,7 @@ mlx5e_rl_worker(void *arg)
 				error = mlx5e_rlw_channel_set_rate_locked(rlw, channel,
 				    channel->new_rate * 8ULL);
 				if (error != 0) {
-					if_printf(priv->ifp,
+					mlx5_en_err(priv->ifp,
 					    "mlx5e_rlw_channel_set_rate_locked failed: %d\n",
 					    error);
 				}
@@ -573,7 +574,7 @@ mlx5e_rl_worker(void *arg)
 			case MLX5E_RL_ST_DESTROY:
 				error = mlx5e_rlw_channel_set_rate_locked(rlw, channel, 0);
 				if (error != 0) {
-					if_printf(priv->ifp,
+					mlx5_en_err(priv->ifp,
 					    "mlx5e_rlw_channel_set_rate_locked failed: %d\n",
 					    error);
 				}
@@ -843,7 +844,8 @@ mlx5e_rl_init(struct mlx5e_priv *priv)
 		for (i = 0; i < rl->param.tx_channels_per_worker_def; i++) {
 			struct mlx5e_rl_channel *channel = rlw->channels + i;
 			channel->worker = rlw;
-			channel->m_snd_tag.ifp = priv->ifp;
+			channel->tag.m_snd_tag.ifp = priv->ifp;
+			channel->tag.type = IF_SND_TAG_TYPE_RATE_LIMIT;
 			STAILQ_INSERT_TAIL(&rlw->index_list_head, channel, entry);
 		}
 		MLX5E_RL_WORKER_UNLOCK(rlw);
@@ -854,7 +856,7 @@ mlx5e_rl_init(struct mlx5e_priv *priv)
 	PRIV_UNLOCK(priv);
 
 	if (error != 0) {
-		if_printf(priv->ifp,
+		mlx5_en_err(priv->ifp,
 		    "mlx5e_rl_open_workers failed: %d\n", error);
 	}
 
@@ -892,7 +894,7 @@ mlx5e_rl_open_workers(struct mlx5e_priv *priv)
 		error = kproc_kthread_add(mlx5e_rl_worker, rlw, &rl_proc, &rl_thread,
 		    RFHIGHPID, 0, "mlx5-ratelimit", "mlx5-rl-worker-thread-%d", (int)j);
 		if (error != 0) {
-			if_printf(rl->priv->ifp,
+			mlx5_en_err(rl->priv->ifp,
 			    "kproc_kthread_add failed: %d\n", error);
 			rlw->worker_done = 1;
 		}
@@ -1040,17 +1042,21 @@ mlx5e_rl_modify(struct mlx5e_rl_worker *rlw, struct mlx5e_rl_channel *channel, u
 }
 
 static int
-mlx5e_rl_query(struct mlx5e_rl_worker *rlw, struct mlx5e_rl_channel *channel, uint64_t *prate)
+mlx5e_rl_query(struct mlx5e_rl_worker *rlw, struct mlx5e_rl_channel *channel,
+    union if_snd_tag_query_params *params)
 {
 	int retval;
 
 	MLX5E_RL_WORKER_LOCK(rlw);
 	switch (channel->state) {
 	case MLX5E_RL_ST_USED:
-		*prate = channel->last_rate;
+		params->rate_limit.max_rate = channel->last_rate;
+		params->rate_limit.queue_level = mlx5e_sq_queue_level(channel->sq);
 		retval = 0;
 		break;
 	case MLX5E_RL_ST_MODIFY:
+		params->rate_limit.max_rate = channel->last_rate;
+		params->rate_limit.queue_level = mlx5e_sq_queue_level(channel->sq);
 		retval = EBUSY;
 		break;
 	default:
@@ -1084,7 +1090,8 @@ mlx5e_find_available_tx_ring_index(struct mlx5e_rl_worker *rlw,
 
 	*pchannel = channel;
 #ifdef RATELIMIT_DEBUG
-	if_printf(rlw->priv->ifp, "Channel pointer for rate limit connection is %p\n", channel);
+	mlx5_en_info(rlw->priv->ifp,
+	    "Channel pointer for rate limit connection is %p\n", channel);
 #endif
 	return (retval);
 }
@@ -1122,7 +1129,7 @@ mlx5e_rl_snd_tag_alloc(struct ifnet *ifp,
 	}
 
 	/* store pointer to mbuf tag */
-	*ppmt = &channel->m_snd_tag;
+	*ppmt = &channel->tag.m_snd_tag;
 done:
 	return (error);
 }
@@ -1132,7 +1139,7 @@ int
 mlx5e_rl_snd_tag_modify(struct m_snd_tag *pmt, union if_snd_tag_modify_params *params)
 {
 	struct mlx5e_rl_channel *channel =
-	    container_of(pmt, struct mlx5e_rl_channel, m_snd_tag);
+	    container_of(pmt, struct mlx5e_rl_channel, tag.m_snd_tag);
 
 	return (mlx5e_rl_modify(channel->worker, channel, params->rate_limit.max_rate));
 }
@@ -1141,16 +1148,16 @@ int
 mlx5e_rl_snd_tag_query(struct m_snd_tag *pmt, union if_snd_tag_query_params *params)
 {
 	struct mlx5e_rl_channel *channel =
-	    container_of(pmt, struct mlx5e_rl_channel, m_snd_tag);
+	    container_of(pmt, struct mlx5e_rl_channel, tag.m_snd_tag);
 
-	return (mlx5e_rl_query(channel->worker, channel, &params->rate_limit.max_rate));
+	return (mlx5e_rl_query(channel->worker, channel, params));
 }
 
 void
 mlx5e_rl_snd_tag_free(struct m_snd_tag *pmt)
 {
 	struct mlx5e_rl_channel *channel =
-	    container_of(pmt, struct mlx5e_rl_channel, m_snd_tag);
+	    container_of(pmt, struct mlx5e_rl_channel, tag.m_snd_tag);
 
 	mlx5e_rl_free(channel->worker, channel);
 }
@@ -1232,6 +1239,32 @@ mlx5e_rl_refresh_channel_params(struct mlx5e_rl_priv_data *rl)
 		}
 	}
 	return (0);
+}
+
+void
+mlx5e_rl_refresh_sq_inline(struct mlx5e_rl_priv_data *rl)
+{
+	uint64_t x;
+	uint64_t y;
+
+	for (y = 0; y != rl->param.tx_worker_threads_def; y++) {
+		struct mlx5e_rl_worker *rlw = rl->workers + y;
+
+		for (x = 0; x != rl->param.tx_channels_per_worker_def; x++) {
+			struct mlx5e_rl_channel *channel;
+			struct mlx5e_sq *sq;
+
+			channel = rlw->channels + x;
+			sq = channel->sq;
+
+			if (sq == NULL)
+				continue;
+
+			mtx_lock(&sq->lock);
+			mlx5e_update_sq_inline(sq);
+			mtx_unlock(&sq->lock);
+		}
+	}
 }
 
 static int

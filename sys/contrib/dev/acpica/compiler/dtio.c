@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2019, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -162,10 +162,6 @@ static char *
 DtTrim (
     char                    *String);
 
-static void
-DtLinkField (
-    DT_FIELD                *Field);
-
 static ACPI_STATUS
 DtParseLine (
     char                    *LineBuffer,
@@ -236,7 +232,7 @@ DtTrim (
 
     /* Skip lines that start with a space */
 
-    if (!strcmp (String, " "))
+    if (*String == 0 || !strcmp (String, " "))
     {
         ReturnString = UtLocalCacheCalloc (1);
         return (ReturnString);
@@ -258,7 +254,7 @@ DtTrim (
 
     while (End >= Start)
     {
-        if (*End == '\r' || *End == '\n')
+        if (*End == '\n')
         {
             End--;
             continue;
@@ -294,45 +290,6 @@ DtTrim (
 
     ReturnString[Length] = 0;
     return (ReturnString);
-}
-
-
-/******************************************************************************
- *
- * FUNCTION:    DtLinkField
- *
- * PARAMETERS:  Field               - New field object to link
- *
- * RETURN:      None
- *
- * DESCRIPTION: Link one field name and value to the list
- *
- *****************************************************************************/
-
-static void
-DtLinkField (
-    DT_FIELD                *Field)
-{
-    DT_FIELD                *Prev;
-    DT_FIELD                *Next;
-
-
-    Prev = Next = AslGbl_FieldList;
-
-    while (Next)
-    {
-        Prev = Next;
-        Next = Next->Next;
-    }
-
-    if (Prev)
-    {
-        Prev->Next = Field;
-    }
-    else
-    {
-        AslGbl_FieldList = Field;
-    }
 }
 
 
@@ -375,7 +332,7 @@ DtParseLine (
         return (AE_OK);
     }
 
-    /* All lines after "Raw Table Data" are ingored */
+    /* All lines after "Raw Table Data" are ignored */
 
     if (strstr (LineBuffer, ACPI_RAW_TABLE_DATA_HEADER))
     {
@@ -522,6 +479,7 @@ DtGetNextLine (
     UINT32                  CurrentLineOffset;
     UINT32                  i;
     int                     c;
+    int                     c1;
 
 
     memset (AslGbl_CurrentLineBuffer, 0, AslGbl_LineBufferSize);
@@ -568,6 +526,29 @@ DtGetNextLine (
              */
             c = '\n';
             State = DT_NORMAL_TEXT;
+        }
+        else if (c == '\r')
+        {
+            c1 = getc (Handle);
+            if (c1 == '\n')
+            {
+                /*
+                 * Skip the carriage return as if it didn't exist. This is
+                 * onlt meant for input files in DOS format in unix. fopen in
+                 * unix may not support "text mode" and leaves CRLF intact.
+                 */
+                c = '\n';
+            }
+            else
+            {
+                /* This was not a CRLF. Only a CR */
+
+                ungetc(c1, Handle);
+
+                DtFatal (ASL_MSG_COMPILER_INTERNAL, NULL,
+                    "Carriage return without linefeed detected");
+                return (ASL_EOF);
+            }
         }
 
         switch (State)
@@ -763,7 +744,6 @@ DtGetNextLine (
 
             case '\n':
 
-                CurrentLineOffset = AslGbl_NextLineOffset;
                 AslGbl_NextLineOffset = (UINT32) ftell (Handle);
                 AslGbl_CurrentLineNumber++;
                 break;
@@ -805,7 +785,6 @@ DtGetNextLine (
 
                 /* Ignore newline, this will merge the lines */
 
-                CurrentLineOffset = AslGbl_NextLineOffset;
                 AslGbl_NextLineOffset = (UINT32) ftell (Handle);
                 AslGbl_CurrentLineNumber++;
                 State = DT_NORMAL_TEXT;
@@ -1093,7 +1072,7 @@ DtDumpSubtableInfo (
 {
 
     DbgPrint (ASL_DEBUG_OUTPUT,
-        "[%.04X] %24s %.08X %.08X %.08X %.08X %.08X %p %p %p\n",
+        "[%.04X] %24s %.08X %.08X %.08X %.08X %p %p %p %p\n",
         Subtable->Depth, Subtable->Name, Subtable->Length, Subtable->TotalLength,
         Subtable->SizeOfLengthField, Subtable->Flags, Subtable,
         Subtable->Parent, Subtable->Child, Subtable->Peer);
@@ -1107,7 +1086,7 @@ DtDumpSubtableTree (
 {
 
     DbgPrint (ASL_DEBUG_OUTPUT,
-        "[%.04X] %24s %*s%08X (%.02X) - (%.02X)\n",
+        "[%.04X] %24s %*s%p (%.02X) - (%.02X)\n",
         Subtable->Depth, Subtable->Name, (4 * Subtable->Depth), " ",
         Subtable, Subtable->Length, Subtable->TotalLength);
 }
@@ -1201,7 +1180,7 @@ DtWriteFieldToListing (
     if (strlen (Field->Value) > 64)
     {
         FlPrintFile (ASL_FILE_LISTING_OUTPUT, "...Additional data, length 0x%X\n",
-            strlen (Field->Value));
+            (UINT32) strlen (Field->Value));
     }
 
     FlPrintFile (ASL_FILE_LISTING_OUTPUT, "\n");

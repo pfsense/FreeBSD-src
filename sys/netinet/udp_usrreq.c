@@ -116,9 +116,9 @@ VNET_DEFINE(int, udp_cksum) = 1;
 SYSCTL_INT(_net_inet_udp, UDPCTL_CHECKSUM, checksum, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(udp_cksum), 0, "compute udp checksum");
 
-int	udp_log_in_vain = 0;
-SYSCTL_INT(_net_inet_udp, OID_AUTO, log_in_vain, CTLFLAG_RW,
-    &udp_log_in_vain, 0, "Log all incoming UDP packets");
+VNET_DEFINE(int, udp_log_in_vain) = 0;
+SYSCTL_INT(_net_inet_udp, OID_AUTO, log_in_vain, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(udp_log_in_vain), 0, "Log all incoming UDP packets");
 
 VNET_DEFINE(int, udp_blackhole) = 0;
 SYSCTL_INT(_net_inet_udp, OID_AUTO, blackhole, CTLFLAG_VNET | CTLFLAG_RW,
@@ -421,14 +421,13 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 	/*
 	 * Get IP and UDP header together in first mbuf.
 	 */
-	ip = mtod(m, struct ip *);
 	if (m->m_len < iphlen + sizeof(struct udphdr)) {
 		if ((m = m_pullup(m, iphlen + sizeof(struct udphdr))) == NULL) {
 			UDPSTAT_INC(udps_hdrops);
 			return (IPPROTO_DONE);
 		}
-		ip = mtod(m, struct ip *);
 	}
+	ip = mtod(m, struct ip *);
 	uh = (struct udphdr *)((caddr_t)ip + iphlen);
 	cscov_partial = (proto == IPPROTO_UDPLITE) ? 1 : 0;
 
@@ -689,7 +688,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 		    ip->ip_dst, uh->uh_dport, INPLOOKUP_WILDCARD |
 		    INPLOOKUP_RLOCKPCB, ifp, m);
 	if (inp == NULL) {
-		if (udp_log_in_vain) {
+		if (V_udp_log_in_vain) {
 			char src[INET_ADDRSTRLEN];
 			char dst[INET_ADDRSTRLEN];
 
@@ -1156,9 +1155,23 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 
 	src.sin_family = 0;
 	sin = (struct sockaddr_in *)addr;
+retry:
 	if (sin == NULL ||
 	    (inp->inp_laddr.s_addr == INADDR_ANY && inp->inp_lport == 0)) {
 		INP_WLOCK(inp);
+		/*
+		 * In case we lost a race and another thread bound addr/port
+		 * on the inp we cannot keep the wlock (which still would be
+		 * fine) as further down, based on these values we make
+		 * decisions for the pcbinfo lock.  If the locks are not in
+		 * synch the assertions on unlock will fire, hence we go for
+		 * one retry loop.
+		 */
+		if (sin != NULL && (inp->inp_laddr.s_addr != INADDR_ANY ||
+		    inp->inp_lport != 0)) {
+			INP_WUNLOCK(inp);
+			goto retry;
+		}
 		unlock_inp = UH_WLOCKED;
 	} else {
 		INP_RLOCK(inp);
@@ -1258,36 +1271,44 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 	}
 
 	/*
-	 * Depending on whether or not the application has bound or connected
-	 * the socket, we may have to do varying levels of work.  The optimal
-	 * case is for a connected UDP socket, as a global lock isn't
-	 * required at all.
-	 *
-	 * In order to decide which we need, we require stability of the
-	 * inpcb binding, which we ensure by acquiring a read lock on the
-	 * inpcb.  This doesn't strictly follow the lock order, so we play
-	 * the trylock and retry game; note that we may end up with more
-	 * conservative locks than required the second time around, so later
-	 * assertions have to accept that.  Further analysis of the number of
-	 * misses under contention is required.
-	 *
-	 * XXXRW: Check that hash locking update here is correct.
+	 * In the old days, depending on whether or not the application had
+	 * bound or connected the socket, we had to do varying levels of work.
+	 * The optimal case was for a connected UDP socket, as a global lock
+	 * wasn't required at all.
+	 * In order to decide which we need, we required stability of the
+	 * inpcb binding, which we ensured by acquiring a read lock on the
+	 * inpcb.  This didn't strictly follow the lock order, so we played
+	 * the trylock and retry game.
+	 * With the re-introduction of the route-cache in some cases, we started
+	 * to acquire an early inp wlock and a possible race during re-lock
+	 * went away.  With the introduction of epoch(9) some read locking
+	 * became epoch(9) and the lock-order issues also went away.
+	 * Due to route-cache we may now hold more conservative locks than
+	 * otherwise required and have split up the 2nd case in case 2 and 3
+	 * in order to keep the udpinfo lock level in sync with the inp one
+	 * for the IP_SENDSRCADDR case below.
 	 */
 	pr = inp->inp_socket->so_proto->pr_protocol;
 	pcbinfo = udp_get_inpcbinfo(pr);
-	sin = (struct sockaddr_in *)addr;
 	if (sin != NULL &&
 	    (inp->inp_laddr.s_addr == INADDR_ANY && inp->inp_lport == 0)) {
 		INP_HASH_WLOCK(pcbinfo);
 		unlock_udbinfo = UH_WLOCKED;
-	} else if ((sin != NULL && (
-	    (sin->sin_addr.s_addr == INADDR_ANY) ||
-	    (sin->sin_addr.s_addr == INADDR_BROADCAST) ||
-	    (inp->inp_laddr.s_addr == INADDR_ANY) ||
-	    (inp->inp_lport == 0))) ||
-	    (src.sin_family == AF_INET)) {
+	} else if (sin != NULL &&
+	    (sin->sin_addr.s_addr == INADDR_ANY ||
+	    sin->sin_addr.s_addr == INADDR_BROADCAST ||
+	    inp->inp_laddr.s_addr == INADDR_ANY ||
+	    inp->inp_lport == 0)) {
 		INP_HASH_RLOCK_ET(pcbinfo, et);
 		unlock_udbinfo = UH_RLOCKED;
+	} else if (src.sin_family == AF_INET) {
+		if (unlock_inp == UH_WLOCKED) {
+			INP_HASH_WLOCK(pcbinfo);
+			unlock_udbinfo = UH_WLOCKED;
+		} else {
+			INP_HASH_RLOCK_ET(pcbinfo, et);
+			unlock_udbinfo = UH_RLOCKED;
+		}
 	} else
 		unlock_udbinfo = UH_UNLOCKED;
 
@@ -1497,8 +1518,9 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 	if (flowtype != M_HASHTYPE_NONE) {
 		m->m_pkthdr.flowid = flowid;
 		M_HASHTYPE_SET(m, flowtype);
+	}
 #ifdef	RSS
-	} else {
+	else {
 		uint32_t hash_val, hash_type;
 		/*
 		 * Calculate an appropriate RSS hash for UDP and
@@ -1521,10 +1543,8 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 			m->m_pkthdr.flowid = hash_val;
 			M_HASHTYPE_SET(m, hash_type);
 		}
-#endif
 	}
 
-#ifdef	RSS
 	/*
 	 * Don't override with the inp cached flowid value.
 	 *
@@ -1559,12 +1579,22 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 release:
 	if (unlock_udbinfo == UH_WLOCKED) {
 		KASSERT(unlock_inp == UH_WLOCKED,
-		    ("%s: excl udbinfo lock, shared inp lock", __func__));
+		    ("%s: excl udbinfo lock %#03x, shared inp lock %#03x, "
+		    "sin %p daddr %#010x inp %p laddr %#010x lport %#06x "
+		    "src fam %#04x",
+		    __func__, unlock_udbinfo, unlock_inp, sin,
+		    (sin != NULL) ? sin->sin_addr.s_addr : 0xfefefefe, inp,
+		    inp->inp_laddr.s_addr, inp->inp_lport, src.sin_family));
 		INP_HASH_WUNLOCK(pcbinfo);
 		INP_WUNLOCK(inp);
 	} else if (unlock_udbinfo == UH_RLOCKED) {
 		KASSERT(unlock_inp == UH_RLOCKED,
-		    ("%s: shared udbinfo lock, excl inp lock", __func__));
+		    ("%s: shared udbinfo lock %#03x, excl inp lock %#03x, "
+		    "sin %p daddr %#010x inp %p laddr %#010x lport %#06x "
+		    "src fam %#04x",
+		    __func__, unlock_udbinfo, unlock_inp, sin,
+		    (sin != NULL) ? sin->sin_addr.s_addr : 0xfefefefe, inp,
+		    inp->inp_laddr.s_addr, inp->inp_lport, src.sin_family));
 		INP_HASH_RUNLOCK_ET(pcbinfo, et);
 		INP_RUNLOCK(inp);
 	} else if (unlock_inp == UH_WLOCKED)

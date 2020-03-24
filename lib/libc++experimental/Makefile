@@ -3,7 +3,7 @@
 .include <src.opts.mk>
 
 PACKAGE=	clibs
-SRCDIR=		${SRCTOP}/contrib/libc++
+SRCDIR=		${SRCTOP}/contrib/llvm-project/libcxx
 
 LIB=		c++experimental
 NO_PIC=
@@ -11,9 +11,6 @@ MK_PROFILE=	no
 
 .PATH:		${SRCDIR}/src/experimental
 
-SRCS+=		filesystem/directory_iterator.cpp
-SRCS+=		filesystem/operations.cpp
-SRCS+=		filesystem/path.cpp
 SRCS+=		memory_resource.cpp
 
 WARNS?=		0
@@ -23,8 +20,6 @@ CXXFLAGS+=	-nostdinc++
 CXXFLAGS+=	-nostdlib
 CXXFLAGS+=	-D_LIBCPP_BUILDING_LIBRARY
 CXXFLAGS+=	-DLIBCXXRT
-.if empty(CXXFLAGS:M-std=*)
-CXXFLAGS+=	-std=c++14
-.endif
+CXXSTD?=	c++14
 
 .include <bsd.lib.mk>

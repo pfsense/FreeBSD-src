@@ -16,7 +16,6 @@ font.h				optional	sc			\
 #
 # There is only an asm version on ppc64.
 cddl/compat/opensolaris/kern/opensolaris_atomic.c			optional zfs powerpc | dtrace powerpc | zfs powerpcspe | dtrace powerpcspe compile-with "${ZFS_C}"
-cddl/contrib/opensolaris/common/atomic/powerpc64/opensolaris_atomic.S	optional zfs powerpc64 | dtrace powerpc64 compile-with "${ZFS_S}"
 cddl/dev/dtrace/powerpc/dtrace_asm.S		optional dtrace compile-with "${DTRACE_S}"
 cddl/dev/dtrace/powerpc/dtrace_subr.c		optional dtrace compile-with "${DTRACE_C}"
 cddl/dev/fbt/powerpc/fbt_isa.c			optional dtrace_fbt | dtraceall compile-with "${FBT_C}"
@@ -126,15 +125,15 @@ powerpc/cpufreq/mpc85xx_jog.c	optional	cpufreq mpc85xx
 powerpc/cpufreq/pcr.c		optional	cpufreq aim
 powerpc/cpufreq/pmcr.c		optional	cpufreq aim powerpc64
 powerpc/cpufreq/pmufreq.c	optional	cpufreq aim pmu
-powerpc/fpu/fpu_add.c		optional	fpu_emu
-powerpc/fpu/fpu_compare.c	optional	fpu_emu
-powerpc/fpu/fpu_div.c		optional	fpu_emu
+powerpc/fpu/fpu_add.c		optional	fpu_emu | powerpcspe
+powerpc/fpu/fpu_compare.c	optional	fpu_emu | powerpcspe
+powerpc/fpu/fpu_div.c		optional	fpu_emu | powerpcspe
 powerpc/fpu/fpu_emu.c		optional	fpu_emu
-powerpc/fpu/fpu_explode.c	optional	fpu_emu
-powerpc/fpu/fpu_implode.c	optional	fpu_emu
-powerpc/fpu/fpu_mul.c		optional	fpu_emu
+powerpc/fpu/fpu_explode.c	optional	fpu_emu | powerpcspe
+powerpc/fpu/fpu_implode.c	optional	fpu_emu | powerpcspe
+powerpc/fpu/fpu_mul.c		optional	fpu_emu | powerpcspe
 powerpc/fpu/fpu_sqrt.c		optional	fpu_emu
-powerpc/fpu/fpu_subr.c		optional	fpu_emu
+powerpc/fpu/fpu_subr.c		optional	fpu_emu | powerpcspe
 powerpc/mambo/mambocall.S	optional	mambo
 powerpc/mambo/mambo.c		optional	mambo
 powerpc/mambo/mambo_console.c	optional	mambo
@@ -193,6 +192,7 @@ powerpc/powermac/vcoregpio.c	optional	powermac
 powerpc/powernv/opal.c		optional	powernv
 powerpc/powernv/opal_console.c	optional	powernv
 powerpc/powernv/opal_dev.c	optional	powernv
+powerpc/powernv/opal_hmi.c	optional	powernv
 powerpc/powernv/opal_i2c.c	optional	iicbus fdt powernv
 powerpc/powernv/opal_i2cm.c	optional	iicbus fdt powernv
 powerpc/powernv/opal_pci.c	optional	powernv pci

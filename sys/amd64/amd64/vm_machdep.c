@@ -59,13 +59,16 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/mutex.h>
 #include <sys/pioctl.h>
+#include <sys/priv.h>
 #include <sys/proc.h>
+#include <sys/procctl.h>
 #include <sys/smp.h>
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
 #include <sys/unistd.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
+#include <sys/wait.h>
 
 #include <machine/cpu.h>
 #include <machine/md_var.h>
@@ -81,42 +84,42 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_map.h>
 #include <vm/vm_param.h>
 
-_Static_assert(OFFSETOF_CURTHREAD == offsetof(struct pcpu, pc_curthread),
-    "OFFSETOF_CURTHREAD does not correspond with offset of pc_curthread.");
-_Static_assert(OFFSETOF_CURPCB == offsetof(struct pcpu, pc_curpcb),
-    "OFFSETOF_CURPCB does not correspond with offset of pc_curpcb.");
 _Static_assert(OFFSETOF_MONITORBUF == offsetof(struct pcpu, pc_monitorbuf),
-    "OFFSETOF_MONINORBUF does not correspond with offset of pc_monitorbuf.");
+    "OFFSETOF_MONITORBUF does not correspond with offset of pc_monitorbuf.");
+
+void
+set_top_of_stack_td(struct thread *td)
+{
+	td->td_md.md_stack_base = td->td_kstack +
+	    td->td_kstack_pages * PAGE_SIZE -
+	    roundup2(cpu_max_ext_state_size, XSAVE_AREA_ALIGN);
+}
 
 struct savefpu *
 get_pcb_user_save_td(struct thread *td)
 {
 	vm_offset_t p;
 
-	p = td->td_kstack + td->td_kstack_pages * PAGE_SIZE -
-	    roundup2(cpu_max_ext_state_size, XSAVE_AREA_ALIGN);
-	KASSERT((p % XSAVE_AREA_ALIGN) == 0, ("Unaligned pcb_user_save area"));
-	return ((struct savefpu *)p);
-}
-
-struct savefpu *
-get_pcb_user_save_pcb(struct pcb *pcb)
-{
-	vm_offset_t p;
-
-	p = (vm_offset_t)(pcb + 1);
+	p = td->td_md.md_stack_base;
+	KASSERT((p % XSAVE_AREA_ALIGN) == 0,
+	    ("Unaligned pcb_user_save area ptr %#lx td %p", p, td));
 	return ((struct savefpu *)p);
 }
 
 struct pcb *
 get_pcb_td(struct thread *td)
 {
-	vm_offset_t p;
 
-	p = td->td_kstack + td->td_kstack_pages * PAGE_SIZE -
-	    roundup2(cpu_max_ext_state_size, XSAVE_AREA_ALIGN) -
-	    sizeof(struct pcb);
-	return ((struct pcb *)p);
+	return (&td->td_md.md_pcb);
+}
+
+struct savefpu *
+get_pcb_user_save_pcb(struct pcb *pcb)
+{
+	struct thread *td;
+
+	td = __containerof(pcb, struct thread, td_md.md_pcb);
+	return (get_pcb_user_save_td(td));
 }
 
 void *
@@ -166,9 +169,9 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	fpuexit(td1);
 	update_pcb_bases(td1->td_pcb);
 
-	/* Point the pcb to the top of the stack */
-	pcb2 = get_pcb_td(td2);
-	td2->td_pcb = pcb2;
+	/* Point the stack and pcb to the actual location */
+	set_top_of_stack_td(td2);
+	td2->td_pcb = pcb2 = get_pcb_td(td2);
 
 	/* Copy td1's pcb */
 	bcopy(td1->td_pcb, pcb2, sizeof(*pcb2));
@@ -181,13 +184,14 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	/* Point mdproc and then copy over td1's contents */
 	mdp2 = &p2->p_md;
 	bcopy(&p1->p_md, mdp2, sizeof(*mdp2));
+	p2->p_amd64_md_flags = p1->p_amd64_md_flags;
 
 	/*
 	 * Create a new fresh stack for the new process.
 	 * Copy the trap frame for the return to user mode as if from a
 	 * syscall.  This copies most of the user mode register values.
 	 */
-	td2->td_frame = (struct trapframe *)td2->td_pcb - 1;
+	td2->td_frame = (struct trapframe *)td2->td_md.md_stack_base - 1;
 	bcopy(td1->td_frame, td2->td_frame, sizeof(struct trapframe));
 
 	td2->td_frame->tf_rax = 0;		/* Child returns zero */
@@ -225,7 +229,7 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	/* Setup to release spin count in fork_exit(). */
 	td2->td_md.md_spinlock_count = 1;
 	td2->td_md.md_saved_flags = PSL_KERNEL | PSL_I;
-	td2->td_md.md_invl_gen.gen = 0;
+	pmap_thread_init_invl_gen(td2);
 
 	/* As an i386, do not copy io permission bitmap. */
 	pcb2->pcb_tssp = NULL;
@@ -352,8 +356,9 @@ cpu_thread_alloc(struct thread *td)
 	struct pcb *pcb;
 	struct xstate_hdr *xhdr;
 
+	set_top_of_stack_td(td);
 	td->td_pcb = pcb = get_pcb_td(td);
-	td->td_frame = (struct trapframe *)pcb - 1;
+	td->td_frame = (struct trapframe *)td->td_md.md_stack_base - 1;
 	pcb->pcb_save = get_pcb_user_save_pcb(pcb);
 	if (use_xsave) {
 		xhdr = (struct xstate_hdr *)(pcb->pcb_save + 1);
@@ -367,6 +372,74 @@ cpu_thread_free(struct thread *td)
 {
 
 	cpu_thread_clean(td);
+}
+
+bool
+cpu_exec_vmspace_reuse(struct proc *p, vm_map_t map)
+{
+
+	return (((curproc->p_amd64_md_flags & P_MD_KPTI) != 0) ==
+	    (vm_map_pmap(map)->pm_ucr3 != PMAP_NO_CR3));
+}
+
+static void
+cpu_procctl_kpti(struct proc *p, int com, int *val)
+{
+
+	if (com == PROC_KPTI_CTL) {
+		if (pti && *val == PROC_KPTI_CTL_ENABLE_ON_EXEC)
+			p->p_amd64_md_flags |= P_MD_KPTI;
+		if (*val == PROC_KPTI_CTL_DISABLE_ON_EXEC)
+			p->p_amd64_md_flags &= ~P_MD_KPTI;
+	} else /* PROC_KPTI_STATUS */ {
+		*val = (p->p_amd64_md_flags & P_MD_KPTI) != 0 ?
+		    PROC_KPTI_CTL_ENABLE_ON_EXEC:
+		    PROC_KPTI_CTL_DISABLE_ON_EXEC;
+		if (vmspace_pmap(p->p_vmspace)->pm_ucr3 != PMAP_NO_CR3)
+			*val |= PROC_KPTI_STATUS_ACTIVE;
+	}
+}
+
+int
+cpu_procctl(struct thread *td, int idtype, id_t id, int com, void *data)
+{
+	struct proc *p;
+	int error, val;
+
+	switch (com) {
+	case PROC_KPTI_CTL:
+	case PROC_KPTI_STATUS:
+		if (idtype != P_PID) {
+			error = EINVAL;
+			break;
+		}
+		if (com == PROC_KPTI_CTL) {
+			/* sad but true and not a joke */
+			error = priv_check(td, PRIV_IO);
+			if (error != 0)
+				break;
+			error = copyin(data, &val, sizeof(val));
+			if (error != 0)
+				break;
+			if (val != PROC_KPTI_CTL_ENABLE_ON_EXEC &&
+			    val != PROC_KPTI_CTL_DISABLE_ON_EXEC) {
+				error = EINVAL;
+				break;
+			}
+		}
+		error = pget(id, PGET_CANSEE | PGET_NOTWEXIT | PGET_NOTID, &p);
+		if (error == 0) {
+			cpu_procctl_kpti(p, com, &val);
+			PROC_UNLOCK(p);
+			if (com == PROC_KPTI_STATUS)
+				error = copyout(&val, data, sizeof(val));
+		}
+		break;
+	default:
+		error = EINVAL;
+		break;
+	}
+	return (error);
 }
 
 void
@@ -423,7 +496,6 @@ cpu_copy_thread(struct thread *td, struct thread *td0)
 {
 	struct pcb *pcb2;
 
-	/* Point the pcb to the top of the stack. */
 	pcb2 = td->td_pcb;
 
 	/*
@@ -473,6 +545,7 @@ cpu_copy_thread(struct thread *td, struct thread *td0)
 	/* Setup to release spin count in fork_exit(). */
 	td->td_md.md_spinlock_count = 1;
 	td->td_md.md_saved_flags = PSL_KERNEL | PSL_I;
+	pmap_thread_init_invl_gen(td);
 }
 
 /*

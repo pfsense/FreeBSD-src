@@ -89,6 +89,9 @@ int powerpc_pow_enabled;
 void (*cpu_idle_hook)(sbintime_t) = NULL;
 static void	cpu_idle_60x(sbintime_t);
 static void	cpu_idle_booke(sbintime_t);
+#ifdef BOOKE_E500
+static void	cpu_idle_e500mc(sbintime_t sbt);
+#endif
 #if defined(__powerpc64__) && defined(AIM)
 static void	cpu_idle_powerx(sbintime_t);
 static void	cpu_idle_power9(sbintime_t);
@@ -162,6 +165,13 @@ static const struct cputab models[] = {
 	   PPC_FEATURE_SMT | PPC_FEATURE_ARCH_2_05 | PPC_FEATURE_ARCH_2_06 |
 	   PPC_FEATURE_HAS_VSX, PPC_FEATURE2_DSCR, NULL },
         { "IBM POWER8E",	IBMPOWER8E,	REVFMT_MAJMIN,
+	   PPC_FEATURE_64 | PPC_FEATURE_HAS_ALTIVEC | PPC_FEATURE_HAS_FPU |
+	   PPC_FEATURE_SMT | PPC_FEATURE_ICACHE_SNOOP | PPC_FEATURE_ARCH_2_05 |
+	   PPC_FEATURE_ARCH_2_06 | PPC_FEATURE_HAS_VSX | PPC_FEATURE_TRUE_LE,
+	   PPC_FEATURE2_ARCH_2_07 | PPC_FEATURE2_HTM | PPC_FEATURE2_DSCR | 
+	   PPC_FEATURE2_ISEL | PPC_FEATURE2_TAR | PPC_FEATURE2_HAS_VEC_CRYPTO |
+	   PPC_FEATURE2_HTM_NOSC, cpu_powerx_setup },
+        { "IBM POWER8NVL",	IBMPOWER8NVL,	REVFMT_MAJMIN,
 	   PPC_FEATURE_64 | PPC_FEATURE_HAS_ALTIVEC | PPC_FEATURE_HAS_FPU |
 	   PPC_FEATURE_SMT | PPC_FEATURE_ICACHE_SNOOP | PPC_FEATURE_ARCH_2_05 |
 	   PPC_FEATURE_ARCH_2_06 | PPC_FEATURE_HAS_VSX | PPC_FEATURE_TRUE_LE,
@@ -585,10 +595,12 @@ cpu_booke_setup(int cpuid, uint16_t vers)
 	switch (vers) {
 	case FSL_E500mc:
 		bitmask = HID0_E500MC_BITMASK;
+		cpu_idle_hook = cpu_idle_e500mc;
 		break;
 	case FSL_E5500:
 	case FSL_E6500:
 		bitmask = HID0_E5500_BITMASK;
+		cpu_idle_hook = cpu_idle_e500mc;
 		break;
 	case FSL_E500v1:
 	case FSL_E500v2:
@@ -661,6 +673,7 @@ cpu_powerx_setup(int cpuid, uint16_t vers)
 	switch (vers) {
 	case IBMPOWER8:
 	case IBMPOWER8E:
+	case IBMPOWER8NVL:
 		cpu_idle_hook = cpu_idle_powerx;
 		mtspr(SPR_LPCR, mfspr(SPR_LPCR) | LPCR_PECE_WAKESET);
 		isync();
@@ -753,31 +766,28 @@ cpu_idle_60x(sbintime_t sbt)
 #endif
 }
 
+#ifdef BOOKE_E500
+static void
+cpu_idle_e500mc(sbintime_t sbt)
+{
+	/*
+	 * Base binutils doesn't know what the 'wait' instruction is, so
+	 * use the opcode encoding here.
+	 */
+	__asm __volatile(".long 0x7c00007c");
+}
+#endif
+
 static void
 cpu_idle_booke(sbintime_t sbt)
 {
 	register_t msr;
-	uint16_t vers;
 
 	msr = mfmsr();
-	vers = mfpvr() >> 16;
 
-#ifdef BOOKE
-	switch (vers) {
-	case FSL_E500mc:
-	case FSL_E5500:
-	case FSL_E6500:
-		/*
-		 * Base binutils doesn't know what the 'wait' instruction is, so
-		 * use the opcode encoding here.
-		 */
-		__asm __volatile(".long 0x7c00007c");
-		break;
-	default:
-		powerpc_sync();
-		mtmsr(msr | PSL_WE);
-		break;
-	}
+#ifdef BOOKE_E500
+	powerpc_sync();
+	mtmsr(msr | PSL_WE);
 #endif
 }
 

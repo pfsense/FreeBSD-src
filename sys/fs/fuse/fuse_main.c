@@ -33,6 +33,11 @@
  * Copyright (C) 2005 Csaba Henk.
  * All rights reserved.
  *
+ * Copyright (c) 2019 The FreeBSD Foundation
+ *
+ * Portions of this software were developed by BFF Storage Systems, LLC under
+ * sponsorship from the FreeBSD Foundation.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -67,14 +72,20 @@ __FBSDID("$FreeBSD$");
 #include <sys/conf.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
+#include <sys/queue.h>
 #include <sys/mount.h>
 #include <sys/vnode.h>
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <sys/buf.h>
+#include <sys/sdt.h>
 #include <sys/sysctl.h>
 
 #include "fuse.h"
+#include "fuse_file.h"
+#include "fuse_ipc.h"
+#include "fuse_internal.h"
+#include "fuse_node.h"
 
 static void fuse_bringdown(eventhandler_tag eh_tag);
 static int fuse_loader(struct module *m, int what, void *arg);
@@ -83,7 +94,7 @@ struct mtx fuse_mtx;
 
 extern struct vfsops fuse_vfsops;
 extern struct cdevsw fuse_cdevsw;
-extern struct vop_vector fuse_vnops;
+extern struct vop_vector fuse_fifonops;
 extern int fuse_pbuf_freecnt;
 
 static struct vfsconf fuse_vfsconf = {
@@ -94,10 +105,13 @@ static struct vfsconf fuse_vfsconf = {
 	.vfc_flags = VFCF_JAIL | VFCF_SYNTHETIC
 };
 
-SYSCTL_INT(_vfs_fuse, OID_AUTO, kernelabi_major, CTLFLAG_RD,
+SYSCTL_NODE(_vfs, OID_AUTO, fusefs, CTLFLAG_RW, 0, "FUSE tunables");
+SYSCTL_NODE(_vfs_fusefs, OID_AUTO, stats, CTLFLAG_RW, 0, "FUSE statistics");
+SYSCTL_INT(_vfs_fusefs, OID_AUTO, kernelabi_major, CTLFLAG_RD,
     SYSCTL_NULL_INT_PTR, FUSE_KERNEL_VERSION, "FUSE kernel abi major version");
-SYSCTL_INT(_vfs_fuse, OID_AUTO, kernelabi_minor, CTLFLAG_RD,
+SYSCTL_INT(_vfs_fusefs, OID_AUTO, kernelabi_minor, CTLFLAG_RD,
     SYSCTL_NULL_INT_PTR, FUSE_KERNEL_MINOR_VERSION, "FUSE kernel abi minor version");
+SDT_PROVIDER_DEFINE(fusefs);
 
 /******************************
  *
@@ -108,7 +122,9 @@ SYSCTL_INT(_vfs_fuse, OID_AUTO, kernelabi_minor, CTLFLAG_RD,
 static void
 fuse_bringdown(eventhandler_tag eh_tag)
 {
-
+	fuse_node_destroy();
+	fuse_internal_destroy();
+	fuse_file_destroy();
 	fuse_ipc_destroy();
 	fuse_device_destroy();
 	mtx_destroy(&fuse_mtx);
@@ -130,15 +146,13 @@ fuse_loader(struct module *m, int what, void *arg)
 			return (err);
 		}
 		fuse_ipc_init();
+		fuse_file_init();
+		fuse_internal_init();
+		fuse_node_init();
 
 		/* vfs_modevent ignores its first arg */
 		if ((err = vfs_modevent(NULL, what, &fuse_vfsconf)))
 			fuse_bringdown(eh_tag);
-		else
-			printf("fuse-freebsd: version %s, FUSE ABI %d.%d\n",
-			    FUSE_FREEBSD_VERSION,
-			    FUSE_KERNEL_VERSION, FUSE_KERNEL_MINOR_VERSION);
-
 		break;
 	case MOD_UNLOAD:
 		if ((err = vfs_modevent(NULL, what, &fuse_vfsconf)))
@@ -155,10 +169,10 @@ fuse_loader(struct module *m, int what, void *arg)
 /* Registering the module */
 
 static moduledata_t fuse_moddata = {
-	"fuse",
+	"fusefs",
 	fuse_loader,
 	&fuse_vfsconf
 };
 
-DECLARE_MODULE(fuse, fuse_moddata, SI_SUB_VFS, SI_ORDER_MIDDLE);
-MODULE_VERSION(fuse, 1);
+DECLARE_MODULE(fusefs, fuse_moddata, SI_SUB_VFS, SI_ORDER_MIDDLE);
+MODULE_VERSION(fusefs, 1);

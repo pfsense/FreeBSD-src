@@ -339,15 +339,15 @@ null_add_writecount(struct vop_add_writecount_args *ap)
 
 	vp = ap->a_vp;
 	lvp = NULLVPTOLOWERVP(vp);
-	KASSERT(vp->v_writecount + ap->a_inc >= 0, ("wrong writecount inc"));
-	if (vp->v_writecount > 0 && vp->v_writecount + ap->a_inc == 0)
-		error = VOP_ADD_WRITECOUNT(lvp, -1);
-	else if (vp->v_writecount == 0 && vp->v_writecount + ap->a_inc > 0)
-		error = VOP_ADD_WRITECOUNT(lvp, 1);
-	else
-		error = 0;
+	VI_LOCK(vp);
+	/* text refs are bypassed to lowervp */
+	VNASSERT(vp->v_writecount >= 0, vp, ("wrong null writecount"));
+	VNASSERT(vp->v_writecount + ap->a_inc >= 0, vp,
+	    ("wrong writecount inc %d", ap->a_inc));
+	error = VOP_ADD_WRITECOUNT(lvp, ap->a_inc);
 	if (error == 0)
 		vp->v_writecount += ap->a_inc;
+	VI_UNLOCK(vp);
 	return (error);
 }
 
@@ -802,15 +802,19 @@ null_reclaim(struct vop_reclaim_args *ap)
 	vp->v_data = NULL;
 	vp->v_object = NULL;
 	vp->v_vnlock = &vp->v_lock;
-	VI_UNLOCK(vp);
 
 	/*
-	 * If we were opened for write, we leased one write reference
+	 * If we were opened for write, we leased the write reference
 	 * to the lower vnode.  If this is a reclamation due to the
 	 * forced unmount, undo the reference now.
 	 */
 	if (vp->v_writecount > 0)
-		VOP_ADD_WRITECOUNT(lowervp, -1);
+		VOP_ADD_WRITECOUNT(lowervp, -vp->v_writecount);
+	else if (vp->v_writecount < 0)
+		vp->v_writecount = 0;
+
+	VI_UNLOCK(vp);
+
 	if ((xp->null_flags & NULLV_NOUNLOCK) != 0)
 		vunref(lowervp);
 	else
@@ -870,11 +874,14 @@ null_vptocnp(struct vop_vptocnp_args *ap)
 	struct vnode **dvp = ap->a_vpp;
 	struct vnode *lvp, *ldvp;
 	struct ucred *cred = ap->a_cred;
+	struct mount *mp;
 	int error, locked;
 
 	locked = VOP_ISLOCKED(vp);
 	lvp = NULLVPTOLOWERVP(vp);
 	vhold(lvp);
+	mp = vp->v_mount;
+	vfs_ref(mp);
 	VOP_UNLOCK(vp, 0); /* vp is held by vn_vptocnp_locked that called us */
 	ldvp = lvp;
 	vref(lvp);
@@ -882,6 +889,7 @@ null_vptocnp(struct vop_vptocnp_args *ap)
 	vdrop(lvp);
 	if (error != 0) {
 		vn_lock(vp, locked | LK_RETRY);
+		vfs_rel(mp);
 		return (ENOENT);
 	}
 
@@ -893,9 +901,10 @@ null_vptocnp(struct vop_vptocnp_args *ap)
 	if (error != 0) {
 		vrele(ldvp);
 		vn_lock(vp, locked | LK_RETRY);
+		vfs_rel(mp);
 		return (ENOENT);
 	}
-	error = null_nodeget(vp->v_mount, ldvp, dvp);
+	error = null_nodeget(mp, ldvp, dvp);
 	if (error == 0) {
 #ifdef DIAGNOSTIC
 		NULLVPTOLOWERVP(*dvp);
@@ -903,6 +912,7 @@ null_vptocnp(struct vop_vptocnp_args *ap)
 		VOP_UNLOCK(*dvp, 0); /* keep reference on *dvp */
 	}
 	vn_lock(vp, locked | LK_RETRY);
+	vfs_rel(mp);
 	return (error);
 }
 

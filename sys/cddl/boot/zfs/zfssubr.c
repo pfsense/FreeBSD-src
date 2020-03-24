@@ -26,6 +26,8 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include <lz4.h>
+
 static uint64_t zfs_crc64_table[256];
 
 #define	ECKSUM	666
@@ -161,7 +163,6 @@ typedef struct zio_compress_info {
 
 #include "lzjb.c"
 #include "zle.c"
-#include "lz4.c"
 
 /*
  * Compression vectors.
@@ -318,8 +319,9 @@ zio_checksum_verify(const spa_t *spa, const blkptr_t *bp, void *data)
 			byteswap_uint64_array(&expected_cksum,
 			    sizeof (zio_cksum_t));
 	} else {
+		byteswap = BP_SHOULD_BYTESWAP(bp);
 		expected_cksum = bp->blk_cksum;
-		ci->ci_func[0](data, size, ctx, &actual_cksum);
+		ci->ci_func[byteswap](data, size, ctx, &actual_cksum);
 	}
 
 	if (!ZIO_CHECKSUM_EQUAL(actual_cksum, expected_cksum)) {
@@ -1635,8 +1637,11 @@ reconstruct:
 	 * any errors.
 	 */
 	if (total_errors <= rm->rm_firstdatacol - parity_untried) {
+		int rv;
+
 		if (data_errors == 0) {
-			if (raidz_checksum_verify(vd->spa, bp, data, bytes) == 0) {
+			rv = raidz_checksum_verify(vd->v_spa, bp, data, bytes);
+			if (rv == 0) {
 				/*
 				 * If we read parity information (unnecessarily
 				 * as it happens since no reconstruction was
@@ -1681,7 +1686,8 @@ reconstruct:
 
 			code = vdev_raidz_reconstruct(rm, tgts, n);
 
-			if (raidz_checksum_verify(vd->spa, bp, data, bytes) == 0) {
+			rv = raidz_checksum_verify(vd->v_spa, bp, data, bytes);
+			if (rv == 0) {
 				/*
 				 * If we read more parity disks than were used
 				 * for reconstruction, confirm that the other
@@ -1755,7 +1761,7 @@ reconstruct:
 	if (total_errors > rm->rm_firstdatacol) {
 		error = EIO;
 	} else if (total_errors < rm->rm_firstdatacol &&
-	    (code = vdev_raidz_combrec(vd->spa, rm, bp, data, offset, bytes,
+	    (code = vdev_raidz_combrec(vd->v_spa, rm, bp, data, offset, bytes,
 	     total_errors, data_errors)) != 0) {
 		/*
 		 * If we didn't use all the available parity for the
