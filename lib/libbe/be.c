@@ -761,10 +761,6 @@ be_clone_cb(zfs_handle_t *ds, void *data)
 	dccb.lbh = ldc->lbh;
 	dccb.zhp = ds;
 	dccb.props = props;
-	if (zpool_get_prop(isdc->lbh->active_phandle, ZPOOL_PROP_ALTROOT,
-	    dccb.altroot, sizeof(dccb.altroot), NULL, true) != 0 ||
-	    strcmp(dccb.altroot, "-") == 0)
-		*dccb.altroot = '\0';
 	if (zprop_iter(be_deep_clone_prop, &dccb, B_FALSE, B_FALSE,
 	    ZFS_TYPE_FILESYSTEM) == ZPROP_INVAL)
 		return (-1);

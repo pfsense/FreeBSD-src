@@ -57,7 +57,6 @@ struct libbe_dccb {
 	libbe_handle_t *lbh;
 	zfs_handle_t *zhp;
 	nvlist_t *props;
-	char altroot[MAXPATHLEN];
 };
 
 typedef struct prop_data {
