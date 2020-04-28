@@ -13677,19 +13677,6 @@ fi
 if test "${enable_debug+set}" = set; then :
   enableval=$enable_debug;
 fi
-#-----------------------------------------------------------------------
-
-if test x"$enable_debug" = "xyes"; then
-  BUILD_CFLAGS="$BUILD_CFLAGS -DSQLITE_DEBUG -DSQLITE_ENABLE_SELECTTRACE -DSQLITE_ENABLE_WHERETRACE"
-  CFLAGS="-g -O0"
-fi
-#-----------------------------------------------------------------------
-#   --enable-debug
-#
-# Check whether --enable-debug was given.
-if test "${enable_debug+set}" = set; then :
-  enableval=$enable_debug;
-fi
 
 if test x"$enable_debug" = "xyes"; then
   BUILD_CFLAGS="$BUILD_CFLAGS -DSQLITE_DEBUG -DSQLITE_ENABLE_SELECTTRACE -DSQLITE_ENABLE_WHERETRACE"
