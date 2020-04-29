@@ -92,7 +92,6 @@ device		uhid		# "Human Interface Devices"
 
 # pfsense addons
 
-device		tap
 device		gre
 device		if_bridge
 device		carp
