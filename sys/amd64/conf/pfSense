@@ -86,7 +86,6 @@ device		sbp		# SCSI over FireWire (Requires scbus and da)
 # Required by athp
 options		ALQ
 
-device		tap
 device		gre
 device		if_bridge
 device		carp
