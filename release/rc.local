@@ -89,9 +89,9 @@ if [ -f /etc/installerconfig ]; then
 fi
 
 if [ -n "${CE_message}" ]; then
-	msg="pfSense is Copyright 2004-2019 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed."
+	msg="pfSense is Copyright 2004-2020 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed."
 else
-	msg="This software is only for use on platforms supplied by Rubicon Communications, LLC (Netgate).\n\npfSense is Copyright 2004-2019 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed"
+	msg="This software is only for use on platforms supplied by Rubicon Communications, LLC (Netgate).\n\npfSense is Copyright 2004-2020 Rubicon Communications, LLC (Netgate).\n\npfSense is a federally registered trademark of Electric Sheep Fencing, LLC. Any unauthorized use of this trademark is prohibited by state and federal law and international law. Refer to our Trademark Usage Guidelines for how to properly use the marks. All rights reserved.\n\nAbsolutely No Commercial Distribution Is Allowed"
 fi
 
 if [ ! -f /tmp/buildroom ]; then
