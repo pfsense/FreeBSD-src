@@ -178,6 +178,8 @@ device		cxgb		# cxgb -- Chelsio T3 10 Gigabit Ethernet adapter driver
 device		cxgbe		# cxgbe -- Chelsio T5 10 Gigabit Ethernet adapter driver
 #device		nve		# nVidia nForce MCP on-board Ethernet Networking
 device		oce
+device  	firmware
+device  	mlxfw
 device  	mlx4		# Shared code module between IB and Ethernet
 device  	mlx4en		# Mellanox ConnectX HCA Ethernet
 device		mlx5		# Shared code module between IB and Ethernet
