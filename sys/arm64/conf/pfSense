@@ -43,6 +43,8 @@ options 	AH_SUPPORT_AR5416       # enable AR5416 tx/rx descriptors
 options 	AH_AR5416_INTERRUPT_MITIGATION  # AR5416 interrupt mitigation
 options 	ATH_ENABLE_11N          # Enable 802.11n support for AR5416 and later
 device		ath_rate_sample         # SampleRate tx rate control for ath
+device		iwm
+device		iwmfw
 device		iwifw
 device		ipwfw		# Firmware for Intel PRO/Wireless 2100 IEEE 802.11 driver
 device		wpifw		# Firmware for Intel 3945ABG Wireless LAN IEEE 802.11 driver
