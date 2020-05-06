@@ -194,3 +194,5 @@ options		CONSPEED=115200
 # Enable gpioapu
 #device		gpioapu
 #device		gpiorcc
+
+device		virtio_console	# VirtIO Console device
