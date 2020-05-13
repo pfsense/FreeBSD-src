@@ -1556,6 +1556,11 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 			error = EINVAL;
 			break;
 		}
+		if (pr->rule.src.addr.p.dyn != NULL ||
+		    pr->rule.dst.addr.p.dyn != NULL) {
+			error = EINVAL;
+			break;
+		}
 #ifndef INET
 		if (pr->rule.af == AF_INET) {
 			error = EAFNOSUPPORT;
@@ -2211,7 +2216,7 @@ relock_DIOCKILLSCHEDULE:
 		struct pfsync_state	*pstore, *p;
 		int i, nr;
 
-		if (ps->ps_len == 0) {
+		if (ps->ps_len <= 0) {
 			nr = uma_zone_get_cur(V_pf_state_z);
 			ps->ps_len = sizeof(struct pfsync_state) * nr;
 			break;
@@ -2691,6 +2696,10 @@ DIOCGETSTATES_full:
 			error = EINVAL;
 			break;
 		}
+		if (pp->addr.addr.p.dyn != NULL) {
+			error = EINVAL;
+			break;
+		}
 		pa = malloc(sizeof(*pa), M_PFRULE, M_WAITOK);
 		bcopy(&pp->addr, pa, sizeof(struct pf_pooladdr));
 		if (pa->ifname[0])
@@ -2787,6 +2796,10 @@ DIOCGETSTATES_full:
 		if (pca->addr.addr.type != PF_ADDR_ADDRMASK &&
 		    pca->addr.addr.type != PF_ADDR_DYNIFTL &&
 		    pca->addr.addr.type != PF_ADDR_TABLE) {
+			error = EINVAL;
+			break;
+		}
+		if (pca->addr.addr.p.dyn != NULL) {
 			error = EINVAL;
 			break;
 		}
@@ -3048,7 +3061,8 @@ DIOCCHANGEADDR_error:
 	case DIOCRGETTABLES: {
 		struct pfioc_table *io = (struct pfioc_table *)addr;
 		struct pfr_table *pfrts;
-		size_t totlen, n;
+		size_t totlen;
+		int n;
 
 		if (io->pfrio_esize != sizeof(struct pfr_table)) {
 			error = ENODEV;
@@ -3056,6 +3070,11 @@ DIOCCHANGEADDR_error:
 		}
 		PF_RULES_RLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
+		if (n < 0) {
+			PF_RULES_RUNLOCK();
+			error = EINVAL;
+			break;
+		}
 		io->pfrio_size = min(io->pfrio_size, n);
 
 		totlen = io->pfrio_size * sizeof(struct pfr_table);
@@ -3079,7 +3098,8 @@ DIOCCHANGEADDR_error:
 	case DIOCRGETTSTATS: {
 		struct pfioc_table *io = (struct pfioc_table *)addr;
 		struct pfr_tstats *pfrtstats;
-		size_t totlen, n;
+		size_t totlen;
+		int n;
 
 		if (io->pfrio_esize != sizeof(struct pfr_tstats)) {
 			error = ENODEV;
@@ -3087,6 +3107,11 @@ DIOCCHANGEADDR_error:
 		}
 		PF_RULES_WLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
+		if (n < 0) {
+			PF_RULES_WUNLOCK();
+			error = EINVAL;
+			break;
+		}
 		io->pfrio_size = min(io->pfrio_size, n);
 
 		totlen = io->pfrio_size * sizeof(struct pfr_tstats);
@@ -3109,7 +3134,8 @@ DIOCCHANGEADDR_error:
 	case DIOCRCLRTSTATS: {
 		struct pfioc_table *io = (struct pfioc_table *)addr;
 		struct pfr_table *pfrts;
-		size_t totlen, n;
+		size_t totlen;
+		int n;
 
 		if (io->pfrio_esize != sizeof(struct pfr_table)) {
 			error = ENODEV;
@@ -3118,6 +3144,11 @@ DIOCCHANGEADDR_error:
 
 		PF_RULES_WLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
+		if (n < 0) {
+			PF_RULES_WUNLOCK();
+			error = EINVAL;
+			break;
+		}
 		io->pfrio_size = min(io->pfrio_size, n);
 
 		totlen = io->pfrio_size * sizeof(struct pfr_table);
@@ -3144,7 +3175,8 @@ DIOCCHANGEADDR_error:
 	case DIOCRSETTFLAGS: {
 		struct pfioc_table *io = (struct pfioc_table *)addr;
 		struct pfr_table *pfrts;
-		size_t totlen, n;
+		size_t totlen;
+		int n;
 
 		if (io->pfrio_esize != sizeof(struct pfr_table)) {
 			error = ENODEV;
@@ -3153,6 +3185,12 @@ DIOCCHANGEADDR_error:
 
 		PF_RULES_RLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
+		if (n < 0) {
+			PF_RULES_RUNLOCK();
+			error = EINVAL;
+			break;
+		}
+
 		io->pfrio_size = min(io->pfrio_size, n);
 		PF_RULES_RUNLOCK();
 

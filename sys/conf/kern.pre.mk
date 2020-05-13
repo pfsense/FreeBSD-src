@@ -86,7 +86,7 @@ CFLAGS_PARAM_LARGE_FUNCTION_GROWTH?=1000
 .if ${MACHINE_CPUARCH} == "mips"
 CFLAGS_ARCH_PARAMS?=--param max-inline-insns-single=1000 -DMACHINE_ARCH='"${MACHINE_ARCH}"'
 .endif
-CFLAGS.gcc+= -fno-common -fms-extensions -finline-limit=${INLINE_LIMIT}
+CFLAGS.gcc+= -fms-extensions -finline-limit=${INLINE_LIMIT}
 CFLAGS.gcc+= --param inline-unit-growth=${CFLAGS_PARAM_INLINE_UNIT_GROWTH}
 CFLAGS.gcc+= --param large-function-growth=${CFLAGS_PARAM_LARGE_FUNCTION_GROWTH}
 CFLAGS.gcc+= -fms-extensions
@@ -98,6 +98,10 @@ WERROR?=	-Wno-error
 .else
 WERROR?=	-Werror
 .endif
+# The following should be removed no earlier than LLVM11 being imported into the
+# tree, to ensure we don't regress the build.  LLVM11 and GCC10 will switch the
+# default over to -fno-common, making this redundant.
+CFLAGS+=	-fno-common
 
 # XXX LOCORE means "don't declare C stuff" not "for locore.s".
 ASM_CFLAGS= -x assembler-with-cpp -DLOCORE ${CFLAGS} ${ASM_CFLAGS.${.IMPSRC:T}} 
@@ -136,6 +140,17 @@ LDFLAGS+=	-z max-page-size=2097152
 LDFLAGS+=	-z common-page-size=4096
 .else
 LDFLAGS+=	-z notext -z ifunc-noplt
+.endif
+.endif
+
+.if ${MACHINE_CPUARCH} == "riscv"
+# Hack: Work around undefined weak symbols being out of range when linking with
+# LLD (address is a PC-relative calculation, and BFD works around this by
+# rewriting the instructions to generate an absolute address of 0); -fPIE
+# avoids this since it uses the GOT for all extern symbols, which is overly
+# inefficient for us. Drop once undefined weak symbols work with medany.
+.if ${LINKER_TYPE} == "lld"
+CFLAGS+=	-fPIE
 .endif
 .endif
 

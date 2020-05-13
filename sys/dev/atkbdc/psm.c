@@ -513,9 +513,9 @@ static devclass_t psm_devclass;
 /* Tunables */
 static int tap_enabled = -1;
 static int verbose = PSM_DEBUG;
-static int synaptics_support = 0;
-static int trackpoint_support = 0;
-static int elantech_support = 0;
+static int synaptics_support = 1;
+static int trackpoint_support = 1;
+static int elantech_support = 1;
 
 /* for backward compatibility */
 #define	OLD_MOUSE_GETHWINFO	_IOR('M', 1, old_mousehw_t)
@@ -3366,7 +3366,7 @@ proc_synaptics(struct psm_softc *sc, packetbuf_t *pb, mousestatus_t *ms,
 				evdev_push_rel(sc->evdev_r, REL_X, *x);
 				evdev_push_rel(sc->evdev_r, REL_Y, -*y);
 				evdev_push_mouse_btn(sc->evdev_r,
-				    guest_buttons);
+				    guest_buttons | sc->extended_buttons);
 				evdev_sync(sc->evdev_r);
 			}
 #endif
