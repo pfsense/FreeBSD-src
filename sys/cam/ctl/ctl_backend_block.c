@@ -80,6 +80,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/nv.h>
 #include <sys/dnv.h>
+#include <sys/sx.h>
 
 #include <geom/geom.h>
 
@@ -121,7 +122,6 @@ SDT_PROVIDER_DEFINE(cbb);
 
 typedef enum {
 	CTL_BE_BLOCK_LUN_UNCONFIGURED	= 0x01,
-	CTL_BE_BLOCK_LUN_CONFIG_ERR	= 0x02,
 	CTL_BE_BLOCK_LUN_WAITING	= 0x04,
 } ctl_be_block_lun_flags;
 
@@ -152,8 +152,8 @@ typedef uint64_t (*cbb_getattr_t)(struct ctl_be_block_lun *be_lun,
  * and a backend block LUN, and between a backend block LUN and a CTL LUN.
  */
 struct ctl_be_block_lun {
+	struct ctl_be_lun cbe_lun;		/* Must be first element. */
 	struct ctl_lun_create_params params;
-	char lunname[32];
 	char *dev_path;
 	ctl_be_block_type dev_type;
 	struct vnode *vn;
@@ -163,14 +163,12 @@ struct ctl_be_block_lun {
 	cbb_dispatch_t unmap;
 	cbb_dispatch_t get_lba_status;
 	cbb_getattr_t getattr;
-	uma_zone_t lun_zone;
 	uint64_t size_blocks;
 	uint64_t size_bytes;
 	struct ctl_be_block_softc *softc;
 	struct devstat *disk_stats;
 	ctl_be_block_lun_flags flags;
-	STAILQ_ENTRY(ctl_be_block_lun) links;
-	struct ctl_be_lun cbe_lun;
+	SLIST_ENTRY(ctl_be_block_lun) links;
 	struct taskqueue *io_taskqueue;
 	struct task io_task;
 	int num_threads;
@@ -186,10 +184,12 @@ struct ctl_be_block_lun {
  * Overall softc structure for the block backend module.
  */
 struct ctl_be_block_softc {
+	struct sx			 modify_lock;
 	struct mtx			 lock;
-	uma_zone_t			 beio_zone;
 	int				 num_luns;
-	STAILQ_HEAD(, ctl_be_block_lun)	 lun_list;
+	SLIST_HEAD(, ctl_be_block_lun)	 lun_list;
+	uma_zone_t			 beio_zone;
+	uma_zone_t			 buf_zone;
 };
 
 static struct ctl_be_block_softc backend_block_softc;
@@ -202,6 +202,7 @@ struct ctl_be_block_io {
 	struct ctl_sg_entry		sg_segs[CTLBLK_MAX_SEGS];
 	struct iovec			xiovecs[CTLBLK_MAX_SEGS];
 	int				bio_cmd;
+	int				two_sglists;
 	int				num_segs;
 	int				num_bios_sent;
 	int				num_bios_done;
@@ -271,13 +272,11 @@ static int ctl_be_block_rm(struct ctl_be_block_softc *softc,
 			   struct ctl_lun_req *req);
 static int ctl_be_block_modify(struct ctl_be_block_softc *softc,
 			   struct ctl_lun_req *req);
-static void ctl_be_block_lun_shutdown(void *be_lun);
-static void ctl_be_block_lun_config_status(void *be_lun,
-					   ctl_lun_config_status status);
+static void ctl_be_block_lun_shutdown(struct ctl_be_lun *cbe_lun);
 static int ctl_be_block_config_write(union ctl_io *io);
 static int ctl_be_block_config_read(union ctl_io *io);
-static int ctl_be_block_lun_info(void *be_lun, struct sbuf *sb);
-static uint64_t ctl_be_block_lun_attr(void *be_lun, const char *attrname);
+static int ctl_be_block_lun_info(struct ctl_be_lun *cbe_lun, struct sbuf *sb);
+static uint64_t ctl_be_block_lun_attr(struct ctl_be_lun *cbe_lun, const char *attrname);
 static int ctl_be_block_init(void);
 static int ctl_be_block_shutdown(void);
 
@@ -296,7 +295,7 @@ static struct ctl_backend_driver ctl_be_block_driver =
 	.lun_attr = ctl_be_block_lun_attr
 };
 
-MALLOC_DEFINE(M_CTLBLK, "ctlblk", "Memory used for CTL block backend");
+MALLOC_DEFINE(M_CTLBLK, "ctlblock", "Memory used for CTL block backend");
 CTL_BACKEND_DECLARE(cbb, ctl_be_block_driver);
 
 static struct ctl_be_block_io *
@@ -312,32 +311,20 @@ ctl_alloc_beio(struct ctl_be_block_softc *softc)
 static void
 ctl_free_beio(struct ctl_be_block_io *beio)
 {
-	int duplicate_free;
+	struct ctl_be_block_softc *softc = beio->softc;
 	int i;
 
-	duplicate_free = 0;
-
 	for (i = 0; i < beio->num_segs; i++) {
-		if (beio->sg_segs[i].addr == NULL)
-			duplicate_free++;
-
-		uma_zfree(beio->lun->lun_zone, beio->sg_segs[i].addr);
-		beio->sg_segs[i].addr = NULL;
+		uma_zfree(softc->buf_zone, beio->sg_segs[i].addr);
 
 		/* For compare we had two equal S/G lists. */
-		if (ARGS(beio->io)->flags & CTL_LLF_COMPARE) {
-			uma_zfree(beio->lun->lun_zone,
+		if (beio->two_sglists) {
+			uma_zfree(softc->buf_zone,
 			    beio->sg_segs[i + CTLBLK_HALF_SEGS].addr);
-			beio->sg_segs[i + CTLBLK_HALF_SEGS].addr = NULL;
 		}
 	}
 
-	if (duplicate_free > 0) {
-		printf("%s: %d duplicate frees out of %d segments\n", __func__,
-		       duplicate_free, beio->num_segs);
-	}
-
-	uma_zfree(beio->softc->beio_zone, beio);
+	uma_zfree(softc->beio_zone, beio);
 }
 
 static void
@@ -1274,6 +1261,7 @@ static void
 ctl_be_block_cw_dispatch_ws(struct ctl_be_block_lun *be_lun,
 			    union ctl_io *io)
 {
+	struct ctl_be_block_softc *softc = be_lun->softc;
 	struct ctl_be_lun *cbe_lun = &be_lun->cbe_lun;
 	struct ctl_be_block_io *beio;
 	struct ctl_lba_len_flags *lbalen;
@@ -1338,7 +1326,7 @@ ctl_be_block_cw_dispatch_ws(struct ctl_be_block_lun *be_lun,
 		} else
 			seglen -= seglen % cbe_lun->blocksize;
 		beio->sg_segs[i].len = seglen;
-		beio->sg_segs[i].addr = uma_zalloc(be_lun->lun_zone, M_WAITOK);
+		beio->sg_segs[i].addr = uma_zalloc(softc->buf_zone, M_WAITOK);
 
 		DPRINTF("segment %d addr %p len %zd\n", i,
 			beio->sg_segs[i].addr, beio->sg_segs[i].len);
@@ -1592,10 +1580,12 @@ ctl_be_block_dispatch(struct ctl_be_block_lun *be_lun,
 	DPRINTF("%s at LBA %jx len %u @%ju\n",
 	       (beio->bio_cmd == BIO_READ) ? "READ" : "WRITE",
 	       (uintmax_t)lbalen->lba, lbalen->len, bptrlen->len);
-	if (lbalen->flags & CTL_LLF_COMPARE)
+	if (lbalen->flags & CTL_LLF_COMPARE) {
+		beio->two_sglists = 1;
 		lbas = CTLBLK_HALF_IO_SIZE;
-	else
+	} else {
 		lbas = CTLBLK_MAX_IO_SIZE;
+	}
 	lbas = MIN(lbalen->len - bptrlen->len, lbas / cbe_lun->blocksize);
 	beio->io_offset = (lbalen->lba + bptrlen->len) * cbe_lun->blocksize;
 	beio->io_len = lbas * cbe_lun->blocksize;
@@ -1609,17 +1599,17 @@ ctl_be_block_dispatch(struct ctl_be_block_lun *be_lun,
 		 * Setup the S/G entry for this chunk.
 		 */
 		beio->sg_segs[i].len = min(CTLBLK_MAX_SEG, len_left);
-		beio->sg_segs[i].addr = uma_zalloc(be_lun->lun_zone, M_WAITOK);
+		beio->sg_segs[i].addr = uma_zalloc(softc->buf_zone, M_WAITOK);
 
 		DPRINTF("segment %d addr %p len %zd\n", i,
 			beio->sg_segs[i].addr, beio->sg_segs[i].len);
 
 		/* Set up second segment for compare operation. */
-		if (lbalen->flags & CTL_LLF_COMPARE) {
+		if (beio->two_sglists) {
 			beio->sg_segs[i + CTLBLK_HALF_SEGS].len =
 			    beio->sg_segs[i].len;
 			beio->sg_segs[i + CTLBLK_HALF_SEGS].addr =
-			    uma_zalloc(be_lun->lun_zone, M_WAITOK);
+			    uma_zalloc(softc->buf_zone, M_WAITOK);
 		}
 
 		beio->num_segs++;
@@ -1629,7 +1619,7 @@ ctl_be_block_dispatch(struct ctl_be_block_lun *be_lun,
 		beio->beio_cont = ctl_be_block_next;
 	io->scsiio.be_move_done = ctl_be_block_move_done;
 	/* For compare we have separate S/G lists for read and datamove. */
-	if (lbalen->flags & CTL_LLF_COMPARE)
+	if (beio->two_sglists)
 		io->scsiio.kern_data_ptr = (uint8_t *)&beio->sg_segs[CTLBLK_HALF_SEGS];
 	else
 		io->scsiio.kern_data_ptr = (uint8_t *)beio->sg_segs;
@@ -1746,12 +1736,10 @@ static int
 ctl_be_block_submit(union ctl_io *io)
 {
 	struct ctl_be_block_lun *be_lun;
-	struct ctl_be_lun *cbe_lun;
 
 	DPRINTF("entered\n");
 
-	cbe_lun = CTL_BACKEND_LUN(io);
-	be_lun = (struct ctl_be_block_lun *)cbe_lun->be_lun;
+	be_lun = (struct ctl_be_block_lun *)CTL_BACKEND_LUN(io);
 
 	/*
 	 * Make sure we only get SCSI I/O.
@@ -1773,13 +1761,10 @@ static int
 ctl_be_block_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			int flag, struct thread *td)
 {
-	struct ctl_be_block_softc *softc;
+	struct ctl_be_block_softc *softc = &backend_block_softc;
 	int error;
 
-	softc = &backend_block_softc;
-
 	error = 0;
-
 	switch (cmd) {
 	case CTL_LUN_REQ: {
 		struct ctl_lun_req *lun_req;
@@ -2235,30 +2220,21 @@ ctl_be_block_create(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 
 	be_lun = malloc(sizeof(*be_lun), M_CTLBLK, M_ZERO | M_WAITOK);
 	cbe_lun = &be_lun->cbe_lun;
-	cbe_lun->be_lun = be_lun;
 	be_lun->params = req->reqdata.create;
 	be_lun->softc = softc;
 	STAILQ_INIT(&be_lun->input_queue);
 	STAILQ_INIT(&be_lun->config_read_queue);
 	STAILQ_INIT(&be_lun->config_write_queue);
 	STAILQ_INIT(&be_lun->datamove_queue);
-	sprintf(be_lun->lunname, "cblk%d", softc->num_luns);
-	mtx_init(&be_lun->io_lock, "cblk io lock", NULL, MTX_DEF);
-	mtx_init(&be_lun->queue_lock, "cblk queue lock", NULL, MTX_DEF);
+	mtx_init(&be_lun->io_lock, "ctlblock io", NULL, MTX_DEF);
+	mtx_init(&be_lun->queue_lock, "ctlblock queue", NULL, MTX_DEF);
 	cbe_lun->options = nvlist_clone(req->args_nvl);
-	be_lun->lun_zone = uma_zcreate(be_lun->lunname, CTLBLK_MAX_SEG,
-	    NULL, NULL, NULL, NULL, /*align*/ 0, /*flags*/0);
-	if (be_lun->lun_zone == NULL) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "error allocating UMA zone");
-		goto bailout_error;
-	}
 
 	if (params->flags & CTL_LUN_FLAG_DEV_TYPE)
 		cbe_lun->lun_type = params->device_type;
 	else
 		cbe_lun->lun_type = T_DIRECT;
-	be_lun->flags = CTL_BE_BLOCK_LUN_UNCONFIGURED;
+	be_lun->flags = 0;
 	cbe_lun->flags = 0;
 	value = dnvlist_get_string(cbe_lun->options, "ha_role", NULL);
 	if (value != NULL) {
@@ -2323,7 +2299,6 @@ ctl_be_block_create(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 		cbe_lun->req_lun_id = 0;
 
 	cbe_lun->lun_shutdown = ctl_be_block_lun_shutdown;
-	cbe_lun->lun_config_status = ctl_be_block_lun_config_status;
 	cbe_lun->be = &ctl_be_block_driver;
 
 	if ((params->flags & CTL_LUN_FLAG_SERIAL_NUM) == 0) {
@@ -2356,7 +2331,7 @@ ctl_be_block_create(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 
 	TASK_INIT(&be_lun->io_task, /*priority*/0, ctl_be_block_worker, be_lun);
 
-	be_lun->io_taskqueue = taskqueue_create(be_lun->lunname, M_WAITOK,
+	be_lun->io_taskqueue = taskqueue_create("ctlblocktq", M_WAITOK,
 	    taskqueue_thread_enqueue, /*context*/&be_lun->io_taskqueue);
 
 	if (be_lun->io_taskqueue == NULL) {
@@ -2383,27 +2358,15 @@ ctl_be_block_create(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 					 /*num threads*/num_threads,
 					 /*priority*/PUSER,
 					 /*proc*/control_softc->ctl_proc,
-					 /*thread name*/
-					 "%s taskq", be_lun->lunname);
+					 /*thread name*/"block");
 
 	if (retval != 0)
 		goto bailout_error;
 
 	be_lun->num_threads = num_threads;
 
-	mtx_lock(&softc->lock);
-	softc->num_luns++;
-	STAILQ_INSERT_TAIL(&softc->lun_list, be_lun, links);
-
-	mtx_unlock(&softc->lock);
-
 	retval = ctl_add_lun(&be_lun->cbe_lun);
 	if (retval != 0) {
-		mtx_lock(&softc->lock);
-		STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_block_lun,
-			      links);
-		softc->num_luns--;
-		mtx_unlock(&softc->lock);
 		snprintf(req->error_str, sizeof(req->error_str),
 			 "ctl_add_lun() returned error %d, see dmesg for "
 			 "details", retval);
@@ -2411,41 +2374,19 @@ ctl_be_block_create(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 		goto bailout_error;
 	}
 
-	mtx_lock(&softc->lock);
-
-	/*
-	 * Tell the config_status routine that we're waiting so it won't
-	 * clean up the LUN in the event of an error.
-	 */
-	be_lun->flags |= CTL_BE_BLOCK_LUN_WAITING;
-
-	while (be_lun->flags & CTL_BE_BLOCK_LUN_UNCONFIGURED) {
-		retval = msleep(be_lun, &softc->lock, PCATCH, "ctlblk", 0);
-		if (retval == EINTR)
-			break;
-	}
-	be_lun->flags &= ~CTL_BE_BLOCK_LUN_WAITING;
-
-	if (be_lun->flags & CTL_BE_BLOCK_LUN_CONFIG_ERR) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "LUN configuration error, see dmesg for details");
-		STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_block_lun,
-			      links);
-		softc->num_luns--;
-		mtx_unlock(&softc->lock);
-		goto bailout_error;
-	} else {
-		params->req_lun_id = cbe_lun->lun_id;
-	}
-
-	mtx_unlock(&softc->lock);
-
-	be_lun->disk_stats = devstat_new_entry("cbb", params->req_lun_id,
+	be_lun->disk_stats = devstat_new_entry("cbb", cbe_lun->lun_id,
 					       cbe_lun->blocksize,
 					       DEVSTAT_ALL_SUPPORTED,
 					       cbe_lun->lun_type
 					       | DEVSTAT_TYPE_IF_OTHER,
 					       DEVSTAT_PRIORITY_OTHER);
+
+	mtx_lock(&softc->lock);
+	softc->num_luns++;
+	SLIST_INSERT_HEAD(&softc->lun_list, be_lun, links);
+	mtx_unlock(&softc->lock);
+
+	params->req_lun_id = cbe_lun->lun_id;
 
 	return (retval);
 
@@ -2457,8 +2398,6 @@ bailout_error:
 	ctl_be_block_close(be_lun);
 	if (be_lun->dev_path != NULL)
 		free(be_lun->dev_path, M_CTLBLK);
-	if (be_lun->lun_zone != NULL)
-		uma_zdestroy(be_lun->lun_zone);
 	nvlist_destroy(cbe_lun->options);
 	mtx_destroy(&be_lun->queue_lock);
 	mtx_destroy(&be_lun->io_lock);
@@ -2477,12 +2416,18 @@ ctl_be_block_rm(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 
 	params = &req->reqdata.rm;
 
+	sx_xlock(&softc->modify_lock);
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH(be_lun, &softc->lun_list, links) {
-		if (be_lun->cbe_lun.lun_id == params->lun_id)
+	SLIST_FOREACH(be_lun, &softc->lun_list, links) {
+		if (be_lun->cbe_lun.lun_id == params->lun_id) {
+			SLIST_REMOVE(&softc->lun_list, be_lun,
+			    ctl_be_block_lun, links);
+			softc->num_luns--;
 			break;
+		}
 	}
 	mtx_unlock(&softc->lock);
+	sx_xunlock(&softc->modify_lock);
 	if (be_lun == NULL) {
 		snprintf(req->error_str, sizeof(req->error_str),
 			 "LUN %u is not managed by the block backend",
@@ -2491,14 +2436,6 @@ ctl_be_block_rm(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 	}
 	cbe_lun = &be_lun->cbe_lun;
 
-	retval = ctl_disable_lun(cbe_lun);
-	if (retval != 0) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "error %d returned from ctl_disable_lun() for "
-			 "LUN %d", retval, params->lun_id);
-		goto bailout_error;
-	}
-
 	if (be_lun->vn != NULL) {
 		cbe_lun->flags |= CTL_LUN_FLAG_NO_MEDIA;
 		ctl_lun_no_media(cbe_lun);
@@ -2506,48 +2443,35 @@ ctl_be_block_rm(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 		ctl_be_block_close(be_lun);
 	}
 
-	retval = ctl_invalidate_lun(cbe_lun);
-	if (retval != 0) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "error %d returned from ctl_invalidate_lun() for "
-			 "LUN %d", retval, params->lun_id);
-		goto bailout_error;
-	}
-
 	mtx_lock(&softc->lock);
 	be_lun->flags |= CTL_BE_BLOCK_LUN_WAITING;
-	while ((be_lun->flags & CTL_BE_BLOCK_LUN_UNCONFIGURED) == 0) {
-                retval = msleep(be_lun, &softc->lock, PCATCH, "ctlblk", 0);
-                if (retval == EINTR)
-                        break;
-        }
-	be_lun->flags &= ~CTL_BE_BLOCK_LUN_WAITING;
+	mtx_unlock(&softc->lock);
 
-	if ((be_lun->flags & CTL_BE_BLOCK_LUN_UNCONFIGURED) == 0) {
+	retval = ctl_remove_lun(cbe_lun);
+	if (retval != 0) {
 		snprintf(req->error_str, sizeof(req->error_str),
-			 "interrupted waiting for LUN to be freed");
+			 "error %d returned from ctl_remove_lun() for "
+			 "LUN %d", retval, params->lun_id);
+		mtx_lock(&softc->lock);
+		be_lun->flags &= ~CTL_BE_BLOCK_LUN_WAITING;
 		mtx_unlock(&softc->lock);
 		goto bailout_error;
 	}
 
-	STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_block_lun, links);
-
-	softc->num_luns--;
-	mtx_unlock(&softc->lock);
-
-	taskqueue_drain_all(be_lun->io_taskqueue);
-	taskqueue_free(be_lun->io_taskqueue);
-
-	if (be_lun->disk_stats != NULL)
-		devstat_remove_entry(be_lun->disk_stats);
-
-	uma_zdestroy(be_lun->lun_zone);
-
-	nvlist_destroy(cbe_lun->options);
-	free(be_lun->dev_path, M_CTLBLK);
-	mtx_destroy(&be_lun->queue_lock);
-	mtx_destroy(&be_lun->io_lock);
-	free(be_lun, M_CTLBLK);
+	mtx_lock(&softc->lock);
+	while ((be_lun->flags & CTL_BE_BLOCK_LUN_UNCONFIGURED) == 0) {
+		retval = msleep(be_lun, &softc->lock, PCATCH, "ctlblockrm", 0);
+		if (retval == EINTR)
+			break;
+	}
+	be_lun->flags &= ~CTL_BE_BLOCK_LUN_WAITING;
+	if (be_lun->flags & CTL_BE_BLOCK_LUN_UNCONFIGURED) {
+		mtx_unlock(&softc->lock);
+		free(be_lun, M_CTLBLK);
+	} else {
+		mtx_unlock(&softc->lock);
+		return (EINTR);
+	}
 
 	req->status = CTL_LUN_OK;
 	return (0);
@@ -2569,8 +2493,9 @@ ctl_be_block_modify(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 
 	params = &req->reqdata.modify;
 
+	sx_xlock(&softc->modify_lock);
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH(be_lun, &softc->lun_list, links) {
+	SLIST_FOREACH(be_lun, &softc->lun_list, links) {
 		if (be_lun->cbe_lun.lun_id == params->lun_id)
 			break;
 	}
@@ -2586,8 +2511,10 @@ ctl_be_block_modify(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 	if (params->lun_size_bytes != 0)
 		be_lun->params.lun_size_bytes = params->lun_size_bytes;
 
-	nvlist_destroy(cbe_lun->options);
-	cbe_lun->options = nvlist_clone(req->args_nvl);
+	if (req->args_nvl != NULL) {
+		nvlist_destroy(cbe_lun->options);
+		cbe_lun->options = nvlist_clone(req->args_nvl);
+	}
 
 	wasprim = (cbe_lun->flags & CTL_LUN_FLAG_PRIMARY);
 	value = dnvlist_get_string(cbe_lun->options, "ha_role", NULL);
@@ -2645,65 +2572,39 @@ ctl_be_block_modify(struct ctl_be_block_softc *softc, struct ctl_lun_req *req)
 	/* Tell the user the exact size we ended up using */
 	params->lun_size_bytes = be_lun->size_bytes;
 
+	sx_xunlock(&softc->modify_lock);
 	req->status = error ? CTL_LUN_WARNING : CTL_LUN_OK;
 	return (0);
 
 bailout_error:
+	sx_xunlock(&softc->modify_lock);
 	req->status = CTL_LUN_ERROR;
 	return (0);
 }
 
 static void
-ctl_be_block_lun_shutdown(void *be_lun)
+ctl_be_block_lun_shutdown(struct ctl_be_lun *cbe_lun)
 {
-	struct ctl_be_block_lun *lun = be_lun;
-	struct ctl_be_block_softc *softc = lun->softc;
+	struct ctl_be_block_lun *be_lun = (struct ctl_be_block_lun *)cbe_lun;
+	struct ctl_be_block_softc *softc = be_lun->softc;
+
+	taskqueue_drain_all(be_lun->io_taskqueue);
+	taskqueue_free(be_lun->io_taskqueue);
+	if (be_lun->disk_stats != NULL)
+		devstat_remove_entry(be_lun->disk_stats);
+	nvlist_destroy(be_lun->cbe_lun.options);
+	free(be_lun->dev_path, M_CTLBLK);
+	mtx_destroy(&be_lun->queue_lock);
+	mtx_destroy(&be_lun->io_lock);
 
 	mtx_lock(&softc->lock);
-	lun->flags |= CTL_BE_BLOCK_LUN_UNCONFIGURED;
-	if (lun->flags & CTL_BE_BLOCK_LUN_WAITING)
-		wakeup(lun);
+	be_lun->flags |= CTL_BE_BLOCK_LUN_UNCONFIGURED;
+	if (be_lun->flags & CTL_BE_BLOCK_LUN_WAITING)
+		wakeup(be_lun);
+	else
+		free(be_lun, M_CTLBLK);
 	mtx_unlock(&softc->lock);
 }
-
-static void
-ctl_be_block_lun_config_status(void *be_lun, ctl_lun_config_status status)
-{
-	struct ctl_be_block_lun *lun;
-	struct ctl_be_block_softc *softc;
-
-	lun = (struct ctl_be_block_lun *)be_lun;
-	softc = lun->softc;
-
-	if (status == CTL_LUN_CONFIG_OK) {
-		mtx_lock(&softc->lock);
-		lun->flags &= ~CTL_BE_BLOCK_LUN_UNCONFIGURED;
-		if (lun->flags & CTL_BE_BLOCK_LUN_WAITING)
-			wakeup(lun);
-		mtx_unlock(&softc->lock);
-
-		/*
-		 * We successfully added the LUN, attempt to enable it.
-		 */
-		if (ctl_enable_lun(&lun->cbe_lun) != 0) {
-			printf("%s: ctl_enable_lun() failed!\n", __func__);
-			if (ctl_invalidate_lun(&lun->cbe_lun) != 0) {
-				printf("%s: ctl_invalidate_lun() failed!\n",
-				       __func__);
-			}
-		}
-
-		return;
-	}
-
-
-	mtx_lock(&softc->lock);
-	lun->flags &= ~CTL_BE_BLOCK_LUN_UNCONFIGURED;
-	lun->flags |= CTL_BE_BLOCK_LUN_CONFIG_ERR;
-	wakeup(lun);
-	mtx_unlock(&softc->lock);
-}
-
 
 static int
 ctl_be_block_config_write(union ctl_io *io)
@@ -2715,7 +2616,7 @@ ctl_be_block_config_write(union ctl_io *io)
 	DPRINTF("entered\n");
 
 	cbe_lun = CTL_BACKEND_LUN(io);
-	be_lun = (struct ctl_be_block_lun *)cbe_lun->be_lun;
+	be_lun = (struct ctl_be_block_lun *)cbe_lun;
 
 	retval = 0;
 	switch (io->scsiio.cdb[0]) {
@@ -2794,13 +2695,11 @@ static int
 ctl_be_block_config_read(union ctl_io *io)
 {
 	struct ctl_be_block_lun *be_lun;
-	struct ctl_be_lun *cbe_lun;
 	int retval = 0;
 
 	DPRINTF("entered\n");
 
-	cbe_lun = CTL_BACKEND_LUN(io);
-	be_lun = (struct ctl_be_block_lun *)cbe_lun->be_lun;
+	be_lun = (struct ctl_be_block_lun *)CTL_BACKEND_LUN(io);
 
 	switch (io->scsiio.cdb[0]) {
 	case SERVICE_ACTION_IN:
@@ -2834,12 +2733,10 @@ ctl_be_block_config_read(union ctl_io *io)
 }
 
 static int
-ctl_be_block_lun_info(void *be_lun, struct sbuf *sb)
+ctl_be_block_lun_info(struct ctl_be_lun *cbe_lun, struct sbuf *sb)
 {
-	struct ctl_be_block_lun *lun;
+	struct ctl_be_block_lun *lun = (struct ctl_be_block_lun *)cbe_lun;
 	int retval;
-
-	lun = (struct ctl_be_block_lun *)be_lun;
 
 	retval = sbuf_printf(sb, "\t<num_threads>");
 	if (retval != 0)
@@ -2854,9 +2751,9 @@ bailout:
 }
 
 static uint64_t
-ctl_be_block_lun_attr(void *be_lun, const char *attrname)
+ctl_be_block_lun_attr(struct ctl_be_lun *cbe_lun, const char *attrname)
 {
-	struct ctl_be_block_lun *lun = (struct ctl_be_block_lun *)be_lun;
+	struct ctl_be_block_lun *lun = (struct ctl_be_block_lun *)cbe_lun;
 
 	if (lun->getattr == NULL)
 		return (UINT64_MAX);
@@ -2868,10 +2765,13 @@ ctl_be_block_init(void)
 {
 	struct ctl_be_block_softc *softc = &backend_block_softc;
 
+	sx_init(&softc->modify_lock, "ctlblock modify");
 	mtx_init(&softc->lock, "ctlblock", NULL, MTX_DEF);
 	softc->beio_zone = uma_zcreate("beio", sizeof(struct ctl_be_block_io),
 	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
-	STAILQ_INIT(&softc->lun_list);
+	softc->buf_zone = uma_zcreate("ctlblock", CTLBLK_MAX_SEG,
+	    NULL, NULL, NULL, NULL, /*align*/ 0, /*flags*/0);
+	SLIST_INIT(&softc->lun_list);
 	return (0);
 }
 
@@ -2880,23 +2780,25 @@ static int
 ctl_be_block_shutdown(void)
 {
 	struct ctl_be_block_softc *softc = &backend_block_softc;
-	struct ctl_be_block_lun *lun, *next_lun;
+	struct ctl_be_block_lun *lun;
 
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH_SAFE(lun, &softc->lun_list, links, next_lun) {
+	while ((lun = SLIST_FIRST(&softc->lun_list)) != NULL) {
+		SLIST_REMOVE_HEAD(&softc->lun_list, links);
+		softc->num_luns--;
 		/*
-		 * Drop our lock here.  Since ctl_invalidate_lun() can call
+		 * Drop our lock here.  Since ctl_remove_lun() can call
 		 * back into us, this could potentially lead to a recursive
 		 * lock of the same mutex, which would cause a hang.
 		 */
 		mtx_unlock(&softc->lock);
-		ctl_disable_lun(&lun->cbe_lun);
-		ctl_invalidate_lun(&lun->cbe_lun);
+		ctl_remove_lun(&lun->cbe_lun);
 		mtx_lock(&softc->lock);
 	}
 	mtx_unlock(&softc->lock);
-
+	uma_zdestroy(softc->buf_zone);
 	uma_zdestroy(softc->beio_zone);
 	mtx_destroy(&softc->lock);
+	sx_destroy(&softc->modify_lock);
 	return (0);
 }

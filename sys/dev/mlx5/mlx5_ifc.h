@@ -667,7 +667,8 @@ struct mlx5_ifc_qos_cap_bits {
 	u8         esw_rate_limit[0x1];
 	u8         hll[0x1];
 	u8         packet_pacing_burst_bound[0x1];
-	u8         reserved_at_6[0x1a];
+	u8         packet_pacing_typical_size[0x1];
+	u8         reserved_at_7[0x19];
 
 	u8         reserved_at_20[0x20];
 
@@ -7672,7 +7673,13 @@ struct mlx5_ifc_set_rate_limit_in_bits {
 	u8         reserved_at_60[0x20];
 
 	u8         rate_limit[0x20];
+
 	u8         burst_upper_bound[0x20];
+
+	u8         reserved_at_c0[0x10];
+	u8         typical_packet_size[0x10];
+
+	u8         reserved_at_e0[0x120];
 };
 
 struct mlx5_ifc_access_register_out_bits {
@@ -10450,6 +10457,165 @@ struct mlx5_ifc_qpts_reg_bits {
 struct mlx5_ifc_mfrl_reg_bits {
 	u8         reserved_at_0[0x38];
 	u8         reset_level[0x8];
+};
+
+enum {
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTCAP	= 0x9009,
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTECR	= 0x9109,
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTMP	= 0x900a,
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTWE	= 0x900b,
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTBR	= 0x900f,
+      MLX5_ACCESS_REG_SUMMARY_CTRL_ID_MTEWE	= 0x910b,
+      MLX5_MAX_TEMPERATURE = 16,
+};
+
+struct mlx5_ifc_mtbr_temp_record_bits {
+	u8         max_temperature[0x10];
+	u8         temperature[0x10];
+};
+
+struct mlx5_ifc_mtbr_reg_bits {
+	u8         reserved_at_0[0x14];
+	u8         base_sensor_index[0xc];
+
+	u8         reserved_at_20[0x18];
+	u8         num_rec[0x8];
+
+	u8         reserved_at_40[0x40];
+
+	struct mlx5_ifc_mtbr_temp_record_bits temperature_record[MLX5_MAX_TEMPERATURE];
+};
+
+struct mlx5_ifc_mtbr_reg_ext_bits {
+	u8         reserved_at_0[0x14];
+	u8         base_sensor_index[0xc];
+
+	u8         reserved_at_20[0x18];
+	u8         num_rec[0x8];
+
+	u8         reserved_at_40[0x40];
+
+    struct mlx5_ifc_mtbr_temp_record_bits temperature_record[MLX5_MAX_TEMPERATURE];
+};
+
+struct mlx5_ifc_mtcap_bits {
+	u8         reserved_at_0[0x19];
+	u8         sensor_count[0x7];
+
+	u8         reserved_at_20[0x19];
+	u8         internal_sensor_count[0x7];
+
+	u8         sensor_map[0x40];
+};
+
+struct mlx5_ifc_mtcap_ext_bits {
+	u8         reserved_at_0[0x19];
+	u8         sensor_count[0x7];
+
+	u8         reserved_at_20[0x20];
+
+	u8         sensor_map[0x40];
+};
+
+struct mlx5_ifc_mtecr_bits {
+	u8         reserved_at_0[0x4];
+	u8         last_sensor[0xc];
+	u8         reserved_at_10[0x4];
+	u8         sensor_count[0xc];
+
+	u8         reserved_at_20[0x19];
+	u8         internal_sensor_count[0x7];
+
+	u8         sensor_map_0[0x20];
+
+	u8         reserved_at_60[0x2a0];
+};
+
+struct mlx5_ifc_mtecr_ext_bits {
+	u8         reserved_at_0[0x4];
+	u8         last_sensor[0xc];
+	u8         reserved_at_10[0x4];
+	u8         sensor_count[0xc];
+
+	u8         reserved_at_20[0x20];
+
+	u8         sensor_map_0[0x20];
+
+	u8         reserved_at_60[0x2a0];
+};
+
+struct mlx5_ifc_mtewe_bits {
+	u8         reserved_at_0[0x4];
+	u8         last_sensor[0xc];
+	u8         reserved_at_10[0x4];
+	u8         sensor_count[0xc];
+
+	u8         sensor_warning_0[0x20];
+
+	u8         reserved_at_40[0x2a0];
+};
+
+struct mlx5_ifc_mtewe_ext_bits {
+	u8         reserved_at_0[0x4];
+	u8         last_sensor[0xc];
+	u8         reserved_at_10[0x4];
+	u8         sensor_count[0xc];
+
+	u8         sensor_warning_0[0x20];
+
+	u8         reserved_at_40[0x2a0];
+};
+
+struct mlx5_ifc_mtmp_bits {
+	u8         reserved_at_0[0x14];
+	u8         sensor_index[0xc];
+
+	u8         reserved_at_20[0x10];
+	u8         temperature[0x10];
+
+	u8         mte[0x1];
+	u8         mtr[0x1];
+	u8         reserved_at_42[0xe];
+	u8         max_temperature[0x10];
+
+	u8         tee[0x2];
+	u8         reserved_at_62[0xe];
+	u8         temperature_threshold_hi[0x10];
+
+	u8         reserved_at_80[0x10];
+	u8         temperature_threshold_lo[0x10];
+
+	u8         reserved_at_a0[0x20];
+
+	u8         sensor_name_hi[0x20];
+
+	u8         sensor_name_lo[0x20];
+};
+
+struct mlx5_ifc_mtmp_ext_bits {
+	u8         reserved_at_0[0x14];
+	u8         sensor_index[0xc];
+
+	u8         reserved_at_20[0x10];
+	u8         temperature[0x10];
+
+	u8         mte[0x1];
+	u8         mtr[0x1];
+	u8         reserved_at_42[0xe];
+	u8         max_temperature[0x10];
+
+	u8         tee[0x2];
+	u8         reserved_at_62[0xe];
+	u8         temperature_threshold_hi[0x10];
+
+	u8         reserved_at_80[0x10];
+	u8         temperature_threshold_lo[0x10];
+
+	u8         reserved_at_a0[0x20];
+
+	u8         sensor_name_hi[0x20];
+
+	u8         sensor_name_lo[0x20];
 };
 
 #endif /* MLX5_IFC_H */

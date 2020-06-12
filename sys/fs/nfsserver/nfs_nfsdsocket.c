@@ -40,7 +40,6 @@ __FBSDID("$FreeBSD$");
  * Socket operations for use by the nfs server.
  */
 
-#ifndef APPLEKEXT
 #include <fs/nfs/nfsport.h>
 
 extern struct nfsstatsv1 nfsstatsv1;
@@ -327,7 +326,6 @@ int (*nfsrv4_ops2[NFSV41_NOPS])(struct nfsrv_descript *,
 	(int (*)(struct nfsrv_descript *, int, vnode_t , vnode_t , NFSPROC_T *, struct nfsexstuff *, struct nfsexstuff *))0,
 	(int (*)(struct nfsrv_descript *, int, vnode_t , vnode_t , NFSPROC_T *, struct nfsexstuff *, struct nfsexstuff *))0,
 };
-#endif	/* !APPLEKEXT */
 
 /*
  * Static array that defines which nfs rpc's are nonidempotent
@@ -473,7 +471,7 @@ nfsrvd_statend(int op, uint64_t bytes, struct bintime *now,
  * handle plus name or ...
  * The NFS V4 Compound RPC is performed separately by nfsrvd_compound().
  */
-APPLESTATIC void
+void
 nfsrvd_dorpc(struct nfsrv_descript *nd, int isdgram, u_char *tag, int taglen,
     u_int32_t minorvers, NFSPROC_T *p)
 {
@@ -997,10 +995,7 @@ nfsrvd_compound(struct nfsrv_descript *nd, int isdgram, u_char *tag,
 			if (!error && !nd->nd_repstat) {
 			    if (op == NFSV4OP_LOOKUP || op == NFSV4OP_LOOKUPP) {
 				new_mp = nvp->v_mount;
-				if (cur_fsid.val[0] !=
-				    new_mp->mnt_stat.f_fsid.val[0] ||
-				    cur_fsid.val[1] !=
-				    new_mp->mnt_stat.f_fsid.val[1]) {
+				if (fsidcmp(&cur_fsid, &new_mp->mnt_stat.f_fsid) != 0) {
 				    /* crossed a server mount point */
 				    nd->nd_repstat = nfsvno_checkexp(new_mp,
 					nd->nd_nam, &nes, &credanon);
@@ -1029,8 +1024,7 @@ nfsrvd_compound(struct nfsrv_descript *nd, int isdgram, u_char *tag,
 			if (vp == NULL || savevp == NULL) {
 				nd->nd_repstat = NFSERR_NOFILEHANDLE;
 				break;
-			} else if (cur_fsid.val[0] != save_fsid.val[0] ||
-			    cur_fsid.val[1] != save_fsid.val[1]) {
+			} else if (fsidcmp(&cur_fsid, &save_fsid) != 0) {
 				nd->nd_repstat = NFSERR_XDEV;
 				break;
 			}

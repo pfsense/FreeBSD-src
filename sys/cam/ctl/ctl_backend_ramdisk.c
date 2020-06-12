@@ -102,13 +102,12 @@ typedef enum {
 
 typedef enum {
 	CTL_BE_RAMDISK_LUN_UNCONFIGURED	= 0x01,
-	CTL_BE_RAMDISK_LUN_CONFIG_ERR	= 0x02,
 	CTL_BE_RAMDISK_LUN_WAITING	= 0x04
 } ctl_be_ramdisk_lun_flags;
 
 struct ctl_be_ramdisk_lun {
+	struct ctl_be_lun	cbe_lun;	/* Must be first element. */
 	struct ctl_lun_create_params params;
-	char			lunname[32];
 	int			indir;
 	uint8_t			**pages;
 	uint8_t			*zero_page;
@@ -121,8 +120,7 @@ struct ctl_be_ramdisk_lun {
 	uint64_t		cap_used;
 	struct ctl_be_ramdisk_softc *softc;
 	ctl_be_ramdisk_lun_flags flags;
-	STAILQ_ENTRY(ctl_be_ramdisk_lun) links;
-	struct ctl_be_lun	cbe_lun;
+	SLIST_ENTRY(ctl_be_ramdisk_lun) links;
 	struct taskqueue	*io_taskqueue;
 	struct task		io_task;
 	STAILQ_HEAD(, ctl_io_hdr) cont_queue;
@@ -130,9 +128,10 @@ struct ctl_be_ramdisk_lun {
 };
 
 struct ctl_be_ramdisk_softc {
+	struct sx modify_lock;
 	struct mtx lock;
 	int num_luns;
-	STAILQ_HEAD(, ctl_be_ramdisk_lun) lun_list;
+	SLIST_HEAD(, ctl_be_ramdisk_lun) lun_list;
 };
 
 static struct ctl_be_ramdisk_softc rd_softc;
@@ -147,7 +146,7 @@ static int ctl_backend_ramdisk_submit(union ctl_io *io);
 static void ctl_backend_ramdisk_worker(void *context, int pending);
 static int ctl_backend_ramdisk_config_read(union ctl_io *io);
 static int ctl_backend_ramdisk_config_write(union ctl_io *io);
-static uint64_t ctl_backend_ramdisk_lun_attr(void *be_lun, const char *attrname);
+static uint64_t ctl_backend_ramdisk_lun_attr(struct ctl_be_lun *cbe_lun, const char *attrname);
 static int ctl_backend_ramdisk_ioctl(struct cdev *dev, u_long cmd,
 				     caddr_t addr, int flag, struct thread *td);
 static int ctl_backend_ramdisk_rm(struct ctl_be_ramdisk_softc *softc,
@@ -156,9 +155,7 @@ static int ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 				      struct ctl_lun_req *req);
 static int ctl_backend_ramdisk_modify(struct ctl_be_ramdisk_softc *softc,
 				  struct ctl_lun_req *req);
-static void ctl_backend_ramdisk_lun_shutdown(void *be_lun);
-static void ctl_backend_ramdisk_lun_config_status(void *be_lun,
-						  ctl_lun_config_status status);
+static void ctl_backend_ramdisk_lun_shutdown(struct ctl_be_lun *cbe_lun);
 
 static struct ctl_backend_driver ctl_be_ramdisk_driver = 
 {
@@ -174,7 +171,7 @@ static struct ctl_backend_driver ctl_be_ramdisk_driver =
 	.lun_attr = ctl_backend_ramdisk_lun_attr,
 };
 
-MALLOC_DEFINE(M_RAMDISK, "ramdisk", "Memory used for CTL RAMdisk");
+MALLOC_DEFINE(M_RAMDISK, "ctlramdisk", "Memory used for CTL RAMdisk");
 CTL_BACKEND_DECLARE(cbr, ctl_be_ramdisk_driver);
 
 static int
@@ -183,8 +180,9 @@ ctl_backend_ramdisk_init(void)
 	struct ctl_be_ramdisk_softc *softc = &rd_softc;
 
 	memset(softc, 0, sizeof(*softc));
-	mtx_init(&softc->lock, "ctlramdisk", NULL, MTX_DEF);
-	STAILQ_INIT(&softc->lun_list);
+	sx_init(&softc->modify_lock, "ctlrammod");
+	mtx_init(&softc->lock, "ctlram", NULL, MTX_DEF);
+	SLIST_INIT(&softc->lun_list);
 	return (0);
 }
 
@@ -192,22 +190,24 @@ static int
 ctl_backend_ramdisk_shutdown(void)
 {
 	struct ctl_be_ramdisk_softc *softc = &rd_softc;
-	struct ctl_be_ramdisk_lun *lun, *next_lun;
+	struct ctl_be_ramdisk_lun *lun;
 
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH_SAFE(lun, &softc->lun_list, links, next_lun) {
+	while ((lun = SLIST_FIRST(&softc->lun_list)) != NULL) {
+		SLIST_REMOVE_HEAD(&softc->lun_list, links);
+		softc->num_luns--;
 		/*
-		 * Drop our lock here.  Since ctl_invalidate_lun() can call
+		 * Drop our lock here.  Since ctl_remove_lun() can call
 		 * back into us, this could potentially lead to a recursive
 		 * lock of the same mutex, which would cause a hang.
 		 */
 		mtx_unlock(&softc->lock);
-		ctl_disable_lun(&lun->cbe_lun);
-		ctl_invalidate_lun(&lun->cbe_lun);
+		ctl_remove_lun(&lun->cbe_lun);
 		mtx_lock(&softc->lock);
 	}
 	mtx_unlock(&softc->lock);
 	mtx_destroy(&softc->lock);
+	sx_destroy(&softc->modify_lock);
 	return (0);
 }
 
@@ -367,7 +367,7 @@ static int
 ctl_backend_ramdisk_cmp(union ctl_io *io)
 {
 	struct ctl_be_lun *cbe_lun = CTL_BACKEND_LUN(io);
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	uint8_t *page;
 	uint8_t info[8];
 	uint64_t lba;
@@ -404,8 +404,8 @@ ctl_backend_ramdisk_cmp(union ctl_io *io)
 static int
 ctl_backend_ramdisk_move_done(union ctl_io *io)
 {
-	struct ctl_be_lun *cbe_lun = CTL_BACKEND_LUN(io);
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun =
+	    (struct ctl_be_ramdisk_lun *)CTL_BACKEND_LUN(io);
 #ifdef CTL_TIME_IO
 	struct bintime cur_bt;
 #endif
@@ -481,7 +481,7 @@ static void
 ctl_backend_ramdisk_rw(union ctl_io *io)
 {
 	struct ctl_be_lun *cbe_lun = CTL_BACKEND_LUN(io);
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	struct ctl_sg_entry *sg_entries;
 	uint8_t *page;
 	uint64_t lba;
@@ -593,7 +593,7 @@ static int
 ctl_backend_ramdisk_gls(union ctl_io *io)
 {
 	struct ctl_be_lun *cbe_lun = CTL_BACKEND_LUN(io);
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	struct scsi_get_lba_status_data *data;
 	uint8_t *page;
 	u_int lbaoff;
@@ -647,7 +647,7 @@ static void
 ctl_backend_ramdisk_delete(struct ctl_be_lun *cbe_lun, off_t lba, off_t len,
     int anchor)
 {
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	uint8_t *page;
 	uint64_t p, lp;
 	u_int lbaoff;
@@ -689,7 +689,7 @@ static void
 ctl_backend_ramdisk_ws(union ctl_io *io)
 {
 	struct ctl_be_lun *cbe_lun = CTL_BACKEND_LUN(io);
-	struct ctl_be_ramdisk_lun *be_lun = cbe_lun->be_lun;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	struct ctl_lba_len_flags *lbalen = ARGS(io);
 	uint8_t *page;
 	uint64_t lba;
@@ -823,9 +823,9 @@ ctl_backend_ramdisk_config_write(union ctl_io *io)
 }
 
 static uint64_t
-ctl_backend_ramdisk_lun_attr(void *arg, const char *attrname)
+ctl_backend_ramdisk_lun_attr(struct ctl_be_lun *cbe_lun, const char *attrname)
 {
-	struct ctl_be_ramdisk_lun *be_lun = arg;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
 	uint64_t		val;
 
 	val = UINT64_MAX;
@@ -889,24 +889,22 @@ ctl_backend_ramdisk_rm(struct ctl_be_ramdisk_softc *softc,
 	int retval;
 
 	params = &req->reqdata.rm;
+	sx_xlock(&softc->modify_lock);
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH(be_lun, &softc->lun_list, links) {
-		if (be_lun->cbe_lun.lun_id == params->lun_id)
+	SLIST_FOREACH(be_lun, &softc->lun_list, links) {
+		if (be_lun->cbe_lun.lun_id == params->lun_id) {
+			SLIST_REMOVE(&softc->lun_list, be_lun,
+			    ctl_be_ramdisk_lun, links);
+			softc->num_luns--;
 			break;
+		}
 	}
 	mtx_unlock(&softc->lock);
+	sx_xunlock(&softc->modify_lock);
 	if (be_lun == NULL) {
 		snprintf(req->error_str, sizeof(req->error_str),
 			 "%s: LUN %u is not managed by the ramdisk backend",
 			 __func__, params->lun_id);
-		goto bailout_error;
-	}
-
-	retval = ctl_disable_lun(&be_lun->cbe_lun);
-	if (retval != 0) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "%s: error %d returned from ctl_disable_lun() for "
-			 "LUN %d", __func__, retval, params->lun_id);
 		goto bailout_error;
 	}
 
@@ -922,10 +920,10 @@ ctl_backend_ramdisk_rm(struct ctl_be_ramdisk_softc *softc,
 	be_lun->flags |= CTL_BE_RAMDISK_LUN_WAITING;
 	mtx_unlock(&softc->lock);
 
-	retval = ctl_invalidate_lun(&be_lun->cbe_lun);
+	retval = ctl_remove_lun(&be_lun->cbe_lun);
 	if (retval != 0) {
 		snprintf(req->error_str, sizeof(req->error_str),
-			 "%s: error %d returned from ctl_invalidate_lun() for "
+			 "%s: error %d returned from ctl_remove_lun() for "
 			 "LUN %d", __func__, retval, params->lun_id);
 		mtx_lock(&softc->lock);
 		be_lun->flags &= ~CTL_BE_RAMDISK_LUN_WAITING;
@@ -935,35 +933,17 @@ ctl_backend_ramdisk_rm(struct ctl_be_ramdisk_softc *softc,
 
 	mtx_lock(&softc->lock);
 	while ((be_lun->flags & CTL_BE_RAMDISK_LUN_UNCONFIGURED) == 0) {
-		retval = msleep(be_lun, &softc->lock, PCATCH, "ctlram", 0);
+		retval = msleep(be_lun, &softc->lock, PCATCH, "ctlramrm", 0);
 		if (retval == EINTR)
 			break;
 	}
 	be_lun->flags &= ~CTL_BE_RAMDISK_LUN_WAITING;
-
-	/*
-	 * We only remove this LUN from the list and free it (below) if
-	 * retval == 0.  If the user interrupted the wait, we just bail out
-	 * without actually freeing the LUN.  We let the shutdown routine
-	 * free the LUN if that happens.
-	 */
-	if (retval == 0) {
-		STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_ramdisk_lun,
-			      links);
-		softc->num_luns--;
-	}
-
-	mtx_unlock(&softc->lock);
-
-	if (retval == 0) {
-		taskqueue_drain_all(be_lun->io_taskqueue);
-		taskqueue_free(be_lun->io_taskqueue);
-		nvlist_destroy(be_lun->cbe_lun.options);
-		free(be_lun->zero_page, M_RAMDISK);
-		ctl_backend_ramdisk_freeallpages(be_lun->pages, be_lun->indir);
-		sx_destroy(&be_lun->page_lock);
-		mtx_destroy(&be_lun->queue_lock);
+	if (be_lun->flags & CTL_BE_RAMDISK_LUN_UNCONFIGURED) {
+		mtx_unlock(&softc->lock);
 		free(be_lun, M_RAMDISK);
+	} else {
+		mtx_unlock(&softc->lock);
+		return (EINTR);
 	}
 
 	req->status = CTL_LUN_OK;
@@ -991,17 +971,15 @@ ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 
 	be_lun = malloc(sizeof(*be_lun), M_RAMDISK, M_ZERO | M_WAITOK);
 	cbe_lun = &be_lun->cbe_lun;
-	cbe_lun->be_lun = be_lun;
 	cbe_lun->options = nvlist_clone(req->args_nvl);
 	be_lun->params = req->reqdata.create;
 	be_lun->softc = softc;
-	sprintf(be_lun->lunname, "cram%d", softc->num_luns);
 
 	if (params->flags & CTL_LUN_FLAG_DEV_TYPE)
 		cbe_lun->lun_type = params->device_type;
 	else
 		cbe_lun->lun_type = T_DIRECT;
-	be_lun->flags = CTL_BE_RAMDISK_LUN_UNCONFIGURED;
+	be_lun->flags = 0;
 	cbe_lun->flags = 0;
 	value = dnvlist_get_string(cbe_lun->options, "ha_role", NULL);
 	if (value != NULL) {
@@ -1097,7 +1075,6 @@ ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 		cbe_lun->req_lun_id = 0;
 
 	cbe_lun->lun_shutdown = ctl_backend_ramdisk_lun_shutdown;
-	cbe_lun->lun_config_status = ctl_backend_ramdisk_lun_config_status;
 	cbe_lun->be = &ctl_be_ramdisk_driver;
 	if ((params->flags & CTL_LUN_FLAG_SERIAL_NUM) == 0) {
 		snprintf(tmpstr, sizeof(tmpstr), "MYSERIAL%04d",
@@ -1128,18 +1105,18 @@ ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 	}
 
 	STAILQ_INIT(&be_lun->cont_queue);
-	sx_init(&be_lun->page_lock, "cram page lock");
+	sx_init(&be_lun->page_lock, "ctlram page");
 	if (be_lun->cap_bytes == 0) {
 		be_lun->indir = 0;
 		be_lun->pages = malloc(be_lun->pblocksize, M_RAMDISK, M_WAITOK);
 	}
 	be_lun->zero_page = malloc(be_lun->pblocksize, M_RAMDISK,
 	    M_WAITOK|M_ZERO);
-	mtx_init(&be_lun->queue_lock, "cram queue lock", NULL, MTX_DEF);
+	mtx_init(&be_lun->queue_lock, "ctlram queue", NULL, MTX_DEF);
 	TASK_INIT(&be_lun->io_task, /*priority*/0, ctl_backend_ramdisk_worker,
 	    be_lun);
 
-	be_lun->io_taskqueue = taskqueue_create(be_lun->lunname, M_WAITOK,
+	be_lun->io_taskqueue = taskqueue_create("ctlramtq", M_WAITOK,
 	    taskqueue_thread_enqueue, /*context*/&be_lun->io_taskqueue);
 	if (be_lun->io_taskqueue == NULL) {
 		snprintf(req->error_str, sizeof(req->error_str),
@@ -1151,23 +1128,12 @@ ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 					 /*num threads*/1,
 					 /*priority*/PUSER,
 					 /*proc*/control_softc->ctl_proc,
-					 /*thread name*/
-					 "%s taskq", be_lun->lunname);
+					 /*thread name*/"ramdisk");
 	if (retval != 0)
 		goto bailout_error;
 
-	mtx_lock(&softc->lock);
-	softc->num_luns++;
-	STAILQ_INSERT_TAIL(&softc->lun_list, be_lun, links);
-	mtx_unlock(&softc->lock);
-
 	retval = ctl_add_lun(&be_lun->cbe_lun);
 	if (retval != 0) {
-		mtx_lock(&softc->lock);
-		STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_ramdisk_lun,
-			      links);
-		softc->num_luns--;
-		mtx_unlock(&softc->lock);
 		snprintf(req->error_str, sizeof(req->error_str),
 			 "%s: ctl_add_lun() returned error %d, see dmesg for "
 			"details", __func__, retval);
@@ -1176,33 +1142,11 @@ ctl_backend_ramdisk_create(struct ctl_be_ramdisk_softc *softc,
 	}
 
 	mtx_lock(&softc->lock);
-
-	/*
-	 * Tell the config_status routine that we're waiting so it won't
-	 * clean up the LUN in the event of an error.
-	 */
-	be_lun->flags |= CTL_BE_RAMDISK_LUN_WAITING;
-
-	while (be_lun->flags & CTL_BE_RAMDISK_LUN_UNCONFIGURED) {
-		retval = msleep(be_lun, &softc->lock, PCATCH, "ctlram", 0);
-		if (retval == EINTR)
-			break;
-	}
-	be_lun->flags &= ~CTL_BE_RAMDISK_LUN_WAITING;
-
-	if (be_lun->flags & CTL_BE_RAMDISK_LUN_CONFIG_ERR) {
-		snprintf(req->error_str, sizeof(req->error_str),
-			 "%s: LUN configuration error, see dmesg for details",
-			 __func__);
-		STAILQ_REMOVE(&softc->lun_list, be_lun, ctl_be_ramdisk_lun,
-			      links);
-		softc->num_luns--;
-		mtx_unlock(&softc->lock);
-		goto bailout_error;
-	} else {
-		params->req_lun_id = cbe_lun->lun_id;
-	}
+	softc->num_luns++;
+	SLIST_INSERT_HEAD(&softc->lun_list, be_lun, links);
 	mtx_unlock(&softc->lock);
+
+	params->req_lun_id = cbe_lun->lun_id;
 
 	req->status = CTL_LUN_OK;
 	return (retval);
@@ -1234,9 +1178,9 @@ ctl_backend_ramdisk_modify(struct ctl_be_ramdisk_softc *softc,
 	int wasprim;
 
 	params = &req->reqdata.modify;
-
+	sx_xlock(&softc->modify_lock);
 	mtx_lock(&softc->lock);
-	STAILQ_FOREACH(be_lun, &softc->lun_list, links) {
+	SLIST_FOREACH(be_lun, &softc->lun_list, links) {
 		if (be_lun->cbe_lun.lun_id == params->lun_id)
 			break;
 	}
@@ -1252,8 +1196,10 @@ ctl_backend_ramdisk_modify(struct ctl_be_ramdisk_softc *softc,
 	if (params->lun_size_bytes != 0)
 		be_lun->params.lun_size_bytes = params->lun_size_bytes;
 
-	nvlist_destroy(cbe_lun->options);
-	cbe_lun->options = nvlist_clone(req->args_nvl);
+	if (req->args_nvl != NULL) {
+		nvlist_destroy(cbe_lun->options);
+		cbe_lun->options = nvlist_clone(req->args_nvl);
+	}
 
 	wasprim = (cbe_lun->flags & CTL_LUN_FLAG_PRIMARY);
 	value = dnvlist_get_string(cbe_lun->options, "ha_role", NULL);
@@ -1288,80 +1234,35 @@ ctl_backend_ramdisk_modify(struct ctl_be_ramdisk_softc *softc,
 	/* Tell the user the exact size we ended up using */
 	params->lun_size_bytes = be_lun->size_bytes;
 
+	sx_xunlock(&softc->modify_lock);
 	req->status = CTL_LUN_OK;
 	return (0);
 
 bailout_error:
+	sx_xunlock(&softc->modify_lock);
 	req->status = CTL_LUN_ERROR;
 	return (0);
 }
 
 static void
-ctl_backend_ramdisk_lun_shutdown(void *be_lun)
+ctl_backend_ramdisk_lun_shutdown(struct ctl_be_lun *cbe_lun)
 {
-	struct ctl_be_ramdisk_lun *lun = be_lun;
-	struct ctl_be_ramdisk_softc *softc = lun->softc;
+	struct ctl_be_ramdisk_lun *be_lun = (struct ctl_be_ramdisk_lun *)cbe_lun;
+	struct ctl_be_ramdisk_softc *softc = be_lun->softc;
+
+	taskqueue_drain_all(be_lun->io_taskqueue);
+	taskqueue_free(be_lun->io_taskqueue);
+	nvlist_destroy(be_lun->cbe_lun.options);
+	free(be_lun->zero_page, M_RAMDISK);
+	ctl_backend_ramdisk_freeallpages(be_lun->pages, be_lun->indir);
+	sx_destroy(&be_lun->page_lock);
+	mtx_destroy(&be_lun->queue_lock);
 
 	mtx_lock(&softc->lock);
-	lun->flags |= CTL_BE_RAMDISK_LUN_UNCONFIGURED;
-	if (lun->flags & CTL_BE_RAMDISK_LUN_WAITING) {
-		wakeup(lun);
-	} else {
-		STAILQ_REMOVE(&softc->lun_list, lun, ctl_be_ramdisk_lun,
-			      links);
-		softc->num_luns--;
+	be_lun->flags |= CTL_BE_RAMDISK_LUN_UNCONFIGURED;
+	if (be_lun->flags & CTL_BE_RAMDISK_LUN_WAITING)
+		wakeup(be_lun);
+	else
 		free(be_lun, M_RAMDISK);
-	}
-	mtx_unlock(&softc->lock);
-}
-
-static void
-ctl_backend_ramdisk_lun_config_status(void *be_lun,
-				      ctl_lun_config_status status)
-{
-	struct ctl_be_ramdisk_lun *lun;
-	struct ctl_be_ramdisk_softc *softc;
-
-	lun = (struct ctl_be_ramdisk_lun *)be_lun;
-	softc = lun->softc;
-
-	if (status == CTL_LUN_CONFIG_OK) {
-		mtx_lock(&softc->lock);
-		lun->flags &= ~CTL_BE_RAMDISK_LUN_UNCONFIGURED;
-		if (lun->flags & CTL_BE_RAMDISK_LUN_WAITING)
-			wakeup(lun);
-		mtx_unlock(&softc->lock);
-
-		/*
-		 * We successfully added the LUN, attempt to enable it.
-		 */
-		if (ctl_enable_lun(&lun->cbe_lun) != 0) {
-			printf("%s: ctl_enable_lun() failed!\n", __func__);
-			if (ctl_invalidate_lun(&lun->cbe_lun) != 0) {
-				printf("%s: ctl_invalidate_lun() failed!\n",
-				       __func__);
-			}
-		}
-
-		return;
-	}
-
-
-	mtx_lock(&softc->lock);
-	lun->flags &= ~CTL_BE_RAMDISK_LUN_UNCONFIGURED;
-
-	/*
-	 * If we have a user waiting, let him handle the cleanup.  If not,
-	 * clean things up here.
-	 */
-	if (lun->flags & CTL_BE_RAMDISK_LUN_WAITING) {
-		lun->flags |= CTL_BE_RAMDISK_LUN_CONFIG_ERR;
-		wakeup(lun);
-	} else {
-		STAILQ_REMOVE(&softc->lun_list, lun, ctl_be_ramdisk_lun,
-			      links);
-		softc->num_luns--;
-		free(lun, M_RAMDISK);
-	}
 	mtx_unlock(&softc->lock);
 }
