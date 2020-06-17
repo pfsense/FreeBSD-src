@@ -70,6 +70,7 @@ device		runfw
 device		rue
 device		rtwn
 device		rtwnfw
+device		rtwn_pci
 device		rtwn_usb
 device		bwn		# Broadcom BCM43xx IEEE 802.11b/g wireless network driver
 device		bwi		# Broadcom BCM43xx IEEE 802.11b/g wireless network driver
