@@ -7,7 +7,7 @@
  * Copyright (C) 2000 WIDE Project.
  * Copyright (c) 2010 Hiroki Sato <hrs@FreeBSD.org>
  * Copyright (c) 2013 Ermal Luci <eri@FreeBSD.org>
- * Copyright (c) 2017 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2017-2020 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
