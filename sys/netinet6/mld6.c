@@ -1624,7 +1624,8 @@ mld_v2_process_group_timers(struct in6_multi_head *inmh,
 			if (inm->in6m_state == MLD_LEAVING_MEMBER &&
 			    inm->in6m_scrv == 0) {
 				inm->in6m_state = MLD_NOT_MEMBER;
-				in6m_disconnect_locked(inmh, inm);
+				if (inm->in6m_refcount == 1)
+					in6m_disconnect_locked(inmh, inm);
 				in6m_rele_locked(inmh, inm);
 			}
 		}
