@@ -285,12 +285,17 @@ static	int vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr);
 static	int vlan_snd_tag_alloc(struct ifnet *,
     union if_snd_tag_alloc_params *, struct m_snd_tag **);
 #endif
+#ifndef ALTQ
 static	void vlan_qflush(struct ifnet *ifp);
+#endif
 static	int vlan_setflag(struct ifnet *ifp, int flag, int status,
     int (*func)(struct ifnet *, int));
 static	int vlan_setflags(struct ifnet *ifp, int status);
 static	int vlan_setmulti(struct ifnet *ifp);
 static	int vlan_transmit(struct ifnet *ifp, struct mbuf *m);
+#ifdef ALTQ
+static void vlan_altq_start(if_t ifp);
+#endif
 static	void vlan_unconfig(struct ifnet *ifp);
 static	void vlan_unconfig_locked(struct ifnet *ifp, int departing);
 static	int vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t tag);
@@ -1056,8 +1061,15 @@ vlan_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	ifp->if_dunit = unit;
 
 	ifp->if_init = vlan_init;
+#ifdef ALTQ
+	ifp->if_start = vlan_altq_start;
+	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
+	ifp->if_snd.ifq_drv_maxlen = 0;
+	IFQ_SET_READY(&ifp->if_snd);
+#else
 	ifp->if_transmit = vlan_transmit;
 	ifp->if_qflush = vlan_qflush;
+#endif
 	ifp->if_ioctl = vlan_ioctl;
 #ifdef RATELIMIT
 	ifp->if_snd_tag_alloc = vlan_snd_tag_alloc;
@@ -1100,6 +1112,9 @@ vlan_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
 	struct ifvlan *ifv = ifp->if_softc;
 	int unit = ifp->if_dunit;
 
+#ifdef ALTQ
+	IFQ_PURGE(&ifp->if_snd);
+#endif
 	ether_ifdetach(ifp);	/* first, remove it from system-wide lists */
 	vlan_unconfig(ifp);	/* now it can be unconfigured and freed */
 	/*
@@ -1179,6 +1194,38 @@ vlan_transmit(struct ifnet *ifp, struct mbuf *m)
 	return (error);
 }
 
+#ifdef ALTQ
+static void
+vlan_altq_start(if_t ifp)
+{
+	struct ifaltq *ifq = &ifp->if_snd;
+	struct mbuf *m;
+
+	IFQ_LOCK(ifq);
+	IFQ_DEQUEUE_NOLOCK(ifq, m);
+	while (m != NULL) {
+		vlan_transmit(ifp, m);
+		IFQ_DEQUEUE_NOLOCK(ifq, m);
+	}
+	IFQ_UNLOCK(ifq);
+}
+
+static int
+vlan_altq_transmit(if_t ifp, struct mbuf *m)
+{
+	int err;
+
+	if (ALTQ_IS_ENABLED(&ifp->if_snd)) {
+		IFQ_ENQUEUE(&ifp->if_snd, m, err);
+		if (err == 0)
+			vlan_altq_start(ifp);
+	} else
+		err = vlan_transmit(ifp, m);
+
+	return (err);
+}
+#else /* !ALTQ */
+
 /*
  * The ifp->if_qflush entry point for vlan(4) is a no-op.
  */
@@ -1186,6 +1233,7 @@ static void
 vlan_qflush(struct ifnet *ifp __unused)
 {
 }
+#endif
 
 static void
 vlan_input(struct ifnet *ifp, struct mbuf *m)
@@ -1319,7 +1367,7 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid)
 	 * We can handle non-ethernet hardware types as long as
 	 * they handle the tagging and headers themselves.
 	 */
-	if (p->if_type != IFT_ETHER &&
+	if (p->if_type != IFT_ETHER && p->if_type != IFT_BRIDGE &&
 	    (p->if_capenable & IFCAP_VLAN_HWTAGGING) == 0)
 		return (EPROTONOSUPPORT);
 	if ((p->if_flags & VLAN_IFFLAGS) != VLAN_IFFLAGS)
