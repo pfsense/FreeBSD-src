@@ -417,9 +417,15 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 		}
 		break;
 	case CC_ECN:
-		if (!IN_CONGRECOVERY(tp->t_flags)) {
+		if (!IN_CONGRECOVERY(tp->t_flags) ||
+		    /*
+		     * Allow ECN reaction on ACK to CWR, if
+		     * that data segment was also CE marked.
+		     */
+		    SEQ_GEQ(th->th_ack, tp->snd_recover)) {
+			EXIT_CONGRECOVERY(tp->t_flags);
 			TCPSTAT_INC(tcps_ecn_rcwnd);
-			tp->snd_recover = tp->snd_max;
+			tp->snd_recover = tp->snd_max + 1;
 			if (tp->t_flags & TF_ECN_PERMIT)
 				tp->t_flags |= TF_ECN_SND_CWR;
 		}
@@ -494,14 +500,15 @@ cc_ecnpkt_handler(struct tcpcb *tp, struct tcphdr *th, uint8_t iptos)
 	if (CC_ALGO(tp)->ecnpkt_handler != NULL) {
 		switch (iptos & IPTOS_ECN_MASK) {
 		case IPTOS_ECN_CE:
-		    tp->ccv->flags |= CCF_IPHDR_CE;
-		    break;
+			tp->ccv->flags |= CCF_IPHDR_CE;
+			break;
 		case IPTOS_ECN_ECT0:
-		    tp->ccv->flags &= ~CCF_IPHDR_CE;
-		    break;
+			/* FALLTHROUGH */
 		case IPTOS_ECN_ECT1:
-		    tp->ccv->flags &= ~CCF_IPHDR_CE;
-		    break;
+			/* FALLTHROUGH */
+		case IPTOS_ECN_NOTECT:
+			tp->ccv->flags &= ~CCF_IPHDR_CE;
+			break;
 		}
 
 		if (th->th_flags & TH_CWR)
@@ -1355,7 +1362,7 @@ tfo_socket_result:
 #endif
 		TCP_PROBE3(debug__input, tp, th, m);
 		tcp_dooptions(&to, optp, optlen, TO_SYN);
-		if (syncache_add(&inc, &to, th, inp, &so, m, NULL, NULL))
+		if (syncache_add(&inc, &to, th, inp, &so, m, NULL, NULL, iptos))
 			goto tfo_socket_result;
 
 		/*

@@ -4345,9 +4345,6 @@ pci_attach_common(device_t dev)
 {
 	struct pci_softc *sc;
 	int busno, domain;
-#ifdef PCI_DMA_BOUNDARY
-	int error, tag_valid;
-#endif
 #ifdef PCI_RES_BUS
 	int rid;
 #endif
@@ -4367,23 +4364,7 @@ pci_attach_common(device_t dev)
 	if (bootverbose)
 		device_printf(dev, "domain=%d, physical bus=%d\n",
 		    domain, busno);
-#ifdef PCI_DMA_BOUNDARY
-	tag_valid = 0;
-	if (device_get_devclass(device_get_parent(device_get_parent(dev))) !=
-	    devclass_find("pci")) {
-		error = bus_dma_tag_create(bus_get_dma_tag(dev), 1,
-		    PCI_DMA_BOUNDARY, BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR,
-		    NULL, NULL, BUS_SPACE_MAXSIZE, BUS_SPACE_UNRESTRICTED,
-		    BUS_SPACE_MAXSIZE, 0, NULL, NULL, &sc->sc_dma_tag);
-		if (error)
-			device_printf(dev, "Failed to create DMA tag: %d\n",
-			    error);
-		else
-			tag_valid = 1;
-	}
-	if (!tag_valid)
-#endif
-		sc->sc_dma_tag = bus_get_dma_tag(dev);
+	sc->sc_dma_tag = bus_get_dma_tag(dev);
 	return (0);
 }
 
@@ -5933,7 +5914,6 @@ pci_cfg_restore(device_t dev, struct pci_devinfo *dinfo)
 	 */
 	if (pci_get_powerstate(dev) != PCI_POWERSTATE_D0)
 		pci_set_powerstate(dev, PCI_POWERSTATE_D0);
-	pci_write_config(dev, PCIR_COMMAND, dinfo->cfg.cmdreg, 2);
 	pci_write_config(dev, PCIR_INTLINE, dinfo->cfg.intline, 1);
 	pci_write_config(dev, PCIR_INTPIN, dinfo->cfg.intpin, 1);
 	pci_write_config(dev, PCIR_CACHELNSZ, dinfo->cfg.cachelnsz, 1);
@@ -5971,6 +5951,9 @@ pci_cfg_restore(device_t dev, struct pci_devinfo *dinfo)
 		break;
 	}
 	pci_restore_bars(dev);
+
+	if ((dinfo->cfg.hdrtype & PCIM_HDRTYPE) != PCIM_HDRTYPE_BRIDGE)
+		pci_write_config(dev, PCIR_COMMAND, dinfo->cfg.cmdreg, 2);
 
 	/*
 	 * Restore extended capabilities for PCI-Express and PCI-X

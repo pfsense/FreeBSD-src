@@ -246,7 +246,8 @@ tcp_output(struct tcpcb *tp)
 	 * to send, then transmit; otherwise, investigate further.
 	 */
 	idle = (tp->t_flags & TF_LASTIDLE) || (tp->snd_max == tp->snd_una);
-	if (idle && ticks - tp->t_rcvtime >= tp->t_rxtcur)
+	if (idle && (((ticks - tp->t_rcvtime) >= tp->t_rxtcur) ||
+	    (tp->t_sndtime && ((ticks - tp->t_sndtime) >= tp->t_rxtcur))))
 		cc_after_idle(tp);
 	tp->t_flags &= ~TF_LASTIDLE;
 	if (idle) {
@@ -1132,7 +1133,8 @@ send:
 		 * Ignore pure ack packets, retransmissions and window probes.
 		 */
 		if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-		    !((tp->t_flags & TF_FORCEDATA) && len == 1)) {
+		    !((tp->t_flags & TF_FORCEDATA) && len == 1 &&
+		    SEQ_LT(tp->snd_una, tp->snd_max))) {
 #ifdef INET6
 			if (isipv6)
 				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
@@ -1140,15 +1142,15 @@ send:
 #endif
 				ip->ip_tos |= IPTOS_ECN_ECT0;
 			TCPSTAT_INC(tcps_ecn_ect0);
+			/*
+			 * Reply with proper ECN notifications.
+			 * Only set CWR on new data segments.
+			 */
+			if (tp->t_flags & TF_ECN_SND_CWR) {
+				flags |= TH_CWR;
+				tp->t_flags &= ~TF_ECN_SND_CWR;
+			}
 		}
-		
-		/*
-		 * Reply with proper ECN notifications.
-		 */
-		if (tp->t_flags & TF_ECN_SND_CWR) {
-			flags |= TH_CWR;
-			tp->t_flags &= ~TF_ECN_SND_CWR;
-		} 
 		if (tp->t_flags & TF_ECN_SND_ECE)
 			flags |= TH_ECE;
 	}
@@ -1460,6 +1462,7 @@ out:
 			 * Time this transmission if not a retransmission and
 			 * not currently timing anything.
 			 */
+			tp->t_sndtime = ticks;
 			if (tp->t_rtttime == 0) {
 				tp->t_rtttime = ticks;
 				tp->t_rtseq = startseq;

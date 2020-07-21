@@ -224,6 +224,8 @@ struct vm_map {
 #define	vm_map_max(map)		vm_map_max_KBI((map))
 #define	vm_map_min(map)		vm_map_min_KBI((map))
 #define	vm_map_pmap(map)	vm_map_pmap_KBI((map))
+#define	vm_map_range_valid(map, start, end)	\
+	vm_map_range_valid_KBI((map), (start), (end))
 #else
 static __inline vm_offset_t
 vm_map_max(const struct vm_map *map)
@@ -250,6 +252,17 @@ vm_map_modflags(vm_map_t map, vm_flags_t set, vm_flags_t clear)
 {
 	map->flags = (map->flags | set) & ~clear;
 }
+
+static inline bool
+vm_map_range_valid(vm_map_t map, vm_offset_t start, vm_offset_t end)
+{
+	if (end < start)
+		return (false);
+	if (start < vm_map_min(map) || end > vm_map_max(map))
+		return (false);
+	return (true);
+}
+
 #endif	/* KLD_MODULE */
 #endif	/* _KERNEL */
 
@@ -314,6 +327,7 @@ void vm_map_wait_busy(vm_map_t map);
 vm_offset_t vm_map_max_KBI(const struct vm_map *map);
 vm_offset_t vm_map_min_KBI(const struct vm_map *map);
 pmap_t vm_map_pmap_KBI(vm_map_t map);
+bool vm_map_range_valid_KBI(vm_map_t map, vm_offset_t start, vm_offset_t end);
 
 #define	vm_map_lock(map)	_vm_map_lock(map, LOCK_FILE, LOCK_LINE)
 #define	vm_map_unlock(map)	_vm_map_unlock(map, LOCK_FILE, LOCK_LINE)
