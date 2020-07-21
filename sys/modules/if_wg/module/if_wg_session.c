@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019 Matt Dunwoodie <ncon@noconroy.net>
- * Copyright (c) 2019-2020 Netgate, Inc.
+ * Copyright (c) 2019-2020 Rubicon Communications, LLC (Netgate).
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,7 +39,6 @@
 
 #include <sys/if_wg_session.h>
 #include <sys/if_wg_session_vars.h>
-//#include <sys/wg_module.h>
 #include <sys/syslog.h>
 
 #include <netinet/in.h>
@@ -58,7 +57,6 @@
 
 #include <crypto/blake2s.h>
 #include <crypto/curve25519.h>
-//#include <crypto/chachapoly.h>
 #include <machine/in_cksum.h>
 
 #define MAX_STAGED_PKT		128

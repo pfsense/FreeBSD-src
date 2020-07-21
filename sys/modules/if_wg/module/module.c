@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 Netgate, Inc.
+ * Copyright (c) 2019-2020 Rubicon Communications, LLC (Netgate).
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -94,18 +94,18 @@ wg_decrypt_dispatch(struct wg_softc *sc)
 static void
 crypto_taskq_setup(struct wg_softc *sc)
 {
-//	device_t dev = iflib_get_dev(sc->wg_ctx);
-
 	sc->sc_encrypt = malloc(sizeof(struct grouptask)*mp_ncpus, M_WG, M_WAITOK);
 	sc->sc_decrypt = malloc(sizeof(struct grouptask)*mp_ncpus, M_WG, M_WAITOK);
 
 	for (int i = 0; i < mp_ncpus; i++) {
 		GROUPTASK_INIT(&sc->sc_encrypt[i], 0,
 		     (gtask_fn_t *)wg_softc_encrypt, sc);
-		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_encrypt[i], sc,  i, /*dev, NULL,*/ -1, "wg encrypt");
+		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_encrypt[i], sc,
+		    i, -1, "wg encrypt");
 		GROUPTASK_INIT(&sc->sc_decrypt[i], 0,
 		    (gtask_fn_t *)wg_softc_decrypt, sc);
-		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_decrypt[i], sc, i, /*dev, NULL,*/ -1, "wg decrypt");
+		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_decrypt[i], sc,
+		    i, -1, "wg decrypt");
 	}
 }
 
