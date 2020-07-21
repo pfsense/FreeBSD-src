@@ -201,8 +201,6 @@ unpacked:
 	atomic_add_int(&clone_count, 1);
 	scctx = sc->shared = iflib_get_softc_ctx(ctx);
 	scctx->isc_capenable = WG_CAPS;
-	scctx->isc_tx_csum_flags = CSUM_TCP | CSUM_UDP | CSUM_TSO | CSUM_IP6_TCP \
-		| CSUM_IP6_UDP | CSUM_IP6_TCP;
 	sc->wg_ctx = ctx;
 	sc->sc_ifp = iflib_get_ifp(ctx);
 
