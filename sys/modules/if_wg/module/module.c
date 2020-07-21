@@ -231,6 +231,7 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 	struct epoch_tracker et;
 	struct wg_peer *peer;
 	struct wg_tag *t;
+	uint32_t af;
 	int rc;
 
 	rc = 0;
@@ -240,7 +241,8 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 		rc = ENOBUFS;
 		goto early_out;
 	}
-	ETHER_BPF_MTAP(ifp, m);
+	af = m->m_pkthdr.csum_data;
+	BPF_MTAP2(ifp, &af, sizeof(af), m);
 
 	NET_EPOCH_ENTER_ET(et);
 	peer = wg_route_lookup(&sc->sc_routes, m, OUT);
@@ -279,6 +281,8 @@ early_out:
 static int
 wg_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *sa, struct route *rt)
 {
+	m->m_pkthdr.csum_data = sa->sa_family;
+
 	return (wg_transmit(ifp, m));
 }
 
