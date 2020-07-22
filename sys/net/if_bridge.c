@@ -604,7 +604,7 @@ vnet_bridge_uninit(const void *unused __unused)
 
 	/* Before we can destroy the uma zone, because there are callbacks that
 	 * use it. */
-	NET_EPOCH_WAIT();
+	epoch_drain_callbacks(net_epoch_preempt);
 
 	uma_zdestroy(V_bridge_rtnode_zone);
 }
@@ -1473,9 +1473,9 @@ bridge_ioctl_gifs(struct bridge_softc *sc, void *arg)
 		bifc->ifbic_len = buflen;
 		return (0);
 	}
-	BRIDGE_UNLOCK(sc);
-	outbuf = malloc(buflen, M_TEMP, M_WAITOK | M_ZERO);
-	BRIDGE_LOCK(sc);
+	outbuf = malloc(buflen, M_TEMP, M_NOWAIT | M_ZERO);
+	if (outbuf == NULL)
+		return (ENOMEM);
 
 	count = 0;
 	buf = outbuf;
@@ -1535,9 +1535,9 @@ bridge_ioctl_rts(struct bridge_softc *sc, void *arg)
 		count++;
 	buflen = sizeof(bareq) * count;
 
-	BRIDGE_UNLOCK(sc);
-	outbuf = malloc(buflen, M_TEMP, M_WAITOK | M_ZERO);
-	BRIDGE_LOCK(sc);
+	outbuf = malloc(buflen, M_TEMP, M_NOWAIT | M_ZERO);
+	if (outbuf == NULL)
+		return (ENOMEM);
 
 	count = 0;
 	buf = outbuf;
@@ -1863,9 +1863,9 @@ bridge_ioctl_gifsstp(struct bridge_softc *sc, void *arg)
 		return (0);
 	}
 
-	BRIDGE_UNLOCK(sc);
-	outbuf = malloc(buflen, M_TEMP, M_WAITOK | M_ZERO);
-	BRIDGE_LOCK(sc);
+	outbuf = malloc(buflen, M_TEMP, M_NOWAIT | M_ZERO);
+	if (outbuf == NULL)
+		return (ENOMEM);
 
 	count = 0;
 	buf = outbuf;
@@ -2120,17 +2120,20 @@ static int
 bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
     struct rtentry *rt)
 {
+	struct epoch_tracker et;
 	struct ether_header *eh;
 	struct ifnet *dst_if;
 	struct bridge_softc *sc;
 	uint16_t vlan;
 
-	MPASS(in_epoch(net_epoch_preempt));
+	NET_EPOCH_ENTER_ET(et);
 
 	if (m->m_len < ETHER_HDR_LEN) {
 		m = m_pullup(m, ETHER_HDR_LEN);
-		if (m == NULL)
+		if (m == NULL) {
+			NET_EPOCH_EXIT_ET(et);
 			return (0);
+		}
 	}
 
 	eh = mtod(m, struct ether_header *);
@@ -2195,6 +2198,7 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 		}
 		if (used == 0)
 			m_freem(m);
+		NET_EPOCH_EXIT_ET(et);
 		return (0);
 	}
 
@@ -2206,10 +2210,12 @@ sendunicast:
 	bridge_span(sc, m);
 	if ((dst_if->if_drv_flags & IFF_DRV_RUNNING) == 0) {
 		m_freem(m);
+		NET_EPOCH_EXIT_ET(et);
 		return (0);
 	}
 
 	bridge_enqueue(sc, dst_if, m);
+	NET_EPOCH_EXIT_ET(et);
 	return (0);
 }
 
@@ -2396,6 +2402,7 @@ drop:
 static struct mbuf *
 bridge_input(struct ifnet *ifp, struct mbuf *m)
 {
+	struct epoch_tracker et;
 	struct bridge_softc *sc = ifp->if_bridge;
 	struct bridge_iflist *bif, *bif2;
 	struct ifnet *bifp;
@@ -2404,10 +2411,12 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 	uint16_t vlan;
 	int error;
 
-	MPASS(in_epoch(net_epoch_preempt));
+	NET_EPOCH_ENTER_ET(et);
 
-	if ((sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) == 0)
+	if ((sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) == 0) {
+		NET_EPOCH_EXIT_ET(et);
 		return (m);
+	}
 
 	bifp = sc->sc_ifp;
 	vlan = VLANTAGOF(m);
@@ -2424,10 +2433,12 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 		if_inc_counter(bifp, IFCOUNTER_IPACKETS, 1);
 		if_inc_counter(bifp, IFCOUNTER_IBYTES, m->m_pkthdr.len);
 		m_freem(m);
+		NET_EPOCH_EXIT_ET(et);
 		return (NULL);
 	}
 	bif = bridge_lookup_member_if(sc, ifp);
 	if (bif == NULL) {
+		NET_EPOCH_EXIT_ET(et);
 		return (m);
 	}
 
@@ -2440,11 +2451,13 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 		if (memcmp(eh->ether_dhost, bstp_etheraddr,
 		    ETHER_ADDR_LEN) == 0) {
 			bstp_input(&bif->bif_stp, ifp, m); /* consumes mbuf */
+			NET_EPOCH_EXIT_ET(et);
 			return (NULL);
 		}
 
 		if ((bif->bif_flags & IFBIF_STP) &&
 		    bif->bif_stp.bp_state == BSTP_IFSTATE_DISCARDING) {
+			NET_EPOCH_EXIT_ET(et);
 			return (m);
 		}
 
@@ -2455,6 +2468,7 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 		 */
 		mc = m_dup(m, M_NOWAIT);
 		if (mc == NULL) {
+			NET_EPOCH_EXIT_ET(et);
 			return (m);
 		}
 
@@ -2481,11 +2495,13 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 		}
 
 		/* Return the original packet for local processing. */
+		NET_EPOCH_EXIT_ET(et);
 		return (m);
 	}
 
 	if ((bif->bif_flags & IFBIF_STP) &&
 	    bif->bif_stp.bp_state == BSTP_IFSTATE_DISCARDING) {
+		NET_EPOCH_EXIT_ET(et);
 		return (m);
 	}
 
@@ -2535,10 +2551,12 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 			    vlan, bif, 0, IFBAF_DYNAMIC);		\
 			if (error && bif->bif_addrmax) {		\
 				m_freem(m);				\
+				NET_EPOCH_EXIT_ET(et);			\
 				return (NULL);				\
 			}						\
 		}							\
 		m->m_pkthdr.rcvif = iface;				\
+		NET_EPOCH_EXIT_ET(et);					\
 		return (m);						\
 	}								\
 									\
@@ -2547,6 +2565,7 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 	    OR_CARP_CHECK_WE_ARE_SRC((iface))			\
 	    ) {								\
 		m_freem(m);						\
+		NET_EPOCH_EXIT_ET(et);					\
 		return (NULL);						\
 	}
 
@@ -2577,6 +2596,7 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 	/* Perform the bridge forwarding function. */
 	bridge_forward(sc, bif, m);
 
+	NET_EPOCH_EXIT_ET(et);
 	return (NULL);
 }
 
