@@ -186,7 +186,7 @@ key_from_base64(uint8_t key[static WG_KEY_LEN], const char *base64)
 {
 
 	if (strlen(base64) != WG_KEY_LEN_BASE64 - 1) {
-		warnx("bad key len - need %d got %lu\n", WG_KEY_LEN_BASE64 - 1, strlen(base64));
+		warnx("bad key len - need %d got %zu\n", WG_KEY_LEN_BASE64 - 1, strlen(base64));
 		return false;
 	}
 	if (base64[WG_KEY_LEN_BASE64 - 2] != '=') {
