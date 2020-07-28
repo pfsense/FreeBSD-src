@@ -1104,7 +1104,9 @@ static bool __init poly1305_selftest(void)
 	}
 	simd_put(&simd_context);
 	if (simd_context.sc_fpu_ctx) {
+#if defined(__amd64__)
 		fpu_kern_free_ctx(simd_context.sc_fpu_ctx);
+#endif
 	}
 	return success;
 }
