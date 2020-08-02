@@ -102,6 +102,7 @@ device		vte
 options		IPFIREWALL_DEFAULT_TO_ACCEPT
 options		IPFIREWALL_VERBOSE
 options		IPSTEALTH
+options		IPFIREWALL_NAT64
 
 # Netgraph
 options		NETGRAPH		#netgraph(4) system
