@@ -1,7 +1,7 @@
 include		GENERIC
 
 nooptions	KDB_TRACE
-options		DDB
+options 	DDB
 
 ident		pfSense
 
@@ -11,15 +11,15 @@ nooptions	COMPAT_FREEBSD5	# Compatible with FreeBSD5
 nooptions	COMPAT_FREEBSD6	# Compatible with FreeBSD6
 nooptions	COMPAT_FREEBSD7	# Compatible with FreeBSD7
 
-options		GEOM_MIRROR
-options		GEOM_UZIP
-options		GEOM_ELI
-options		GEOM_BDE
+options 	GEOM_MIRROR
+options 	GEOM_UZIP
+options 	GEOM_ELI
+options 	GEOM_BDE
 
-options		TMPFS
-options		UNIONFS
-options		NULLFS
-options		PPS_SYNC
+options 	TMPFS
+options 	UNIONFS
+options 	NULLFS
+options 	PPS_SYNC
 
 # Wireless
 nooptions	IEEE80211_DEBUG	# enable debug msgs
@@ -90,7 +90,7 @@ device		sbp		# SCSI over FireWire (Requires scbus and da)
 device		xz
 
 # Required by athp
-options		ALQ
+options 	ALQ
 
 device		gre
 device		if_bridge
@@ -99,65 +99,65 @@ device		lagg
 device		vte
 
 # IP/IPFW
-options		IPFIREWALL_DEFAULT_TO_ACCEPT
-options		IPFIREWALL_VERBOSE
-options		IPSTEALTH
+options 	IPFIREWALL_DEFAULT_TO_ACCEPT
+options 	IPFIREWALL_VERBOSE
+options 	IPSTEALTH
 
 # Netgraph
-options		NETGRAPH		#netgraph(4) system
-options		NETGRAPH_VLAN
-options		NETGRAPH_L2TP
-options		NETGRAPH_BPF
-options		NETGRAPH_ETF
-options		NETGRAPH_ETHER
-options		NETGRAPH_IFACE
-options		NETGRAPH_EIFACE
-options		NETGRAPH_PPP
-options		NETGRAPH_PPPOE
-options		NETGRAPH_PPTPGRE
-options		NETGRAPH_RFC1490
-options		NETGRAPH_SOCKET
-options		NETGRAPH_TTY
-options		NETGRAPH_MPPC_ENCRYPTION
-options		NETGRAPH_UI
-options		NETGRAPH_VJC
-options		NETGRAPH_KSOCKET
-options		NETGRAPH_LMI
-options		NETGRAPH_ONE2MANY
-options		NETGRAPH_BRIDGE
-options		NETGRAPH_CISCO
-options		NETGRAPH_ECHO
-options		NETGRAPH_ASYNC
-options		NETGRAPH_FRAME_RELAY
-options		NETGRAPH_HOLE
-options		NETGRAPH_TEE
-options		NETGRAPH_TCPMSS
-options		NETGRAPH_PIPE
-options		NETGRAPH_CAR
-options		NETGRAPH_DEFLATE
-options		NETGRAPH_PRED1
+options 	NETGRAPH		#netgraph(4) system
+options 	NETGRAPH_VLAN
+options 	NETGRAPH_L2TP
+options 	NETGRAPH_BPF
+options 	NETGRAPH_ETF
+options 	NETGRAPH_ETHER
+options 	NETGRAPH_IFACE
+options 	NETGRAPH_EIFACE
+options 	NETGRAPH_PPP
+options 	NETGRAPH_PPPOE
+options 	NETGRAPH_PPTPGRE
+options 	NETGRAPH_RFC1490
+options 	NETGRAPH_SOCKET
+options 	NETGRAPH_TTY
+options 	NETGRAPH_MPPC_ENCRYPTION
+options 	NETGRAPH_UI
+options 	NETGRAPH_VJC
+options 	NETGRAPH_KSOCKET
+options 	NETGRAPH_LMI
+options 	NETGRAPH_ONE2MANY
+options 	NETGRAPH_BRIDGE
+options 	NETGRAPH_CISCO
+options 	NETGRAPH_ECHO
+options 	NETGRAPH_ASYNC
+options 	NETGRAPH_FRAME_RELAY
+options 	NETGRAPH_HOLE
+options 	NETGRAPH_TEE
+options 	NETGRAPH_TCPMSS
+options 	NETGRAPH_PIPE
+options 	NETGRAPH_CAR
+options 	NETGRAPH_DEFLATE
+options 	NETGRAPH_PRED1
 
 # IPSEC
-options		TCP_SIGNATURE
+options 	TCP_SIGNATURE
 device		enc
 
 # ALTQ
-options		ALTQ
-options		ALTQ_CBQ
-options		ALTQ_RED
-options		ALTQ_RIO
-options		ALTQ_HFSC
-options		ALTQ_PRIQ
-options		ALTQ_FAIRQ
-options		ALTQ_NOPCC
-options		ALTQ_CODEL
+options 	ALTQ
+options 	ALTQ_CBQ
+options 	ALTQ_RED
+options 	ALTQ_RIO
+options 	ALTQ_HFSC
+options 	ALTQ_PRIQ
+options 	ALTQ_FAIRQ
+options 	ALTQ_NOPCC
+options 	ALTQ_CODEL
 
 # Squid related settings
-options		MSGMNB=8192	# max # of bytes in a queue
-options		MSGMNI=40	# number of message queue identifiers
-options		MSGSEG=512	# number of message segments per queue
-options		MSGSSZ=32	# size of a message segment
-options		MSGTQL=2048	# max messages in system
+options 	MSGMNB=8192	# max # of bytes in a queue
+options 	MSGMNI=40	# number of message queue identifiers
+options 	MSGSEG=512	# number of message segments per queue
+options 	MSGSSZ=32	# size of a message segment
+options 	MSGTQL=2048	# max messages in system
 
 device		pf
 device		pflog
@@ -165,16 +165,16 @@ device		pfsync
 
 device		rndtest		# FIPS 140-2 entropy tester
 device		hifn		# Hifn 7951, 7781, etc.
-options		HIFN_DEBUG	# enable debugging support: hw.hifn.debug
-options		HIFN_RNDTEST	# enable rndtest support
+options 	HIFN_DEBUG	# enable debugging support: hw.hifn.debug
+options 	HIFN_RNDTEST	# enable rndtest support
 device		ubsec		# Broadcom 5501, 5601, 58xx
 device		safe		# safe -- SafeNet crypto accelerator
 device		padlock
 
 device		speaker
 
-options		MROUTING
-options		RADIX_MPATH
+options 	MROUTING
+options 	RADIX_MPATH
 
 # Additional cards
 device		mxge		# mxge - Myricom Myri10GE 10 Gigabit Ethernet adapter driver
@@ -193,10 +193,10 @@ device		qlxgb		# QLogic 10 Gigabit Ethernet adapter driver
 options 	COMPAT_LINUXKPI
 
 # Required by mlx5en
-options		RATELIMIT		# TX rate limiting support
+options 	RATELIMIT		# TX rate limiting support
 
 # Default serial speed
-options		CONSPEED=115200
+options 	CONSPEED=115200
 
 # Enable gpioapu
 #device		gpioapu
