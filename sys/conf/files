@@ -740,6 +740,7 @@ dev/acpica/Osd/OsdSynch.c	optional acpi
 dev/acpica/Osd/OsdTable.c	optional acpi
 dev/acpica/acpi.c		optional acpi
 dev/acpica/acpi_acad.c		optional acpi
+dev/acpica/acpi_apei.c		optional acpi
 dev/acpica/acpi_battery.c	optional acpi
 dev/acpica/acpi_button.c	optional acpi
 dev/acpica/acpi_cmbat.c		optional acpi
@@ -3437,6 +3438,7 @@ dev/usb/serial/usb_serial.c 	optional ucom | u3g | uark | ubsa | ubser | \
 #
 # USB misc drivers
 #
+dev/usb/misc/cp2112.c		optional cp2112
 dev/usb/misc/ufm.c		optional ufm
 dev/usb/misc/udbp.c		optional udbp
 dev/usb/misc/ugold.c		optional ugold
@@ -4070,6 +4072,7 @@ kgssapi/gsstest.c		optional kgssapi_debug
 # the file should be moved to conf/files.<arch> from here.
 #
 libkern/arc4random.c		standard
+libkern/arc4random_uniform.c	standard
 crypto/chacha20/chacha.c	standard
 libkern/asprintf.c		standard
 libkern/bcd.c			standard

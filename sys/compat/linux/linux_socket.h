@@ -109,16 +109,6 @@ struct l_cmsghdr {
 #define CMSG_HDRSZ		CMSG_LEN(0)
 #define L_CMSG_HDRSZ		LINUX_CMSG_LEN(0)
 
-/* Supported address families */
-
-#define	LINUX_AF_UNSPEC		0
-#define	LINUX_AF_UNIX		1
-#define	LINUX_AF_INET		2
-#define	LINUX_AF_AX25		3
-#define	LINUX_AF_IPX		4
-#define	LINUX_AF_APPLETALK	5
-#define	LINUX_AF_INET6		10
-
 /* Supported socket types */
 
 #define	LINUX_SOCK_STREAM	1
@@ -176,12 +166,6 @@ int linux_accept(struct thread *td, struct linux_accept_args *args);
 
 /* Socket defines */
 #define	LINUX_SOL_SOCKET	1
-#define	LINUX_SOL_IP		0
-#define	LINUX_SOL_TCP		6
-#define	LINUX_SOL_UDP		17
-#define	LINUX_SOL_IPV6		41
-#define	LINUX_SOL_IPX		256
-#define	LINUX_SOL_AX25		257
 
 #define	LINUX_SO_DEBUG		1
 #define	LINUX_SO_REUSEADDR	2
@@ -196,6 +180,7 @@ int linux_accept(struct thread *td, struct linux_accept_args *args);
 #define	LINUX_SO_NO_CHECK	11
 #define	LINUX_SO_PRIORITY	12
 #define	LINUX_SO_LINGER		13
+#define	LINUX_SO_REUSEPORT	15
 #ifndef LINUX_SO_PASSCRED	/* powerpc differs */
 #define	LINUX_SO_PASSCRED	16
 #define	LINUX_SO_PEERCRED	17
@@ -206,12 +191,16 @@ int linux_accept(struct thread *td, struct linux_accept_args *args);
 #endif
 #define	LINUX_SO_TIMESTAMP	29
 #define	LINUX_SO_ACCEPTCONN	30
+#define	LINUX_SO_SNDBUFFORCE	32
+#define	LINUX_SO_RCVBUFFORCE	33
+#define	LINUX_SO_PROTOCOL	38
 
 /* Socket options */
 #define	LINUX_IP_TOS		1
 #define	LINUX_IP_TTL		2
 #define	LINUX_IP_HDRINCL	3
 #define	LINUX_IP_OPTIONS	4
+#define	LINUX_IP_RECVERR	11
 
 #define	LINUX_IP_MULTICAST_IF		32
 #define	LINUX_IP_MULTICAST_TTL		33
@@ -246,6 +235,7 @@ int linux_accept(struct thread *td, struct linux_accept_args *args);
 
 #define	LINUX_TCP_NODELAY	1
 #define	LINUX_TCP_MAXSEG	2
+#define	LINUX_TCP_CORK		3
 #define	LINUX_TCP_KEEPIDLE	4
 #define	LINUX_TCP_KEEPINTVL	5
 #define	LINUX_TCP_KEEPCNT	6

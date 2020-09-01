@@ -41,8 +41,8 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/gtaskqueue.h>
 #include <sys/kernel.h>
+#include <sys/ktr.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/protosw.h>
@@ -50,7 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
 #include <sys/priv.h>
-#include <sys/ktr.h>
+#include <sys/taskqueue.h>
 #include <sys/tree.h>
 
 #include <net/if.h>
@@ -58,7 +58,6 @@ __FBSDID("$FreeBSD$");
 #include <net/if_dl.h>
 #include <net/route.h>
 #include <net/vnet.h>
-
 
 #include <netinet/in.h>
 #include <netinet/udp.h>
@@ -510,23 +509,14 @@ in6m_release(struct in6_multi *inm)
 	}
 }
 
-static struct grouptask free_gtask;
-static struct in6_multi_head in6m_free_list;
-static void in6m_release_task(void *arg __unused);
-static void in6m_init(void)
-{
-	SLIST_INIT(&in6m_free_list);
-	taskqgroup_config_gtask_init(NULL, &free_gtask, in6m_release_task, "in6m release task");
-}
-
-#ifdef EARLY_AP_STARTUP
-SYSINIT(in6m_init, SI_SUB_SMP + 1, SI_ORDER_FIRST,
-	in6m_init, NULL);
-#else
-SYSINIT(in6m_init, SI_SUB_ROOT_CONF - 1, SI_ORDER_SECOND,
-	in6m_init, NULL);
-#endif
-
+/*
+ * Interface detach can happen in a taskqueue thread context, so we must use a
+ * dedicated thread to avoid deadlocks when draining in6m_release tasks.
+ */
+TASKQUEUE_DEFINE_THREAD(in6m_free);
+static struct in6_multi_head in6m_free_list = SLIST_HEAD_INITIALIZER();
+static void in6m_release_task(void *arg __unused, int pending __unused);
+static struct task in6m_free_task = TASK_INITIALIZER(0, in6m_release_task, NULL);
 
 void
 in6m_release_list_deferred(struct in6_multi_head *inmh)
@@ -536,16 +526,22 @@ in6m_release_list_deferred(struct in6_multi_head *inmh)
 	mtx_lock(&in6_multi_free_mtx);
 	SLIST_CONCAT(&in6m_free_list, inmh, in6_multi, in6m_nrele);
 	mtx_unlock(&in6_multi_free_mtx);
-	GROUPTASK_ENQUEUE(&free_gtask);
+	taskqueue_enqueue(taskqueue_in6m_free, &in6m_free_task);
 }
 
 void
-in6m_release_wait(void)
+in6m_release_wait(void *arg __unused)
 {
 
-	/* Wait for all jobs to complete. */
-	gtaskqueue_drain_all(free_gtask.gt_taskqueue);
+	/*
+	 * Make sure all pending multicast addresses are freed before
+	 * the VNET or network device is destroyed:
+	 */
+	taskqueue_drain_all(taskqueue_in6m_free);
 }
+#ifdef VIMAGE
+VNET_SYSUNINIT(in6m_release_wait, SI_SUB_PROTO_DOMAIN, SI_ORDER_FIRST, in6m_release_wait, NULL);
+#endif
 
 void
 in6m_disconnect_locked(struct in6_multi_head *inmh, struct in6_multi *inm)
@@ -604,7 +600,7 @@ in6m_disconnect_locked(struct in6_multi_head *inmh, struct in6_multi *inm)
 }
 
 static void
-in6m_release_task(void *arg __unused)
+in6m_release_task(void *arg __unused, int pending __unused)
 {
 	struct in6_multi_head in6m_free_tmp;
 	struct in6_multi *inm, *tinm;
@@ -1818,31 +1814,27 @@ ip6_getmoptions(struct inpcb *inp, struct sockopt *sopt)
  *
  * This routine exists to support legacy IPv6 multicast applications.
  *
- * If inp is non-NULL, use this socket's current FIB number for any
- * required FIB lookup. Look up the group address in the unicast FIB,
- * and use its ifp; usually, this points to the default next-hop.
- * If the FIB lookup fails, return NULL.
+ * Use the socket's current FIB number for any required FIB lookup. Look up the
+ * group address in the unicast FIB, and use its ifp; usually, this points to
+ * the default next-hop.  If the FIB lookup fails, return NULL.
  *
  * FUTURE: Support multiple forwarding tables for IPv6.
  *
  * Returns NULL if no ifp could be found.
  */
 static struct ifnet *
-in6p_lookup_mcast_ifp(const struct inpcb *inp,
-    const struct sockaddr_in6 *gsin6)
+in6p_lookup_mcast_ifp(const struct inpcb *inp, const struct sockaddr_in6 *gsin6)
 {
 	struct nhop6_basic	nh6;
 	struct in6_addr		dst;
 	uint32_t		scopeid;
 	uint32_t		fibnum;
 
-	KASSERT(inp->inp_vflag & INP_IPV6,
-	    ("%s: not INP_IPV6 inpcb", __func__));
 	KASSERT(gsin6->sin6_family == AF_INET6,
 	    ("%s: not AF_INET6 group", __func__));
 
 	in6_splitscope(&gsin6->sin6_addr, &dst, &scopeid);
-	fibnum = inp ? inp->inp_inc.inc_fibnum : RT_DEFAULT_FIB;
+	fibnum = inp->inp_inc.inc_fibnum;
 	if (fib6_lookup_nh_basic(fibnum, &dst, scopeid, 0, 0, &nh6) != 0)
 		return (NULL);
 

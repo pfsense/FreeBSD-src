@@ -1310,8 +1310,9 @@
 		    u_char *vec
 		);
 	}
-233	AUE_MADVISE	NOPROTO	{
-		int madvise(void *addr,
+233	AUE_MADVISE	STD	{
+		int linux_madvise(
+		    void *addr,
 		    size_t len,
 		    int behav
 		);
@@ -1464,9 +1465,9 @@
 	}
 276	AUE_NULL	STD	{
 		int linux_renameat2(
-		    l_int oldfd,
+		    l_int olddfd,
 		    const char *oldname,
-		    l_int newfd,
+		    l_int newdfd,
 		    const char *newname,
 		    unsigned int flags
 		);

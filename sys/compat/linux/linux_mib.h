@@ -46,9 +46,9 @@ int	linux_get_oss_version(struct thread *td);
 
 int	linux_kernver(struct thread *td);
 
-#define	LINUX_KVERSION		2
-#define	LINUX_KPATCHLEVEL	6
-#define	LINUX_KSUBLEVEL		36
+#define	LINUX_KVERSION		3
+#define	LINUX_KPATCHLEVEL	2
+#define	LINUX_KSUBLEVEL		0
 
 #define	LINUX_KERNVER(a,b,c)	(((a) << 16) + ((b) << 8) + (c))
 #define	LINUX_VERSION_CODE	LINUX_KERNVER(LINUX_KVERSION,		\
@@ -61,5 +61,11 @@ int	linux_kernver(struct thread *td);
 #define	LINUX_KERNVER_2006000	LINUX_KERNVER(2,6,0)
 
 #define	linux_use26(t)		(linux_kernver(t) >= LINUX_KERNVER_2006000)
+
+extern int linux_debug;
+extern int linux_default_openfiles;
+extern int linux_ignore_ip_recverr;
+extern int linux_preserve_vstatus;
+extern bool linux_map_sched_prio;
 
 #endif /* _LINUX_MIB_H_ */

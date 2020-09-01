@@ -51,18 +51,13 @@ __FBSDID("$FreeBSD$");
 #include <arm64/linux/linux_proto.h>
 #include <compat/linux/linux_dtrace.h>
 #include <compat/linux/linux_emul.h>
-#include <compat/linux/linux_futex.h>
 #include <compat/linux/linux_ioctl.h>
 #include <compat/linux/linux_mib.h>
 #include <compat/linux/linux_misc.h>
+#include <compat/linux/linux_util.h>
 #include <compat/linux/linux_vdso.h>
 
 MODULE_VERSION(linux64elf, 1);
-
-#if defined(DEBUG)
-SYSCTL_PROC(_compat_linux, OID_AUTO, debug, CTLTYPE_STRING | CTLFLAG_RW, 0, 0,
-    linux_sysctl_debug, "A", "64-bit Linux debugging control");
-#endif
 
 const char *linux_kplatform;
 static int linux_szsigcode;
@@ -472,7 +467,7 @@ static Elf64_Brandinfo linux_glibc2brand = {
 	.brand		= ELFOSABI_LINUX,
 	.machine	= EM_AARCH64,
 	.compat_3_brand	= "Linux",
-	.emul_path	= "/compat/linux",
+	.emul_path	= linux_emul_path,
 	.interp_path	= "/lib64/ld-linux-x86-64.so.2",
 	.sysvec		= &elf_linux_sysvec,
 	.interp_newpath	= NULL,
@@ -502,8 +497,6 @@ linux64_elf_modevent(module_t mod, int type, void *data)
 		if (error == 0) {
 			SET_FOREACH(lihp, linux_ioctl_handler_set)
 				linux_ioctl_register_handler(*lihp);
-			LIST_INIT(&futex_list);
-			mtx_init(&futex_mtx, "ftllk64", NULL, MTX_DEF);
 			stclohz = (stathz ? stathz : hz);
 			if (bootverbose)
 				printf("Linux arm64 ELF exec handler installed\n");
@@ -523,7 +516,6 @@ linux64_elf_modevent(module_t mod, int type, void *data)
 		if (error == 0) {
 			SET_FOREACH(lihp, linux_ioctl_handler_set)
 				linux_ioctl_unregister_handler(*lihp);
-			mtx_destroy(&futex_mtx);
 			if (bootverbose)
 				printf("Linux ELF exec handler removed\n");
 		} else

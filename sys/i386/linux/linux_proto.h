@@ -681,6 +681,11 @@ struct linux_mincore_args {
 	char len_l_[PADL_(l_size_t)]; l_size_t len; char len_r_[PADR_(l_size_t)];
 	char vec_l_[PADL_(u_char *)]; u_char * vec; char vec_r_[PADR_(u_char *)];
 };
+struct linux_madvise_args {
+	char addr_l_[PADL_(void *)]; void * addr; char addr_r_[PADR_(void *)];
+	char len_l_[PADL_(size_t)]; size_t len; char len_r_[PADR_(size_t)];
+	char behav_l_[PADL_(int)]; int behav; char behav_r_[PADR_(int)];
+};
 struct linux_getdents64_args {
 	char fd_l_[PADL_(l_uint)]; l_uint fd; char fd_r_[PADR_(l_uint)];
 	char dirent_l_[PADL_(void *)]; void * dirent; char dirent_r_[PADR_(void *)];
@@ -1053,7 +1058,9 @@ struct linux_move_pages_args {
 	register_t dummy;
 };
 struct linux_getcpu_args {
-	register_t dummy;
+	char cpu_l_[PADL_(l_uint *)]; l_uint * cpu; char cpu_r_[PADR_(l_uint *)];
+	char node_l_[PADL_(l_uint *)]; l_uint * node; char node_r_[PADR_(l_uint *)];
+	char cache_l_[PADL_(void *)]; void * cache; char cache_r_[PADR_(void *)];
 };
 struct linux_epoll_pwait_args {
 	char epfd_l_[PADL_(l_int)]; l_int epfd; char epfd_r_[PADR_(l_int)];
@@ -1220,9 +1227,9 @@ struct linux_sched_getattr_args {
 	char flags_l_[PADL_(l_uint)]; l_uint flags; char flags_r_[PADR_(l_uint)];
 };
 struct linux_renameat2_args {
-	char oldfd_l_[PADL_(l_int)]; l_int oldfd; char oldfd_r_[PADR_(l_int)];
+	char olddfd_l_[PADL_(l_int)]; l_int olddfd; char olddfd_r_[PADR_(l_int)];
 	char oldname_l_[PADL_(const char *)]; const char * oldname; char oldname_r_[PADR_(const char *)];
-	char newfd_l_[PADL_(l_int)]; l_int newfd; char newfd_r_[PADR_(l_int)];
+	char newdfd_l_[PADL_(l_int)]; l_int newdfd; char newdfd_r_[PADR_(l_int)];
 	char newname_l_[PADL_(const char *)]; const char * newname; char newname_r_[PADR_(const char *)];
 	char flags_l_[PADL_(unsigned int)]; unsigned int flags; char flags_r_[PADR_(unsigned int)];
 };
@@ -1688,6 +1695,7 @@ int	linux_setfsuid(struct thread *, struct linux_setfsuid_args *);
 int	linux_setfsgid(struct thread *, struct linux_setfsgid_args *);
 int	linux_pivot_root(struct thread *, struct linux_pivot_root_args *);
 int	linux_mincore(struct thread *, struct linux_mincore_args *);
+int	linux_madvise(struct thread *, struct linux_madvise_args *);
 int	linux_getdents64(struct thread *, struct linux_getdents64_args *);
 int	linux_fcntl64(struct thread *, struct linux_fcntl64_args *);
 int	linux_gettid(struct thread *, struct linux_gettid_args *);
@@ -2077,6 +2085,7 @@ int	linux_io_uring_register(struct thread *, struct linux_io_uring_register_args
 #define	LINUX_SYS_AUE_linux_setfsgid	AUE_SETFSGID
 #define	LINUX_SYS_AUE_linux_pivot_root	AUE_PIVOT_ROOT
 #define	LINUX_SYS_AUE_linux_mincore	AUE_MINCORE
+#define	LINUX_SYS_AUE_linux_madvise	AUE_MADVISE
 #define	LINUX_SYS_AUE_linux_getdents64	AUE_GETDIRENTRIES
 #define	LINUX_SYS_AUE_linux_fcntl64	AUE_FCNTL
 #define	LINUX_SYS_AUE_linux_gettid	AUE_NULL

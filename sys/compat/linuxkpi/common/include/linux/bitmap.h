@@ -30,6 +30,7 @@
 #define	_LINUX_BITMAP_H_
 
 #include <linux/bitops.h>
+#include <linux/slab.h>
 
 static inline void
 bitmap_zero(unsigned long *addr, const unsigned int size)
@@ -243,6 +244,28 @@ bitmap_equal(const unsigned long *pa,
 	return (1);
 }
 
+static inline int
+bitmap_subset(const unsigned long *pa,
+    const unsigned long *pb, unsigned size)
+{
+	const unsigned end = BIT_WORD(size);
+	const unsigned tail = size & (BITS_PER_LONG - 1);
+	unsigned i;
+
+	for (i = 0; i != end; i++) {
+		if (pa[i] & ~pb[i])
+			return (0);
+	}
+
+	if (tail) {
+		const unsigned long mask = BITMAP_LAST_WORD_MASK(tail);
+
+		if (pa[end] & ~pb[end] & mask)
+			return (0);
+	}
+	return (1);
+}
+
 static inline void
 bitmap_complement(unsigned long *dst, const unsigned long *src,
     const unsigned int size)
@@ -252,6 +275,17 @@ bitmap_complement(unsigned long *dst, const unsigned long *src,
 
 	for (i = 0; i != end; i++)
 		dst[i] = ~src[i];
+}
+
+static inline void
+bitmap_copy(unsigned long *dst, const unsigned long *src,
+    const unsigned int size)
+{
+	const unsigned int end = BITS_TO_LONGS(size);
+	unsigned int i;
+
+	for (i = 0; i != end; i++)
+		dst[i] = src[i];
 }
 
 static inline void
@@ -277,6 +311,17 @@ bitmap_and(unsigned long *dst, const unsigned long *src1,
 }
 
 static inline void
+bitmap_andnot(unsigned long *dst, const unsigned long *src1,
+    const unsigned long *src2, const unsigned int size)
+{
+	const unsigned int end = BITS_TO_LONGS(size);
+	unsigned int i;
+
+	for (i = 0; i != end; i++)
+		dst[i] = src1[i] & ~src2[i];
+}
+
+static inline void
 bitmap_xor(unsigned long *dst, const unsigned long *src1,
     const unsigned long *src2, const unsigned int size)
 {
@@ -285,6 +330,25 @@ bitmap_xor(unsigned long *dst, const unsigned long *src1,
 
 	for (i = 0; i != end; i++)
 		dst[i] = src1[i] ^ src2[i];
+}
+
+static inline unsigned long *
+bitmap_alloc(unsigned int size, gfp_t flags)
+{
+	return (kmalloc_array(BITS_TO_LONGS(size),
+	    sizeof(unsigned long), flags));
+}
+
+static inline unsigned long *
+bitmap_zalloc(unsigned int size, gfp_t flags)
+{
+	return (bitmap_alloc(size, flags | __GFP_ZERO));
+}
+
+static inline void
+bitmap_free(const unsigned long *bitmap)
+{
+	kfree(bitmap);
 }
 
 #endif					/* _LINUX_BITMAP_H_ */

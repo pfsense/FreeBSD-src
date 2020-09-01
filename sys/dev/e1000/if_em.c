@@ -1330,6 +1330,11 @@ em_if_init(if_ctx_t ctx)
 			ctrl |= E1000_CTRL_VME;
 			E1000_WRITE_REG(&adapter->hw, E1000_CTRL, ctrl);
 		}
+	} else {
+		u32 ctrl;
+		ctrl = E1000_READ_REG(&adapter->hw, E1000_CTRL);
+		ctrl &= ~E1000_CTRL_VME;
+		E1000_WRITE_REG(&adapter->hw, E1000_CTRL, ctrl);
 	}
 
 	/* Don't lose promiscuous settings */
@@ -4042,7 +4047,6 @@ em_if_needs_restart(if_ctx_t ctx __unused, enum iflib_restart_event event)
 {
 	switch (event) {
 	case IFLIB_RESTART_VLAN_CONFIG:
-		return (false);
 	default:
 		return (true);
 	}

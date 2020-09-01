@@ -695,6 +695,7 @@ static int sysctl_ulprx_la(SYSCTL_HANDLER_ARGS);
 static int sysctl_wcwr_stats(SYSCTL_HANDLER_ARGS);
 static int sysctl_cpus(SYSCTL_HANDLER_ARGS);
 #ifdef TCP_OFFLOAD
+static int sysctl_tls(SYSCTL_HANDLER_ARGS);
 static int sysctl_tls_rx_ports(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_tick(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_dack_timer(SYSCTL_HANDLER_ARGS);
@@ -1296,6 +1297,7 @@ t4_attach(device_t dev)
 		pi->nvi = num_vis;
 		for_each_vi(pi, j, vi) {
 			vi->pi = pi;
+			vi->adapter = sc;
 			vi->qsize_rxq = t4_qsize_rxq;
 			vi->qsize_txq = t4_qsize_txq;
 
@@ -1694,7 +1696,7 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 		ifp->if_capabilities |= IFCAP_TOE;
 #endif
 #ifdef RATELIMIT
-	if (is_ethoffload(vi->pi->adapter) && vi->nofldtxq != 0) {
+	if (is_ethoffload(vi->adapter) && vi->nofldtxq != 0) {
 		ifp->if_capabilities |= IFCAP_TXRTLMT;
 		ifp->if_capenable |= IFCAP_TXRTLMT;
 	}
@@ -1705,7 +1707,7 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	ifp->if_hw_tsomax = IP_MAXPACKET;
 	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_TSO;
 #ifdef RATELIMIT
-	if (is_ethoffload(vi->pi->adapter) && vi->nofldtxq != 0)
+	if (is_ethoffload(vi->adapter) && vi->nofldtxq != 0)
 		ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_EO_TSO;
 #endif
 	ifp->if_hw_tsomaxsegsize = 65536;
@@ -1833,7 +1835,7 @@ static void
 cxgbe_init(void *arg)
 {
 	struct vi_info *vi = arg;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 
 	if (begin_synchronized_op(sc, vi, SLEEP_OK | INTR_OK, "t4init") != 0)
 		return;
@@ -2105,7 +2107,7 @@ cxgbe_transmit(struct ifnet *ifp, struct mbuf *m)
 		    vi->rsrv_noflowq);
 
 	items[0] = m;
-	rc = mp_ring_enqueue(txq->r, items, 1, 4096);
+	rc = mp_ring_enqueue(txq->r, items, 1, 256);
 	if (__predict_false(rc != 0))
 		m_freem(m);
 
@@ -2126,7 +2128,7 @@ cxgbe_qflush(struct ifnet *ifp)
 			txq->eq.flags |= EQ_QFLUSH;
 			TXQ_UNLOCK(txq);
 			while (!mp_ring_is_idle(txq->r)) {
-				mp_ring_check_drainage(txq->r, 0);
+				mp_ring_check_drainage(txq->r, 4096);
 				pause("qflush", 1);
 			}
 			TXQ_LOCK(txq);
@@ -2143,7 +2145,7 @@ vi_get_counter(struct ifnet *ifp, ift_counter c)
 	struct vi_info *vi = ifp->if_softc;
 	struct fw_vi_stats_vf *s = &vi->stats;
 
-	vi_refresh_stats(vi->pi->adapter, vi);
+	vi_refresh_stats(vi->adapter, vi);
 
 	switch (c) {
 	case IFCOUNTER_IPACKETS:
@@ -2175,7 +2177,7 @@ vi_get_counter(struct ifnet *ifp, ift_counter c)
 			struct sge_txq *txq;
 
 			for_each_txq(vi, i, txq)
-				drops += counter_u64_fetch(txq->r->drops);
+				drops += counter_u64_fetch(txq->r->dropped);
 		}
 
 		return (drops);
@@ -2240,7 +2242,7 @@ cxgbe_get_counter(struct ifnet *ifp, ift_counter c)
 			struct sge_txq *txq;
 
 			for_each_txq(vi, i, txq)
-				drops += counter_u64_fetch(txq->r->drops);
+				drops += counter_u64_fetch(txq->r->dropped);
 		}
 
 		return (drops);
@@ -2586,7 +2588,7 @@ vcxgbe_detach(device_t dev)
 	struct adapter *sc;
 
 	vi = device_get_softc(dev);
-	sc = vi->pi->adapter;
+	sc = vi->adapter;
 
 	doom_vi(sc, vi);
 
@@ -4274,6 +4276,13 @@ get_params__post_init(struct adapter *sc)
 	else
 		sc->params.fr_nsmr_tpte_wr_support = false;
 
+	param[0] = FW_PARAM_PFVF(MAX_PKTS_PER_ETH_TX_PKTS_WR);
+	rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 1, param, val);
+	if (rc == 0)
+		sc->params.max_pkts_per_eth_tx_pkts_wr = val[0];
+	else
+		sc->params.max_pkts_per_eth_tx_pkts_wr = 15;
+
 	/* get capabilites */
 	bzero(&caps, sizeof(caps));
 	caps.op_to_write = htobe32(V_FW_CMD_OP(FW_CAPS_CONFIG_CMD) |
@@ -5487,7 +5496,7 @@ hashen_to_hashconfig(int hashen)
 int
 vi_full_init(struct vi_info *vi)
 {
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	struct ifnet *ifp = vi->ifp;
 	uint16_t *rss;
 	struct sge_rxq *rxq;
@@ -5685,7 +5694,7 @@ quiesce_txq(struct adapter *sc, struct sge_txq *txq)
 
 	/* Wait for the mp_ring to empty. */
 	while (!mp_ring_is_idle(txq->r)) {
-		mp_ring_check_drainage(txq->r, 0);
+		mp_ring_check_drainage(txq->r, 4096);
 		pause("rquiesce", 1);
 	}
 
@@ -5917,7 +5926,7 @@ void
 vi_tick(void *arg)
 {
 	struct vi_info *vi = arg;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 
 	vi_refresh_stats(sc, vi);
 
@@ -6293,8 +6302,8 @@ t4_sysctls(struct adapter *sc)
 		    CTLFLAG_RW, &sc->tt.rx_coalesce, 0, "receive coalescing");
 
 		sc->tt.tls = 0;
-		SYSCTL_ADD_INT(ctx, children, OID_AUTO, "tls", CTLFLAG_RW,
-		    &sc->tt.tls, 0, "Inline TLS allowed");
+		SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "tls", CTLTYPE_INT |
+		    CTLFLAG_RW, sc, 0, sysctl_tls, "I", "Inline TLS allowed");
 
 		SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "tls_rx_ports",
 		    CTLTYPE_INT | CTLFLAG_RW, sc, 0, sysctl_tls_rx_ports,
@@ -6855,7 +6864,7 @@ static int
 sysctl_holdoff_tmr_idx(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int idx, rc, i;
 	struct sge_rxq *rxq;
 	uint8_t v;
@@ -6892,7 +6901,7 @@ static int
 sysctl_holdoff_pktc_idx(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int idx, rc;
 
 	idx = vi->pktc_idx;
@@ -6922,7 +6931,7 @@ static int
 sysctl_qsize_rxq(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int qsize, rc;
 
 	qsize = vi->qsize_rxq;
@@ -6952,7 +6961,7 @@ static int
 sysctl_qsize_txq(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int qsize, rc;
 
 	qsize = vi->qsize_txq;
@@ -9364,6 +9373,37 @@ sysctl_cpus(SYSCTL_HANDLER_ARGS)
 
 #ifdef TCP_OFFLOAD
 static int
+sysctl_tls(SYSCTL_HANDLER_ARGS)
+{
+	struct adapter *sc = arg1;
+	int i, j, v, rc;
+	struct vi_info *vi;
+
+	v = sc->tt.tls;
+	rc = sysctl_handle_int(oidp, &v, 0, req);
+	if (rc != 0 || req->newptr == NULL)
+		return (rc);
+
+	if (v != 0 && !(sc->cryptocaps & FW_CAPS_CONFIG_TLSKEYS))
+		return (ENOTSUP);
+
+	rc = begin_synchronized_op(sc, NULL, SLEEP_OK | INTR_OK, "t4stls");
+	if (rc)
+		return (rc);
+	sc->tt.tls = !!v;
+	for_each_port(sc, i) {
+		for_each_vi(sc->port[i], j, vi) {
+			if (vi->flags & VI_INIT_DONE)
+				t4_update_fl_bufsize(vi->ifp);
+		}
+	}
+	end_synchronized_op(sc, 0);
+
+	return (0);
+
+}
+
+static int
 sysctl_tls_rx_ports(SYSCTL_HANDLER_ARGS)
 {
 	struct adapter *sc = arg1;
@@ -9547,7 +9587,7 @@ static int
 sysctl_holdoff_tmr_idx_ofld(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int idx, rc, i;
 	struct sge_ofld_rxq *ofld_rxq;
 	uint8_t v;
@@ -9584,7 +9624,7 @@ static int
 sysctl_holdoff_pktc_idx_ofld(SYSCTL_HANDLER_ARGS)
 {
 	struct vi_info *vi = arg1;
-	struct adapter *sc = vi->pi->adapter;
+	struct adapter *sc = vi->adapter;
 	int idx, rc;
 
 	idx = vi->ofld_pktc_idx;
@@ -9667,10 +9707,6 @@ load_fw(struct adapter *sc, struct t4_data *fw)
 	}
 
 	fw_data = malloc(fw->len, M_CXGBE, M_WAITOK);
-	if (fw_data == NULL) {
-		rc = ENOMEM;
-		goto done;
-	}
 
 	rc = copyin(fw->data, fw_data, fw->len);
 	if (rc == 0)
@@ -9699,10 +9735,6 @@ load_cfg(struct adapter *sc, struct t4_data *cfg)
 	}
 
 	cfg_data = malloc(cfg->len, M_CXGBE, M_WAITOK);
-	if (cfg_data == NULL) {
-		rc = ENOMEM;
-		goto done;
-	}
 
 	rc = copyin(cfg->data, cfg_data, cfg->len);
 	if (rc == 0)
@@ -9748,10 +9780,6 @@ load_boot(struct adapter *sc, struct t4_bootrom *br)
 	}
 
 	br_data = malloc(br->len, M_CXGBE, M_WAITOK);
-	if (br_data == NULL) {
-		rc = ENOMEM;
-		goto done;
-	}
 
 	rc = copyin(br->data, br_data, br->len);
 	if (rc == 0)
@@ -9780,10 +9808,6 @@ load_bootcfg(struct adapter *sc, struct t4_data *bc)
 	}
 
 	bc_data = malloc(bc->len, M_CXGBE, M_WAITOK);
-	if (bc_data == NULL) {
-		rc = ENOMEM;
-		goto done;
-	}
 
 	rc = copyin(bc->data, bc_data, bc->len);
 	if (rc == 0)
@@ -10055,8 +10079,6 @@ clear_stats(struct adapter *sc, u_int port_id)
 				rxq->rxcsum = 0;
 				rxq->vlan_extraction = 0;
 
-				rxq->fl.mbuf_allocated = 0;
-				rxq->fl.mbuf_inlined = 0;
 				rxq->fl.cl_allocated = 0;
 				rxq->fl.cl_recycled = 0;
 				rxq->fl.cl_fast_recycled = 0;
@@ -10085,8 +10107,6 @@ clear_stats(struct adapter *sc, u_int port_id)
 #endif
 #ifdef TCP_OFFLOAD
 			for_each_ofld_rxq(vi, i, ofld_rxq) {
-				ofld_rxq->fl.mbuf_allocated = 0;
-				ofld_rxq->fl.mbuf_inlined = 0;
 				ofld_rxq->fl.cl_allocated = 0;
 				ofld_rxq->fl.cl_recycled = 0;
 				ofld_rxq->fl.cl_fast_recycled = 0;
