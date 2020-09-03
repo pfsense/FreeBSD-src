@@ -1291,7 +1291,7 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 		break;
 	case IPFW_TABLE_MAC2: {
 		char *src, *dst;
-		struct mac_entry *mac;
+		struct mac_entry *m;
 
 		dst = arg;
 		if ((p = strchr(arg, ',')) == NULL)
@@ -1299,10 +1299,10 @@ tentry_fill_key_type(char *arg, ipfw_obj_tentry *tentry, uint8_t type,
 		*p = '\0';
 		src = p + 1;
 
-		mac = (struct mac_entry *)&tentry->k.mac;
-		get_mac_addr_mask(dst, mac->addr, mac->mask); /* dst */
-		get_mac_addr_mask(src, &(mac->addr[ETHER_ADDR_LEN]),
-		    &(mac->mask[ETHER_ADDR_LEN])); /* src */
+		m = (struct mac_entry *)&tentry->k.mac;
+		get_mac_addr_mask(dst, m->addr, m->mask); /* dst */
+		get_mac_addr_mask(src, &(m->addr[ETHER_ADDR_LEN]),
+		    &(m->mask[ETHER_ADDR_LEN])); /* src */
 
 		masklen = ETHER_ADDR_LEN * 8;
 		af = AF_LINK;

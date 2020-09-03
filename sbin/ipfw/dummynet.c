@@ -797,7 +797,7 @@ is_valid_number(const char *s)
 static void
 read_bandwidth(char *arg, uint32_t *bandwidth, char *if_name, int namelen)
 {
-	if (*bandwidth != -1)
+	if (*bandwidth != 0)
 		warnx("duplicate token, override bandwidth value!");
 
 	if (arg[0] >= 'a' && arg[0] <= 'z') {
@@ -1394,7 +1394,7 @@ ipfw_config_pipe(int ac, char **av)
 	 * XXX todo: support reuse of the mask.
 	 */
 	if (p)
-		p->bandwidth = -1;
+		p->bandwidth = 0;
 	for (j = 0; j < sizeof(fs->par)/sizeof(fs->par[0]); j++)
 		fs->par[j] = -1;
 	while (ac > 0) {
@@ -1738,8 +1738,6 @@ end_mask:
 	if (p) {
 		if (p->delay > 10000)
 			errx(EX_DATAERR, "delay must be < 10000");
-		if (p->bandwidth == -1)
-			p->bandwidth = 0;
 	}
 	if (fs) {
 		/* XXX accept a 0 scheduler to keep the default */

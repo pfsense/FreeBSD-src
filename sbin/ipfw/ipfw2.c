@@ -1309,10 +1309,11 @@ format_mac(struct buf_pr *bp, const uint8_t *addr, const uint8_t *mask)
 }
 
 static void
-print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo, ipfw_insn *cmd)
+print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo,
+    const ipfw_insn *cmd)
 {
 	char *t;
-	uint32_t *a = ((ipfw_insn_u32 *)cmd)->d;
+	const uint32_t *a = ((const ipfw_insn_u32 *)cmd)->d;
 
 	t = table_search_ctlv(fo->tstate, cmd->arg1);
 	bprintf(bp, " MAC table(%s", t);
