@@ -2030,6 +2030,8 @@ rtinit1(struct ifaddr *ifa, int cmd, int flags, int fibnum)
 			RIB_RLOCK(rnh);
 			rn = rnh->rnh_lookup(dst, netmask, &rnh->head);
 #ifdef RADIX_MPATH
+			error = 0;
+			rt = NULL;
 			if (rt_mpath_capable(rnh)) {
 
 				if (rn == NULL) 
@@ -2050,9 +2052,11 @@ rtinit1(struct ifaddr *ifa, int cmd, int flags, int fibnum)
 				}
 			}
 #endif
-			error = (rn == NULL ||
+			if (rt == NULL)
+				rt = RNTORT(rn);
+			error = (error != 0 || rn == NULL ||
 			    (rn->rn_flags & RNF_ROOT) ||
-			    RNTORT(rn)->rt_ifa != ifa);
+			    rt->rt_ifa != ifa);
 			RIB_RUNLOCK(rnh);
 			if (error) {
 				/* this is only an error if bad on ALL tables */
