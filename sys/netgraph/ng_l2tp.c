@@ -656,9 +656,9 @@ ng_l2tp_shutdown(node_p node)
 	/* Reset sequence number state */
 	ng_l2tp_seq_reset(priv);
 
-	/* Free private data if neither timer is running */
-	ng_uncallout(&seq->rack_timer, node);
-	ng_uncallout(&seq->xack_timer, node);
+	/* Wait for callouts to finish executing before freeing anything. */
+	callout_drain(&seq->rack_timer);
+	callout_drain(&seq->xack_timer);
 
 	mtx_destroy(&seq->mtx);
 
@@ -1274,6 +1274,8 @@ ng_l2tp_seq_reset(priv_p priv)
 	/* Sanity check */
 	L2TP_SEQ_CHECK(seq);
 
+	mtx_lock(&seq->mtx);
+
 	/* Stop timers */
 	ng_uncallout(&seq->rack_timer, priv->node);
 	ng_uncallout(&seq->xack_timer, priv->node);
@@ -1299,6 +1301,8 @@ ng_l2tp_seq_reset(priv_p priv)
 	seq->acks = 0;
 	seq->rexmits = 0;
 	bzero(seq->xwin, sizeof(seq->xwin));
+
+	mtx_unlock(&seq->mtx);
 
 	/* Done */
 	L2TP_SEQ_CHECK(seq);
