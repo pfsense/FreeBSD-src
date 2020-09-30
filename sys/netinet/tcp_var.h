@@ -70,12 +70,12 @@ struct sackhole {
 
 struct sackhint {
 	struct sackhole	*nexthole;
-	int		sack_bytes_rexmit;
+	int32_t		sack_bytes_rexmit;
 	tcp_seq		last_sack_ack;	/* Most recent/largest sacked ack */
 
-	int		ispare;		/* explicit pad for 64bit alignment */
-	int             sacked_bytes;	/*
-					 * Total sacked bytes reported by the
+	int32_t		delivered_data; /* Newly acked data from last SACK */
+
+	int32_t		sacked_bytes;	/* Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
 	uint32_t	_pad1[1];	/* TBD */
@@ -169,6 +169,8 @@ struct tcpcb {
 	u_int	t_starttime;		/* time connection was established */
 
 	u_int	t_pmtud_saved_maxseg;	/* pre-blackhole MSS */
+	int	t_blackhole_enter;	/* when to enter blackhole detection */
+	int	t_blackhole_exit;	/* when to exit blackhole detection */
 	u_int	t_rttmin;		/* minimum rtt allowed */
 
 	u_int	t_rttbest;		/* best rtt we've seen */
@@ -866,6 +868,7 @@ void	cc_ack_received(struct tcpcb *tp, struct tcphdr *th,
 			    uint16_t nsegs, uint16_t type);
 void 	cc_conn_init(struct tcpcb *tp);
 void 	cc_post_recovery(struct tcpcb *tp, struct tcphdr *th);
+void    cc_ecnpkt_handler(struct tcpcb *tp, struct tcphdr *th, uint8_t iptos);
 void	cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type);
 #ifdef TCP_HHOOK
 void	hhook_run_tcp_est_in(struct tcpcb *tp,

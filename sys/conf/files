@@ -163,6 +163,7 @@ cddl/contrib/opensolaris/uts/common/fs/zfs/bpobj.c			optional zfs compile-with "
 cddl/contrib/opensolaris/uts/common/fs/zfs/bptree.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/bqueue.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/cityhash.c			optional zfs compile-with "${ZFS_C}"
+cddl/contrib/opensolaris/uts/common/fs/zfs/dataset_kstats.c		optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/dbuf.c			optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/dbuf_stats.c		optional zfs compile-with "${ZFS_C}"
 cddl/contrib/opensolaris/uts/common/fs/zfs/ddt.c			optional zfs compile-with "${ZFS_C}"
@@ -1475,7 +1476,7 @@ t4fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t4fw.fwo"
 t4fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t4fw-1.24.12.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t4fw-1.25.0.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t4fw.fw"
@@ -1509,7 +1510,7 @@ t5fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t5fw.fwo"
 t5fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t5fw-1.24.12.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t5fw-1.25.0.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t5fw.fw"
@@ -1543,7 +1544,7 @@ t6fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t6fw.fwo"
 t6fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t6fw-1.24.12.0.bin"	\
+	dependency	"$S/dev/cxgbe/firmware/t6fw-1.25.0.0.bin"	\
 	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
 	no-obj no-implicit-rule						\
 	clean		"t6fw.fw"
@@ -1706,6 +1707,10 @@ dev/e1000/e1000_osdep.c		optional em \
 	compile-with "${NORMAL_C} -I$S/dev/e1000"
 dev/et/if_et.c			optional et
 dev/ena/ena.c			optional ena \
+	compile-with "${NORMAL_C} -I$S/contrib"
+dev/ena/ena_datapath.c		optional ena \
+	compile-with "${NORMAL_C} -I$S/contrib"
+dev/ena/ena_netmap.c		optional ena \
 	compile-with "${NORMAL_C} -I$S/contrib"
 dev/ena/ena_sysctl.c 		optional ena \
 	compile-with "${NORMAL_C} -I$S/contrib"
@@ -5045,9 +5050,9 @@ xen/xenbus/xenbusb.c		optional xenhvm
 xen/xenbus/xenbusb_front.c	optional xenhvm
 xen/xenbus/xenbusb_back.c	optional xenhvm
 xen/xenmem/xenmem_if.m		optional xenhvm
-xdr/xdr.c			optional krpc | nfslockd | nfscl | nfsd
-xdr/xdr_array.c			optional krpc | nfslockd | nfscl | nfsd
-xdr/xdr_mbuf.c			optional krpc | nfslockd | nfscl | nfsd
-xdr/xdr_mem.c			optional krpc | nfslockd | nfscl | nfsd
-xdr/xdr_reference.c		optional krpc | nfslockd | nfscl | nfsd
-xdr/xdr_sizeof.c		optional krpc | nfslockd | nfscl | nfsd
+xdr/xdr.c			optional xdr | krpc | nfslockd | nfscl | nfsd
+xdr/xdr_array.c			optional xdr | krpc | nfslockd | nfscl | nfsd
+xdr/xdr_mbuf.c			optional xdr | krpc | nfslockd | nfscl | nfsd
+xdr/xdr_mem.c			optional xdr | krpc | nfslockd | nfscl | nfsd
+xdr/xdr_reference.c		optional xdr | krpc | nfslockd | nfscl | nfsd
+xdr/xdr_sizeof.c		optional xdr | krpc | nfslockd | nfscl | nfsd

@@ -143,6 +143,7 @@ __DEFAULT_YES_OPTIONS = \
     MAIL \
     MAILWRAPPER \
     MAKE \
+    MALLOC_PRODUCTION \
     NDIS \
     NETCAT \
     NETGRAPH \
@@ -409,7 +410,8 @@ BROKEN_OPTIONS+=BSD_CRTBEGIN
 .endif
 
 .if ${COMPILER_FEATURES:Mc++11} && \
-    (${__T} == "amd64" || ${__T} == "i386" || ${__T} == "powerpc64")
+    (${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
+     ${__T} == "powerpc64")
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
@@ -475,6 +477,7 @@ MK_CTF:=	no
 MK_OPENSSL:=	no
 MK_OPENSSH:=	no
 MK_KERBEROS:=	no
+MK_KERBEROS_SUPPORT:=	no
 .endif
 
 .if ${MK_CXX} == "no"
@@ -485,6 +488,10 @@ MK_TESTS:=	no
 
 .if ${MK_DIALOG} == "no"
 MK_BSDINSTALL:=	no
+.endif
+
+.if ${MK_FILE} == "no"
+MK_SVNLITE:=	no
 .endif
 
 .if ${MK_MAIL} == "no"
@@ -506,6 +513,7 @@ MK_NLS_CATALOGS:= no
 MK_DMAGENT:=	no
 MK_OPENSSH:=	no
 MK_KERBEROS:=	no
+MK_KERBEROS_SUPPORT:=	no
 MK_LDNS:=	no
 MK_PKGBOOTSTRAP:=	no
 MK_SVN:=		no
@@ -524,11 +532,6 @@ MK_AUTHPF:=	no
 
 .if ${MK_OFED} == "no"
 MK_OFED_EXTRA:=	no
-.endif
-
-.if ${MK_PORTSNAP} == "no"
-# freebsd-update depends on phttpget from portsnap
-MK_FREEBSD_UPDATE:=	no
 .endif
 
 .if ${MK_TESTS} == "no"
