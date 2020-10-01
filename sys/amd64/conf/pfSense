@@ -6,7 +6,7 @@ options 	DDB
 ident		pfSense
 
 # Enable INVARIANTS while it's a devel branch
-options		INVARIANTS
+options 	INVARIANTS
 options 	INVARIANT_SUPPORT
 
 nooptions	MAC		# TrustedBSD MAC Framework
