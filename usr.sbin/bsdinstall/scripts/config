@@ -74,8 +74,6 @@ if [ "${product}" = "Minnowboard Turbot D0 PLATFORM" ]; then
 	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
 fi
 
-df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_CHROOT/boot/loader.conf
-
 if [ -f /tmp/boot.config ]; then
 	cp /tmp/boot.conf $BSDINSTALL_CHROOT
 fi
