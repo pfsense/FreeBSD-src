@@ -205,6 +205,8 @@ int	Aflag;		/* show addresses of protocol control block */
 int	aflag;		/* show all sockets (including servers) */
 static int	Bflag;		/* show information about bpf consumers */
 int	bflag;		/* show i/f total bytes in/out */
+int	cflag;		/* show TCP congestion control stack */
+int	Cflag;		/* show congestion control algo and vars */
 int	dflag;		/* show i/f dropped packets */
 int	gflag;		/* show group (multicast) routing or stats */
 int	hflag;		/* show counters in human readable format */
@@ -248,7 +250,7 @@ main(int argc, char *argv[])
 	if (argc < 0)
 		exit(EXIT_FAILURE);
 
-	while ((ch = getopt(argc, argv, "46AaBbdF:f:ghI:iLlM:mN:nPp:Qq:RrSTsuWw:xz"))
+	while ((ch = getopt(argc, argv, "46AaBbCcdF:f:ghI:iLlM:mN:nPp:Qq:RrSTsuWw:xz"))
 	    != -1)
 		switch(ch) {
 		case '4':
@@ -276,6 +278,12 @@ main(int argc, char *argv[])
 			break;
 		case 'b':
 			bflag = 1;
+			break;
+		case 'c':
+			cflag = 1;
+			break;
+		case 'C':
+			Cflag = 1;
 			break;
 		case 'd':
 			dflag = 1;
@@ -721,7 +729,7 @@ kset_dpcpu(u_int cpuid)
 
 	if (kvm_dpcpu_setcpu(kvmd, cpuid) < 0)
 		xo_errx(-1, "%s: kvm_dpcpu_setcpu(%u): %s", __func__,
-		    cpuid, kvm_geterr(kvmd)); 
+		    cpuid, kvm_geterr(kvmd));
 	return;
 }
 
@@ -858,7 +866,7 @@ static void
 usage(void)
 {
 	(void)xo_error("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-"usage: netstat [-46AaLnRSTWx] [-f protocol_family | -p protocol]\n"
+"usage: netstat [-46AaCcLnRSTWx] [-f protocol_family | -p protocol]\n"
 "               [-M core] [-N system]",
 "       netstat -i | -I interface [-46abdhnW] [-f address_family]\n"
 "               [-M core] [-N system]",

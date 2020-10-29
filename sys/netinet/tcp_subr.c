@@ -2941,7 +2941,6 @@ tcp_maxseg(const struct tcpcb *tp)
 	 * but this is harmless, since result of tcp_maxseg() is used
 	 * only in cwnd and ssthresh estimations.
 	 */
-#define	PAD(len)	((((len) / 4) + !!((len) % 4)) * 4)
 	if (TCPS_HAVEESTABLISHED(tp->t_state)) {
 		if (tp->t_flags & TF_RCVD_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
@@ -2949,26 +2948,26 @@ tcp_maxseg(const struct tcpcb *tp)
 			optlen = 0;
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 		if ((tp->t_flags & TF_SACK_PERMIT) && tp->rcv_numsacks > 0) {
 			optlen += TCPOLEN_SACKHDR;
 			optlen += tp->rcv_numsacks * TCPOLEN_SACK;
-			optlen = PAD(optlen);
+			optlen = PADTCPOLEN(optlen);
 		}
 	} else {
 		if (tp->t_flags & TF_REQ_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
 		else
-			optlen = PAD(TCPOLEN_MAXSEG);
+			optlen = PADTCPOLEN(TCPOLEN_MAXSEG);
 		if (tp->t_flags & TF_REQ_SCALE)
-			optlen += PAD(TCPOLEN_WINDOW);
+			optlen += PADTCPOLEN(TCPOLEN_WINDOW);
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 		if (tp->t_flags & TF_SACK_PERMIT)
-			optlen += PAD(TCPOLEN_SACK_PERMITTED);
+			optlen += PADTCPOLEN(TCPOLEN_SACK_PERMITTED);
 	}
 #undef PAD
 	optlen = min(optlen, TCP_MAXOLEN);
@@ -3249,6 +3248,12 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 		xt->t_sndzerowin = tp->t_sndzerowin;
 		xt->t_sndrexmitpack = tp->t_sndrexmitpack;
 		xt->t_rcvoopack = tp->t_rcvoopack;
+		xt->t_rcv_wnd = tp->rcv_wnd;
+		xt->t_snd_wnd = tp->snd_wnd;
+		xt->t_snd_cwnd = tp->snd_cwnd;
+		xt->t_snd_ssthresh = tp->snd_ssthresh;
+		xt->t_maxseg = tp->t_maxseg;
+		xt->xt_ecn = (tp->t_flags & TF_ECN_PERMIT) ? 1 : 0;
 
 		now = getsbinuptime();
 #define	COPYTIMER(ttt)	do {						\
@@ -3268,6 +3273,8 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 
 		bcopy(tp->t_fb->tfb_tcp_block_name, xt->xt_stack,
 		    TCP_FUNCTION_NAME_LEN_MAX);
+		bcopy(CC_ALGO(tp)->name, xt->xt_cc,
+		    TCP_CA_NAME_MAX);
 #ifdef TCP_BLACKBOX
 		(void)tcp_log_get_id(tp, xt->xt_logid);
 #endif

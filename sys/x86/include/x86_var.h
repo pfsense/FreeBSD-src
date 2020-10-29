@@ -67,7 +67,6 @@ extern	u_int	cpu_mon_mwait_flags;
 extern	u_int	cpu_mon_min_size;
 extern	u_int	cpu_mon_max_size;
 extern	u_int	cpu_maxphyaddr;
-extern	char	ctx_switch_xsave[];
 extern	u_int	hv_high;
 extern	char	hv_vendor[];
 extern	char	kstack[];
@@ -90,6 +89,7 @@ extern	int	hw_ssb_active;
 extern	int	x86_taa_enable;
 extern	int	cpu_flush_rsb_ctxsw;
 extern	int	x86_rngds_mitg_enable;
+extern	int	cpu_amdc1e_bug;
 
 struct	pcb;
 struct	thread;
