@@ -295,6 +295,7 @@ static	int vlan_setmulti(struct ifnet *ifp);
 static	int vlan_transmit(struct ifnet *ifp, struct mbuf *m);
 #ifdef ALTQ
 static void vlan_altq_start(if_t ifp);
+static	int vlan_altq_transmit(if_t ifp, struct mbuf *m);
 #endif
 static	void vlan_unconfig(struct ifnet *ifp);
 static	void vlan_unconfig_locked(struct ifnet *ifp, int departing);
@@ -1063,6 +1064,7 @@ vlan_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	ifp->if_init = vlan_init;
 #ifdef ALTQ
 	ifp->if_start = vlan_altq_start;
+	ifp->if_transmit = vlan_altq_transmit;
 	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
 	ifp->if_snd.ifq_drv_maxlen = 0;
 	IFQ_SET_READY(&ifp->if_snd);
