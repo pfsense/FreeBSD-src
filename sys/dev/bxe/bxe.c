@@ -7005,22 +7005,22 @@ static void bxe_release_alr(struct bxe_softc *sc)
 static void
 bxe_fan_failure(struct bxe_softc *sc)
 {
-    int port = SC_PORT(sc);
-    uint32_t ext_phy_config;
+    //int port = SC_PORT(sc);
+    //uint32_t ext_phy_config;
 
-    /* mark the failure */
-    ext_phy_config =
-        SHMEM_RD(sc, dev_info.port_hw_config[port].external_phy_config);
+    ///* mark the failure */
+    //ext_phy_config =
+    //    SHMEM_RD(sc, dev_info.port_hw_config[port].external_phy_config);
 
-    ext_phy_config &= ~PORT_HW_CFG_XGXS_EXT_PHY_TYPE_MASK;
-    ext_phy_config |= PORT_HW_CFG_XGXS_EXT_PHY_TYPE_FAILURE;
-    SHMEM_WR(sc, dev_info.port_hw_config[port].external_phy_config,
-             ext_phy_config);
+    //ext_phy_config &= ~PORT_HW_CFG_XGXS_EXT_PHY_TYPE_MASK;
+    //ext_phy_config |= PORT_HW_CFG_XGXS_EXT_PHY_TYPE_FAILURE;
+    //SHMEM_WR(sc, dev_info.port_hw_config[port].external_phy_config,
+    //         ext_phy_config);
 
-    /* log the failure */
-    BLOGW(sc, "Fan Failure has caused the driver to shutdown "
-              "the card to prevent permanent damage. "
-              "Please contact OEM Support for assistance\n");
+    ///* log the failure */
+    //BLOGW(sc, "Fan Failure has caused the driver to shutdown "
+    //          "the card to prevent permanent damage. "
+    //          "Please contact OEM Support for assistance\n");
 
     /* XXX */
 #if 1
@@ -8215,17 +8215,6 @@ bxe_attn_int_deasserted0(struct bxe_softc *sc,
     reg_offset = (port) ? MISC_REG_AEU_ENABLE1_FUNC_1_OUT_0 :
                           MISC_REG_AEU_ENABLE1_FUNC_0_OUT_0;
 
-    if (attn & AEU_INPUTS_ATTN_BITS_SPIO5) {
-        val = REG_RD(sc, reg_offset);
-        val &= ~AEU_INPUTS_ATTN_BITS_SPIO5;
-        REG_WR(sc, reg_offset, val);
-
-        BLOGW(sc, "SPIO5 hw attention\n");
-
-        /* Fan failure attention */
-        elink_hw_reset_phy(&sc->link_params);
-        bxe_fan_failure(sc);
-    }
 
     if ((attn & sc->link_vars.aeu_int_mask) && sc->port.pmf) {
 	bxe_acquire_phy_lock(sc);
@@ -10538,8 +10527,7 @@ bxe_nic_init(struct bxe_softc *sc,
     bxe_attn_int_deasserted0(sc,
                              REG_RD(sc,
                                     (MISC_REG_AEU_AFTER_INVERT_1_FUNC_0 +
-                                     SC_PORT(sc)*4)) &
-                             AEU_INPUTS_ATTN_BITS_SPIO5);
+                                     SC_PORT(sc)*4)));
 }
 
 static inline void
@@ -17825,7 +17813,6 @@ bxe_init_hw_port(struct bxe_softc *sc)
         uint32_t reg_addr = (port ? MISC_REG_AEU_ENABLE1_FUNC_1_OUT_0 :
                                     MISC_REG_AEU_ENABLE1_FUNC_0_OUT_0);
         val = REG_RD(sc, reg_addr);
-        val |= AEU_INPUTS_ATTN_BITS_SPIO5;
         REG_WR(sc, reg_addr, val);
     }
 
