@@ -74,7 +74,7 @@
 /*
  * Types and macros for handling bitmaps with one bit per virtual interface.
  */
-#define	MAXVIFS 64
+#define	MAXVIFS 32
 typedef u_long vifbitmap_t;
 typedef u_short vifi_t;		/* type of a vif index */
 #define ALL_VIFS (vifi_t)-1
