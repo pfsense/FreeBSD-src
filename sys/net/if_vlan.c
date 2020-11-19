@@ -285,9 +285,7 @@ static	int vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr);
 static	int vlan_snd_tag_alloc(struct ifnet *,
     union if_snd_tag_alloc_params *, struct m_snd_tag **);
 #endif
-#ifndef ALTQ
 static	void vlan_qflush(struct ifnet *ifp);
-#endif
 static	int vlan_setflag(struct ifnet *ifp, int flag, int status,
     int (*func)(struct ifnet *, int));
 static	int vlan_setflags(struct ifnet *ifp, int status);
@@ -1070,8 +1068,8 @@ vlan_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	IFQ_SET_READY(&ifp->if_snd);
 #else
 	ifp->if_transmit = vlan_transmit;
-	ifp->if_qflush = vlan_qflush;
 #endif
+	ifp->if_qflush = vlan_qflush;
 	ifp->if_ioctl = vlan_ioctl;
 #ifdef RATELIMIT
 	ifp->if_snd_tag_alloc = vlan_snd_tag_alloc;
@@ -1226,7 +1224,7 @@ vlan_altq_transmit(if_t ifp, struct mbuf *m)
 
 	return (err);
 }
-#else /* !ALTQ */
+#endif	/* ALTQ */
 
 /*
  * The ifp->if_qflush entry point for vlan(4) is a no-op.
@@ -1235,7 +1233,6 @@ static void
 vlan_qflush(struct ifnet *ifp __unused)
 {
 }
-#endif
 
 static void
 vlan_input(struct ifnet *ifp, struct mbuf *m)

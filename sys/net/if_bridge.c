@@ -304,9 +304,8 @@ static int	bridge_transmit(struct ifnet *, struct mbuf *);
 #ifdef ALTQ
 static void	bridge_altq_start(if_t);
 static int	bridge_altq_transmit(if_t, struct mbuf *);
-#else
-static void	bridge_qflush(struct ifnet *);
 #endif
+static void	bridge_qflush(struct ifnet *);
 static struct mbuf *bridge_input(struct ifnet *, struct mbuf *);
 static int	bridge_output(struct ifnet *, struct mbuf *, struct sockaddr *,
 		    struct rtentry *);
@@ -723,8 +722,8 @@ bridge_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	IFQ_SET_READY(&ifp->if_snd);
 #else
 	ifp->if_transmit = bridge_transmit;
-	ifp->if_qflush = bridge_qflush;
 #endif
+	ifp->if_qflush = bridge_qflush;
 	ifp->if_init = bridge_init;
 	ifp->if_type = IFT_BRIDGE;
 
@@ -2275,7 +2274,8 @@ bridge_altq_transmit(if_t ifp, struct mbuf *m)
 
 	return (err);
 }
-#else /* !ALTQ */
+#endif	/* ALTQ */
+
 /*
  * The ifp->if_qflush entry point for if_bridge(4) is no-op.
  */
@@ -2283,7 +2283,6 @@ static void
 bridge_qflush(struct ifnet *ifp __unused)
 {
 }
-#endif
 
 /*
  * bridge_forward:
