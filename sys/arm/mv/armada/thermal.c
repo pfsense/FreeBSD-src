@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 
 #define	TSEN_STAT_READOUT_VALID	0x1
 
+#define	A380_TSEN_CTRL		0x4
 #define	A380_TSEN_CTRL_RESET	(1 << 8)
 
 struct armada_thermal_softc;
@@ -293,10 +294,10 @@ armada380_tsen_init(struct armada_thermal_softc *sc)
 {
 	uint32_t tsen_ctrl;
 
-	tsen_ctrl = bus_read_4(sc->ctrl_res, 0);
+	tsen_ctrl = bus_read_4(sc->ctrl_res, A380_TSEN_CTRL);
 	if ((tsen_ctrl & A380_TSEN_CTRL_RESET) == 0) {
 		tsen_ctrl |= A380_TSEN_CTRL_RESET;
-		bus_write_4(sc->ctrl_res, 0, tsen_ctrl);
+		bus_write_4(sc->ctrl_res, A380_TSEN_CTRL, tsen_ctrl);
 		DELAY(10000);
 	}
 }
