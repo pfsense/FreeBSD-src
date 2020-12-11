@@ -124,6 +124,7 @@ ifclonecreate(int s, void *arg)
 	struct ifreq ifr;
 	struct clone_defcb *dcp;
 	clone_callback_func *clone_cb = NULL;
+	const char *ifr_name = strchr(name, '.') ? "vlan" : name;
 
 	memset(&ifr, 0, sizeof(ifr));
 	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
@@ -131,7 +132,7 @@ ifclonecreate(int s, void *arg)
 	if (clone_cb == NULL) {
 		/* Try to find a default callback */
 		SLIST_FOREACH(dcp, &clone_defcbh, next) {
-			if (strncmp(dcp->ifprefix, ifr.ifr_name,
+			if (strncmp(dcp->ifprefix, ifr_name,
 			    strlen(dcp->ifprefix)) == 0) {
 				clone_cb = dcp->clone_cb;
 				break;
@@ -140,8 +141,7 @@ ifclonecreate(int s, void *arg)
 	}
 	if (clone_cb == NULL) {
 		/* NB: no parameters */
-		if (ioctl(s, SIOCIFCREATE2, &ifr) < 0)
-			err(1, "SIOCIFCREATE2");
+	  	ioctl_ifcreate(s, &ifr);
 	} else {
 		clone_cb(s, &ifr);
 	}
