@@ -272,7 +272,7 @@ static struct nvme_status_string command_specific_status[] = {
 	{ NVME_SC_NS_NOT_ATTACHED, "NS NOT ATTACHED" },
 	{ NVME_SC_THIN_PROV_NOT_SUPPORTED, "THIN PROVISIONING NOT SUPPORTED" },
 	{ NVME_SC_CTRLR_LIST_INVALID, "CONTROLLER LIST INVALID" },
-	{ NVME_SC_SELT_TEST_IN_PROGRESS, "DEVICE SELT-TEST IN PROGRESS" },
+	{ NVME_SC_SELF_TEST_IN_PROGRESS, "DEVICE SELF-TEST IN PROGRESS" },
 	{ NVME_SC_BOOT_PART_WRITE_PROHIB, "BOOT PARTITION WRITE PROHIBITED" },
 	{ NVME_SC_INVALID_CTRLR_ID, "INVALID CONTROLLER IDENTIFIER" },
 	{ NVME_SC_INVALID_SEC_CTRLR_STATE, "INVALID SECONDARY CONTROLLER STATE" },
@@ -691,8 +691,8 @@ nvme_qpair_construct(struct nvme_qpair *qpair,
 	/* Note: NVMe PRP format is restricted to 4-byte alignment. */
 	err = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev),
 	    4, PAGE_SIZE, BUS_SPACE_MAXADDR,
-	    BUS_SPACE_MAXADDR, NULL, NULL, NVME_MAX_XFER_SIZE,
-	    (NVME_MAX_XFER_SIZE/PAGE_SIZE)+1, PAGE_SIZE, 0,
+	    BUS_SPACE_MAXADDR, NULL, NULL, ctrlr->max_xfer_size,
+	    btoc(ctrlr->max_xfer_size) + 1, PAGE_SIZE, 0,
 	    NULL, NULL, &qpair->dma_tag_payload);
 	if (err != 0) {
 		nvme_printf(ctrlr, "payload tag create failed %d\n", err);
@@ -707,7 +707,12 @@ nvme_qpair_construct(struct nvme_qpair *qpair,
 	cmdsz = roundup2(cmdsz, PAGE_SIZE);
 	cplsz = qpair->num_entries * sizeof(struct nvme_completion);
 	cplsz = roundup2(cplsz, PAGE_SIZE);
-	prpsz = sizeof(uint64_t) * NVME_MAX_PRP_LIST_ENTRIES;;
+	/*
+	 * For commands requiring more than 2 PRP entries, one PRP will be
+	 * embedded in the command (prp1), and the rest of the PRP entries
+	 * will be in a list pointed to by the command (prp2).
+	 */
+	prpsz = sizeof(uint64_t) * btoc(ctrlr->max_xfer_size);
 	prpmemsz = qpair->num_trackers * prpsz;
 	allocsz = cmdsz + cplsz + prpmemsz;
 

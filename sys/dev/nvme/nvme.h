@@ -59,8 +59,8 @@
  */
 #define NVME_GLOBAL_NAMESPACE_TAG	((uint32_t)0xFFFFFFFF)
 
-/* Cap nvme to 1MB transfers driver explodes with larger sizes */
-#define NVME_MAX_XFER_SIZE		(MAXPHYS < (1<<20) ? MAXPHYS : (1<<20))
+/* Cap transfers by the maximum addressable by page-sized PRP (4KB -> 2MB). */
+#define NVME_MAX_XFER_SIZE		MIN(MAXPHYS, (PAGE_SIZE/8*PAGE_SIZE))
 
 /* Register field definitions */
 #define NVME_CAP_LO_REG_MQES_SHIFT			(0)
@@ -732,7 +732,7 @@ enum nvme_command_specific_status_code {
 	NVME_SC_NS_NOT_ATTACHED			= 0x1a,
 	NVME_SC_THIN_PROV_NOT_SUPPORTED		= 0x1b,
 	NVME_SC_CTRLR_LIST_INVALID		= 0x1c,
-	NVME_SC_SELT_TEST_IN_PROGRESS		= 0x1d,
+	NVME_SC_SELF_TEST_IN_PROGRESS		= 0x1d,
 	NVME_SC_BOOT_PART_WRITE_PROHIB		= 0x1e,
 	NVME_SC_INVALID_CTRLR_ID		= 0x1f,
 	NVME_SC_INVALID_SEC_CTRLR_STATE		= 0x20,

@@ -56,15 +56,6 @@ MALLOC_DECLARE(M_NVME);
 #define IDT32_PCI_ID		0x80d0111d /* 32 channel board */
 #define IDT8_PCI_ID		0x80d2111d /* 8 channel board */
 
-/*
- * For commands requiring more than 2 PRP entries, one PRP will be
- *  embedded in the command (prp1), and the rest of the PRP entries
- *  will be in a list pointed to by the command (prp2).  This means
- *  that real max number of PRP entries we support is 32+1, which
- *  results in a max xfer size of 32*PAGE_SIZE.
- */
-#define NVME_MAX_PRP_LIST_ENTRIES	(NVME_MAX_XFER_SIZE / PAGE_SIZE)
-
 #define NVME_ADMIN_TRACKERS	(16)
 #define NVME_ADMIN_ENTRIES	(128)
 /* min and max are defined in admin queue attributes section of spec */
@@ -486,6 +477,7 @@ nvme_single_map(void *arg, bus_dma_segment_t *seg, int nseg, int error)
 {
 	uint64_t *bus_addr = (uint64_t *)arg;
 
+	KASSERT(nseg == 1, ("number of segments (%d) is not 1", nseg));
 	if (error != 0)
 		printf("nvme_single_map err %d\n", error);
 	*bus_addr = seg[0].ds_addr;
