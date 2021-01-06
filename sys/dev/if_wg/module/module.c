@@ -357,6 +357,9 @@ wg_init(if_ctx_t ctx)
 	struct wg_softc *sc;
 	int rc;
 
+	if (iflib_in_detach(ctx))
+		return;
+
 	sc = iflib_get_softc(ctx);
 	ifp = iflib_get_ifp(ctx);
 	if (sc->sc_socket.so_so4 != NULL)
