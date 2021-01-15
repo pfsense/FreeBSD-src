@@ -46,6 +46,14 @@ struct igc_hw;
 #define IGC_DEV_ID_I225_K			0x3100
 #define IGC_DEV_ID_I225_I			0x15F8
 #define IGC_DEV_ID_I220_V			0x15F7
+#define IGC_DEV_ID_I225_K2			0x3101
+#define IGC_DEV_ID_I225_LMVP			0x5502
+#define IGC_DEV_ID_I225_IT			0x0D9F
+#define IGC_DEV_ID_I226_LM			0x125B
+#define IGC_DEV_ID_I226_V			0x125C
+#define IGC_DEV_ID_I226_IT			0x125D
+#define IGC_DEV_ID_I221_V			0x125E
+#define IGC_DEV_ID_I226_BLANK_NVM		0x125F
 #define IGC_DEV_ID_I225_BLANK_NVM		0x15FD
 
 #define IGC_REVISION_0	0
@@ -54,7 +62,6 @@ struct igc_hw;
 #define IGC_REVISION_3	3
 #define IGC_REVISION_4	4
 
-#define IGC_FUNC_0		0
 #define IGC_FUNC_1		1
 
 #define IGC_ALT_MAC_ADDRESS_OFFSET_LAN0	0
@@ -69,19 +76,14 @@ enum igc_mac_type {
 enum igc_media_type {
 	igc_media_type_unknown = 0,
 	igc_media_type_copper = 1,
-	igc_media_type_fiber = 2,
-	igc_media_type_internal_serdes = 3,
 	igc_num_media_types
 };
 
 enum igc_nvm_type {
 	igc_nvm_unknown = 0,
-	igc_nvm_none,
 	igc_nvm_eeprom_spi,
-	igc_nvm_eeprom_microwire,
 	igc_nvm_flash_hw,
 	igc_nvm_invm,
-	igc_nvm_flash_sw
 };
 
 enum igc_nvm_override {
@@ -344,7 +346,6 @@ struct igc_hw_stats {
 	u64 dc;
 	u64 tncrs;
 	u64 sec;
-	u64 cexterr;
 	u64 rlec;
 	u64 xonrxc;
 	u64 xontxc;
@@ -357,6 +358,8 @@ struct igc_hw_stats {
 	u64 prc511;
 	u64 prc1023;
 	u64 prc1522;
+	u64 tlpic;
+	u64 rlpic;
 	u64 gprc;
 	u64 bprc;
 	u64 mprc;
@@ -384,23 +387,11 @@ struct igc_hw_stats {
 	u64 mptc;
 	u64 bptc;
 	u64 tsctc;
-	u64 tsctfc;
 	u64 iac;
-	u64 icrxptc;
-	u64 icrxatc;
-	u64 ictxptc;
-	u64 ictxatc;
-	u64 ictxqec;
-	u64 ictxqmtc;
-	u64 icrxdmtc;
-	u64 icrxoc;
-	u64 cbtmpc;
+	u64 rxdmtc;
 	u64 htdpmc;
-	u64 cbrdpc;
-	u64 cbrmpc;
 	u64 rpthc;
 	u64 hgptc;
-	u64 htcbdpc;
 	u64 hgorc;
 	u64 hgotc;
 	u64 lenerrs;
@@ -498,11 +489,8 @@ struct igc_host_mng_command_info {
 /* Function pointers for the MAC. */
 struct igc_mac_operations {
 	s32  (*init_params)(struct igc_hw *);
-	s32  (*id_led_init)(struct igc_hw *);
-	s32  (*blink_led)(struct igc_hw *);
 	bool (*check_mng_mode)(struct igc_hw *);
 	s32  (*check_for_link)(struct igc_hw *);
-	s32  (*cleanup_led)(struct igc_hw *);
 	void (*clear_hw_cntrs)(struct igc_hw *);
 	void (*clear_vfta)(struct igc_hw *);
 	s32  (*get_bus_info)(struct igc_hw *);
@@ -515,7 +503,6 @@ struct igc_mac_operations {
 	s32  (*init_hw)(struct igc_hw *);
 	s32  (*setup_link)(struct igc_hw *);
 	s32  (*setup_physical_interface)(struct igc_hw *);
-	s32  (*setup_led)(struct igc_hw *);
 	void (*write_vfta)(struct igc_hw *, u32, u32);
 	void (*config_collision_dist)(struct igc_hw *);
 	int  (*rar_set)(struct igc_hw *, u8*, u32);
@@ -542,12 +529,9 @@ struct igc_mac_operations {
 struct igc_phy_operations {
 	s32  (*init_params)(struct igc_hw *);
 	s32  (*acquire)(struct igc_hw *);
-	s32  (*check_polarity)(struct igc_hw *);
 	s32  (*check_reset_block)(struct igc_hw *);
 	s32  (*commit)(struct igc_hw *);
 	s32  (*force_speed_duplex)(struct igc_hw *);
-	s32  (*get_cfg_done)(struct igc_hw *hw);
-	s32  (*get_cable_length)(struct igc_hw *);
 	s32  (*get_info)(struct igc_hw *);
 	s32  (*set_page)(struct igc_hw *, u16);
 	s32  (*read_reg)(struct igc_hw *, u32, u16 *);
@@ -572,7 +556,6 @@ struct igc_nvm_operations {
 	void (*release)(struct igc_hw *);
 	void (*reload)(struct igc_hw *);
 	s32  (*update)(struct igc_hw *);
-	s32  (*valid_led_default)(struct igc_hw *, u16 *);
 	s32  (*validate)(struct igc_hw *);
 	s32  (*write)(struct igc_hw *, u16, u16, u16 *);
 };
@@ -593,13 +576,7 @@ struct igc_mac_info {
 
 	enum igc_mac_type type;
 
-	u32 collision_delta;
-	u32 ledctl_default;
-	u32 ledctl_mode1;
-	u32 ledctl_mode2;
 	u32 mc_filter_type;
-	u32 tx_packet_delta;
-	u32 txcw;
 
 	u16 current_ifs_val;
 	u16 ifs_max_val;
@@ -616,8 +593,6 @@ struct igc_mac_info {
 
 	u8  forced_speed_duplex;
 
-	bool adaptive_ifs;
-	bool has_fwsm;
 	bool arc_subsystem_valid;
 	bool asf_firmware_present;
 	bool autoneg;
@@ -668,9 +643,6 @@ struct igc_nvm_info {
 	struct igc_nvm_operations ops;
 	enum igc_nvm_type type;
 	enum igc_nvm_override override;
-
-	u32 flash_bank_size;
-	u32 flash_base_addr;
 
 	u16 word_size;
 	u16 delay_usec;
