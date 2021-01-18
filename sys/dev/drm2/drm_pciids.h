@@ -88,6 +88,7 @@
 	{0x8086, 0x0155, 0, "Intel Valleyview (desktop)"}, \
 	{0x8086, 0x0157, 0, "Intel Valleyview (mobile)"}, \
 	{0x8086, 0x0F30, 0, "Intel Valleyview (mobile)"}, \
+	{0x8086, 0x0F31, 0, "Intel Valleyview (mobile)"}, \
 	{0x8086, 0x2562, 0, "Intel i845G GMCH"}, \
 	{0x8086, 0x2572, 0, "Intel i865G GMCH"}, \
 	{0x8086, 0x2582, 0, "Intel i915G"}, \
