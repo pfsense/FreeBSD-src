@@ -53,9 +53,6 @@ static struct ofw_compat_data compat_data[] = {
 	{"freebsd,pwmc", true},
 	{NULL,           false},
 };
-
-PWMBUS_FDT_PNP_INFO(compat_data);
-
 #endif
 
 struct pwmc_softc {
@@ -207,5 +204,8 @@ static driver_t pwmc_driver = {
 static devclass_t pwmc_devclass;
 
 DRIVER_MODULE(pwmc, pwmbus, pwmc_driver, pwmc_devclass, 0, 0);
+#ifdef FDT
+PWMBUS_FDT_PNP_INFO(compat_data);
+#endif
 MODULE_DEPEND(pwmc, pwmbus, 1, 1, 1);
 MODULE_VERSION(pwmc, 1);
