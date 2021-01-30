@@ -1401,8 +1401,8 @@ wg_deliver_in(struct wg_peer *peer)
 			CURVNET_SET(inp->inp_vnet);
 			ip_input(m);
 			CURVNET_RESTORE();
-		}	else if (version == 6) {
-			af = AF_INET;
+		} else if (version == 6) {
+			af = AF_INET6;
 			BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
 			inp = sotoinpcb(so->so_so6);
 			CURVNET_SET(inp->inp_vnet);
