@@ -391,13 +391,20 @@ wg_peer_to_nvl(struct wg_peer *peer)
 	int i, count;
 	nvlist_t *nvl;
 	caddr_t key;
+	size_t sa_sz;
 	struct wg_allowedip *aip;
+	struct wg_endpoint *ep;
 
 	if ((nvl = nvlist_create(0)) == NULL)
 		return (NULL);
 	key = peer->p_remote.r_public;
 	nvlist_add_binary(nvl, "public-key", key, WG_KEY_SIZE);
-	nvlist_add_binary(nvl, "endpoint", &peer->p_endpoint.e_remote, sizeof(struct sockaddr));
+	ep = &peer->p_endpoint;
+	if (ep->e_remote.r_sa.sa_family != 0) {
+		sa_sz = (ep->e_remote.r_sa.sa_family == AF_INET) ?
+			sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+		nvlist_add_binary(nvl, "endpoint", &ep->e_remote, sa_sz);
+	}
 	i = count = 0;
 	CK_LIST_FOREACH(rt, &peer->p_routes, r_entry) {
 		count++;
@@ -592,13 +599,12 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 	}
 	if (nvlist_exists_binary(nvl, "endpoint")) {
 		endpoint = nvlist_get_binary(nvl, "endpoint", &size);
-		if (size != sizeof(*endpoint)) {
+		if (size > sizeof(peer->p_endpoint.e_remote)) {
 			device_printf(dev, "%s bad length for endpoint %zu\n", __func__, size);
 			err = EBADMSG;
 			goto out;
 		}
-		memcpy(&peer->p_endpoint.e_remote, endpoint,
-		    sizeof(peer->p_endpoint.e_remote));
+		memcpy(&peer->p_endpoint.e_remote, endpoint, size);
 	}
 	if (nvlist_exists_binary(nvl, "pre-shared-key")) {
 		const void *key;

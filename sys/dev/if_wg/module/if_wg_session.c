@@ -1890,7 +1890,12 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		goto free;
 	}
 	e = wg_mbuf_endpoint_get(m);
-	e->e_remote.r_sa = *srcsa;
+	if (srcsa->sa_family == AF_INET)
+		e->e_remote.r_sin = *(const struct sockaddr_in *)srcsa;
+	else if (srcsa->sa_family == AF_INET6)
+		e->e_remote.r_sin6 = *(const struct sockaddr_in6 *)srcsa;
+	else
+		e->e_remote.r_sa = *srcsa;
 	verify_endpoint(m);
 
 	if_inc_counter(sc->sc_ifp, IFCOUNTER_IPACKETS, 1);
