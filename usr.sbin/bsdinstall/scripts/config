@@ -74,6 +74,11 @@ if [ "${product}" = "Minnowboard Turbot D0 PLATFORM" ] || [ "${product}" = "Minn
 	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
 fi
 
+# Add default values for hn devices to work with ALTQ
+# See https://redmine.pfsense.org/issues/8954
+echo 'hw.hn.vf_transparent="0"' >> $BSDINSTALL_CHROOT/boot/loader.conf
+echo 'hw.hn.use_if_start="1"' >> $BSDINSTALL_CHROOT/boot/loader.conf
+
 if [ -f /tmp/boot.config ]; then
 	cp /tmp/boot.conf $BSDINSTALL_CHROOT
 fi
