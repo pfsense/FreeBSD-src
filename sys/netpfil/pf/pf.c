@@ -265,6 +265,8 @@ static int		 pf_state_key_ctor(void *, int, void *, int);
 static u_int32_t	 pf_tcp_iss(struct pf_pdesc *);
 void			 pf_rule_to_actions(struct pf_krule *,
 			    struct pf_rule_actions *);
+static int		 pf_test_eth_rule(int, struct pfi_kkif *,
+			    struct mbuf *);
 static int		 pf_test_rule(struct pf_krule **, struct pf_kstate **,
 			    int, struct pfi_kkif *, struct mbuf *, int,
 			    struct pf_pdesc *, struct pf_krule **,
@@ -3669,6 +3671,107 @@ pf_tcp_iss(struct pf_pdesc *pd)
 #undef	ISN_RANDOM_INCREMENT
 }
 
+static bool
+pf_match_eth_addr(const uint8_t *a, const struct pf_keth_rule_addr *r)
+{
+	/* Always matches if not set */
+	if (! r->isset)
+		return (!r->neg);
+
+	if (memcmp(a, r->addr, ETHER_ADDR_LEN) == 0)
+		return (!r->neg);
+
+	return (r->neg);
+}
+
+static int
+pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf *m)
+{
+	struct ether_header *e;
+	struct pf_keth_rule *r, *rm;
+	struct pf_mtag *mtag;
+	uint8_t action;
+
+	PF_RULES_RLOCK_TRACKER;
+
+	MPASS(kif->pfik_ifp->if_vnet == curvnet);
+
+	e = mtod(m, struct ether_header *);
+
+	PF_RULES_RLOCK();
+
+	r = TAILQ_FIRST(&V_pf_keth->rules);
+	rm = NULL;
+
+	while (r != NULL) {
+		counter_u64_add(r->evaluations, 1);
+		if (pfi_kkif_match(r->kif, kif) == r->ifnot)
+			r = r->skip[PFE_SKIP_IFP].ptr;
+		else if (r->direction && r->direction != dir)
+			r = r->skip[PFE_SKIP_DIR].ptr;
+		else if (r->proto && r->proto != ntohs(e->ether_type))
+			r = r->skip[PFE_SKIP_PROTO].ptr;
+		else if (! pf_match_eth_addr(e->ether_shost, &r->src))
+			r = r->skip[PFE_SKIP_SRC_ADDR].ptr;
+		else if (! pf_match_eth_addr(e->ether_dhost, &r->dst)) {
+			r = TAILQ_NEXT(r, entries);
+		}
+		else {
+			/* Rule matches */
+			rm = r;
+
+			if (r->quick)
+				break;
+
+			r = TAILQ_NEXT(r, entries);
+		}
+	}
+
+	r = rm;
+
+	/* Default to pass. */
+	if (r == NULL) {
+		PF_RULES_RUNLOCK();
+		return (PF_PASS);
+	}
+
+	/* Execute action. */
+	counter_u64_add(r->packets[dir == PF_OUT], 1);
+	counter_u64_add(r->bytes[dir == PF_OUT], m_length(m, NULL));
+
+	/* Shortcut. Don't tag if we're just going to drop anyway. */
+	if (r->action == PF_DROP) {
+		PF_RULES_RUNLOCK();
+		return (PF_DROP);
+	}
+
+	if (r->tag > 0) {
+		mtag = pf_get_mtag(m);
+		if (mtag == NULL) {
+			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
+			PF_RULES_RUNLOCK();
+			return (PF_DROP);
+		}
+		mtag->tag = r->tag;
+	}
+
+	if (r->qid != 0) {
+		mtag = pf_get_mtag(m);
+		if (mtag == NULL) {
+			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
+			PF_RULES_RUNLOCK();
+			return (PF_DROP);
+		}
+		mtag->qid = r->qid;
+	}
+
+	action = r->action;
+
+	PF_RULES_RUNLOCK();
+
+	return (action);
+}
+
 static int
 pf_test_rule(struct pf_krule **rm, struct pf_kstate **sm, int direction,
     struct pfi_kkif *kif, struct mbuf *m, int off, struct pf_pdesc *pd,
@@ -6558,6 +6661,36 @@ pf_check_proto_cksum(struct mbuf *m, int off, int len, u_int8_t p, sa_family_t a
 	return (0);
 }
 
+
+int
+pf_test_eth(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0,
+    struct inpcb *inp)
+{
+	struct pfi_kkif		*kif;
+	struct mbuf		*m = *m0;
+
+	M_ASSERTPKTHDR(m);
+	MPASS(ifp->if_vnet == curvnet);
+
+	if (!V_pf_status.running)
+		return (PF_PASS);
+
+	kif = (struct pfi_kkif *)ifp->if_pf_kif;
+
+	if (kif == NULL) {
+		DPFPRINTF(PF_DEBUG_URGENT,
+		    ("pf_test: kif == NULL, if_xname %s\n", ifp->if_xname));
+		return (PF_DROP);
+	}
+	if (kif->pfik_flags & PFI_IFLAG_SKIP)
+		return (PF_PASS);
+
+	if (m->m_flags & M_SKIP_FIREWALL)
+		return (PF_PASS);
+
+	/* Stateless! */
+	return (pf_test_eth_rule(dir, kif, m));
+}
 
 #ifdef INET
 int
