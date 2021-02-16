@@ -164,12 +164,6 @@ device		pflog
 device		pfsync
 
 device		rndtest		# FIPS 140-2 entropy tester
-device		hifn		# Hifn 7951, 7781, etc.
-options 	HIFN_DEBUG	# enable debugging support: hw.hifn.debug
-options 	HIFN_RNDTEST	# enable rndtest support
-device		ubsec		# Broadcom 5501, 5601, 58xx
-device		safe		# safe -- SafeNet crypto accelerator
-device		padlock
 
 device		speaker
 
