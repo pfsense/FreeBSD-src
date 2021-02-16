@@ -241,7 +241,9 @@ static int pf_check6_out(void *arg, struct mbuf **m, struct ifnet *ifp,
     int dir, int flags, struct inpcb *inp);
 #endif
 
+static void		hook_pf_eth(void);
 static int		hook_pf(void);
+static void		dehook_pf_eth(void);
 static int		dehook_pf(void);
 static int		shutdown_pf(void);
 static int		pf_load(void);
@@ -255,6 +257,8 @@ static struct cdevsw pf_cdevsw = {
 
 volatile VNET_DEFINE_STATIC(int, pf_pfil_hooked);
 #define V_pf_pfil_hooked	VNET(pf_pfil_hooked)
+volatile VNET_DEFINE_STATIC(int, pf_pfil_eth_hooked);
+#define V_pf_pfil_eth_hooked	VNET(pf_pfil_eth_hooked)
 
 /*
  * We need a flag that is neither hooked nor running to know when
@@ -367,6 +371,7 @@ pfattach_vnet(void)
 	V_pf_status.debug = PF_DEBUG_URGENT;
 
 	V_pf_pfil_hooked = 0;
+	V_pf_pfil_eth_hooked = 0;
 
 	/* XXX do our best to avoid a conflict */
 	V_pf_status.hostid = arc4random();
@@ -2451,6 +2456,8 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 				    ("pf: pfil registration failed\n"));
 				break;
 			}
+			if (! TAILQ_EMPTY(&V_pf_keth->rules))
+				hook_pf_eth();
 			V_pf_status.running = 1;
 			V_pf_status.since = time_second;
 
@@ -2473,6 +2480,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 				DPFPRINTF(PF_DEBUG_MISC,
 				    ("pf: pfil unregistration failed\n"));
 			}
+			dehook_pf_eth();
 			V_pf_status.since = time_second;
 			DPFPRINTF(PF_DEBUG_MISC, ("pf: stopped\n"));
 		}
@@ -5040,6 +5048,13 @@ DIOCCHANGEADDR_error:
 			}
 		}
 		PF_RULES_WUNLOCK();
+
+		/* Only hook into EtherNet taffic if we've got rules for it. */
+		if (! TAILQ_EMPTY(&V_pf_keth->rules))
+			hook_pf_eth();
+		else
+			dehook_pf_eth();
+
 		free(ioes, M_TEMP);
 		break;
 	}
@@ -6074,6 +6089,23 @@ pf_check6_out(void *arg, struct mbuf **m, struct ifnet *ifp, int dir, int flags,
 }
 #endif /* INET6 */
 
+	static void
+hook_pf_eth(void)
+{
+	struct pfil_head *pfh_ether;
+
+	if (V_pf_pfil_eth_hooked)
+		return;
+
+	pfh_ether = pfil_head_get(PFIL_TYPE_AF, AF_LINK);
+	if (pfh_ether == NULL)
+		return;
+	pfil_add_hook_flags(pf_eth_check_in, NULL, PFIL_IN | PFIL_WAITOK, pfh_ether);
+	pfil_add_hook_flags(pf_eth_check_out, NULL, PFIL_OUT | PFIL_WAITOK, pfh_ether);
+
+	V_pf_pfil_eth_hooked = 1;
+}
+
 static int
 hook_pf(void)
 {
@@ -6083,16 +6115,9 @@ hook_pf(void)
 #ifdef INET6
 	struct pfil_head *pfh_inet6;
 #endif
-    struct pfil_head *pfh_ether;
 
 	if (V_pf_pfil_hooked)
 		return (0);
-
-	pfh_ether = pfil_head_get(PFIL_TYPE_AF, AF_LINK);
-	if (pfh_ether == NULL)
-		return (ESRCH); /* XXX */
-	pfil_add_hook_flags(pf_eth_check_in, NULL, PFIL_IN | PFIL_WAITOK, pfh_ether);
-	pfil_add_hook_flags(pf_eth_check_out, NULL, PFIL_OUT | PFIL_WAITOK, pfh_ether);
 
 #ifdef INET
 	pfh_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
@@ -6124,6 +6149,25 @@ hook_pf(void)
 	return (0);
 }
 
+static void
+dehook_pf_eth(void)
+{
+	struct pfil_head *pfh_ether;
+
+	if (V_pf_pfil_eth_hooked == 0)
+		return;
+
+	pfh_ether = pfil_head_get(PFIL_TYPE_AF, AF_LINK);
+	if (pfh_ether == NULL)
+		return;
+	pfil_remove_hook_flags(pf_eth_check_in, NULL, PFIL_IN | PFIL_WAITOK,
+			pfh_ether);
+	pfil_remove_hook_flags(pf_eth_check_out, NULL, PFIL_OUT | PFIL_WAITOK,
+			pfh_ether);
+
+	V_pf_pfil_eth_hooked = 0;
+}
+
 static int
 dehook_pf(void)
 {
@@ -6133,18 +6177,9 @@ dehook_pf(void)
 #ifdef INET6
 	struct pfil_head *pfh_inet6;
 #endif
-	struct pfil_head *pfh_ether;
 
 	if (V_pf_pfil_hooked == 0)
 		return (0);
-
-	pfh_ether = pfil_head_get(PFIL_TYPE_AF, AF_LINK);
-	if (pfh_ether == NULL)
-		return (ESRCH); /* XXX */
-	pfil_remove_hook_flags(pf_eth_check_in, NULL, PFIL_IN | PFIL_WAITOK,
-	    pfh_ether);
-	pfil_remove_hook_flags(pf_eth_check_out, NULL, PFIL_OUT | PFIL_WAITOK,
-	    pfh_ether);
 
 #ifdef INET
 	pfh_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
@@ -6232,6 +6267,7 @@ pf_unload_vnet(void)
 		printf("%s : pfil unregisteration fail\n", __FUNCTION__);
 		return;
 	}
+	dehook_pf_eth();
 
 	PF_RULES_WLOCK();
 	pf_syncookies_cleanup();
