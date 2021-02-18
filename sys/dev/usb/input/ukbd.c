@@ -389,11 +389,9 @@ ukbd_put_key(struct ukbd_softc *sc, uint32_t key)
 	    (key & KEY_RELEASE) ? "released" : "pressed");
 
 #ifdef EVDEV_SUPPORT
-	if (evdev_rcpt_mask & EVDEV_RCPT_HW_KBD && sc->sc_evdev != NULL) {
+	if (evdev_rcpt_mask & EVDEV_RCPT_HW_KBD && sc->sc_evdev != NULL)
 		evdev_push_event(sc->sc_evdev, EV_KEY,
 		    evdev_hid2key(KEY_INDEX(key)), !(key & KEY_RELEASE));
-		evdev_sync(sc->sc_evdev);
-	}
 #endif
 
 	if (sc->sc_inputs < UKBD_IN_BUF_SIZE) {
@@ -559,6 +557,11 @@ ukbd_interrupt(struct ukbd_softc *sc)
 			sc->sc_repeat_time = now + sc->sc_kbd.kb_delay2;
 		}
 	}
+
+#ifdef EVDEV_SUPPORT
+	if (evdev_rcpt_mask & EVDEV_RCPT_HW_KBD && sc->sc_evdev != NULL)
+		evdev_sync(sc->sc_evdev);
+#endif
 
 	/* wakeup keyboard system */
 	ukbd_event_keyinput(sc);
@@ -842,11 +845,6 @@ ukbd_set_leds_callback(struct usb_xfer *xfer, usb_error_t error)
 		/* if no leds, nothing to do */
 		if (!any)
 			break;
-
-#ifdef EVDEV_SUPPORT
-		if (sc->sc_evdev != NULL)
-			evdev_push_leds(sc->sc_evdev, sc->sc_leds);
-#endif
 
 		/* range check output report length */
 		len = sc->sc_led_size;
@@ -1974,6 +1972,11 @@ ukbd_set_leds(struct ukbd_softc *sc, uint8_t leds)
 
 	UKBD_LOCK_ASSERT();
 	DPRINTF("leds=0x%02x\n", leds);
+
+#ifdef EVDEV_SUPPORT
+	if (sc->sc_evdev != NULL)
+		evdev_push_leds(sc->sc_evdev, leds);
+#endif
 
 	sc->sc_leds = leds;
 	sc->sc_flags |= UKBD_FLAG_SET_LEDS;

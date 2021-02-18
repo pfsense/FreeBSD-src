@@ -30,6 +30,7 @@ CFLAGS+=	-DLUA_PROGNAME="\"${PROG}\""
 CFLAGS+=	-DLUA_USE_READLINE
 CFLAGS+=	-I${SRCTOP}/lib/libedit -I${SRCTOP}/contrib/libedit
 LIBADD+=	edit
+LDFLAGS+=	-Wl,-E
 .endif
 
 .include <bsd.prog.mk>

@@ -29,6 +29,8 @@
 #ifndef _SAFEXCEL_VAR_H_
 #define	_SAFEXCEL_VAR_H_
 
+#include <sys/counter.h>
+
 #define	SAFEXCEL_MAX_RINGS			4
 #define	SAFEXCEL_MAX_BATCH_SIZE			64
 #define	SAFEXCEL_MAX_FRAGMENTS			64
@@ -36,7 +38,6 @@
 #define	SAFEXCEL_MAX_REQUEST_SIZE		65535
 
 #define	SAFEXCEL_RING_SIZE			512
-#define	SAFEXCEL_REQUESTS_PER_RING		64
 #define	SAFEXCEL_MAX_ITOKENS			4
 #define	SAFEXCEL_MAX_ATOKENS			16
 #define	SAFEXCEL_FETCH_COUNT			1
@@ -47,7 +48,8 @@
  * Context Record format.
  *
  * In this driver the context control words are always set in the control data.
- * This is configured by setting SAFEXCEL_OPTION_CTX_CTRL_IN_CMD.
+ * This helps optimize fetching of the context record.  This is configured by
+ * setting SAFEXCEL_OPTION_CTX_CTRL_IN_CMD.
  */
 struct safexcel_context_record {
 	uint32_t control0;	/* Unused. */
@@ -339,7 +341,6 @@ struct safexcel_res_descr_ring {
 };
 
 struct safexcel_session {
-	int			ringidx;
 	uint32_t		alg;		/* cipher algorithm */
 	uint32_t		digest;		/* digest type */
 	uint32_t		hash;		/* hash algorithm */
@@ -366,6 +367,7 @@ struct safexcel_softc;
 struct safexcel_request {
 	STAILQ_ENTRY(safexcel_request)	link;
 	bool				dmap_loaded;
+	int				ringidx;
 	bus_dmamap_t			dmap;
 	int				error;
 	int				cdescs, rdescs;
@@ -385,15 +387,23 @@ struct safexcel_ring {
 	struct sglist			*res_data;
 	struct safexcel_res_descr_ring	rdr;
 
-	int				blocked;
+	/* Shadows the command descriptor ring. */
+	struct safexcel_request		requests[SAFEXCEL_RING_SIZE];
 
-	struct safexcel_request		*requests;
-	STAILQ_HEAD(, safexcel_request)	ready_requests;
-	STAILQ_HEAD(, safexcel_request)	queued_requests;
-	STAILQ_HEAD(, safexcel_request)	free_requests;
+	/* Count of requests pending submission. */
+	int				pending;
+	int				pending_cdesc, pending_rdesc;
+
+	/* Count of outstanding requests. */
+	int				queued;
+
+	/* Requests were deferred due to a resource shortage. */
+	int				blocked;
 
 	struct safexcel_dma_mem		dma_atok;
 	bus_dma_tag_t   		data_dtag;
+
+	char				lockname[32];
 };
 
 struct safexcel_intr_handle {
@@ -411,8 +421,11 @@ struct safexcel_softc {
 	struct resource			*sc_intr[SAFEXCEL_MAX_RINGS];
 	struct safexcel_intr_handle	sc_ih[SAFEXCEL_MAX_RINGS];
 
+	counter_u64_t			sc_req_alloc_failures;
+	counter_u64_t			sc_cdesc_alloc_failures;
+	counter_u64_t			sc_rdesc_alloc_failures;
+
 	struct safexcel_ring 		sc_ring[SAFEXCEL_MAX_RINGS];
-	int				sc_ringidx;
 
 	int32_t				sc_cid;
 	struct safexcel_reg_offsets 	sc_offsets;

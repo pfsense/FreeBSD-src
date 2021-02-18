@@ -885,11 +885,14 @@ acpi_pnpinfo_str(ACPI_HANDLE handle, char *buf, size_t buflen)
 	return (0);
     }
 
-    snprintf(buf, buflen, "_HID=%s _UID=%lu",
+    snprintf(buf, buflen, "_HID=%s _UID=%lu _CID=%s",
 	(adinfo->Valid & ACPI_VALID_HID) ?
 	adinfo->HardwareId.String : "none",
 	(adinfo->Valid & ACPI_VALID_UID) ?
-	strtoul(adinfo->UniqueId.String, NULL, 10) : 0UL);
+	strtoul(adinfo->UniqueId.String, NULL, 10) : 0UL,
+	((adinfo->Valid & ACPI_VALID_CID) &&
+	 adinfo->CompatibleIdList.Count > 0) ?
+	adinfo->CompatibleIdList.Ids[0].String : "none");
     AcpiOsFree(adinfo);
 
     return (0);
@@ -2251,6 +2254,8 @@ acpi_DeviceIsPresent(device_t dev)
 	h = acpi_get_handle(dev);
 	if (h == NULL)
 		return (FALSE);
+
+#ifdef ACPI_EARLY_EPYC_WAR
 	/*
 	 * Onboard serial ports on certain AMD motherboards have an invalid _STA
 	 * method that always returns 0.  Force them to always be treated as present.
@@ -2259,6 +2264,7 @@ acpi_DeviceIsPresent(device_t dev)
 	 */
 	if (acpi_MatchHid(h, "AMDI0020") || acpi_MatchHid(h, "AMDI0010"))
 		return (TRUE);
+#endif
 
 	status = acpi_GetInteger(h, "_STA", &s);
 

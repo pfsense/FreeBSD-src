@@ -616,6 +616,10 @@ netmap_set_all_rings(struct netmap_adapter *na, int stopped)
 	if (!nm_netmap_on(na))
 		return;
 
+	if (netmap_verbose) {
+		nm_prinf("%s: %sable all rings", na->name,
+		    (stopped ? "dis" : "en"));
+	}
 	for_rx_tx(t) {
 		for (i = 0; i < netmap_real_rings(na, t); i++) {
 			netmap_set_ring(na, i, t, stopped);
@@ -633,7 +637,7 @@ void
 netmap_disable_all_rings(struct ifnet *ifp)
 {
 	if (NM_NA_VALID(ifp)) {
-		netmap_set_all_rings(NA(ifp), NM_KR_STOPPED);
+		netmap_set_all_rings(NA(ifp), NM_KR_LOCKED);
 	}
 }
 
@@ -1829,13 +1833,15 @@ netmap_ring_reinit(struct netmap_kring *kring)
  *
  */
 int
-netmap_interp_ringid(struct netmap_priv_d *priv, uint32_t nr_mode,
-			uint16_t nr_ringid, uint64_t nr_flags)
+netmap_interp_ringid(struct netmap_priv_d *priv, struct nmreq_header *hdr)
 {
 	struct netmap_adapter *na = priv->np_na;
+	struct nmreq_register *reg = (struct nmreq_register *)hdr->nr_body;
 	int excluded_direction[] = { NR_TX_RINGS_ONLY, NR_RX_RINGS_ONLY };
 	enum txrx t;
 	u_int j;
+	u_int nr_flags = reg->nr_flags, nr_mode = reg->nr_mode,
+	      nr_ringid = reg->nr_ringid;
 
 	for_rx_tx(t) {
 		if (nr_flags & excluded_direction[t]) {
@@ -1929,19 +1935,19 @@ netmap_interp_ringid(struct netmap_priv_d *priv, uint32_t nr_mode,
  * for all rings is the same as a single ring.
  */
 static int
-netmap_set_ringid(struct netmap_priv_d *priv, uint32_t nr_mode,
-		uint16_t nr_ringid, uint64_t nr_flags)
+netmap_set_ringid(struct netmap_priv_d *priv, struct nmreq_header *hdr)
 {
 	struct netmap_adapter *na = priv->np_na;
+	struct nmreq_register *reg = (struct nmreq_register *)hdr->nr_body;
 	int error;
 	enum txrx t;
 
-	error = netmap_interp_ringid(priv, nr_mode, nr_ringid, nr_flags);
+	error = netmap_interp_ringid(priv, hdr);
 	if (error) {
 		return error;
 	}
 
-	priv->np_txpoll = (nr_flags & NR_NO_TX_POLL) ? 0 : 1;
+	priv->np_txpoll = (reg->nr_flags & NR_NO_TX_POLL) ? 0 : 1;
 
 	/* optimization: count the users registered for more than
 	 * one ring, which are the ones sleeping on the global queue.
@@ -1971,6 +1977,19 @@ netmap_unset_ringid(struct netmap_priv_d *priv)
 	priv->np_kloop_state = 0;
 }
 
+#define within_sel(p_, t_, i_)					  	  \
+	((i_) < (p_)->np_qlast[(t_)])
+#define nonempty_sel(p_, t_)						  \
+	(within_sel((p_), (t_), (p_)->np_qfirst[(t_)]))
+#define foreach_selected_ring(p_, t_, i_, kring_)			  \
+	for ((t_) = nonempty_sel((p_), NR_RX) ? NR_RX : NR_TX,		  \
+	     (i_) = (p_)->np_qfirst[(t_)];				  \
+	     (t_ == NR_RX ||						  \
+	      (t == NR_TX && within_sel((p_), (t_), (i_)))) &&     	  \
+	      ((kring_) = NMR((p_)->np_na, (t_))[(i_)]); 		  \
+	     (i_) = within_sel((p_), (t_), (i_) + 1) ? (i_) + 1 :         \
+		(++(t_) < NR_TXRX ? (p_)->np_qfirst[(t_)] : (i_)))
+
 
 /* Set the nr_pending_mode for the requested rings.
  * If requested, also try to get exclusive access to the rings, provided
@@ -1997,29 +2016,23 @@ netmap_krings_get(struct netmap_priv_d *priv)
 	 * are neither alread exclusively owned, nor we
 	 * want exclusive ownership when they are already in use
 	 */
-	for_rx_tx(t) {
-		for (i = priv->np_qfirst[t]; i < priv->np_qlast[t]; i++) {
-			kring = NMR(na, t)[i];
-			if ((kring->nr_kflags & NKR_EXCLUSIVE) ||
-			    (kring->users && excl))
-			{
-				nm_prdis("ring %s busy", kring->name);
-				return EBUSY;
-			}
+	foreach_selected_ring(priv, t, i, kring) {
+		if ((kring->nr_kflags & NKR_EXCLUSIVE) ||
+		    (kring->users && excl))
+		{
+			nm_prdis("ring %s busy", kring->name);
+			return EBUSY;
 		}
 	}
 
 	/* second round: increment usage count (possibly marking them
 	 * as exclusive) and set the nr_pending_mode
 	 */
-	for_rx_tx(t) {
-		for (i = priv->np_qfirst[t]; i < priv->np_qlast[t]; i++) {
-			kring = NMR(na, t)[i];
-			kring->users++;
-			if (excl)
-				kring->nr_kflags |= NKR_EXCLUSIVE;
-	                kring->nr_pending_mode = NKR_NETMAP_ON;
-		}
+	foreach_selected_ring(priv, t, i, kring) {
+		kring->users++;
+		if (excl)
+			kring->nr_kflags |= NKR_EXCLUSIVE;
+		kring->nr_pending_mode = NKR_NETMAP_ON;
 	}
 
 	return 0;
@@ -2032,7 +2045,6 @@ netmap_krings_get(struct netmap_priv_d *priv)
 static void
 netmap_krings_put(struct netmap_priv_d *priv)
 {
-	struct netmap_adapter *na = priv->np_na;
 	u_int i;
 	struct netmap_kring *kring;
 	int excl = (priv->np_flags & NR_EXCLUSIVE);
@@ -2045,15 +2057,12 @@ netmap_krings_put(struct netmap_priv_d *priv)
 			priv->np_qfirst[NR_RX],
 			priv->np_qlast[MR_RX]);
 
-	for_rx_tx(t) {
-		for (i = priv->np_qfirst[t]; i < priv->np_qlast[t]; i++) {
-			kring = NMR(na, t)[i];
-			if (excl)
-				kring->nr_kflags &= ~NKR_EXCLUSIVE;
-			kring->users--;
-			if (kring->users == 0)
-				kring->nr_pending_mode = NKR_NETMAP_OFF;
-		}
+	foreach_selected_ring(priv, t, i, kring) {
+		if (excl)
+			kring->nr_kflags &= ~NKR_EXCLUSIVE;
+		kring->users--;
+		if (kring->users == 0)
+			kring->nr_pending_mode = NKR_NETMAP_OFF;
 	}
 }
 
@@ -2286,7 +2295,7 @@ netmap_buf_size_validate(const struct netmap_adapter *na, unsigned mtu) {
  */
 int
 netmap_do_regif(struct netmap_priv_d *priv, struct netmap_adapter *na,
-	uint32_t nr_mode, uint16_t nr_ringid, uint64_t nr_flags)
+	struct nmreq_header *hdr)
 {
 	struct netmap_if *nifp = NULL;
 	int error;
@@ -2311,7 +2320,7 @@ netmap_do_regif(struct netmap_priv_d *priv, struct netmap_adapter *na,
 	}
 
 	/* compute the range of tx and rx rings to monitor */
-	error = netmap_set_ringid(priv, nr_mode, nr_ringid, nr_flags);
+	error = netmap_set_ringid(priv, hdr);
 	if (error)
 		goto err_put_lut;
 
@@ -2552,8 +2561,7 @@ netmap_ioctl(struct netmap_priv_d *priv, u_long cmd, caddr_t data,
 					break;
 				}
 
-				error = netmap_do_regif(priv, na, req->nr_mode,
-							req->nr_ringid, req->nr_flags);
+				error = netmap_do_regif(priv, na, hdr);
 				if (error) {    /* reg. failed, release priv and ref */
 					break;
 				}
@@ -4056,75 +4064,71 @@ done:
 
 
 /*
- * netmap_reset() is called by the driver routines when reinitializing
- * a ring. The driver is in charge of locking to protect the kring.
- * If native netmap mode is not set just return NULL.
- * If native netmap mode is set, in particular, we have to set nr_mode to
- * NKR_NETMAP_ON.
+ * Reset function to be called by the driver routines when reinitializing
+ * a hardware ring. The driver is in charge of locking to protect the kring
+ * while this operation is being performed. This is normally achieved by
+ * calling netmap_disable_all_rings() before triggering a reset.
+ * If the kring is not in netmap mode, return NULL to inform the caller
+ * that this is the case.
+ * If the kring is in netmap mode, set hwofs so that the netmap indices
+ * seen by userspace (head/cut/tail) do not change, although the internal
+ * NIC indices have been reset to 0.
+ * In any case, adjust kring->nr_mode.
  */
 struct netmap_slot *
 netmap_reset(struct netmap_adapter *na, enum txrx tx, u_int n,
 	u_int new_cur)
 {
 	struct netmap_kring *kring;
-	int new_hwofs, lim;
+	u_int new_hwtail, new_hwofs;
 
 	if (!nm_native_on(na)) {
 		nm_prdis("interface not in native netmap mode");
 		return NULL;	/* nothing to reinitialize */
 	}
 
-	/* XXX note- in the new scheme, we are not guaranteed to be
-	 * under lock (e.g. when called on a device reset).
-	 * In this case, we should set a flag and do not trust too
-	 * much the values. In practice: TODO
-	 * - set a RESET flag somewhere in the kring
-	 * - do the processing in a conservative way
-	 * - let the *sync() fixup at the end.
-	 */
 	if (tx == NR_TX) {
 		if (n >= na->num_tx_rings)
 			return NULL;
-
 		kring = na->tx_rings[n];
-
-		if (kring->nr_pending_mode == NKR_NETMAP_OFF) {
-			kring->nr_mode = NKR_NETMAP_OFF;
-			return NULL;
-		}
-
-		// XXX check whether we should use hwcur or rcur
-		new_hwofs = kring->nr_hwcur - new_cur;
+		/*
+		 * Set hwofs to rhead, so that slots[rhead] is mapped to
+		 * the NIC internal slot 0, and thus the netmap buffer
+		 * at rhead is the next to be transmitted. Transmissions
+		 * that were pending before the reset are considered as
+		 * sent, so that we can have hwcur = rhead. All the slots
+		 * are now owned by the user, so we can also reinit hwtail.
+		 */
+		new_hwofs = kring->rhead;
+		new_hwtail = nm_prev(kring->rhead, kring->nkr_num_slots - 1);
 	} else {
 		if (n >= na->num_rx_rings)
 			return NULL;
 		kring = na->rx_rings[n];
-
-		if (kring->nr_pending_mode == NKR_NETMAP_OFF) {
-			kring->nr_mode = NKR_NETMAP_OFF;
-			return NULL;
-		}
-
-		new_hwofs = kring->nr_hwtail - new_cur;
+		/*
+		 * Set hwofs to hwtail, so that slots[hwtail] is mapped to
+		 * the NIC internal slot 0, and thus the netmap buffer
+		 * at hwtail is the next to be given to the NIC.
+		 * Unread slots (the ones in [rhead,hwtail[) are owned by
+		 * the user, and thus the caller cannot give them
+		 * to the NIC right now.
+		 */
+		new_hwofs = kring->nr_hwtail;
+		new_hwtail = kring->nr_hwtail;
 	}
-	lim = kring->nkr_num_slots - 1;
-	if (new_hwofs > lim)
-		new_hwofs -= lim + 1;
-
-	/* Always set the new offset value and realign the ring. */
-	if (netmap_debug & NM_DEBUG_ON)
-	    nm_prinf("%s %s%d hwofs %d -> %d, hwtail %d -> %d",
-		na->name,
-		tx == NR_TX ? "TX" : "RX", n,
-		kring->nkr_hwofs, new_hwofs,
-		kring->nr_hwtail,
-		tx == NR_TX ? lim : kring->nr_hwtail);
+	if (kring->nr_pending_mode == NKR_NETMAP_OFF) {
+		kring->nr_mode = NKR_NETMAP_OFF;
+		return NULL;
+	}
+	if (netmap_verbose) {
+	    nm_prinf("%s, hc %u->%u, ht %u->%u, ho %u->%u", kring->name,
+	        kring->nr_hwcur, kring->rhead,
+	        kring->nr_hwtail, new_hwtail,
+		kring->nkr_hwofs, new_hwofs);
+	}
+	kring->nr_hwcur = kring->rhead;
+	kring->nr_hwtail = new_hwtail;
 	kring->nkr_hwofs = new_hwofs;
-	if (tx == NR_TX) {
-		kring->nr_hwtail = kring->nr_hwcur + lim;
-		if (kring->nr_hwtail > lim)
-			kring->nr_hwtail -= lim + 1;
-	}
 
 	/*
 	 * Wakeup on the individual and global selwait
@@ -4226,7 +4230,7 @@ nm_set_native_flags(struct netmap_adapter *na)
 	struct ifnet *ifp = na->ifp;
 
 	/* We do the setup for intercepting packets only if we are the
-	 * first user of this adapapter. */
+	 * first user of this adapter. */
 	if (na->active_fds > 0) {
 		return;
 	}

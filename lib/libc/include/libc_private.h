@@ -238,6 +238,7 @@ enum {
 	INTERPOS_fdatasync,
 	INTERPOS_clock_nanosleep,
 	INTERPOS_distribute_static_tls,
+	INTERPOS_pdfork,
 	INTERPOS_MAX
 };
 
@@ -352,6 +353,7 @@ int		__sys_msync(void *, __size_t, int);
 int		__sys_nanosleep(const struct timespec *, struct timespec *);
 int		__sys_open(const char *, int, ...);
 int		__sys_openat(int, const char *, int, ...);
+int		__sys_pdfork(int *, int);
 int		__sys_pselect(int, struct fd_set *, struct fd_set *,
 		    struct fd_set *, const struct timespec *,
 		    const __sigset_t *);
@@ -428,5 +430,10 @@ void	___pthread_cleanup_push_imp(void (*)(void *), void *,
 void	___pthread_cleanup_pop_imp(int);
 
 void __throw_constraint_handler_s(const char * restrict msg, int error);
+
+struct __nl_cat_d;
+struct _xlocale;
+struct __nl_cat_d *__catopen_l(const char *name, int type,
+	    struct _xlocale *locale);
 
 #endif /* _LIBC_PRIVATE_H_ */

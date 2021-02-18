@@ -707,7 +707,7 @@ static int wait_fw_init(struct mlx5_core_dev *dev, u32 max_wait_mili,
 		if (warn_time_mili && time_after(jiffies, warn)) {
 			mlx5_core_warn(dev,
 			    "Waiting for FW initialization, timeout abort in %u s\n",
-			    (unsigned int)(jiffies_to_msecs(end - warn) / 1000));
+			    (unsigned)(jiffies_to_msecs(end - warn) / 1000));
 			warn = jiffies + msecs_to_jiffies(warn_time_mili);
 		}
 		msleep(FW_INIT_WAIT_MS);
@@ -936,7 +936,7 @@ static int mlx5_init_once(struct mlx5_core_dev *dev, struct mlx5_priv *priv)
 
 	err = mlx5_vsc_find_cap(dev);
 	if (err)
-		mlx5_core_err(dev, "Unable to find vendor specific capabilities\n");
+		mlx5_core_warn(dev, "Unable to find vendor specific capabilities\n");
 
 	err = mlx5_query_hca_caps(dev);
 	if (err) {
@@ -1662,6 +1662,11 @@ static void remove_one(struct pci_dev *pdev)
 {
 	struct mlx5_core_dev *dev  = pci_get_drvdata(pdev);
 	struct mlx5_priv *priv = &dev->priv;
+
+#ifdef PCI_IOV
+	pci_iov_detach(pdev->dev.bsddev);
+	mlx5_eswitch_disable_sriov(priv->eswitch);
+#endif
 
 	if (mlx5_unload_one(dev, priv, true)) {
 		mlx5_core_err(dev, "mlx5_unload_one() failed, leaked %lld bytes\n",
