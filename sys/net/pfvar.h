@@ -313,14 +313,6 @@ struct pf_kpool {
 	u_int8_t		 opts;
 };
 
-struct pf_rule_actions {
-	u_int32_t       qid;
-	u_int32_t       pqid;
-	u_int32_t       pdnpipe;
-	u_int32_t       dnpipe;
-	u_int8_t        flags;
-};
-
 union pf_krule_ptr {
 	struct pf_krule		*ptr;
 	u_int32_t		 nr;
@@ -472,6 +464,14 @@ struct pf_ksrc_node {
 	u_int8_t	 ruletype;
 };
 #endif
+
+struct pf_rule_actions {
+	u_int32_t       qid;
+	u_int32_t       pqid;
+	u_int32_t       pdnpipe;
+	u_int32_t       dnpipe;
+	u_int8_t        flags;
+};
 
 struct pf_state_scrub {
 	struct timeval	pfss_last;	/* time received last packet	*/
