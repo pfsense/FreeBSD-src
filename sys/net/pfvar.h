@@ -313,6 +313,14 @@ struct pf_kpool {
 	u_int8_t		 opts;
 };
 
+struct pf_rule_actions {
+	u_int32_t       qid;
+	u_int32_t       pqid;
+	u_int32_t       pdnpipe;
+	u_int32_t       dnpipe;
+	u_int8_t        flags;
+};
+
 union pf_krule_ptr {
 	struct pf_krule		*ptr;
 	u_int32_t		 nr;
@@ -443,6 +451,10 @@ struct pf_krule {
 	}			divert;
 };
 
+/* rule flags for TOS or DSCP differentiation */
+#define	PFRULE_TOS		0x2000
+#define	PFRULE_DSCP		0x4000
+
 struct pf_ksrc_node {
 	LIST_ENTRY(pf_ksrc_node) entry;
 	struct pf_addr	 addr;
@@ -524,13 +536,14 @@ struct pf_state_cmp {
 	u_int8_t		 pad[3];
 };
 
-#define	PFSTATE_ALLOWOPTS	0x01
-#define	PFSTATE_SLOPPY		0x02
-/*  was	PFSTATE_PFLOW		0x04 */
-#define	PFSTATE_NOSYNC		0x08
-#define	PFSTATE_ACK		0x10
-#define	PFSTATE_SETPRIO		0x0200
-#define	PFSTATE_SETMASK   (PFSTATE_SETPRIO)
+#define	PFSTATE_ALLOWOPTS	0x001
+#define	PFSTATE_SLOPPY		0x002
+#define	PFSTATE_NOSYNC		0x008
+#define	PFSTATE_ACK		0x010
+#define	PFRULE_DN_IS_PIPE	0x040
+#define	PFRULE_DN_IS_QUEUE	0x080
+#define	PFSTATE_SETPRIO		0x200
+#define	PFSTATE_SETMASK		(PFSTATE_SETPRIO)
 
 #ifdef _KERNEL
 struct pf_state {

@@ -1996,10 +1996,10 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 				tail = TAILQ_NEXT(tail, entries);
 			if (tail != NULL) {
 				rule->evaluations = tail->evaluations;
-				rule->packets[0] = counter_u64_fetch(tail->packets[0]);
-				rule->packets[1] = counter_u64_fetch(tail->packets[1]);
-				rule->bytes[0] = counter_u64_fetch(tail->bytes[0]);
-				rule->bytes[1] = counter_u64_fetch(tail->bytes[1]);
+				for (int i = 0; i < 2; i++) {
+					rule->bytes[i] = tail->bytes[i];
+					rule->packets[i] = tail->packets[i];
+				}
 			} else {
 				counter_u64_zero(rule->evaluations);
 				for (int i = 0; i < 2; i++) {

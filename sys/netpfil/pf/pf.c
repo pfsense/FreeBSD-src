@@ -246,7 +246,7 @@ static int		 pf_state_key_attach(struct pf_state_key *,
 static void		 pf_state_key_detach(struct pf_state *, int);
 static int		 pf_state_key_ctor(void *, int, void *, int);
 static u_int32_t	 pf_tcp_iss(struct pf_pdesc *);
-void			 pf_rule_to_actions(struct pf_rule *,
+void			 pf_rule_to_actions(struct pf_krule *,
 			    struct pf_rule_actions *);
 static int		 pf_test_rule(struct pf_krule **, struct pf_state **,
 			    int, struct pfi_kkif *, struct mbuf *, int,
@@ -280,7 +280,7 @@ static int		 pf_test_state_icmp(struct pf_state **, int,
 			    struct pfi_kkif *, struct mbuf *, int,
 			    void *, struct pf_pdesc *, u_short *);
 static int		 pf_test_state_other(struct pf_state **, int,
-			    struct pfi_kkif *, struct mbuf *, struct pf_pdesc *);
+			    struct pfi_kkif *, struct mbuf *, int, struct pf_pdesc *);
 static u_int8_t		 pf_get_wscale(struct mbuf *, int, u_int16_t,
 			    sa_family_t);
 static u_int16_t	 pf_get_mss(struct mbuf *, int, u_int16_t,
@@ -349,22 +349,20 @@ VNET_DEFINE(struct pf_limit, pf_limits[PF_LIMIT_MAX]);
 #define	PACKET_LOOPED(pd)	((pd)->pf_mtag &&			\
 				 (pd)->pf_mtag->flags & PF_PACKET_LOOPED)
 
-#define	STATE_LOOKUP(i, k, d, s, pd)					\
+#define	STATE_LOOKUP(i, k, d, s, _off, _pd)				\
 	do {								\
 		(s) = pf_find_state((i), (k), (d));			\
 		if ((s) == NULL)					\
 			return (PF_DROP);				\
-		if (PACKET_LOOPED(pd)) {				\
+		if (PACKET_LOOPED(_pd)) {				\
 			if ((s)->key[PF_SK_WIRE] != (s)->key[PF_SK_STACK]) {	\
-				PACKET_REDO_NAT(m, pd, off, s, direction);	\
+				PACKET_REDO_NAT(m, _pd, _off, s, direction);	\
 			}						\
 			return (PF_PASS);				\
 		}							\
 		if ((d) == PF_OUT &&					\
 		    (((s)->rule.ptr->rt == PF_ROUTETO &&		\
-		    (s)->rule.ptr->direction == PF_OUT) ||		\
-		    ((s)->rule.ptr->rt == PF_REPLYTO &&			\
-		    (s)->rule.ptr->direction == PF_IN)) &&		\
+		    (s)->rule.ptr->direction == PF_OUT)) &&		\
 		    (s)->rt_kif != NULL &&				\
 		    (s)->rt_kif != (i))					\
 			return (PF_PASS);				\
@@ -3193,7 +3191,7 @@ pf_addr_inc(struct pf_addr *addr, sa_family_t af)
 #endif /* INET6 */
 
 void
-pf_rule_to_actions(struct pf_rule *r, struct pf_rule_actions *a)
+pf_rule_to_actions(struct pf_krule *r, struct pf_rule_actions *a)
 {
 	if (r->qid)
 		a->qid = r->qid;
@@ -4637,7 +4635,7 @@ pf_test_state_tcp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 		key.port[0] = th->th_dport;
 	}
 
-	STATE_LOOKUP(kif, &key, direction, *state, pd);
+	STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 	if (direction == (*state)->direction) {
 		src = &(*state)->src;
@@ -4802,7 +4800,7 @@ pf_test_state_udp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 		key.port[0] = uh->uh_dport;
 	}
 
-	STATE_LOOKUP(kif, &key, direction, *state, pd);
+	STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 	if (direction == (*state)->direction) {
 		src = &(*state)->src;
@@ -4906,7 +4904,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			PF_ACPY(&key.addr[0], pd->dst, key.af);
 		}
 
-		STATE_LOOKUP(kif, &key, direction, *state, pd);
+		STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 		(*state)->expire = time_uptime;
 		(*state)->timeout = PFTM_ICMP_ERROR_REPLY;
@@ -5120,7 +5118,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			key.port[pd2.sidx] = th.th_sport;
 			key.port[pd2.didx] = th.th_dport;
 
-			STATE_LOOKUP(kif, &key, direction, *state, pd);
+			STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 			if (direction == (*state)->direction) {
 				src = &(*state)->dst;
@@ -5241,7 +5239,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			key.port[pd2.sidx] = uh.uh_sport;
 			key.port[pd2.didx] = uh.uh_dport;
 
-			STATE_LOOKUP(kif, &key, direction, *state, pd);
+			STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 			/* translate source/destination address, if necessary */
 			if ((*state)->key[PF_SK_WIRE] !=
@@ -5308,7 +5306,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			PF_ACPY(&key.addr[pd2.didx], pd2.dst, key.af);
 			key.port[0] = key.port[1] = iih.icmp_id;
 
-			STATE_LOOKUP(kif, &key, direction, *state, pd);
+			STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 			/* translate source/destination address, if necessary */
 			if ((*state)->key[PF_SK_WIRE] !=
@@ -5360,7 +5358,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			PF_ACPY(&key.addr[pd2.didx], pd2.dst, key.af);
 			key.port[0] = key.port[1] = iih.icmp6_id;
 
-			STATE_LOOKUP(kif, &key, direction, *state, pd);
+			STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 			/* translate source/destination address, if necessary */
 			if ((*state)->key[PF_SK_WIRE] !=
@@ -5403,7 +5401,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 			PF_ACPY(&key.addr[pd2.didx], pd2.dst, key.af);
 			key.port[0] = key.port[1] = 0;
 
-			STATE_LOOKUP(kif, &key, direction, *state, pd);
+			STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 			/* translate source/destination address, if necessary */
 			if ((*state)->key[PF_SK_WIRE] !=
@@ -5453,7 +5451,7 @@ pf_test_state_icmp(struct pf_state **state, int direction, struct pfi_kkif *kif,
 
 static int
 pf_test_state_other(struct pf_state **state, int direction, struct pfi_kkif *kif,
-    struct mbuf *m, struct pf_pdesc *pd)
+    struct mbuf *m, int off, struct pf_pdesc *pd)
 {
 	struct pf_state_peer	*src, *dst;
 	struct pf_state_key_cmp	 key;
@@ -5471,7 +5469,7 @@ pf_test_state_other(struct pf_state **state, int direction, struct pfi_kkif *kif
 		key.port[1] = key.port[0] = 0;
 	}
 
-	STATE_LOOKUP(kif, &key, direction, *state, pd);
+	STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 	if (direction == (*state)->direction) {
 		src = &(*state)->src;
