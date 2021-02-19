@@ -440,6 +440,7 @@ struct pf_rule {
 	union pf_rule_ptr	 skip[PF_SKIP_COUNT];
 #define PF_RULE_LABEL_SIZE	 64
 	char			 label[PF_RULE_LABEL_SIZE];
+	char                     schedule[PF_RULE_LABEL_SIZE];
 	char			 ifname[IFNAMSIZ];
 	char			 qname[PF_QNAME_SIZE];
 	char			 pqname[PF_QNAME_SIZE];
@@ -474,10 +475,17 @@ struct pf_rule {
 	}			 max_src_conn_rate;
 	u_int32_t		 qid;
 	u_int32_t		 pqid;
+	u_int32_t		 dnpipe;
+	u_int32_t		 pdnpipe;
+	u_int32_t                free_flags;
 	u_int32_t		 rt_listid;
 	u_int32_t		 nr;
 	u_int32_t		 prob;
+#ifdef PF_USER_INFO
 	uid_t			 cuid;
+#else
+	u_int32_t		 cuid;
+#endif
 	pid_t			 cpid;
 
 	counter_u64_t		 states_cur;
@@ -518,6 +526,30 @@ struct pf_rule {
 	u_int8_t		 allow_opts;
 	u_int8_t		 rt;
 	u_int8_t		 return_ttl;
+
+#ifndef DSCP_EF
+/* Copied from altq_cdnr.h */
+/* diffserve code points */
+#define DSCP_MASK	0xfc
+#define DSCP_CUMASK	0x03
+#define DSCP_VA		0xb0
+#define DSCP_EF		0xb8
+#define DSCP_AF11	0x28
+#define DSCP_AF12	0x30
+#define DSCP_AF13	0x38
+#define DSCP_AF21	0x48
+#define DSCP_AF22	0x50
+#define DSCP_AF23	0x58
+#define DSCP_AF31	0x68
+#define DSCP_AF32	0x70
+#define DSCP_AF33	0x78
+#define DSCP_AF41	0x88
+#define DSCP_AF42	0x90
+#define DSCP_AF43	0x98
+#define AF_CLASSMASK	0xe0
+#define AF_DROPPRECMASK	0x18
+#endif
+
 	u_int8_t		 tos;
 	u_int8_t		 set_tos;
 	u_int8_t		 anchor_relative;
@@ -575,6 +607,10 @@ struct pf_threshold {
 	u_int32_t	count;
 	u_int32_t	last;
 };
+
+/* rule flags for TOS or DSCP differentiation */
+#define	PFRULE_TOS		0x2000
+#define	PFRULE_DSCP		0x4000
 
 struct pf_src_node {
 	LIST_ENTRY(pf_src_node) entry;
