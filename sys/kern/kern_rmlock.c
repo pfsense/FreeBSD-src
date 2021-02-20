@@ -360,6 +360,7 @@ _rm_rlock_hard(struct rmlock *rm, struct rm_priotracker *tracker, int trylock)
 
 	/* Remove our tracker from the per-cpu list. */
 	rm_tracker_remove(pc, tracker);
+	__compiler_membar();
 
 	/* Check to see if the IPI granted us the lock after all. */
 	if (tracker->rmp_flags) {
