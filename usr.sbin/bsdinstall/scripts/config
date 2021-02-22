@@ -57,11 +57,11 @@ df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTA
 cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
 
 if [ -f /tmp/loader.conf.pfSense ]; then
-	cp /tmp/loader.conf.pfSense $BSDINSTALL_CHROOT/boot/loader.conf
+	cat /tmp/loader.conf.pfSense >> $BSDINSTALL_CHROOT/boot/loader.conf
 fi
 
 if [ -f /tmp/loader.conf.local.pfSense ]; then
-	cp /tmp/loader.conf.local.pfSense $BSDINSTALL_CHROOT/boot/loader.conf.local
+	cat /tmp/loader.conf.local.pfSense >> $BSDINSTALL_CHROOT/boot/loader.conf.local
 fi
 
 # Detect MBT-* and populate loader.conf.local
