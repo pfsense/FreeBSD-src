@@ -360,10 +360,6 @@ wg_init(if_ctx_t ctx)
 
 	sc = iflib_get_softc(ctx);
 	ifp = iflib_get_ifp(ctx);
-	if (sc->sc_socket.so_so4 != NULL)
-		printf("XXX wg_init, socket non-NULL %p\n",
-		    sc->sc_socket.so_so4);
-	wg_socket_reinit(sc, NULL, NULL);
 	rc = wg_socket_init(sc);
 	if (rc)
 		return;
