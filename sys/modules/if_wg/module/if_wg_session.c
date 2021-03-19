@@ -1900,7 +1900,7 @@ wg_softc_decrypt(struct wg_softc *sc)
 	struct epoch_tracker et;
 	struct mbuf *m;
 
-#if defined(__amd64__) || defined(__i386__)
+#if defined(__aarch64__) || defined(__amd64__) || defined(__i386__)
 	if (PCB_USER_FPU(curpcb))
 		fpu_kern_thread(0);
 #endif
@@ -1916,7 +1916,7 @@ wg_softc_encrypt(struct wg_softc *sc)
 	struct mbuf *m;
 	struct epoch_tracker et;
 
-#if defined(__amd64__) || defined(__i386__)
+#if defined(__aarch64__) || defined(__amd64__) || defined(__i386__)
 	if (PCB_USER_FPU(curpcb))
 		fpu_kern_thread(0);
 #endif
