@@ -16,8 +16,6 @@ KMOD=   if_wg
 .PATH: ${ZINCDIR}/poly1305
 
 CFLAGS+= -I${INCDIR}
-CFLAGS+= -include opt_global.h
-MKDEP= -include opt_global.h
 
 CFLAGS+= -D__KERNEL__ -D__BSD_VISIBLE=1 -DINET6=1 -DINET=1
 CFLAGS+= -ferror-limit=7
@@ -31,7 +29,7 @@ CFLAGS += -DNDEBUG
 
 DEBUG_FLAGS=-g
 
-SRCS+= opt_global.h opt_inet.h opt_inet6.h device_if.h bus_if.h ifdi_if.h
+SRCS+= opt_inet.h opt_inet6.h device_if.h bus_if.h ifdi_if.h
 
 #SRCS+= module.c cookie.c noise.c peer.c whitelist.c
 SRCS+= wg_noise.c wg_cookie.c
