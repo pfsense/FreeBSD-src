@@ -375,7 +375,6 @@ wg_stop(if_ctx_t ctx)
 	sc  = iflib_get_softc(ctx);
 	ifp = iflib_get_ifp(ctx);
 	if_link_state_change(ifp, LINK_STATE_DOWN);
-	wg_socket_reinit(sc, NULL, NULL);
 }
 
 static nvlist_t *
