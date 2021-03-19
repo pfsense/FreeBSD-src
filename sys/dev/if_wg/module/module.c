@@ -253,6 +253,7 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 	peer = wg_route_lookup(&sc->sc_routes, m, OUT);
 	if (__predict_false(peer == NULL)) {
 		rc = ENOKEY;
+		printf("peer not found - dropping %p\n", m);
 		/* XXX log */
 		goto err;
 	}
