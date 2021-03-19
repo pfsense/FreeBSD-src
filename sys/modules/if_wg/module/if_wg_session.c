@@ -762,13 +762,13 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 	retries = atomic_fetchadd_int(&t->t_handshake_retries, 1);
 
 	if (retries <= MAX_TIMER_HANDSHAKES) {
-		DPRINTF(peer->p_sc, "Handshake for peer %ju did not complete "
+		DPRINTF(peer->p_sc, "Handshake for peer %llu did not complete "
 		    "after %d seconds, retrying (try %d)\n", peer->p_id,
 		    REKEY_TIMEOUT, t->t_handshake_retries + 1);
 		wg_peer_clear_src(peer);
 		wg_timers_run_send_initiation(t, 1);
 	} else {
-		DPRINTF(peer->p_sc, "Handshake for peer %ju did not complete "
+		DPRINTF(peer->p_sc, "Handshake for peer %llu did not complete "
 		    "after %d retries, giving up\n", peer->p_id,
 		    MAX_TIMER_HANDSHAKES + 2);
 
@@ -798,7 +798,7 @@ wg_timers_run_new_handshake(struct wg_timers *t)
 {
 	struct wg_peer	*peer = CONTAINER_OF(t, struct wg_peer, p_timers);
 
-	DPRINTF(peer->p_sc, "Retrying handshake with peer %ju because we "
+	DPRINTF(peer->p_sc, "Retrying handshake with peer %llu because we "
 	    "stopped hearing back after %d seconds\n",
 	    peer->p_id, NEW_HANDSHAKE_TIMEOUT);
 	wg_peer_clear_src(peer);
@@ -811,7 +811,7 @@ wg_timers_run_zero_key_material(struct wg_timers *t)
 {
 	struct wg_peer *peer = CONTAINER_OF(t, struct wg_peer, p_timers);
 
-	DPRINTF(peer->p_sc, "Zeroing out all keys for peer %ju, since we "
+	DPRINTF(peer->p_sc, "Zeroing out all keys for peer %llu, since we "
 			"haven't received a new one in %d seconds\n",
 			peer->p_id, REJECT_AFTER_TIME * 3);
 	GROUPTASK_ENQUEUE(&peer->p_clear_secrets);
@@ -1339,7 +1339,7 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	counter_u64_free(peer->p_tx_bytes);
 	counter_u64_free(peer->p_rx_bytes);
 
-	DPRINTF(peer->p_sc, "Peer %ju destroyed\n", peer->p_id);
+	DPRINTF(peer->p_sc, "Peer %llu destroyed\n", peer->p_id);
 	rw_destroy(&peer->p_timers.t_lock);
 	rw_destroy(&peer->p_endpoint_lock);
 	free(peer, M_WG);
@@ -1416,7 +1416,7 @@ wg_send_response(struct wg_peer *peer)
 
 	NET_EPOCH_ENTER_ET(et);
 
-	DPRINTF(peer->p_sc, "Sending handshake response to peer %ju\n",
+	DPRINTF(peer->p_sc, "Sending handshake response to peer %llu\n",
 			peer->p_id);
 
 	ret = noise_create_response(&peer->p_remote, &pkt.resp);
@@ -1693,7 +1693,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		}
 
 		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
-		DPRINTF(sc, "Receiving handshake initiation from peer %ju\n",
+		DPRINTF(sc, "Receiving handshake initiation from peer %llu\n",
 				peer->p_id);
 		res = wg_send_response(peer);
 		if (res == 0 && noise_remote_begin_session(&peer->p_remote) == 0)
@@ -1718,7 +1718,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 			goto free;
 		}
 
-		DPRINTF(sc, "Receiving handshake response from peer %ju\n",
+		DPRINTF(sc, "Receiving handshake response from peer %llu\n",
 				peer->p_id);
 		counter_u64_add(peer->p_rx_bytes, sizeof(*resp));
 		wg_peer_set_endpoint_from_tag(peer, t);
@@ -1798,7 +1798,7 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 
 	/* A packet with length 0 is a keepalive packet */
 	if (m->m_pkthdr.len == 0)
-		DPRINTF(sc, "Sending keepalive packet to peer %ju\n",
+		DPRINTF(sc, "Sending keepalive packet to peer %llu\n",
 		    peer->p_id);
 	/*
 	 * Set the correct output value here since it will be copied
@@ -1858,21 +1858,21 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 	/* A packet with length 0 is a keepalive packet */
 	if (m->m_pkthdr.len == 0) {
 		DPRINTF(peer->p_sc, "Receiving keepalive packet from peer "
-				"%ju\n", peer->p_id);
+				"%llu\n", peer->p_id);
 		goto done;
 	}
 
 	version = mtod(m, struct ip *)->ip_v;
 	if (version != IPVERSION && version != 6) {
 		DPRINTF(peer->p_sc, "Packet is neither ipv4 nor ipv6 from peer "
-				"%ju\n", peer->p_id);
+				"%llu\n", peer->p_id);
 		goto error;
 	}
 
 	routed_peer = wg_route_lookup(&peer->p_sc->sc_routes, m, IN);
 	if (routed_peer != peer) {
 		DPRINTF(peer->p_sc, "Packet has unallowed src IP from peer "
-				"%ju\n", peer->p_id);
+				"%llu\n", peer->p_id);
 		goto error;
 	}
 
