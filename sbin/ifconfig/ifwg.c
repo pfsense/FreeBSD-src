@@ -24,10 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifndef RESCUE
 #include <sys/param.h>
 #include <sys/ioctl.h>
@@ -61,13 +57,15 @@ __FBSDID("$FreeBSD$");
 #include <stddef.h>		/* NB: for offsetof */
 #include <locale.h>
 #include <langinfo.h>
-#include <resolv.h>
 
 #include "ifconfig.h"
 
 typedef enum {
-	WGC_GET = 0x5,
-	WGC_SET = 0x6,
+	WGC_PEER_ADD = 0x1,
+	WGC_PEER_DEL = 0x2,
+	WGC_PEER_UPDATE = 0x3,
+	WGC_PEER_LIST = 0x4,
+	WGC_LOCAL_SHOW = 0x5,
 } wg_cmd_t;
 
 static nvlist_t *nvl_params;
@@ -75,8 +73,8 @@ static bool do_peer;
 static int allowed_ips_count;
 static int allowed_ips_max;
 struct allowedip {
-	struct sockaddr_storage a_addr;
-	struct sockaddr_storage a_mask;
+	struct sockaddr a_addr;
+	struct sockaddr a_mask;
 };
 struct allowedip *allowed_ips;
 
@@ -85,6 +83,103 @@ struct allowedip *allowed_ips;
 #define	WG_KEY_LEN_BASE64 ((((WG_KEY_LEN) + 2) / 3) * 4 + 1)
 #define	WG_KEY_LEN_HEX (WG_KEY_LEN * 2 + 1)
 #define	WG_MAX_STRLEN 64
+
+//CTASSERT(WG_MAX_STRLEN > WG_KEY_LEN_BASE64);
+//CTASSERT(WG_MAX_STRLEN > INET6_ADDRSTRLEN);
+
+static void encode_base64(u_int8_t *, const u_int8_t *, u_int16_t);
+static bool decode_base64(u_int8_t *, u_int16_t, const u_int8_t *);
+
+const static u_int8_t Base64Code[] =
+"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+const static u_int8_t index_64[128] = {
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 62, 255, 255, 255, 63, 52, 53,
+        54, 55, 56, 57, 58, 59, 60, 61, 255, 255,
+        255, 255, 255, 255, 255, 0, 1, 2, 3, 4,
+        5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        255, 255, 255, 255, 255, 255, 26, 27, 28,
+        29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+        39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+        49, 50, 51, 255, 255, 255, 255, 255
+};
+#define CHAR64(c)  ( (c) > 127 ? 255 : index_64[(c)])
+static bool
+decode_base64(u_int8_t *buffer, u_int16_t len, const u_int8_t *data)
+{
+	const uint8_t *p = data;
+	uint8_t *bp = buffer;
+	uint8_t c1, c2, c3, c4;
+
+	while (bp < buffer + len) {
+		c1 = CHAR64(*p);
+		c2 = CHAR64(*(p + 1));
+
+		/* Invalid data */
+		if (c1 == 255 || c2 == 255)
+			break;
+
+		*bp++ = (c1 << 2) | ((c2 & 0x30) >> 4);
+		if (bp >= buffer + len)
+			break;
+
+		c3 = CHAR64(*(p + 2));
+		if (c3 == 255)
+			break;
+
+		*bp++ = ((c2 & 0x0f) << 4) | ((c3 & 0x3c) >> 2);
+		if (bp >= buffer + len)
+			break;
+
+		c4 = CHAR64(*(p + 3));
+		if (c4 == 255)
+			break;
+
+		*bp++ = ((c3 & 0x03) << 6) | c4;
+
+		p += 4;
+	}
+	if (bp < buffer + len)
+		printf("len: %d filled: %d\n", len,
+			   (int)(((uintptr_t)bp) - ((uintptr_t)buffer)));
+
+	return (bp >= buffer + len);
+}
+
+static void
+encode_base64(u_int8_t *buffer, const uint8_t *data, u_int16_t len)
+{
+	u_int8_t *bp = buffer;
+	const u_int8_t *p = data;
+	u_int8_t c1, c2;
+	while (p < data + len) {
+		c1 = *p++;
+		*bp++ = Base64Code[(c1 >> 2)];
+		c1 = (c1 & 0x03) << 4;
+		if (p >= data + len) {
+			*bp++ = Base64Code[c1];
+			break;
+		}
+		c2 = *p++;
+		c1 |= (c2 >> 4) & 0x0f;
+		*bp++ = Base64Code[c1];
+		c1 = (c2 & 0x0f) << 2;
+		if (p >= data + len) {
+			*bp++ = Base64Code[c1];
+			break;
+		}
+		c2 = *p++;
+		c1 |= (c2 >> 6) & 0x03;
+		*bp++ = Base64Code[c1];
+		*bp++ = Base64Code[c2 & 0x3f];
+	}
+	*bp = '\0';
+}
 
 static bool
 key_from_base64(uint8_t key[static WG_KEY_LEN], const char *base64)
@@ -98,7 +193,7 @@ key_from_base64(uint8_t key[static WG_KEY_LEN], const char *base64)
 		warnx("bad key terminator, expected '=' got '%c'", base64[WG_KEY_LEN_BASE64 - 2]);
 		return false;
 	}
-	return (b64_pton(base64, key, WG_KEY_LEN));
+	return (decode_base64(key, WG_KEY_LEN, base64));
 }
 
 static void
@@ -125,9 +220,10 @@ parse_endpoint(const char *endpoint_)
 	}
 	bzero(&hints, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
+	hints.ai_flags = AI_NUMERICHOST;
 	err = getaddrinfo(endpoint, port, &hints, &res);
 	if (err)
-		errx(1, "%s", gai_strerror(err));
+		errx(err, "address resolution for endpoint %s:%s failed\n", endpoint, port);
 	nvlist_add_binary(nvl_params, "endpoint", res->ai_addr, res->ai_addrlen);
 	freeaddrinfo(res);
 	free(base);
@@ -229,45 +325,54 @@ in6_mask2len(struct in6_addr *mask, u_char *lim0)
 static bool
 parse_ip(struct allowedip *aip, const char *value)
 {
-	struct addrinfo hints, *res;
-	int err;
+	struct sockaddr *sa = __DECONST(void *, &aip->a_addr);
 
 	bzero(&aip->a_addr, sizeof(aip->a_addr));
-	bzero(&hints, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_flags = AI_NUMERICHOST;
-	err = getaddrinfo(value, NULL, &hints, &res);
-	if (err)
-		errx(1, "%s", gai_strerror(err));
+	aip->a_addr.sa_family = AF_UNSPEC;
 
-	memcpy(&aip->a_addr, res->ai_addr, res->ai_addrlen);
-
-	freeaddrinfo(res);
+	if (strchr(value, ':')) {
+		struct sockaddr_in6 *sin6 = (void *)sa;
+		if (inet_pton(AF_INET6, value, &sin6->sin6_addr) == 1)
+			aip->a_addr.sa_family = AF_INET6;
+		aip->a_addr.sa_len = sizeof(struct sockaddr_in6);
+	} else {
+		struct sockaddr_in *sin = (void *)sa;
+		if (inet_pton(AF_INET, value, &sin->sin_addr) == 1)
+			aip->a_addr.sa_family = AF_INET;
+		aip->a_addr.sa_len = sizeof(struct sockaddr_in);
+	}
+	if (aip->a_addr.sa_family == AF_UNSPEC)
+		return (false);
 	return (true);
 }
 
-static void
+static const char *
 sa_ntop(const struct sockaddr *sa, char *buf, int *port)
 {
 	const struct sockaddr_in *sin;
 	const struct sockaddr_in6 *sin6;
-	int err;
-
-	err = getnameinfo(sa, sa->sa_len, buf, INET6_ADDRSTRLEN, NULL,
-	    0, NI_NUMERICHOST);
+	const char *bufp;
 
 	if (sa->sa_family == AF_INET) {
 		sin = (const struct sockaddr_in *)sa;
+		bufp = inet_ntop(AF_INET, &sin->sin_addr, buf,
+						 INET6_ADDRSTRLEN);
 		if (port)
 			*port = sin->sin_port;
 	} else if (sa->sa_family == AF_INET6) {
 		sin6 = (const struct sockaddr_in6 *)sa;
+		bufp = inet_ntop(AF_INET6, &sin6->sin6_addr, buf,
+						 INET6_ADDRSTRLEN);
 		if (port)
 			*port = sin6->sin6_port;
+	}  else {
+		errx(1, "%s got invalid sockaddr family %d\n", __func__, sa->sa_family);
 	}
-
-	if (err)
-		errx(1, "%s", gai_strerror(err));
+	if (bufp == NULL) {
+		perror("failed to convert address for peer\n");
+		errx(1, "peer list failure");
+	}
+	return (bufp);
 }
 
 static void
@@ -278,19 +383,20 @@ dump_peer(const nvlist_t *nvl_peer)
 	const struct sockaddr *endpoint;
 	char outbuf[WG_MAX_STRLEN];
 	char addr_buf[INET6_ADDRSTRLEN];
+	const char *bufp;
 	size_t size;
 	int count, port;
 
 	printf("[Peer]\n");
 	if (nvlist_exists_binary(nvl_peer, "public-key")) {
 		key = nvlist_get_binary(nvl_peer, "public-key", &size);
-		b64_ntop((const uint8_t *)key, size, outbuf, WG_MAX_STRLEN);
+		encode_base64(outbuf, (const uint8_t *)key, size);
 		printf("PublicKey = %s\n", outbuf);
 	}
 	if (nvlist_exists_binary(nvl_peer, "endpoint")) {
 		endpoint = nvlist_get_binary(nvl_peer, "endpoint", &size);
-		sa_ntop(endpoint, addr_buf, &port);
-		printf("Endpoint = %s:%d\n", addr_buf, ntohs(port));
+		bufp = sa_ntop(endpoint, addr_buf, &port);
+		printf("Endpoint = %s:%d\n", bufp, ntohs(port));
 	}
 
 	if (!nvlist_exists_binary(nvl_peer, "allowed-ips"))
@@ -307,12 +413,10 @@ dump_peer(const nvlist_t *nvl_peer)
 		void *bitmask;
 		struct sockaddr *sa;
 
-		sa = __DECONST(void *, &aips[i].a_addr);
-		bitmask = __DECONST(void *,
-		    ((const struct sockaddr *)&aips->a_mask)->sa_data);
-		family = aips[i].a_addr.ss_family;
-		getnameinfo(sa, sa->sa_len, addr_buf, INET6_ADDRSTRLEN, NULL,
-		    0, NI_NUMERICHOST);
+		sa = __DECONST(void *, &aips->a_addr);
+		bitmask = __DECONST(void *, &aips->a_mask.sa_data);
+		family = aips[i].a_addr.sa_family;
+		inet_ntop(family, sa->sa_data, addr_buf, INET6_ADDRSTRLEN);
 		if (family == AF_INET)
 			mask = in_mask2len(bitmask);
 		else if (family == AF_INET6)
@@ -369,16 +473,14 @@ DECL_CMD_FUNC(peerlist, val, d)
 	const nvlist_t *nvl, *nvl_peer;
 	const nvlist_t *const *nvl_peerlist;
 
-	if (get_nvl_out_size(s, WGC_GET, &size))
+	if (get_nvl_out_size(s, WGC_PEER_LIST, &size))
 		errx(1, "can't get peer list size");
 	if ((packed = malloc(size)) == NULL)
 		errx(1, "malloc failed for peer list");
-	if (do_cmd(s, WGC_GET, packed, size, 0))
+	if (do_cmd(s, WGC_PEER_LIST, packed, size, 0))
 		errx(1, "failed to obtain peer list");
 
 	nvl = nvlist_unpack(packed, size, 0);
-	if (!nvlist_exists_nvlist_array(nvl, "peer-list"))
-		return;
 	nvl_peerlist = nvlist_get_nvlist_array(nvl, "peer-list", &peercount);
 
 	for (int i = 0; i < peercount; i++, nvl_peerlist++) {
@@ -390,14 +492,9 @@ DECL_CMD_FUNC(peerlist, val, d)
 static void
 peerfinish(int s, void *arg)
 {
-	nvlist_t *nvl, **nvl_array;
 	void *packed;
 	size_t size;
 
-	if ((nvl = nvlist_create(0)) == NULL)
-		errx(1, "failed to allocate nvlist");
-	if ((nvl_array = calloc(sizeof(void *), 1)) == NULL)
-		errx(1, "failed to allocate nvl_array");
 	if (!nvlist_exists_binary(nvl_params, "public-key"))
 		errx(1, "must specify a public-key for adding peer");
 	if (!nvlist_exists_binary(nvl_params, "endpoint"))
@@ -405,11 +502,10 @@ peerfinish(int s, void *arg)
 	if (allowed_ips_count == 0)
 		errx(1, "must specify at least one range of allowed-ips to add a peer");
 
-	nvl_array[0] = nvl_params;
-	nvlist_add_nvlist_array(nvl, "peer-list", (const nvlist_t * const *)nvl_array, 1);
-	packed = nvlist_pack(nvl, &size);
-
-	if (do_cmd(s, WGC_SET, packed, size, true))
+	packed = nvlist_pack(nvl_params, &size);
+	if (packed == NULL)
+		errx(1, "failed to setup create request");
+	if (do_cmd(s, WGC_PEER_ADD, packed, size, true))
 		errx(1, "failed to install peer");
 }
 
@@ -427,30 +523,13 @@ DECL_CMD_FUNC(peerstart, val, d)
 static
 DECL_CMD_FUNC(setwglistenport, val, d)
 {
-	struct addrinfo hints, *res;
-	const struct sockaddr_in *sin;
-	const struct sockaddr_in6 *sin6;
-
+	char *endp;
 	u_long ul;
-	int err;
 
-	bzero(&hints, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_flags = AI_NUMERICHOST;
-	err = getaddrinfo(NULL, val, &hints, &res);
-	if (err)
-		errx(1, "%s", gai_strerror(err));
+	ul = strtoul(val, &endp, 0);
+	if (*endp != '\0')
+		errx(1, "invalid value for listen-port");
 
-	if (res->ai_family == AF_INET) {
-		sin = (struct sockaddr_in *)res->ai_addr;
-		ul = sin->sin_port;
-	} else if (res->ai_family == AF_INET6) {
-		sin6 = (struct sockaddr_in6 *)res->ai_addr;
-		ul = sin6->sin6_port;
-	} else {
-		errx(1, "unknown family");
-	}
-	ul = ntohs((u_short)ul);
 	nvlist_add_number(nvl_params, "listen-port", ul);
 }
 
@@ -502,12 +581,12 @@ DECL_CMD_FUNC(setallowedips, val, d)
 	if (*endp != '\0')
 		errx(1, "invalid value for allowedip mask");
 	bzero(&aip->a_mask, sizeof(aip->a_mask));
-	if (aip->a_addr.ss_family == AF_INET)
-		in_len2mask((struct in_addr *)&((struct sockaddr *)&aip->a_mask)->sa_data, ul);
-	else if (aip->a_addr.ss_family == AF_INET6)
-		in6_prefixlen2mask((struct in6_addr *)&((struct sockaddr *)&aip->a_mask)->sa_data, ul);
+	if (aip->a_addr.sa_family == AF_INET)
+		in_len2mask((struct in_addr *)&aip->a_mask.sa_data, ul);
+	else if (aip->a_addr.sa_family == AF_INET6)
+		in6_prefixlen2mask((struct in6_addr *)&aip->a_mask.sa_data, ul);
 	else
-		errx(1, "invalid address family %d\n", aip->a_addr.ss_family);
+		errx(1, "invalid address family %d\n", aip->a_addr.sa_family);
 	allowed_ips_count++;
 	if (allowed_ips_count > 1)
 		nvlist_free_binary(nvl_params, "allowed-ips");
@@ -526,6 +605,18 @@ DECL_CMD_FUNC(setendpoint, val, d)
 	parse_endpoint(val);
 }
 
+static int
+is_match(void)
+{
+	if (strncmp("wg", name, 2))
+		return (-1);
+	if (strlen(name) < 3)
+		return (-1);
+	if (!isdigit(name[2]))
+		return (-1);
+	return (0);
+}
+
 static void
 wireguard_status(int s)
 {
@@ -536,11 +627,15 @@ wireguard_status(int s)
 	const void *key;
 	uint16_t listen_port;
 
-	if (get_nvl_out_size(s, WGC_GET, &size))
+	if (is_match() < 0) {
+		/* If it's not a wg interface just return */
+		return;
+	}
+	if (get_nvl_out_size(s, WGC_LOCAL_SHOW, &size))
 		return;
 	if ((packed = malloc(size)) == NULL)
 		return;
-	if (do_cmd(s, WGC_GET, packed, size, 0))
+	if (do_cmd(s, WGC_LOCAL_SHOW, packed, size, 0))
 		return;
 	nvl = nvlist_unpack(packed, size, 0);
 	if (nvlist_exists_number(nvl, "listen-port")) {
@@ -549,12 +644,12 @@ wireguard_status(int s)
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
 		key = nvlist_get_binary(nvl, "private-key", &size);
-		b64_ntop((const uint8_t *)key, size, buf, WG_MAX_STRLEN);
+		encode_base64(buf, (const uint8_t *)key, size);
 		printf("\tprivate-key: %s\n", buf);
 	}
 	if (nvlist_exists_binary(nvl, "public-key")) {
 		key = nvlist_get_binary(nvl, "public-key", &size);
-		b64_ntop((const uint8_t *)key, size, buf, WG_MAX_STRLEN);
+		encode_base64(buf, (const uint8_t *)key, size);
 		printf("\tpublic-key:  %s\n", buf);
 	}
 }
