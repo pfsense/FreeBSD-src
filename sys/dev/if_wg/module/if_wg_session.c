@@ -1538,7 +1538,6 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
 		DPRINTF(sc, "Receiving handshake initiation from peer %llu\n",
 		    (unsigned long long)peer->p_id);
-		wg_peer_set_endpoint_from_tag(peer, t);
 		res = wg_send_response(peer);
 		if (res == 0 && noise_remote_begin_session(&peer->p_remote) == 0)
 			wg_timers_event_session_derived(&peer->p_timers);
