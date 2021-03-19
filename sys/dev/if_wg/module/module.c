@@ -518,7 +518,7 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	nvl_array = malloc(peer_count*sizeof(void*), M_TEMP, M_WAITOK);
 	wpe = malloc(peer_count*sizeof(*wpe), M_TEMP, M_WAITOK | M_ZERO);
 
-	NET_EPOCH_ENTER_ET(et);
+	NET_EPOCH_ENTER(et);
 	CK_LIST_FOREACH(peer, &sc->sc_hashtable.h_peers_list, p_entry) {
 		if ((err = wg_peer_to_export(peer, &wpe[i])) != 0) {
 			printf("wg_peer_to_export failed on %d peer, error %d\n",
@@ -530,7 +530,7 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 		if (i == peer_count)
 			break;
 	}
-	NET_EPOCH_EXIT_ET(et);
+	NET_EPOCH_EXIT(et);
 
 	if (err != 0)
 		goto out;
