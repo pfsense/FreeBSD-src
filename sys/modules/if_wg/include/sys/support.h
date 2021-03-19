@@ -15,9 +15,7 @@
 #include <sys/lock.h>
 #include <vm/uma.h>
 
-#if defined(__amd64__)
 #include <machine/fpu.h>
-#endif
 
 #include <crypto/siphash/siphash.h>
 
@@ -152,19 +150,16 @@ simd_get(simd_context_t *ctx)
 static inline void
 simd_put(simd_context_t *ctx)
 {
-#if defined(__amd64__)
 	if (is_fpu_kern_thread(0))
 		return;
 	if (ctx->sc_state & HAVE_SIMD_IN_USE)
 		kfpu_end(ctx);
-#endif
 	ctx->sc_state = HAVE_NO_SIMD;
 }
 
 static __must_check inline bool
 simd_use(simd_context_t *ctx)
 {
-#if defined(__amd64__)
 	if (is_fpu_kern_thread(0))
 		return true;
 	if (ctx == NULL)
@@ -176,9 +171,6 @@ simd_use(simd_context_t *ctx)
 	kfpu_begin(ctx);
 	ctx->sc_state |= HAVE_SIMD_IN_USE;
 	return true;
-#else
-	return false;
-#endif
 }
 
 static inline bool
