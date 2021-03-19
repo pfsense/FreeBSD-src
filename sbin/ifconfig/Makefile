@@ -36,7 +36,6 @@ SRCS+=	ifgre.c			# GRE keys etc
 SRCS+=	ifgif.c			# GIF reversed header workaround
 SRCS+=	ifstf.c			# STF configuration options
 SRCS+=	ifipsec.c		# IPsec VTI
-SRCS+=	ifwg.c		# Wireguard
 
 SRCS+=	sfp.c			# SFP/SFP+ information
 LIBADD+=	m
@@ -65,7 +64,6 @@ CFLAGS+= -DINET
 CFLAGS+= -DJAIL
 LIBADD+=	jail
 .endif
-LIBADD+=	nv
 
 MAN=	ifconfig.8
 
