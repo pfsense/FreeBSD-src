@@ -1525,7 +1525,6 @@ wg_deliver_in(struct wg_peer *peer)
 	struct wg_tag *t;
 	struct inpcb *inp;
 	int version;
-	uint32_t af;
 
 	sc = peer->p_sc;
 	so = &sc->sc_socket;
@@ -1554,8 +1553,7 @@ wg_deliver_in(struct wg_peer *peer)
 		m->m_flags &= ~(M_MCAST | M_BCAST);
 		m->m_pkthdr.rcvif = sc->sc_ifp;
 		version = mtod(m, struct ip *)->ip_v;
-		af = (version == IPVERSION) ? AF_INET : AF_INET6;
-		BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
+		BPF_MTAP(sc->sc_ifp, m);
 		if (version == IPVERSION) {
 			inp = sotoinpcb(so->so_so4);
 			CURVNET_SET(inp->inp_vnet);
