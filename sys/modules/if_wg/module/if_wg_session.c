@@ -15,8 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
+#include <sys/types.h>
 #include <sys/systm.h>
+#include <sys/param.h>
 #include <vm/uma.h>
 
 #include <sys/mbuf.h>
