@@ -1057,6 +1057,19 @@ struct pf_divert {
 #define PFR_KENTRY_HIWAT	200000	/* Number of table entries */
 
 /*
+ * Limit the length of the fragment queue traversal.  Remember
+ * search entry points based on the fragment offset.
+ */
+#define PF_FRAG_ENTRY_POINTS		16
+
+/*
+ * The number of entries in the fragment queue must be limited
+ * to avoid DoS by linear seaching.  Instead of a global limit,
+ * use a limit per entry point.  For large packets these sum up.
+ */
+#define PF_FRAG_ENTRY_LIMIT		64
+
+/*
  * ioctl parameter structures
  */
 
@@ -1433,6 +1446,8 @@ VNET_DECLARE(struct pf_srchash *, pf_srchash);
 
 VNET_DECLARE(void *, pf_swi_cookie);
 #define V_pf_swi_cookie	VNET(pf_swi_cookie)
+VNET_DECLARE(struct intr_event *, pf_swi_ie);
+#define	V_pf_swi_ie	VNET(pf_swi_ie)
 
 VNET_DECLARE(uint64_t, pf_stateid[MAXCPU]);
 #define	V_pf_stateid	VNET(pf_stateid)
@@ -1685,6 +1700,8 @@ void			 pf_remove_if_empty_kruleset(struct pf_kruleset *);
 struct pf_kruleset	*pf_find_kruleset(const char *);
 struct pf_kruleset	*pf_find_or_create_kruleset(const char *);
 void			 pf_rs_initialize(void);
+
+void			 pf_krule_free(struct pf_krule *);
 #endif
 
 /* The fingerprint functions can be linked into userland programs (tcpdump) */

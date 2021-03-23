@@ -1871,6 +1871,7 @@ bstp_tick(void *arg)
 	if (bs->bs_running == 0)
 		return;
 
+	NET_EPOCH_ENTER();
 	CURVNET_SET(bs->bs_vnet);
 
 	/* poll link events on interfaces that do not support linkstate */
@@ -1909,6 +1910,7 @@ bstp_tick(void *arg)
 	}
 
 	CURVNET_RESTORE();
+	NET_EPOCH_EXIT();
 
 	callout_reset(&bs->bs_bstpcallout, hz, bstp_tick, bs);
 }
@@ -2044,7 +2046,7 @@ bstp_reinit(struct bstp_state *bs)
 	 */
 	IFNET_RLOCK_NOSLEEP();
 	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
-		if (ifp->if_type != IFT_ETHER)
+		if (ifp->if_type != IFT_ETHER && ifp->if_type != IFT_L2VLAN)
 			continue;	/* Not Ethernet */
 
 		if (ifp->if_bridge != bridgeptr)
@@ -2232,6 +2234,7 @@ bstp_enable(struct bstp_port *bp)
 
 	switch (ifp->if_type) {
 		case IFT_ETHER:	/* These can do spanning tree. */
+		case IFT_L2VLAN:
 			break;
 		default:
 			/* Nothing else can. */

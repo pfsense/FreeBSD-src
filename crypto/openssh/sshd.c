@@ -1056,8 +1056,6 @@ listen_on_addrs(struct listenaddr *la)
 	int ret, listen_sock;
 	struct addrinfo *ai;
 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
-	int socksize;
-	socklen_t len;
 
 	for (ai = la->addrs; ai; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
@@ -1102,10 +1100,6 @@ listen_on_addrs(struct listenaddr *la)
 			sock_set_v6only(listen_sock);
 
 		debug("Bind to port %s on %s.", strport, ntop);
-
-		len = sizeof(socksize);
-		getsockopt(listen_sock, SOL_SOCKET, SO_RCVBUF, &socksize, &len);
-		debug("Server TCP RWIN socket size: %d", socksize);
 
 		/* Bind the socket to the desired port. */
 		if (bind(listen_sock, ai->ai_addr, ai->ai_addrlen) < 0) {
@@ -1749,7 +1743,7 @@ main(int ac, char **av)
 
 	debug("sshd version %s, %s", SSH_VERSION,
 #ifdef WITH_OPENSSL
-	    SSLeay_version(SSLEAY_VERSION)
+	    OpenSSL_version(OPENSSL_VERSION)
 #else
 	    "without OpenSSL"
 #endif

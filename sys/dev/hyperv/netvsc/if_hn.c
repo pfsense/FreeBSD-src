@@ -71,8 +71,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/queue.h>
 #include <sys/lock.h>
+#include <sys/proc.h>
 #include <sys/rmlock.h>
 #include <sys/sbuf.h>
+#include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
@@ -165,8 +167,11 @@ __FBSDID("$FreeBSD$");
 #define HN_LOCK_ASSERT(sc)		sx_assert(&(sc)->hn_lock, SA_XLOCKED)
 #define HN_LOCK(sc)					\
 do {							\
-	while (sx_try_xlock(&(sc)->hn_lock) == 0)	\
+	while (sx_try_xlock(&(sc)->hn_lock) == 0) {	\
+		/* Relinquish cpu to avoid deadlock */	\
+		sched_relinquish(curthread);		\
 		DELAY(1000);				\
+	}						\
 } while (0)
 #define HN_UNLOCK(sc)			sx_xunlock(&(sc)->hn_lock)
 
@@ -6630,6 +6635,38 @@ hn_synth_detach(struct hn_softc *sc)
 	/* Detach all of the channels. */
 	hn_detach_allchans(sc);
 
+	if (vmbus_current_version >= VMBUS_VERSION_WIN10 && sc->hn_rxbuf_gpadl != 0) {
+		/*
+		 * Host is post-Win2016, disconnect RXBUF from primary channel here.
+		 */
+		int error;
+
+		error = vmbus_chan_gpadl_disconnect(sc->hn_prichan,
+		    sc->hn_rxbuf_gpadl);
+		if (error) {
+			if_printf(sc->hn_ifp,
+			    "rxbuf gpadl disconn failed: %d\n", error);
+			sc->hn_flags |= HN_FLAG_RXBUF_REF;
+		}
+		sc->hn_rxbuf_gpadl = 0;
+	}
+
+	if (vmbus_current_version >= VMBUS_VERSION_WIN10 && sc->hn_chim_gpadl != 0) {
+		/*
+		 * Host is post-Win2016, disconnect chimney sending buffer from
+		 * primary channel here.
+		 */
+		int error;
+
+		error = vmbus_chan_gpadl_disconnect(sc->hn_prichan,
+		    sc->hn_chim_gpadl);
+		if (error) {
+			if_printf(sc->hn_ifp,
+			    "chim gpadl disconn failed: %d\n", error);
+			sc->hn_flags |= HN_FLAG_CHIM_REF;
+		}
+		sc->hn_chim_gpadl = 0;
+	}
 	sc->hn_flags &= ~HN_FLAG_SYNTH_ATTACHED;
 }
 

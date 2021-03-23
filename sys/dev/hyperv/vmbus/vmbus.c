@@ -35,6 +35,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
+#include <sys/linker.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
@@ -46,6 +47,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 #include <machine/intr_machdep.h>
+#include <machine/metadata.h>
 #include <machine/md_var.h>
 #include <machine/resource.h>
 #include <x86/include/apicvar.h>
@@ -138,7 +140,10 @@ SYSCTL_INT(_hw_vmbus, OID_AUTO, pin_evttask, CTLFLAG_RDTUN,
 
 extern inthand_t IDTVEC(vmbus_isr), IDTVEC(vmbus_isr_pti);
 
+uint32_t			vmbus_current_version;
+
 static const uint32_t		vmbus_version[] = {
+	VMBUS_VERSION_WIN10,
 	VMBUS_VERSION_WIN8_1,
 	VMBUS_VERSION_WIN8,
 	VMBUS_VERSION_WIN7,
@@ -412,6 +417,7 @@ vmbus_init(struct vmbus_softc *sc)
 
 		error = vmbus_connect(sc, vmbus_version[i]);
 		if (!error) {
+			vmbus_current_version = vmbus_version[i];
 			sc->vmbus_version = vmbus_version[i];
 			device_printf(sc->vmbus_dev, "version %u.%u\n",
 			    VMBUS_VERSION_MAJOR(sc->vmbus_version),
@@ -1292,12 +1298,66 @@ vmbus_get_mmio_res(device_t dev)
 	vmbus_get_mmio_res_pass(dev, parse_32);
 }
 
+/*
+ * On Gen2 VMs, Hyper-V provides mmio space for framebuffer.
+ * This mmio address range is not useable for other PCI devices.
+ * Currently only efifb driver is using this range without reserving
+ * it from system.
+ * Therefore, vmbus driver reserves it before any other PCI device
+ * drivers start to request mmio addresses.
+ */
+static struct resource *hv_fb_res;
+
+static void
+vmbus_fb_mmio_res(device_t dev)
+{
+	struct efi_fb *efifb;
+	caddr_t kmdp;
+
+	struct vmbus_softc *sc = device_get_softc(dev);
+	int rid = 0;
+
+	kmdp = preload_search_by_type("elf kernel");
+	if (kmdp == NULL)
+		kmdp = preload_search_by_type("elf64 kernel");
+	efifb = (struct efi_fb *)preload_search_info(kmdp,
+	    MODINFO_METADATA | MODINFOMD_EFI_FB);
+	if (efifb == NULL) {
+		if (bootverbose)
+			device_printf(dev,
+			    "fb has no preloaded kernel efi information\n");
+		/* We are on Gen1 VM, just return. */
+		return;
+	} else {
+		if (bootverbose)
+			device_printf(dev,
+			    "efifb: fb_addr: %#jx, size: %#jx, "
+			    "actual size needed: 0x%x\n",
+			    efifb->fb_addr, efifb->fb_size,
+			    (int) efifb->fb_height * efifb->fb_width);
+	}
+
+	hv_fb_res = pcib_host_res_alloc(&sc->vmbus_mmio_res, dev,
+	    SYS_RES_MEMORY, &rid,
+	    efifb->fb_addr, efifb->fb_addr + efifb->fb_size, efifb->fb_size,
+	    RF_ACTIVE | rman_make_alignment_flags(PAGE_SIZE));
+
+	if (hv_fb_res && bootverbose)
+		device_printf(dev,
+		    "successfully reserved memory for framebuffer "
+		    "starting at %#jx, size %#jx\n",
+		    efifb->fb_addr, efifb->fb_size);
+}
+
 static void
 vmbus_free_mmio_res(device_t dev)
 {
 	struct vmbus_softc *sc = device_get_softc(dev);
 
 	pcib_host_res_free(dev, &sc->vmbus_mmio_res);
+
+	if (hv_fb_res)
+		hv_fb_res = NULL;
 }
 #endif	/* NEW_PCIB */
 
@@ -1347,6 +1407,7 @@ vmbus_doattach(struct vmbus_softc *sc)
 
 #ifdef NEW_PCIB
 	vmbus_get_mmio_res(sc->vmbus_dev);
+	vmbus_fb_mmio_res(sc->vmbus_dev);
 #endif
 
 	sc->vmbus_flags |= VMBUS_FLAG_ATTACHED;

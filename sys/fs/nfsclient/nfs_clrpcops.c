@@ -63,6 +63,7 @@ SYSCTL_INT(_vfs_nfs, OID_AUTO, dssameconn, CTLFLAG_RW,
 /*
  * Global variables
  */
+extern struct nfsstatsv1 nfsstatsv1;
 extern int nfs_numnfscbd;
 extern struct timeval nfsboottime;
 extern u_int32_t newnfs_false, newnfs_true;
@@ -3668,6 +3669,7 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				    ndp->ni_vp = newvp;
 				    NFSCNHASH(cnp, HASHINIT);
 				    if (cnp->cn_namelen <= NCHNAMLEN &&
+					ndp->ni_dvp != ndp->ni_vp &&
 					(newvp->v_type != VDIR ||
 					 dctime.tv_sec != 0)) {
 					cache_enter_time(ndp->ni_dvp,
@@ -5910,7 +5912,7 @@ nfscl_doflayoutio(vnode_t vp, struct uio *uiop, int *iomode, int *must_commit,
 
 	np = VTONFS(vp);
 	rel_off = off - flp->nfsfl_patoff;
-	stripe_unit_size = (flp->nfsfl_util >> 6) & 0x3ffffff;
+	stripe_unit_size = flp->nfsfl_util & NFSFLAYUTIL_STRIPE_MASK;
 	stripe_pos = (rel_off / stripe_unit_size + flp->nfsfl_stripe1) %
 	    dp->nfsdi_stripecnt;
 	transfer = stripe_unit_size - (rel_off % stripe_unit_size);
@@ -6176,6 +6178,8 @@ nfsrpc_readds(vnode_t vp, struct uio *uiop, nfsv4stateid_t *stateidp, int *eofp,
 	} else {
 		nfscl_reqstart(nd, NFSPROC_READ, nmp, fhp->nfh_fh,
 		    fhp->nfh_len, NULL, &dsp->nfsclds_sess, vers, minorvers);
+		NFSDECRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_READ]);
+		NFSINCRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_READDS]);
 		NFSCL_DEBUG(4, "nfsrpc_readds: vers3\n");
 	}
 	NFSM_BUILD(tl, uint32_t *, NFSX_UNSIGNED * 3);
@@ -6251,6 +6255,8 @@ nfsrpc_writeds(vnode_t vp, struct uio *uiop, int *iomode, int *must_commit,
 	} else {
 		nfscl_reqstart(nd, NFSPROC_WRITE, nmp, fhp->nfh_fh,
 		    fhp->nfh_len, NULL, &dsp->nfsclds_sess, vers, minorvers);
+		NFSDECRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_WRITE]);
+		NFSINCRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_WRITEDS]);
 		NFSCL_DEBUG(4, "nfsrpc_writeds: vers3\n");
 		NFSM_BUILD(tl, uint32_t *, NFSX_HYPER + 3 * NFSX_UNSIGNED);
 	}
@@ -6377,6 +6383,8 @@ nfsrpc_writedsmir(vnode_t vp, int *iomode, int *must_commit,
 	} else {
 		nfscl_reqstart(nd, NFSPROC_WRITE, nmp, fhp->nfh_fh,
 		    fhp->nfh_len, NULL, &dsp->nfsclds_sess, vers, minorvers);
+		NFSDECRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_WRITE]);
+		NFSINCRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_WRITEDS]);
 		NFSCL_DEBUG(4, "nfsrpc_writedsmir: vers3\n");
 		NFSM_BUILD(tl, uint32_t *, NFSX_HYPER + 3 * NFSX_UNSIGNED);
 	}
@@ -6599,9 +6607,12 @@ nfsrpc_commitds(vnode_t vp, uint64_t offset, int cnt, struct nfsclds *dsp,
 		nfscl_reqstart(nd, NFSPROC_COMMITDS, nmp, fhp->nfh_fh,
 		    fhp->nfh_len, NULL, &dsp->nfsclds_sess, vers, minorvers);
 		vers = NFS_VER4;
-	} else
+	} else {
 		nfscl_reqstart(nd, NFSPROC_COMMIT, nmp, fhp->nfh_fh,
 		    fhp->nfh_len, NULL, &dsp->nfsclds_sess, vers, minorvers);
+		NFSDECRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_COMMIT]);
+		NFSINCRGLOBAL(nfsstatsv1.rpccnt[NFSPROC_COMMITDS]);
+	}
 	NFSCL_DEBUG(4, "nfsrpc_commitds: vers=%d minvers=%d\n", vers,
 	    minorvers);
 	NFSM_BUILD(tl, uint32_t *, NFSX_HYPER + NFSX_UNSIGNED);
