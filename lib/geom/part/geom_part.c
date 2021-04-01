@@ -1247,7 +1247,7 @@ gpart_bootcode(struct gctl_req *req, unsigned int fl)
 		if (vtoc8 != 0)
 			partsize = VTOC_BOOTSIZE;
 		else
-			partsize = 1024 * 1024;		/* Arbitrary limit. */
+			partsize = 128 * 1024 * 1024;	/* Arbitrary limit. */
 		partcode = gpart_bootfile_read(s, &partsize);
 		error = gctl_delete_param(req, GPART_PARAM_PARTCODE);
 		if (error)
