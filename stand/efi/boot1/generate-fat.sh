@@ -11,9 +11,9 @@
 
 # $FreeBSD$
 
-FAT_SIZE=1600 			#Size in 512-byte blocks of the produced image
+FAT_SIZE=131072			#Size in 512-byte blocks of the produced image
 
-BOOT1_OFFSET=2d
+BOOT1_OFFSET=b1
 BOOT1_SIZE=384k
 
 if [ $(id -u) != 0 ]; then
@@ -42,7 +42,7 @@ while read ARCH FILENAME; do
 
 	dd if=/dev/zero of=$OUTPUT_FILE bs=512 count=$FAT_SIZE
 	DEVICE=`mdconfig -a -f $OUTPUT_FILE`
-	newfs_msdos -F 12 -L EFISYS $DEVICE
+	newfs_msdos -F 16 -L EFISYS $DEVICE
 	mkdir stub
 	mount -t msdosfs /dev/$DEVICE stub
 
