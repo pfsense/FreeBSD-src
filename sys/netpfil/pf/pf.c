@@ -5781,7 +5781,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	else if (r->rt == PF_ROUTETO && r->direction == dir && in_localip(ip->ip_dst))
 		return;
 
-	if (oifp != ifp) {
+	if (dir == PF_IN) {
 		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
 			return;
 		if (s && r->rt == PF_ROUTETO && pd->nat_rule != NULL &&
@@ -6011,7 +6011,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
        } else if (r->rt == PF_ROUTETO && r->direction == dir && in6_localaddr(&ip6->ip6_dst))
 	       return;
 
-	if (oifp != ifp) {
+	if (dir == PF_IN) {
 		if (s && r->rt == PF_ROUTETO && pd->nat_rule != NULL &&
 		    r->direction == PF_OUT && r->direction == dir &&
 		    pd->pf_mtag->routed < 2) {
