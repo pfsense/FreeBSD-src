@@ -572,6 +572,9 @@ sendit:
 	hlen = ip->ip_hl << 2;
 #endif /* IPSEC */
 
+	if (ifp == NULL)
+		ifp = V_loif;
+
 	/* Jump over all PFIL processing if hooks are not active. */
 	if (PFIL_HOOKED(&V_inet_pfil_hook)) {
 		switch (ip_output_pfil(&m, ifp, inp, dst, &fibnum, &error)) {
