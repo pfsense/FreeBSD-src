@@ -128,7 +128,7 @@ growfs_start ()
 		exit 0
 	}
 }' dev="$search"
-	gpart commit "$diskdev"
+	gpart commit "$diskdev" 2> /dev/null
 	case "$FSTYPE" in
 	ufs)
 		growfs -y /dev/"$rootdev"
