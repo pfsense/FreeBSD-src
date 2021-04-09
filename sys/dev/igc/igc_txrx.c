@@ -229,7 +229,7 @@ igc_tx_ctx_setup(struct tx_ring *txr, if_pkt_info_t pi, u32 *cmd_type_len, u32 *
 		break;
 	case IPPROTO_UDP:
 		if (pi->ipi_csum_flags & (CSUM_IP_UDP | CSUM_IP6_UDP)) {
-			type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_TCP;
+			type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_UDP;
 			*olinfo_status |= IGC_TXD_POPTS_TXSM << 8;
 		}
 		break;
