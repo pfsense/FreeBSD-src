@@ -46,6 +46,8 @@ desc="Create a swap partition at the end of disk"
 start_cmd="createswap_start"
 stop_cmd=":"
 rcvar="createswap_enable"
+extra_commands="add_fstab_entry"
+add_fstab_entry_cmd="createswap_fstab_entry"
 
 BLOCKSZ=512
 SWAP_MIN_SIZE=$(( 4 * 1024 * 1024 ))
@@ -91,9 +93,8 @@ createswap_get_partused ()
 
 createswap_get_diskused ()
 {
+	local total=0
 	partused=$(createswap_get_partused ${1})
-
-	total=0
 	for partsize in ${partused}; do
 		total=$(( ${total} + ${partsize} ))
 	done
@@ -114,9 +115,8 @@ createswap_get_diskdev ()
 	done
 }
 
-createswap_start ()
+createswap_find_rootdev ()
 {
-	echo "Creating a swap partition at the end of the disk"
 	FSTYPE=$(mount -p | awk '{ if ( $2 == "/") { print $3 }}')
 	FSDEV=$(mount -p | awk '{ if ( $2 == "/") { print $1 }}')
 	case "$FSTYPE" in
@@ -147,11 +147,27 @@ createswap_start ()
 	else
 		search=$rawdev
 	fi
-
 	diskdev=$(createswap_get_diskdev ${search})
 	if [ -z "${diskdev}" ]; then
 		diskdev=${rootdev}
 	fi
+}
+
+createswap_fstab_entry ()
+{
+	createswap_find_rootdev
+	swapid=$(sysctl kern.geom.conftxt | grep ${diskdev} | grep freebsd-swap | tail -n 1 | awk '{printf $7}')
+	swapuuid=$(gpart list ${diskdev} | grep -A 15 "^${swapid}\. Name: ${diskdev}p${swapid}" | grep "rawuuid:" | awk '{printf $2}')
+	cat << EOF >> /etc/fstab
+/dev/gptid/$swapuuid		none	swap	sw		0	0
+EOF
+}
+
+createswap_start ()
+{
+	echo "Creating a swap partition at the end of the disk"
+
+	createswap_find_rootdev
 	parttype=$(createswap_get_parttype ${diskdev})
 	need_recover=$(gpart show ${diskdev} | head -n1 | grep CORRUPT)
 	if [ "${parttype}" == "GPT" -a -n "${need_recover}" ]; then
