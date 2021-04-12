@@ -22,6 +22,7 @@ CONFS=	DAEMON \
 	cfumass \
 	cleanvar \
 	cleartmp \
+	createswap \
 	cron \
 	ctld \
 	ddb \

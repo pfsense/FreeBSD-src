@@ -1,0 +1,181 @@
+#!/bin/sh
+#
+# Copyright 2021 Rubicon Communications, LLC (Netgate)
+# Copyright 2014 John-Mark Gurney
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+# $FreeBSD$
+#
+
+# PROVIDE: createswap
+# BEFORE: growfs
+# KEYWORD: firstboot
+
+# This allows us to distribute a image and have it work on essentially any
+# size drive.
+#
+# TODO: Figure out where this should really be ordered.
+# I suspect it should go just after fsck but before mountcritlocal.
+# 
+
+. /etc/rc.subr
+
+name="createswap"
+desc="Create a swap partition at the end of disk"
+start_cmd="createswap_start"
+stop_cmd=":"
+rcvar="createswap_enable"
+
+BLOCKSZ=512
+SWAP_MIN_SIZE=$(( 4 * 1024 * 1024 ))
+
+createswap_get_parttype ()
+{
+	dev=${1}
+	type=$(gpart show ${dev} | grep ${dev} | awk '{printf $5}')
+	echo -n ${type}
+}
+
+createswap_get_disksize ()
+{
+	dev=${1}
+	size=$(gpart show ${dev} | grep ${dev} | awk '{printf $3}')
+	size=$(( $size * ${BLOCKSZ} ))
+	echo -n ${size}
+}
+
+createswap_get_partused ()
+{
+	dev=${1}
+	sysctl -b kern.geom.conftxt | awk '
+    {
+	lvl=$1
+	type[lvl] = $2
+	pdev[lvl] = $3
+	used[lvl] = $4
+	if (dev == pdev[lvl] || (lvl > 0 && dev == pdev[lvl - 1])) {
+		for (i = 1; i <= lvl; i++) {
+			if (type[i] == "PART") {
+				print used[i]
+			} else if (type[i] == "LABEL") {
+				continue
+			} else {
+				print "unhandled type: " type[i]
+				exit 1
+			}
+		}
+	}
+    }' dev="${dev}"
+}
+
+createswap_get_diskused ()
+{
+	partused=$(createswap_get_partused ${1})
+
+	total=0
+	for partsize in ${partused}; do
+		total=$(( ${total} + ${partsize} ))
+	done
+	echo -n ${total}
+}
+
+createswap_get_diskdev ()
+{
+	sysctl -b kern.geom.conftxt |
+	while read line
+	do
+		local _type=$(echo ${line} | awk '{printf $2}')
+		local _dev=$(echo ${line} | awk '{printf $3}')
+		if [ "${_type}" = "DISK" -a -n "$(echo ${1} | grep ${_dev})" ]; then
+			echo -n ${_dev}
+			break
+		fi
+	done
+}
+
+createswap_start ()
+{
+	echo "Creating a swap partition at the end of the disk"
+	FSTYPE=$(mount -p | awk '{ if ( $2 == "/") { print $3 }}')
+	FSDEV=$(mount -p | awk '{ if ( $2 == "/") { print $1 }}')
+	case "$FSTYPE" in
+	ufs)
+		rootdev=${FSDEV#/dev/}
+		;;
+	zfs)
+		pool=${FSDEV%%/*}
+		rootdev=$(zpool list -v $pool | awk 'END { print $1 }')
+		;;
+	*)
+		echo "Don't know how to find the root filesystem type: $FSTYPE"
+		return
+	esac
+	if [ x"$rootdev" = x"${rootdev%/*}" ]; then
+		# raw device
+		rawdev="$rootdev"
+	else
+		rawdev=$(glabel status | awk 'index("'"$rootdev"'", $1) { print $3 }')
+		if [ x"$rawdev" = x"" ]; then
+			echo "Can't figure out device for: $rootdev"
+			return
+		fi
+	fi
+
+	if [ x"diskid" = x"${rootdev%/*}" ]; then
+		search=$rootdev
+	else
+		search=$rawdev
+	fi
+
+	diskdev=$(createswap_get_diskdev ${search})
+	if [ -z "${diskdev}" ]; then
+		diskdev=${rootdev}
+	fi
+	parttype=$(createswap_get_parttype ${diskdev})
+	need_recover=$(gpart show ${diskdev} | head -n1 | grep CORRUPT)
+	if [ "${parttype}" == "GPT" -a -n "${need_recover}" ]; then
+		gpart recover $diskdev
+	fi
+
+	disksize=$(createswap_get_disksize ${diskdev})
+	diskused=$(createswap_get_diskused ${diskdev})
+	if [ -z ${diskused} ]; then
+		# Cannot read the used space in the disk.
+		# Assume that the disk is full - no free space.
+		diskused=${disksize}
+	fi
+	diskfree=$(( $disksize - $diskused ))
+	if [ ${diskfree} -gt ${SWAP_MIN_SIZE} ]; then
+		swapsize=$(( $diskfree / 20 ))
+		if [ ${swapsize} -lt ${SWAP_MIN_SIZE} ]; then
+			swapsize=${SWAP_MIN_SIZE}
+		fi
+		swapstart=$(( (${disksize} - ${swapsize}) / ${BLOCKSZ} - 1 ))
+		swapsize=$(( ${swapsize} / ${BLOCKSZ} ))
+		gpart add -t freebsd-swap -b ${swapstart} -s ${swapsize} ${diskdev}
+	fi
+}
+
+load_rc_config $name
+run_rc_command "$1"
