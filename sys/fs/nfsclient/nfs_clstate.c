@@ -2531,10 +2531,12 @@ nfscl_renewthread(struct nfsclclient *clp, NFSPROC_T *p)
 	struct nfscllayouthead rlh;
 	struct nfsclrecalllayout *recallp;
 	struct nfsclds *dsp;
+	struct mount *mp;
 
 	cred = newnfs_getcred();
 	NFSLOCKCLSTATE();
 	clp->nfsc_flags |= NFSCLFLAGS_HASTHREAD;
+	mp = clp->nfsc_nmp->nm_mountp;
 	NFSUNLOCKCLSTATE();
 	for(;;) {
 		newnfs_setroot(cred);
@@ -2631,14 +2633,18 @@ tryagain:
 				    }
 				    dp->nfsdl_rwlock.nfslock_lock |=
 					NFSV4LOCK_WANTED;
-				    (void) nfsmsleep(&dp->nfsdl_rwlock,
-					NFSCLSTATEMUTEXPTR, PZERO, "nfscld",
-					NULL);
+				    msleep(&dp->nfsdl_rwlock,
+					NFSCLSTATEMUTEXPTR, PVFS, "nfscld",
+					5 * hz);
+				    if (NFSCL_FORCEDISM(mp))
+					goto terminate;
 				    goto tryagain;
 				}
 				while (!igotlock) {
 				    igotlock = nfsv4_lock(&clp->nfsc_lock, 1,
-					&islept, NFSCLSTATEMUTEXPTR, NULL);
+					&islept, NFSCLSTATEMUTEXPTR, mp);
+				    if (igotlock == 0 && NFSCL_FORCEDISM(mp))
+					goto terminate;
 				    if (islept)
 					goto tryagain;
 				}
@@ -2718,9 +2724,11 @@ tryagain2:
 				     NFSV4LOCK_LOCK) != 0) {
 					lyp->nfsly_lock.nfslock_lock |=
 					    NFSV4LOCK_WANTED;
-					nfsmsleep(&lyp->nfsly_lock.nfslock_lock,
-					    NFSCLSTATEMUTEXPTR, PZERO, "nfslyp",
-					    NULL);
+					msleep(&lyp->nfsly_lock.nfslock_lock,
+					    NFSCLSTATEMUTEXPTR, PVFS, "nfslyp",
+					    5 * hz);
+					if (NFSCL_FORCEDISM(mp))
+					    goto terminate;
 					goto tryagain2;
 				}
 				/* Move the layout to the recall list. */
@@ -2829,6 +2837,7 @@ tryagain2:
 		if ((clp->nfsc_flags & NFSCLFLAGS_RECOVER) == 0)
 			(void)mtx_sleep(clp, NFSCLSTATEMUTEXPTR, PWAIT, "nfscl",
 			    hz);
+terminate:
 		if (clp->nfsc_flags & NFSCLFLAGS_UMOUNT) {
 			clp->nfsc_flags &= ~NFSCLFLAGS_HASTHREAD;
 			NFSUNLOCKCLSTATE();
@@ -3469,11 +3478,18 @@ nfscl_docb(struct nfsrv_descript *nd, NFSPROC_T *p)
 							    len, stateid.seqid,
 							    0, 0, NULL,
 							    recallp);
+							if (error == 0 &&
+							    stateid.seqid >
+							    lyp->nfsly_stateid.seqid)
+								lyp->nfsly_stateid.seqid =
+								    stateid.seqid;
 							recallp = NULL;
 							wakeup(clp);
 							NFSCL_DEBUG(4,
-							    "aft layrcal=%d\n",
-							    error);
+							    "aft layrcal=%d "
+							    "layseqid=%d\n",
+							    error,
+							    lyp->nfsly_stateid.seqid);
 						} else
 							error =
 							  NFSERR_NOMATCHLAYOUT;
@@ -4855,6 +4871,8 @@ nfscl_layout(struct nfsmount *nmp, vnode_t vp, u_int8_t *fhp, int fhlen,
 		} else {
 			if (retonclose != 0)
 				lyp->nfsly_flags |= NFSLY_RETONCLOSE;
+			if (stateidp->seqid > lyp->nfsly_stateid.seqid)
+				lyp->nfsly_stateid.seqid = stateidp->seqid;
 			TAILQ_REMOVE(&clp->nfsc_layout, lyp, nfsly_list);
 			TAILQ_INSERT_HEAD(&clp->nfsc_layout, lyp, nfsly_list);
 			lyp->nfsly_timestamp = NFSD_MONOSEC + 120;
@@ -4867,7 +4885,7 @@ nfscl_layout(struct nfsmount *nmp, vnode_t vp, u_int8_t *fhp, int fhlen,
 			return (EPERM);
 		}
 		*lypp = lyp;
-	} else
+	} else if (stateidp->seqid > lyp->nfsly_stateid.seqid)
 		lyp->nfsly_stateid.seqid = stateidp->seqid;
 
 	/* Merge the new list of File Layouts into the list. */
