@@ -502,7 +502,7 @@ function menu.autoboot(delay)
 			end
 		end
 
-		loader.delay(50000)
+		loader.delay(10000)
 	until time <= 0
 
 	local cmd = loader.getenv("menu_timeout_command") or "boot"
