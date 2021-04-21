@@ -303,7 +303,7 @@ Shell \"Open a shell and partition by hand\""
 CURARCH=$( uname -m )
 case $CURARCH in
 	amd64|arm64|i386)	# Booting ZFS Supported
-		PMODES="$PMODES \"Auto (ZFS)\" \"Guided Root-on-ZFS\""
+		PMODES="\"Auto (ZFS)\" \"Guided Root-on-ZFS\" $PMODES"
 		;;
 	*)		# Booting ZFS Unspported
 		;;
