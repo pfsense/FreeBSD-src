@@ -256,8 +256,8 @@ static struct filter_opts {
 	char			*tag;
 	char			*match_tag;
 	u_int8_t		 match_tag_not;
-	u_int32_t		 dnpipe;
-	u_int32_t		 pdnpipe;
+	u_int16_t		 dnpipe;
+	u_int16_t		 dnrpipe;
 	u_int32_t		 free_flags;
 	u_int			 rtableid;
 	u_int8_t		 prio;
@@ -2585,13 +2585,13 @@ pfrule		: action dir logquick interface route af proto fromto
 			}
 #endif
 
-			if ($9.dnpipe) {
+			if ($9.dnpipe || $9.dnrpipe) {
 				r.dnpipe = $9.dnpipe;
+				r.dnrpipe = $9.dnrpipe;
 				if ($9.free_flags & PFRULE_DN_IS_PIPE)
 					r.free_flags |= PFRULE_DN_IS_PIPE;
 				else
 					r.free_flags |= PFRULE_DN_IS_QUEUE;
-				r.pdnpipe = $9.pdnpipe;
 			}
 
 			expand_rule(&r, $4, $5.host, $7, $8.src_os,
@@ -2698,29 +2698,29 @@ filter_opt	: USER uids {
 			}
 			filter_opts.queues = $1;
 		}
-		| DNPIPE number				{
+		| DNPIPE number {
 			filter_opts.dnpipe = $2;
 			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
 		}
-		| DNPIPE '(' number ')'			{
+		| DNPIPE '(' number ')' {
 			filter_opts.dnpipe = $3;
 			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
 		}
 		| DNPIPE '(' number comma number ')' {
-			filter_opts.pdnpipe = $5;
+			filter_opts.dnrpipe = $5;
 			filter_opts.dnpipe = $3;
 			filter_opts.free_flags |= PFRULE_DN_IS_PIPE;
 		}
-		| DNQUEUE number			{
+		| DNQUEUE number {
 			filter_opts.dnpipe = $2;
 			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
 		}
-		| DNQUEUE '(' number comma number ')'	{
-			filter_opts.pdnpipe = $5;
+		| DNQUEUE '(' number comma number ')' {
+			filter_opts.dnrpipe = $5;
 			filter_opts.dnpipe = $3;
 			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
 		}
-		| DNQUEUE '(' number ')'		{
+		| DNQUEUE '(' number ')' {
 			filter_opts.dnpipe = $3;
 			filter_opts.free_flags |= PFRULE_DN_IS_QUEUE;
 		}
@@ -5049,10 +5049,6 @@ filter_consistent(struct pfctl_rule *r, int anchor_call)
 	    r->keep_state == PF_STATE_SYNPROXY)) {
 		yyerror("sloppy state matching cannot be used with "
 		    "synproxy state or modulate state");
-		problems++;
-	}
-	if (r->dnpipe && r->pdnpipe && !r->direction) {
-		yyerror("dummynet cannot be specified without direction");
 		problems++;
 	}
 

@@ -517,8 +517,8 @@ struct pf_rule {
 	u_int32_t		 qid;
 	u_int32_t		 pqid;
 	u_int32_t		 dnpipe;
-	u_int32_t		 pdnpipe;
-	u_int32_t                free_flags;
+	u_int32_t		 dnrpipe;
+	u_int32_t		 free_flags;
 	u_int32_t		 rt_listid;
 	u_int32_t		 nr;
 	u_int32_t		 prob;

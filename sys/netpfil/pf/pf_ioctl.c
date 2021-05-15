@@ -1821,7 +1821,7 @@ pf_krule_to_rule(const struct pf_krule *krule, struct pf_rule *rule)
 	rule->qid = krule->qid;
 	rule->pqid = krule->pqid;
 	rule->dnpipe = krule->dnpipe;
-	rule->pdnpipe = krule->pdnpipe;
+	rule->dnrpipe = krule->dnrpipe;
 	rule->free_flags = krule->free_flags;
 	rule->nr = krule->nr;
 	rule->prob = krule->prob;
@@ -1930,7 +1930,7 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	krule->qid = rule->qid;
 	krule->pqid = rule->pqid;
 	krule->dnpipe = rule->dnpipe;
-	krule->pdnpipe = rule->pdnpipe;
+	krule->dnrpipe = rule->dnrpipe;
 	krule->free_flags = rule->free_flags;
 	krule->nr = rule->nr;
 	krule->prob = rule->prob;

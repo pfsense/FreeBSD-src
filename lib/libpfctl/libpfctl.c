@@ -494,7 +494,7 @@ pf_nvrule_to_rule(const nvlist_t *nvl, struct pfctl_rule *rule)
 	rule->qid = nvlist_get_number(nvl, "qid");
 	rule->pqid = nvlist_get_number(nvl, "pqid");
 	rule->dnpipe = nvlist_get_number(nvl, "dnpipe");
-	rule->pdnpipe = nvlist_get_number(nvl, "pdnpipe");
+	rule->dnrpipe = nvlist_get_number(nvl, "dnrpipe");
 	rule->free_flags = nvlist_get_number(nvl, "dnflags");
 	rule->prob = nvlist_get_number(nvl, "prob");
 	rule->cuid = nvlist_get_number(nvl, "cuid");
@@ -785,7 +785,7 @@ pfctl_add_rule(int dev, const struct pfctl_rule *r, const char *anchor,
 	nvlist_add_number(nvlr, "max_src_conn_rate.seconds",
 	    r->max_src_conn_rate.seconds);
 	nvlist_add_number(nvlr, "dnpipe", r->dnpipe);
-	nvlist_add_number(nvlr, "pdnpipe", r->pdnpipe);
+	nvlist_add_number(nvlr, "dnrpipe", r->dnrpipe);
 	nvlist_add_number(nvlr, "dnflags", r->free_flags);
 	nvlist_add_number(nvlr, "prob", r->prob);
 	nvlist_add_number(nvlr, "cuid", r->cuid);

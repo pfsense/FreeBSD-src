@@ -153,8 +153,8 @@ struct pfctl_rule {
 	}			 max_src_conn_rate;
 	uint32_t		 qid;
 	uint32_t		 pqid;
-	uint32_t		 dnpipe;
-	uint32_t		 pdnpipe;
+	uint16_t		 dnpipe;
+	uint16_t		 dnrpipe;
 	uint32_t		 free_flags;
 	uint32_t		 nr;
 	uint32_t		 prob;

@@ -564,9 +564,9 @@ struct pf_kpool {
 struct pf_rule_actions {
 	uint16_t	 qid;
 	uint16_t	 pqid;
-	u_int32_t       pdnpipe;
-	u_int32_t       dnpipe;
-	u_int8_t        flags;
+	uint16_t	 dnpipe;
+	uint16_t	 dnrpipe;	/* Reverse direction pipe */
+	uint32_t	 flags;
 };
 
 union pf_keth_rule_ptr {
@@ -670,9 +670,9 @@ struct pf_krule {
 	}			 max_src_conn_rate;
 	u_int16_t		 qid;
 	u_int16_t		 pqid;
-	u_int32_t		 dnpipe;
-	u_int32_t		 pdnpipe;
-	u_int32_t                free_flags;
+	u_int16_t		 dnpipe;
+	u_int16_t		 dnrpipe;
+	u_int32_t		 free_flags;
 	u_int32_t		 nr;
 	u_int32_t		 prob;
 	uid_t			 cuid;
@@ -815,14 +815,15 @@ struct pf_state_cmp {
 	u_int8_t		 pad[3];
 };
 
-#define	PFSTATE_ALLOWOPTS	0x001
-#define	PFSTATE_SLOPPY		0x002
-#define	PFSTATE_NOSYNC		0x008
-#define	PFSTATE_ACK		0x010
-#define	PFRULE_DN_IS_PIPE	0x040
-#define	PFRULE_DN_IS_QUEUE	0x080
-#define	PFSTATE_SETPRIO		0x200
-#define	PFSTATE_SETMASK		(PFSTATE_SETPRIO)
+#define	PFSTATE_ALLOWOPTS	0x01
+#define	PFSTATE_SLOPPY		0x02
+/*  was	PFSTATE_PFLOW		0x04 */
+#define	PFSTATE_NOSYNC		0x08
+#define	PFSTATE_ACK		0x10
+#define	PFRULE_DN_IS_PIPE	0x40
+#define	PFRULE_DN_IS_QUEUE	0x80
+#define	PFSTATE_SETPRIO		0x0200
+#define	PFSTATE_SETMASK   (PFSTATE_SETPRIO)
 
 struct pf_state_scrub_export {
 	uint16_t	pfss_flags;
@@ -924,8 +925,8 @@ struct pf_kstate {
 	u_int32_t		 pfsync_time;
 	u_int16_t                qid;
 	u_int16_t                pqid;
-	u_int32_t		 pdnpipe;
-	u_int32_t		 dnpipe;
+	u_int16_t		 dnpipe;
+	u_int16_t		 dnrpipe;
 	u_int16_t		 tag;
 	u_int8_t		 log;
 };
