@@ -2039,17 +2039,19 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 			tail = TAILQ_FIRST(ruleset->rules[rs_num].active.ptr);
 			while ((tail != NULL) && (tail->cuid != rule->cuid))
 				tail = TAILQ_NEXT(tail, entries);
+			counter_u64_zero(rule->evaluations);
+			for (int i = 0; i < 2; i++) {
+				counter_u64_zero(rule->packets[i]);
+				counter_u64_zero(rule->bytes[i]);
+			}
 			if (tail != NULL) {
-				rule->evaluations = tail->evaluations;
+				counter_u64_add(rule->evaluations,
+				    counter_u64_fetch(tail->evaluations));
 				for (int i = 0; i < 2; i++) {
-					rule->bytes[i] = tail->bytes[i];
-					rule->packets[i] = tail->packets[i];
-				}
-			} else {
-				counter_u64_zero(rule->evaluations);
-				for (int i = 0; i < 2; i++) {
-					counter_u64_zero(rule->packets[i]);
-					counter_u64_zero(rule->bytes[i]);
+					counter_u64_add(rule->bytes[i],
+					    counter_u64_fetch(tail->bytes[i]));
+					counter_u64_add(rule->packets[i],
+					    counter_u64_fetch(tail->packets[i]));
 				}
 			}
 		} else {

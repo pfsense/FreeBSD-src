@@ -3724,8 +3724,8 @@ pf_test_rule(struct pf_krule **rm, struct pf_state **sm, int direction,
 				rtableid = r->rtableid;
 			if (r->anchor == NULL) {
 				if (r->action == PF_MATCH) {
-					r->packets[direction == PF_OUT]++;
-					r->bytes[direction == PF_OUT] += pd->tot_len;
+					counter_u64_add(r->packets[direction == PF_OUT], 1);
+					counter_u64_add(r->bytes[direction == PF_OUT], pd->tot_len);
 					pf_rule_to_actions(r, &pd->act);
 					if (r->log)
 						PFLOG_PACKET(kif, m, af,
@@ -4156,8 +4156,8 @@ pf_test_fragment(struct pf_krule **rm, int direction, struct pfi_kkif *kif,
 		else {
 			if (r->anchor == NULL) {
 				if (r->action == PF_MATCH) {
-                                        r->packets[direction == PF_OUT]++;
-                                        r->bytes[direction == PF_OUT] += pd->tot_len;
+					counter_u64_add(r->packets[direction == PF_OUT], 1);
+					counter_u64_add(r->bytes[direction == PF_OUT], pd->tot_len);
                                         pf_rule_to_actions(r, &pd->act);
                                         if (r->log)
                                                 PFLOG_PACKET(kif, m, af,
