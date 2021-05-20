@@ -149,6 +149,7 @@ ip_redir_alloc(struct mbuf *m, struct ip *ip, struct in_addr dest,
 	s.sin_family= AF_INET;
 	s.sin_addr = nh.nh_src;
 
+	NET_EPOCH_ENTER();
 	if (((nh.nh_flags & (NHF_REDIRECT|NHF_DEFAULT)) == 0)) {
 		struct in_ifaddr *nh_ia = (struct in_ifaddr *)ifaof_ifpforaddr((struct sockaddr *)&s, nh.nh_ifp);
 		u_long src = ntohl(ip->ip_src.s_addr);
@@ -160,7 +161,7 @@ ip_redir_alloc(struct mbuf *m, struct ip *ip, struct in_addr dest,
 				*addr = ip->ip_dst.s_addr;
 		}
 	}
-
+	NET_EPOCH_EXIT();
 
 	return (mcopy);
 }
