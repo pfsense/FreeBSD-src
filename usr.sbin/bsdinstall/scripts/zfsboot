@@ -150,6 +150,14 @@ f_isset ZFSBOOT_DATASETS || ZFSBOOT_DATASETS="
 
 	# Create /var and friends
 	/var		mountpoint=/var
+
+	# pfSense default datasets
+	/home		mountpoint=home
+	/var/cache	mountpoint=/var/cache,setuid=off,exec=off,compression=off
+	/var/db		mountpoint=/var/db,setuid=off,exec=off
+	/var/empty	mountpoint=/var/empty
+	/var/log	mountpoint=/var/log,setuid=off,exec=off
+	/var/tmp	mountpoint=/var/tmp,setuid=off
 " # END-QUOTE
 
 #
