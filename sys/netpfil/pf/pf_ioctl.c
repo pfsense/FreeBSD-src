@@ -1516,6 +1516,7 @@ pf_krule_to_rule(const struct pf_krule *krule, struct pf_rule *rule)
 	}
 
 	strlcpy(rule->label, krule->label, sizeof(rule->label));
+	strlcpy(rule->schedule, krule->schedule, sizeof(rule->schedule));
 	strlcpy(rule->ifname, krule->ifname, sizeof(rule->ifname));
 	strlcpy(rule->qname, krule->qname, sizeof(rule->qname));
 	strlcpy(rule->pqname, krule->pqname, sizeof(rule->pqname));
@@ -1656,6 +1657,7 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	bcopy(&rule->dst, &krule->dst, sizeof(rule->dst));
 
 	strlcpy(krule->label, rule->label, sizeof(rule->label));
+	strlcpy(krule->schedule, rule->schedule, sizeof(rule->schedule));
 	strlcpy(krule->ifname, rule->ifname, sizeof(rule->ifname));
 	strlcpy(krule->qname, rule->qname, sizeof(rule->qname));
 	strlcpy(krule->pqname, rule->pqname, sizeof(rule->pqname));
