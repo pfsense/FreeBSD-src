@@ -1547,6 +1547,9 @@ pf_krule_to_rule(const struct pf_krule *krule, struct pf_rule *rule)
 	rule->max_src_conn_rate.seconds = krule->max_src_conn_rate.seconds;
 	rule->qid = krule->qid;
 	rule->pqid = krule->pqid;
+	rule->dnpipe = krule->dnpipe;
+	rule->pdnpipe = krule->pdnpipe;
+	rule->free_flags = krule->free_flags;
 	rule->rt_listid = krule->rt_listid;
 	rule->nr = krule->nr;
 	rule->prob = krule->prob;
@@ -1681,6 +1684,9 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	krule->max_src_conn_rate.seconds = rule->max_src_conn_rate.seconds;
 	krule->qid = rule->qid;
 	krule->pqid = rule->pqid;
+	krule->dnpipe = rule->dnpipe;
+	krule->pdnpipe = rule->pdnpipe;
+	krule->free_flags = rule->free_flags;
 	krule->rt_listid = rule->rt_listid;
 	krule->nr = rule->nr;
 	krule->prob = rule->prob;
