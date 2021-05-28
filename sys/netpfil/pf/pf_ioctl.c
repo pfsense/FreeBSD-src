@@ -2040,40 +2040,11 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		}
 
 		rule->rpool.cur = TAILQ_FIRST(&rule->rpool.list);
-#ifndef PF_USER_INFO
-		if (rule->cuid) {
-			tail = TAILQ_FIRST(ruleset->rules[rs_num].active.ptr);
-			while ((tail != NULL) && (tail->cuid != rule->cuid))
-				tail = TAILQ_NEXT(tail, entries);
-			counter_u64_zero(rule->evaluations);
-			for (int i = 0; i < 2; i++) {
-				counter_u64_zero(rule->packets[i]);
-				counter_u64_zero(rule->bytes[i]);
-			}
-			if (tail != NULL) {
-				counter_u64_add(rule->evaluations,
-				    counter_u64_fetch(tail->evaluations));
-				for (int i = 0; i < 2; i++) {
-					counter_u64_add(rule->bytes[i],
-					    counter_u64_fetch(tail->bytes[i]));
-					counter_u64_add(rule->packets[i],
-					    counter_u64_fetch(tail->packets[i]));
-				}
-			}
-		} else {
-			counter_u64_zero(rule->evaluations);
-			for (int i = 0; i < 2; i++) {
-				counter_u64_zero(rule->packets[i]);
-				counter_u64_zero(rule->bytes[i]);
-			}
-		}
-#else
 		counter_u64_zero(rule->evaluations);
 		for (int i = 0; i < 2; i++) {
 			counter_u64_zero(rule->packets[i]);
 			counter_u64_zero(rule->bytes[i]);
 		}
-#endif
 		TAILQ_INSERT_TAIL(ruleset->rules[rs_num].inactive.ptr,
 		    rule, entries);
 		ruleset->rules[rs_num].inactive.rcount++;
