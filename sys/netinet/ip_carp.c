@@ -855,8 +855,7 @@ carp_send_ad_error(struct carp_softc *sc, int error)
 			char msg[sizeof(fmt) + IFNAMSIZ];
 
 			sprintf(msg, fmt, error, sc->sc_carpdev->if_xname);
-			if (V_carp_senderr_adj > 0)
-				carp_demote_adj(V_carp_senderr_adj, msg);
+			carp_demote_adj(V_carp_senderr_adj, msg);
 		}
 		sc->sc_sendad_success = 0;
 	} else {
@@ -866,8 +865,7 @@ carp_send_ad_error(struct carp_softc *sc, int error)
 			char msg[sizeof(fmt) + IFNAMSIZ];
 
 			sprintf(msg, fmt, sc->sc_carpdev->if_xname);
-			if (V_carp_senderr_adj > 0)
-				carp_demote_adj(-V_carp_senderr_adj, msg);
+			carp_demote_adj(-V_carp_senderr_adj, msg);
 			sc->sc_sendad_errors = 0;
 		} else
 			sc->sc_sendad_errors = 0;

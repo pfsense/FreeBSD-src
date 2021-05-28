@@ -424,7 +424,7 @@ pfsync_clone_destroy(struct ifnet *ifp)
 	callout_drain(&sc->sc_bulkfail_tmo);
 	callout_drain(&sc->sc_bulk_tmo);
 
-	if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p && V_pfsync_carp_adj > 0)
+	if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p)
 		(*carp_demote_adj_p)(-V_pfsync_carp_adj, "pfsync destroy");
 	bpfdetach(ifp);
 	if_detach(ifp);
@@ -1216,7 +1216,7 @@ pfsync_in_bus(struct pfsync_pkt *pkt, struct mbuf *m, int offset, int count)
 			sc->sc_ureq_sent = 0;
 			sc->sc_bulk_tries = 0;
 			callout_stop(&sc->sc_bulkfail_tmo);
-			if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p && V_pfsync_carp_adj > 0)
+			if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p)
 				(*carp_demote_adj_p)(-V_pfsync_carp_adj,
 				    "pfsync bulk done");
 			sc->sc_flags |= PFSYNCF_OK;
@@ -1377,7 +1377,8 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		pfsyncr.pfsyncr_syncpeer = sc->sc_sync_peer;
 		pfsyncr.pfsyncr_maxupdates = sc->sc_maxupdates;
-		pfsyncr.pfsyncr_defer = sc->sc_flags;
+		pfsyncr.pfsyncr_defer = (PFSYNCF_DEFER ==
+		    (sc->sc_flags & PFSYNCF_DEFER));
 		PFSYNC_UNLOCK(sc);
 		return (copyout(&pfsyncr, ifr_data_get_ptr(ifr),
 		    sizeof(pfsyncr)));
@@ -1472,7 +1473,7 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ip->ip_dst.s_addr = sc->sc_sync_peer.s_addr;
 
 		/* Request a full state table update. */
-		if ((sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p && V_pfsync_carp_adj > 0)
+		if ((sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p)
 			(*carp_demote_adj_p)(V_pfsync_carp_adj,
 			    "pfsync bulk start");
 		sc->sc_flags &= ~PFSYNCF_OK;
@@ -2251,7 +2252,7 @@ pfsync_bulk_fail(void *arg)
 		sc->sc_ureq_sent = 0;
 		sc->sc_bulk_tries = 0;
 		PFSYNC_LOCK(sc);
-		if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p && V_pfsync_carp_adj > 0)
+		if (!(sc->sc_flags & PFSYNCF_OK) && carp_demote_adj_p)
 			(*carp_demote_adj_p)(-V_pfsync_carp_adj,
 			    "pfsync bulk fail");
 		sc->sc_flags |= PFSYNCF_OK;
