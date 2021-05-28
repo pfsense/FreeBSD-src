@@ -357,10 +357,13 @@
 #define	NFSPROC_OPENLAYGET	54
 #define	NFSPROC_CREATELAYGET	55
 
+/* BindConnectionToSession, done by the krpc for a new connection. */
+#define	NFSPROC_BINDCONNTOSESS	56
+
 /*
  * Must be defined as one higher than the last NFSv4.1 Proc# above.
  */
-#define	NFSV41_NPROCS		56
+#define	NFSV41_NPROCS		57
 
 #endif	/* NFS_V3NPROCS */
 
@@ -389,7 +392,7 @@ struct nfsstatsv1 {
 	uint64_t	readlink_bios;
 	uint64_t	biocache_readdirs;
 	uint64_t	readdir_bios;
-	uint64_t	rpccnt[NFSV41_NPROCS + 13];
+	uint64_t	rpccnt[NFSV41_NPROCS + 12];
 	uint64_t	rpcretries;
 	uint64_t	srvrpccnt[NFSV42_NOPS + NFSV4OP_FAKENOPS];
 	uint64_t	srvrpc_errs;
@@ -877,6 +880,7 @@ int nfscl_loadattrcache(struct vnode **, struct nfsvattr *, void *, void *,
     int, int);
 int newnfs_realign(struct mbuf **, int);
 bool ncl_pager_setsize(struct vnode *vp, u_quad_t *nsizep);
+void ncl_copy_vattr(struct vattr *dst, struct vattr *src);
 
 /*
  * If the port runs on an SMP box that can enforce Atomic ops with low

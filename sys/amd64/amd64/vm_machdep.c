@@ -181,6 +181,9 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	bcopy(get_pcb_user_save_td(td1), get_pcb_user_save_pcb(pcb2),
 	    cpu_max_ext_state_size);
 
+	/* Reset debug registers in the new process */
+	x86_clear_dbregs(pcb2);
+
 	/* Point mdproc and then copy over td1's contents */
 	mdp2 = &p2->p_md;
 	bcopy(&p1->p_md, mdp2, sizeof(*mdp2));

@@ -1,4 +1,29 @@
 # $FreeBSD$
+#
+# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+#
+# Copyright (c) 2017 Kristof Provost <kp@FreeBSD.org>
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
 
 . $(atf_get_srcdir)/utils.subr
 
@@ -116,8 +141,57 @@ v6_cleanup()
 	pft_cleanup
 }
 
+atf_test_case "mtu_diff" "cleanup"
+mtu_diff_head()
+{
+	atf_set descr 'Test reassembly across different MTUs, PR #255432'
+	atf_set require.user root
+}
+
+mtu_diff_body()
+{
+	pft_init
+
+	epair_small=$(vnet_mkepair)
+	epair_large=$(vnet_mkepair)
+
+	vnet_mkjail first ${epair_small}b ${epair_large}a
+	vnet_mkjail second ${epair_large}b
+
+	ifconfig ${epair_small}a 192.0.2.1/25 up
+	jexec first ifconfig ${epair_small}b 192.0.2.2/25 up
+
+	jexec first sysctl net.inet.ip.forwarding=1
+	jexec first ifconfig ${epair_large}a 192.0.2.130/25 up
+	jexec first ifconfig ${epair_large}a mtu 9000
+	jexec second ifconfig ${epair_large}b 192.0.2.131/25 up
+	jexec second ifconfig ${epair_large}b mtu 9000
+	jexec second route add default 192.0.2.130
+
+	route add 192.0.2.128/25 192.0.2.2
+
+	jexec first pfctl -e
+	pft_set_rules first \
+		"scrub all fragment reassemble"
+
+	# Sanity checks
+	atf_check -s exit:0 -o ignore ping -c 1 192.0.2.2
+	atf_check -s exit:0 -o ignore ping -c 1 192.0.2.130
+	atf_check -s exit:0 -o ignore ping -c 1 192.0.2.131
+
+	# Large packet that'll get reassembled and sent out in one on the large
+	# epair
+	atf_check -s exit:0 -o ignore ping -c 1 -s 8000 192.0.2.131
+}
+
+mtu_diff_cleanup()
+{
+	pft_cleanup
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case "too_many_fragments"
 	atf_add_test_case "v6"
+	atf_add_test_case "mtu_diff"
 }

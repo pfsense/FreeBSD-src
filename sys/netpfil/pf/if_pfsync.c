@@ -215,8 +215,6 @@ struct pfsync_softc {
 	struct ip_moptions	sc_imo;
 	struct in_addr		sc_sync_peer;
 	uint32_t		sc_flags;
-#define	PFSYNCF_OK		0x00000001
-#define	PFSYNCF_DEFER		0x00000002
 	uint8_t			sc_maxupdates;
 	struct ip		sc_template;
 	struct mtx		sc_mtx;
@@ -596,7 +594,7 @@ pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 	if (!(flags & PFSYNC_SI_IOCTL))
 		st->state_flags |= PFSTATE_NOSYNC;
 
-	if ((error = pf_state_insert(kif, skw, sks, st)) != 0)
+	if ((error = pf_state_insert(kif, kif, skw, sks, st)) != 0)
 		goto cleanup_state;
 
 	/* XXX when we have nat_rule/anchors, use STATE_INC_COUNTERS */
@@ -1377,8 +1375,7 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		pfsyncr.pfsyncr_syncpeer = sc->sc_sync_peer;
 		pfsyncr.pfsyncr_maxupdates = sc->sc_maxupdates;
-		pfsyncr.pfsyncr_defer = (PFSYNCF_DEFER ==
-		    (sc->sc_flags & PFSYNCF_DEFER));
+		pfsyncr.pfsyncr_defer = sc->sc_flags;
 		PFSYNC_UNLOCK(sc);
 		return (copyout(&pfsyncr, ifr_data_get_ptr(ifr),
 		    sizeof(pfsyncr)));

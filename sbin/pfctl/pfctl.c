@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/nv.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/endian.h>
@@ -54,6 +55,7 @@ __FBSDID("$FreeBSD$");
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <libpfctl.h>
 #include <limits.h>
 #include <netdb.h>
 #include <stdint.h>
@@ -77,10 +79,11 @@ int	 pfctl_clear_rules(int, int, char *);
 int	 pfctl_clear_nat(int, int, char *);
 int	 pfctl_clear_altq(int, int);
 int	 pfctl_clear_src_nodes(int, int);
-int	 pfctl_clear_states(int, const char *, int);
+int	 pfctl_clear_iface_states(int, const char *, int);
 void	 pfctl_addrprefix(char *, struct pf_addr *);
 int	 pfctl_kill_src_nodes(int, const char *, int);
 int	 pfctl_net_kill_states(int, const char *, int);
+int	 pfctl_gateway_kill_states(int, const char *, int);
 int	 pfctl_label_kill_states(int, const char *, int);
 int	 pfctl_id_kill_states(int, const char *, int);
 void	 pfctl_init_options(struct pfctl *);
@@ -90,9 +93,9 @@ int	 pfctl_load_timeout(struct pfctl *, unsigned int, unsigned int);
 int	 pfctl_load_debug(struct pfctl *, unsigned int);
 int	 pfctl_load_logif(struct pfctl *, char *);
 int	 pfctl_load_hostid(struct pfctl *, u_int32_t);
-int	 pfctl_get_pool(int, struct pf_pool *, u_int32_t, u_int32_t, int,
+int	 pfctl_get_pool(int, struct pfctl_pool *, u_int32_t, u_int32_t, int,
 	    char *);
-void	 pfctl_print_rule_counters(struct pf_rule *, int);
+void	 pfctl_print_rule_counters(struct pfctl_rule *, int);
 int	 pfctl_show_rules(int, char *, int, enum pfctl_show, char *, int);
 int	 pfctl_show_nat(int, int, char *);
 int	 pfctl_show_src_nodes(int, int);
@@ -104,14 +107,14 @@ int	 pfctl_show_limits(int, int);
 void	 pfctl_debug(int, u_int32_t, int);
 int	 pfctl_test_altqsupport(int, int);
 int	 pfctl_show_anchors(int, int, char *);
-int	 pfctl_ruleset_trans(struct pfctl *, char *, struct pf_anchor *);
+int	 pfctl_ruleset_trans(struct pfctl *, char *, struct pfctl_anchor *);
 int	 pfctl_load_ruleset(struct pfctl *, char *,
-		struct pf_ruleset *, int, int);
-int	 pfctl_load_rule(struct pfctl *, char *, struct pf_rule *, int);
+		struct pfctl_ruleset *, int, int);
+int	 pfctl_load_rule(struct pfctl *, char *, struct pfctl_rule *, int);
 const char	*pfctl_lookup_option(char *, const char * const *);
 
-static struct pf_anchor_global	 pf_anchors;
-static struct pf_anchor	 pf_main_anchor;
+static struct pfctl_anchor_global	 pf_anchors;
+static struct pfctl_anchor	 pf_main_anchor;
 static struct pfr_buffer skip_b;
 
 static const char	*clearopt;
@@ -242,9 +245,9 @@ usage(void)
 	extern char *__progname;
 
 	fprintf(stderr,
-"usage: %s [-AdeghmNnOPqRrvz] [-a anchor] [-D macro=value] [-F modifier]\n"
+"usage: %s [-AdeghMmNnOPqRrvz] [-a anchor] [-D macro=value] [-F modifier]\n"
 	"\t[-f file] [-i interface] [-K host | network]\n"
-	"\t[-k host | network | label | id] [-o level] [-p device]\n"
+	"\t[-k host | network | gateway | label | id] [-o level] [-p device]\n"
 	"\t[-s modifier] [-t table -T command [address ...]] [-x level]\n",
 	    __progname);
 
@@ -465,19 +468,23 @@ pfctl_clear_src_nodes(int dev, int opts)
 }
 
 int
-pfctl_clear_states(int dev, const char *iface, int opts)
+pfctl_clear_iface_states(int dev, const char *iface, int opts)
 {
-	struct pfioc_state_kill psk;
+	struct pfctl_kill kill;
+	unsigned int killed;
 
-	memset(&psk, 0, sizeof(psk));
-	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
-	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
+	memset(&kill, 0, sizeof(kill));
+	if (iface != NULL && strlcpy(kill.ifname, iface,
+	    sizeof(kill.ifname)) >= sizeof(kill.ifname))
 		errx(1, "invalid interface: %s", iface);
 
-	if (ioctl(dev, DIOCCLRSTATES, &psk))
+	if (opts & PF_OPT_KILLMATCH)
+		kill.kill_match = true;
+
+	if (pfctl_clear_states(dev, &kill, &killed))
 		err(1, "DIOCCLRSTATES");
 	if ((opts & PF_OPT_QUIET) == 0)
-		fprintf(stderr, "%d states cleared\n", psk.psk_killed);
+		fprintf(stderr, "%d states cleared\n", killed);
 	return (0);
 }
 
@@ -637,24 +644,28 @@ pfctl_kill_src_nodes(int dev, const char *iface, int opts)
 int
 pfctl_net_kill_states(int dev, const char *iface, int opts)
 {
-	struct pfioc_state_kill psk;
+	struct pfctl_kill kill;
 	struct addrinfo *res[2], *resp[2];
 	struct sockaddr last_src, last_dst;
+	unsigned int newkilled;
 	int killed, sources, dests;
 	int ret_ga;
 
 	killed = sources = dests = 0;
 
-	memset(&psk, 0, sizeof(psk));
-	memset(&psk.psk_src.addr.v.a.mask, 0xff,
-	    sizeof(psk.psk_src.addr.v.a.mask));
+	memset(&kill, 0, sizeof(kill));
+	memset(&kill.src.addr.v.a.mask, 0xff,
+	    sizeof(kill.src.addr.v.a.mask));
 	memset(&last_src, 0xff, sizeof(last_src));
 	memset(&last_dst, 0xff, sizeof(last_dst));
-	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
-	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
+	if (iface != NULL && strlcpy(kill.ifname, iface,
+	    sizeof(kill.ifname)) >= sizeof(kill.ifname))
 		errx(1, "invalid interface: %s", iface);
 
-	pfctl_addrprefix(state_kill[0], &psk.psk_src.addr.v.a.mask);
+	pfctl_addrprefix(state_kill[0], &kill.src.addr.v.a.mask);
+
+	if (opts & PF_OPT_KILLMATCH)
+		kill.kill_match = true;
 
 	if ((ret_ga = getaddrinfo(state_kill[0], NULL, NULL, &res[0]))) {
 		errx(1, "getaddrinfo: %s", gai_strerror(ret_ga));
@@ -668,26 +679,26 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 			continue;
 		last_src = *(struct sockaddr *)resp[0]->ai_addr;
 
-		psk.psk_af = resp[0]->ai_family;
+		kill.af = resp[0]->ai_family;
 		sources++;
 
-		if (psk.psk_af == AF_INET)
-			psk.psk_src.addr.v.a.addr.v4 =
+		if (kill.af == AF_INET)
+			kill.src.addr.v.a.addr.v4 =
 			    ((struct sockaddr_in *)resp[0]->ai_addr)->sin_addr;
-		else if (psk.psk_af == AF_INET6)
-			psk.psk_src.addr.v.a.addr.v6 =
+		else if (kill.af == AF_INET6)
+			kill.src.addr.v.a.addr.v6 =
 			    ((struct sockaddr_in6 *)resp[0]->ai_addr)->
 			    sin6_addr;
 		else
-			errx(1, "Unknown address family %d", psk.psk_af);
+			errx(1, "Unknown address family %d", kill.af);
 
 		if (state_killers > 1) {
 			dests = 0;
-			memset(&psk.psk_dst.addr.v.a.mask, 0xff,
-			    sizeof(psk.psk_dst.addr.v.a.mask));
+			memset(&kill.dst.addr.v.a.mask, 0xff,
+			    sizeof(kill.dst.addr.v.a.mask));
 			memset(&last_dst, 0xff, sizeof(last_dst));
 			pfctl_addrprefix(state_kill[1],
-			    &psk.psk_dst.addr.v.a.mask);
+			    &kill.dst.addr.v.a.mask);
 			if ((ret_ga = getaddrinfo(state_kill[1], NULL, NULL,
 			    &res[1]))) {
 				errx(1, "getaddrinfo: %s",
@@ -698,7 +709,7 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 			    resp[1] = resp[1]->ai_next) {
 				if (resp[1]->ai_addr == NULL)
 					continue;
-				if (psk.psk_af != resp[1]->ai_family)
+				if (kill.af != resp[1]->ai_family)
 					continue;
 
 				if (memcmp(&last_dst, resp[1]->ai_addr,
@@ -708,27 +719,27 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 
 				dests++;
 
-				if (psk.psk_af == AF_INET)
-					psk.psk_dst.addr.v.a.addr.v4 =
+				if (kill.af == AF_INET)
+					kill.dst.addr.v.a.addr.v4 =
 					    ((struct sockaddr_in *)resp[1]->
 					    ai_addr)->sin_addr;
-				else if (psk.psk_af == AF_INET6)
-					psk.psk_dst.addr.v.a.addr.v6 =
+				else if (kill.af == AF_INET6)
+					kill.dst.addr.v.a.addr.v6 =
 					    ((struct sockaddr_in6 *)resp[1]->
 					    ai_addr)->sin6_addr;
 				else
 					errx(1, "Unknown address family %d",
-					    psk.psk_af);
+					    kill.af);
 
-				if (ioctl(dev, DIOCKILLSTATES, &psk))
+				if (pfctl_kill_states(dev, &kill, &newkilled))
 					err(1, "DIOCKILLSTATES");
-				killed += psk.psk_killed;
+				killed += newkilled;
 			}
 			freeaddrinfo(res[1]);
 		} else {
-			if (ioctl(dev, DIOCKILLSTATES, &psk))
+			if (pfctl_kill_states(dev, &kill, &newkilled))
 				err(1, "DIOCKILLSTATES");
-			killed += psk.psk_killed;
+			killed += newkilled;
 		}
 	}
 
@@ -741,28 +752,96 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 }
 
 int
+pfctl_gateway_kill_states(int dev, const char *iface, int opts)
+{
+	struct pfctl_kill kill;
+	struct addrinfo *res, *resp;
+	struct sockaddr last_src;
+	unsigned int newkilled;
+	int killed = 0;
+	int ret_ga;
+
+	if (state_killers != 2 || (strlen(state_kill[1]) == 0)) {
+		warnx("no gateway specified");
+		usage();
+	}
+
+	memset(&kill, 0, sizeof(kill));
+	memset(&kill.rt_addr.addr.v.a.mask, 0xff,
+	    sizeof(kill.rt_addr.addr.v.a.mask));
+	memset(&last_src, 0xff, sizeof(last_src));
+	if (iface != NULL && strlcpy(kill.ifname, iface,
+	    sizeof(kill.ifname)) >= sizeof(kill.ifname))
+		errx(1, "invalid interface: %s", iface);
+
+	if (opts & PF_OPT_KILLMATCH)
+		kill.kill_match = true;
+
+	pfctl_addrprefix(state_kill[1], &kill.rt_addr.addr.v.a.mask);
+
+	if ((ret_ga = getaddrinfo(state_kill[1], NULL, NULL, &res))) {
+		errx(1, "getaddrinfo: %s", gai_strerror(ret_ga));
+		/* NOTREACHED */
+	}
+	for (resp = res; resp; resp = resp->ai_next) {
+		if (resp->ai_addr == NULL)
+			continue;
+		/* We get lots of duplicates.  Catch the easy ones */
+		if (memcmp(&last_src, resp->ai_addr, sizeof(last_src)) == 0)
+			continue;
+		last_src = *(struct sockaddr *)resp->ai_addr;
+
+		kill.af = resp->ai_family;
+
+		if (kill.af == AF_INET)
+			kill.rt_addr.addr.v.a.addr.v4 =
+			    ((struct sockaddr_in *)resp->ai_addr)->sin_addr;
+		else if (kill.af == AF_INET6)
+			kill.rt_addr.addr.v.a.addr.v6 =
+			    ((struct sockaddr_in6 *)resp->ai_addr)->
+			    sin6_addr;
+		else
+			errx(1, "Unknown address family %d", kill.af);
+
+		if (pfctl_kill_states(dev, &kill, &newkilled))
+			err(1, "DIOCKILLSTATES");
+		killed += newkilled;
+	}
+
+	freeaddrinfo(res);
+
+	if ((opts & PF_OPT_QUIET) == 0)
+		fprintf(stderr, "killed %d states\n", killed);
+	return (0);
+}
+
+int
 pfctl_label_kill_states(int dev, const char *iface, int opts)
 {
-	struct pfioc_state_kill psk;
+	struct pfctl_kill kill;
+	unsigned int killed;
 
 	if (state_killers != 2 || (strlen(state_kill[1]) == 0)) {
 		warnx("no label specified");
 		usage();
 	}
-	memset(&psk, 0, sizeof(psk));
-	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
-	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
+	memset(&kill, 0, sizeof(kill));
+	if (iface != NULL && strlcpy(kill.ifname, iface,
+	    sizeof(kill.ifname)) >= sizeof(kill.ifname))
 		errx(1, "invalid interface: %s", iface);
 
-	if (strlcpy(psk.psk_label, state_kill[1], sizeof(psk.psk_label)) >=
-	    sizeof(psk.psk_label))
+	if (opts & PF_OPT_KILLMATCH)
+		kill.kill_match = true;
+
+	if (strlcpy(kill.label, state_kill[1], sizeof(kill.label)) >=
+	    sizeof(kill.label))
 		errx(1, "label too long: %s", state_kill[1]);
 
-	if (ioctl(dev, DIOCKILLSTATES, &psk))
+	if (pfctl_kill_states(dev, &kill, &killed))
 		err(1, "DIOCKILLSTATES");
 
 	if ((opts & PF_OPT_QUIET) == 0)
-		fprintf(stderr, "killed %d states\n", psk.psk_killed);
+		fprintf(stderr, "killed %d states\n", killed);
 
 	return (0);
 }
@@ -770,40 +849,45 @@ pfctl_label_kill_states(int dev, const char *iface, int opts)
 int
 pfctl_id_kill_states(int dev, const char *iface, int opts)
 {
-	struct pfioc_state_kill psk;
+	struct pfctl_kill kill;
+	unsigned int killed;
 	
 	if (state_killers != 2 || (strlen(state_kill[1]) == 0)) {
 		warnx("no id specified");
 		usage();
 	}
 
-	memset(&psk, 0, sizeof(psk));
+	memset(&kill, 0, sizeof(kill));
+
+	if (opts & PF_OPT_KILLMATCH)
+		kill.kill_match = true;
+
 	if ((sscanf(state_kill[1], "%jx/%x",
-	    &psk.psk_pfcmp.id, &psk.psk_pfcmp.creatorid)) == 2)
-		HTONL(psk.psk_pfcmp.creatorid);
-	else if ((sscanf(state_kill[1], "%jx", &psk.psk_pfcmp.id)) == 1) {
-		psk.psk_pfcmp.creatorid = 0;
+	    &kill.cmp.id, &kill.cmp.creatorid)) == 2)
+		HTONL(kill.cmp.creatorid);
+	else if ((sscanf(state_kill[1], "%jx", &kill.cmp.id)) == 1) {
+		kill.cmp.creatorid = 0;
 	} else {
 		warnx("wrong id format specified");
 		usage();
 	}
-	if (psk.psk_pfcmp.id == 0) {
+	if (kill.cmp.id == 0) {
 		warnx("cannot kill id 0");
 		usage();
 	}
 
-	psk.psk_pfcmp.id = htobe64(psk.psk_pfcmp.id);
-	if (ioctl(dev, DIOCKILLSTATES, &psk))
+	kill.cmp.id = htobe64(kill.cmp.id);
+	if (pfctl_kill_states(dev, &kill, &killed))
 		err(1, "DIOCKILLSTATES");
 
 	if ((opts & PF_OPT_QUIET) == 0)
-		fprintf(stderr, "killed %d states\n", psk.psk_killed);
+		fprintf(stderr, "killed %d states\n", killed);
 
 	return (0);
 }
 
 int
-pfctl_get_pool(int dev, struct pf_pool *pool, u_int32_t nr,
+pfctl_get_pool(int dev, struct pfctl_pool *pool, u_int32_t nr,
     u_int32_t ticket, int r_action, char *anchorname)
 {
 	struct pfioc_pooladdr pp;
@@ -838,7 +922,7 @@ pfctl_get_pool(int dev, struct pf_pool *pool, u_int32_t nr,
 }
 
 void
-pfctl_move_pool(struct pf_pool *src, struct pf_pool *dst)
+pfctl_move_pool(struct pfctl_pool *src, struct pfctl_pool *dst)
 {
 	struct pf_pooladdr *pa;
 
@@ -849,7 +933,7 @@ pfctl_move_pool(struct pf_pool *src, struct pf_pool *dst)
 }
 
 void
-pfctl_clear_pool(struct pf_pool *pool)
+pfctl_clear_pool(struct pfctl_pool *pool)
 {
 	struct pf_pooladdr *pa;
 
@@ -860,7 +944,7 @@ pfctl_clear_pool(struct pf_pool *pool)
 }
 
 void
-pfctl_print_rule_counters(struct pf_rule *rule, int opts)
+pfctl_print_rule_counters(struct pfctl_rule *rule, int opts)
 {
 	if (opts & PF_OPT_DEBUG) {
 		const char *t[PF_SKIP_COUNT] = { "i", "d", "f",
@@ -889,18 +973,18 @@ pfctl_print_rule_counters(struct pf_rule *rule, int opts)
 			    (unsigned long long)(rule->packets[0] +
 			    rule->packets[1]),
 			    (unsigned long long)(rule->bytes[0] +
-			    rule->bytes[1]), (uintmax_t)rule->u_states_cur);
+			    rule->bytes[1]), (uintmax_t)rule->states_cur);
 		if (!(opts & PF_OPT_DEBUG))
 #ifdef PF_USER_INFO
 			printf("  [ Inserted: uid %u pid %u "
 			    "State Creations: %-6ju]\n",
 			    (unsigned)rule->cuid, (unsigned)rule->cpid,
-			    (uintmax_t)rule->u_states_tot);
+			    (uintmax_t)rule->states_tot);
 #else
 			printf("  [ Inserted: pid %u "
 			    "State Creations: %-6ju]\n",
 			    (unsigned)rule->cpid,
-			    (uintmax_t)rule->u_states_tot);
+			    (uintmax_t)rule->states_tot);
 #endif
 	}
 }
@@ -919,6 +1003,7 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
     char *anchorname, int depth)
 {
 	struct pfioc_rule pr;
+	struct pfctl_rule rule;
 	u_int32_t nr, mnr, header = 0;
 	int rule_numbers = opts & (PF_OPT_VERBOSE2 | PF_OPT_DEBUG);
 	int numeric = opts & PF_OPT_NUMERIC;
@@ -953,17 +1038,16 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 			pfctl_print_title("LABEL COUNTERS:");
 	}
 	mnr = pr.nr;
-	if (opts & PF_OPT_CLRRULECTRS)
-		pr.action = PF_GET_CLR_CNTR;
 
 	for (nr = 0; nr < mnr; ++nr) {
 		pr.nr = nr;
-		if (ioctl(dev, DIOCGETRULE, &pr)) {
-			warn("DIOCGETRULE");
+		if (pfctl_get_clear_rule(dev, nr, pr.ticket, path, PF_SCRUB,
+		    &rule, pr.anchor_call, opts & PF_OPT_CLRRULECTRS)) {
+			warn("DIOCGETRULENV");
 			goto error;
 		}
 
-		if (pfctl_get_pool(dev, &pr.rule.rpool,
+		if (pfctl_get_pool(dev, &rule.rpool,
 		    nr, pr.ticket, PF_SCRUB, path) != 0)
 			goto error;
 
@@ -971,16 +1055,16 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 		case PFCTL_SHOW_LABELS:
 			break;
 		case PFCTL_SHOW_RULES:
-			if (pr.rule.label[0] && (opts & PF_OPT_SHOWALL))
+			if (rule.label[0] && (opts & PF_OPT_SHOWALL))
 				labels = 1;
-			print_rule(&pr.rule, pr.anchor_call, rule_numbers, numeric);
+			print_rule(&rule, pr.anchor_call, rule_numbers, numeric);
 			printf("\n");
-			pfctl_print_rule_counters(&pr.rule, opts);
+			pfctl_print_rule_counters(&rule, opts);
 			break;
 		case PFCTL_SHOW_NOTHING:
 			break;
 		}
-		pfctl_clear_pool(&pr.rule.rpool);
+		pfctl_clear_pool(&rule.rpool);
 	}
 	pr.rule.action = PF_PASS;
 	if (ioctl(dev, DIOCGETRULES, &pr)) {
@@ -990,36 +1074,45 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 	mnr = pr.nr;
 	for (nr = 0; nr < mnr; ++nr) {
 		pr.nr = nr;
-		if (ioctl(dev, DIOCGETRULE, &pr)) {
+		if (pfctl_get_clear_rule(dev, nr, pr.ticket, path, PF_PASS,
+		    &rule, pr.anchor_call, opts & PF_OPT_CLRRULECTRS)) {
 			warn("DIOCGETRULE");
 			goto error;
 		}
 
-		if (pfctl_get_pool(dev, &pr.rule.rpool,
+		if (pfctl_get_pool(dev, &rule.rpool,
 		    nr, pr.ticket, PF_PASS, path) != 0)
 			goto error;
 
 		switch (format) {
-		case PFCTL_SHOW_LABELS:
-			if (pr.rule.label[0]) {
-				printf("%s %llu %llu %llu %llu"
+		case PFCTL_SHOW_LABELS: {
+			bool show = false;
+			int i = 0;
+
+			while (rule.label[i][0]) {
+				printf("%s ", rule.label[i++]);
+				show = true;
+			}
+
+			if (show) {
+				printf("%llu %llu %llu %llu"
 				    " %llu %llu %llu %ju\n",
-				    pr.rule.label,
-				    (unsigned long long)pr.rule.evaluations,
-				    (unsigned long long)(pr.rule.packets[0] +
-				    pr.rule.packets[1]),
-				    (unsigned long long)(pr.rule.bytes[0] +
-				    pr.rule.bytes[1]),
-				    (unsigned long long)pr.rule.packets[0],
-				    (unsigned long long)pr.rule.bytes[0],
-				    (unsigned long long)pr.rule.packets[1],
-				    (unsigned long long)pr.rule.bytes[1],
-				    (uintmax_t)pr.rule.u_states_tot);
+				    (unsigned long long)rule.evaluations,
+				    (unsigned long long)(rule.packets[0] +
+				    rule.packets[1]),
+				    (unsigned long long)(rule.bytes[0] +
+				    rule.bytes[1]),
+				    (unsigned long long)rule.packets[0],
+				    (unsigned long long)rule.bytes[0],
+				    (unsigned long long)rule.packets[1],
+				    (unsigned long long)rule.bytes[1],
+				    (uintmax_t)rule.states_tot);
 			}
 			break;
+		}
 		case PFCTL_SHOW_RULES:
 			brace = 0;
-			if (pr.rule.label[0] && (opts & PF_OPT_SHOWALL))
+			if (rule.label[0] && (opts & PF_OPT_SHOWALL))
 				labels = 1;
 			INDENT(depth, !(opts & PF_OPT_VERBOSE));
 			if (pr.anchor_call[0] &&
@@ -1035,12 +1128,12 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 			} else
 				p = &pr.anchor_call[0];
 		
-			print_rule(&pr.rule, p, rule_numbers, numeric);
+			print_rule(&rule, p, rule_numbers, numeric);
 			if (brace)
 				printf(" {\n");
 			else
 				printf("\n");
-			pfctl_print_rule_counters(&pr.rule, opts);
+			pfctl_print_rule_counters(&rule, opts);
 			if (brace) { 
 				pfctl_show_rules(dev, path, opts, format,
 				    p, depth + 1);
@@ -1051,7 +1144,7 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 		case PFCTL_SHOW_NOTHING:
 			break;
 		}
-		pfctl_clear_pool(&pr.rule.rpool);
+		pfctl_clear_pool(&rule.rpool);
 	}
 	path[len] = '\0';
 	return (0);
@@ -1065,6 +1158,7 @@ int
 pfctl_show_nat(int dev, int opts, char *anchorname)
 {
 	struct pfioc_rule pr;
+	struct pfctl_rule rule;
 	u_int32_t mnr, nr;
 	static int nattype[3] = { PF_NAT, PF_RDR, PF_BINAT };
 	int i, dotitle = opts & PF_OPT_SHOWALL;
@@ -1080,22 +1174,23 @@ pfctl_show_nat(int dev, int opts, char *anchorname)
 		mnr = pr.nr;
 		for (nr = 0; nr < mnr; ++nr) {
 			pr.nr = nr;
-			if (ioctl(dev, DIOCGETRULE, &pr)) {
+			if (pfctl_get_rule(dev, nr, pr.ticket, anchorname,
+			    nattype[i], &rule, pr.anchor_call)) {
 				warn("DIOCGETRULE");
 				return (-1);
 			}
-			if (pfctl_get_pool(dev, &pr.rule.rpool, nr,
+			if (pfctl_get_pool(dev, &rule.rpool, nr,
 			    pr.ticket, nattype[i], anchorname) != 0)
 				return (-1);
 			if (dotitle) {
 				pfctl_print_title("TRANSLATION RULES:");
 				dotitle = 0;
 			}
-			print_rule(&pr.rule, pr.anchor_call,
+			print_rule(&rule, pr.anchor_call,
 			    opts & PF_OPT_VERBOSE2, opts & PF_OPT_NUMERIC);
 			printf("\n");
-			pfctl_print_rule_counters(&pr.rule, opts);
-			pfctl_clear_pool(&pr.rule.rpool);
+			pfctl_print_rule_counters(&rule, opts);
+			pfctl_clear_pool(&rule.rpool);
 		}
 	}
 	return (0);
@@ -1149,48 +1244,27 @@ done:
 int
 pfctl_show_states(int dev, const char *iface, int opts)
 {
-	struct pfioc_states ps;
-	struct pfsync_state *p;
-	char *inbuf = NULL, *newinbuf = NULL;
-	unsigned int len = 0;
-	int i, dotitle = (opts & PF_OPT_SHOWALL);
+	struct pfctl_states states;
+	struct pfctl_state *s;
+	int dotitle = (opts & PF_OPT_SHOWALL);
 
-	memset(&ps, 0, sizeof(ps));
-	for (;;) {
-		ps.ps_len = len;
-		if (len) {
-			newinbuf = realloc(inbuf, len);
-			if (newinbuf == NULL)
-				err(1, "realloc");
-			ps.ps_buf = inbuf = newinbuf;
-		}
-		if (ioctl(dev, DIOCGETSTATES, &ps) < 0) {
-			warn("DIOCGETSTATES");
-			free(inbuf);
-			return (-1);
-		}
-		if (ps.ps_len + sizeof(struct pfioc_states) < len)
-			break;
-		if (len == 0 && ps.ps_len == 0)
-			goto done;
-		if (len == 0 && ps.ps_len != 0)
-			len = ps.ps_len;
-		if (ps.ps_len == 0)
-			goto done;	/* no states */
-		len *= 2;
-	}
-	p = ps.ps_states;
-	for (i = 0; i < ps.ps_len; i += sizeof(*p), p++) {
-		if (iface != NULL && strcmp(p->ifname, iface))
+	memset(&states, 0, sizeof(states));
+
+	if (pfctl_get_states(dev, &states))
+		return (-1);
+
+	TAILQ_FOREACH(s, &states.states, entry) {
+		if (iface != NULL && strcmp(s->ifname, iface))
 			continue;
 		if (dotitle) {
 			pfctl_print_title("STATES:");
 			dotitle = 0;
 		}
-		print_state(p, opts);
+		print_state(s, opts);
 	}
-done:
-	free(inbuf);
+
+	pfctl_free_states(&states);
+
 	return (0);
 }
 
@@ -1272,7 +1346,7 @@ pfctl_show_limits(int dev, int opts)
 
 /* callbacks for rule/nat/rdr/addr */
 int
-pfctl_add_pool(struct pfctl *pf, struct pf_pool *p, sa_family_t af)
+pfctl_add_pool(struct pfctl *pf, struct pfctl_pool *p, sa_family_t af)
 {
 	struct pf_pooladdr *pa;
 
@@ -1293,11 +1367,12 @@ pfctl_add_pool(struct pfctl *pf, struct pf_pool *p, sa_family_t af)
 }
 
 int
-pfctl_add_rule(struct pfctl *pf, struct pf_rule *r, const char *anchor_call)
+pfctl_append_rule(struct pfctl *pf, struct pfctl_rule *r,
+    const char *anchor_call)
 {
 	u_int8_t		rs_num;
-	struct pf_rule		*rule;
-	struct pf_ruleset	*rs;
+	struct pfctl_rule	*rule;
+	struct pfctl_ruleset	*rs;
 	char 			*p;
 
 	rs_num = pf_get_ruleset_number(r->action);
@@ -1311,22 +1386,22 @@ pfctl_add_rule(struct pfctl *pf, struct pf_rule *r, const char *anchor_call)
 		 * Don't make non-brace anchors part of the main anchor pool.
 		 */
 		if ((r->anchor = calloc(1, sizeof(*r->anchor))) == NULL)
-			err(1, "pfctl_add_rule: calloc");
+			err(1, "pfctl_append_rule: calloc");
 		
 		pf_init_ruleset(&r->anchor->ruleset);
 		r->anchor->ruleset.anchor = r->anchor;
 		if (strlcpy(r->anchor->path, anchor_call,
 		    sizeof(rule->anchor->path)) >= sizeof(rule->anchor->path))
-			errx(1, "pfctl_add_rule: strlcpy");
+			errx(1, "pfctl_append_rule: strlcpy");
 		if ((p = strrchr(anchor_call, '/')) != NULL) {
 			if (!strlen(p))
-				err(1, "pfctl_add_rule: bad anchor name %s",
+				err(1, "pfctl_append_rule: bad anchor name %s",
 				    anchor_call);
 		} else
 			p = (char *)anchor_call;
 		if (strlcpy(r->anchor->name, p,
 		    sizeof(rule->anchor->name)) >= sizeof(rule->anchor->name))
-			errx(1, "pfctl_add_rule: strlcpy");
+			errx(1, "pfctl_append_rule: strlcpy");
 	}
 
 	if ((rule = calloc(1, sizeof(*rule))) == NULL)
@@ -1340,7 +1415,7 @@ pfctl_add_rule(struct pfctl *pf, struct pf_rule *r, const char *anchor_call)
 }
 
 int
-pfctl_ruleset_trans(struct pfctl *pf, char *path, struct pf_anchor *a)
+pfctl_ruleset_trans(struct pfctl *pf, char *path, struct pfctl_anchor *a)
 {
 	int osize = pf->trans->pfrb_size;
 
@@ -1370,10 +1445,10 @@ pfctl_ruleset_trans(struct pfctl *pf, char *path, struct pf_anchor *a)
 }
 
 int
-pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
+pfctl_load_ruleset(struct pfctl *pf, char *path, struct pfctl_ruleset *rs,
     int rs_num, int depth)
 {
-	struct pf_rule *r;
+	struct pfctl_rule *r;
 	int		error, len = strlen(path);
 	int		brace = 0;
 
@@ -1430,18 +1505,18 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
 }
 
 int
-pfctl_load_rule(struct pfctl *pf, char *path, struct pf_rule *r, int depth)
+pfctl_load_rule(struct pfctl *pf, char *path, struct pfctl_rule *r, int depth)
 {
 	u_int8_t		rs_num = pf_get_ruleset_number(r->action);
 	char			*name;
-	struct pfioc_rule	pr;
+	u_int32_t		ticket;
+	char			anchor[PF_ANCHOR_NAME_SIZE];
 	int			len = strlen(path);
 
-	bzero(&pr, sizeof(pr));
 	/* set up anchor before adding to path for anchor_call */
 	if ((pf->opts & PF_OPT_NOACTION) == 0)
-		pr.ticket = pfctl_get_ticket(pf->trans, rs_num, path);
-	if (strlcpy(pr.anchor, path, sizeof(pr.anchor)) >= sizeof(pr.anchor))
+		ticket = pfctl_get_ticket(pf->trans, rs_num, path);
+	if (strlcpy(anchor, path, sizeof(anchor)) >= sizeof(anchor))
 		errx(1, "pfctl_load_rule: strlcpy");
 
 	if (r->anchor) {
@@ -1461,13 +1536,9 @@ pfctl_load_rule(struct pfctl *pf, char *path, struct pf_rule *r, int depth)
 	if ((pf->opts & PF_OPT_NOACTION) == 0) {
 		if (pfctl_add_pool(pf, &r->rpool, r->af))
 			return (1);
-		pr.pool_ticket = pf->paddr.ticket;
-		memcpy(&pr.rule, r, sizeof(pr.rule));
-		if (r->anchor && strlcpy(pr.anchor_call, name,
-		    sizeof(pr.anchor_call)) >= sizeof(pr.anchor_call))
-			errx(1, "pfctl_load_rule: strlcpy");
-		if (ioctl(pf->dev, DIOCADDRULE, &pr))
-			err(1, "DIOCADDRULE");
+		if (pfctl_add_rule(pf->dev, r, anchor, name, ticket,
+		    pf->paddr.ticket))
+			err(1, "DIOCADDRULENV");
 	}
 
 	if (pf->opts & PF_OPT_VERBOSE) {
@@ -1513,7 +1584,7 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	struct pfr_buffer	*t, buf;
 	struct pfioc_altq	 pa;
 	struct pfctl		 pf;
-	struct pf_ruleset	*rs;
+	struct pfctl_ruleset	*rs;
 	struct pfr_table	 trs;
 	char			*path;
 	int			 osize;
@@ -1749,6 +1820,10 @@ pfctl_load_options(struct pfctl *pf)
 	if (!(pf->opts & PF_OPT_MERGE) || pf->hostid_set)
 		if (pfctl_load_hostid(pf, pf->hostid))
 			error = 1;
+
+	/* load keepcounters */
+	if (pfctl_set_keepcounters(pf->dev, pf->keep_counters))
+		error = 1;
 
 	return (error);
 }
@@ -2126,7 +2201,7 @@ main(int argc, char *argv[])
 		usage();
 
 	while ((ch = getopt(argc, argv,
-	    "a:AdD:eqf:F:ghi:k:K:mnNOo:Pp:rRs:t:T:vx:z")) != -1) {
+	    "a:AdD:eqf:F:ghi:k:K:mMnNOo:Pp:rRs:t:T:vx:z")) != -1) {
 		switch (ch) {
 		case 'a':
 			anchoropt = optarg;
@@ -2178,6 +2253,9 @@ main(int argc, char *argv[])
 			break;
 		case 'm':
 			opts |= PF_OPT_MERGE;
+			break;
+		case 'M':
+			opts |= PF_OPT_KILLMATCH;
 			break;
 		case 'n':
 			opts |= PF_OPT_NOACTION;
@@ -2410,7 +2488,7 @@ main(int argc, char *argv[])
 			pfctl_clear_altq(dev, opts);
 			break;
 		case 's':
-			pfctl_clear_states(dev, ifaceopt, opts);
+			pfctl_clear_iface_states(dev, ifaceopt, opts);
 			break;
 		case 'S':
 			pfctl_clear_src_nodes(dev, opts);
@@ -2424,7 +2502,7 @@ main(int argc, char *argv[])
 			pfctl_clear_tables(anchorname, opts);
 			if (!*anchorname) {
 				pfctl_clear_altq(dev, opts);
-				pfctl_clear_states(dev, ifaceopt, opts);
+				pfctl_clear_iface_states(dev, ifaceopt, opts);
 				pfctl_clear_src_nodes(dev, opts);
 				pfctl_clear_stats(dev, opts);
 				pfctl_clear_fingerprints(dev, opts);
@@ -2444,6 +2522,8 @@ main(int argc, char *argv[])
 			pfctl_label_kill_states(dev, ifaceopt, opts);
 		else if (!strcmp(state_kill[0], "id"))
 			pfctl_id_kill_states(dev, ifaceopt, opts);
+		else if (!strcmp(state_kill[0], "gateway"))
+			pfctl_gateway_kill_states(dev, ifaceopt, opts);
 		else
 			pfctl_net_kill_states(dev, ifaceopt, opts);
 	}

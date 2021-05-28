@@ -148,11 +148,13 @@ static int nfscl_trylock(struct nfsmount *, vnode_t , u_int8_t *,
     struct ucred *, NFSPROC_T *);
 static int nfsrpc_reopen(struct nfsmount *, u_int8_t *, int, u_int32_t,
     struct nfsclopen *, struct nfscldeleg **, struct ucred *, NFSPROC_T *);
-static void nfscl_freedeleg(struct nfscldeleghead *, struct nfscldeleg *);
+static void nfscl_freedeleg(struct nfscldeleghead *, struct nfscldeleg *,
+    bool);
 static int nfscl_errmap(struct nfsrv_descript *, u_int32_t);
 static void nfscl_cleanup_common(struct nfsclclient *, u_int8_t *);
 static int nfscl_recalldeleg(struct nfsclclient *, struct nfsmount *,
-    struct nfscldeleg *, vnode_t, struct ucred *, NFSPROC_T *, int);
+    struct nfscldeleg *, vnode_t, struct ucred *, NFSPROC_T *, int,
+    vnode_t *);
 static void nfscl_freeopenowner(struct nfsclowner *, int);
 static void nfscl_cleandeleg(struct nfscldeleg *);
 static int nfscl_trydelegreturn(struct nfscldeleg *, struct ucred *,
@@ -1609,12 +1611,13 @@ nfscl_cleandeleg(struct nfscldeleg *dp)
  * Free a delegation.
  */
 static void
-nfscl_freedeleg(struct nfscldeleghead *hdp, struct nfscldeleg *dp)
+nfscl_freedeleg(struct nfscldeleghead *hdp, struct nfscldeleg *dp, bool freeit)
 {
 
 	TAILQ_REMOVE(hdp, dp, nfsdl_list);
 	LIST_REMOVE(dp, nfsdl_hash);
-	free(dp, M_NFSCLDELEG);
+	if (freeit)
+		free(dp, M_NFSCLDELEG);
 	nfsstatsv1.cldelegates--;
 	nfscl_delegcnt--;
 }
@@ -1712,7 +1715,7 @@ nfscl_expireclient(struct nfsclclient *clp, struct nfsmount *nmp,
 		printf("nfsv4 expired locks lost\n");
 	    }
 	    nfscl_cleandeleg(dp);
-	    nfscl_freedeleg(&clp->nfsc_deleg, dp);
+	    nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 	    dp = ndp;
 	}
 	if (!TAILQ_EMPTY(&clp->nfsc_deleg))
@@ -2229,7 +2232,7 @@ nfscl_recover(struct nfsclclient *clp, struct ucred *cred, NFSPROC_T *p)
 		     * away. Ouch!!
 		     */
 		    nfscl_cleandeleg(dp);
-		    nfscl_freedeleg(&clp->nfsc_deleg, dp);
+		    nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 		} else {
 		    LIST_INSERT_HEAD(&extra_open, nop, nfso_list);
 		}
@@ -2532,6 +2535,7 @@ nfscl_renewthread(struct nfsclclient *clp, NFSPROC_T *p)
 	struct nfsclrecalllayout *recallp;
 	struct nfsclds *dsp;
 	struct mount *mp;
+	vnode_t vp;
 
 	cred = newnfs_getcred();
 	NFSLOCKCLSTATE();
@@ -2651,7 +2655,7 @@ tryagain:
 				NFSUNLOCKCLSTATE();
 				newnfs_copycred(&dp->nfsdl_cred, cred);
 				ret = nfscl_recalldeleg(clp, clp->nfsc_nmp, dp,
-				    NULL, cred, p, 1);
+				    NULL, cred, p, 1, &vp);
 				if (!ret) {
 				    nfscl_cleandeleg(dp);
 				    TAILQ_REMOVE(&clp->nfsc_deleg, dp,
@@ -2662,6 +2666,22 @@ tryagain:
 				    nfsstatsv1.cldelegates--;
 				}
 				NFSLOCKCLSTATE();
+				/*
+				 * The nfsc_lock must be released before doing
+				 * vrele(), since it might call nfs_inactive().
+				 * For the unlikely case where the vnode failed
+				 * to be acquired by nfscl_recalldeleg(), a
+				 * VOP_RECLAIM() should be in progress and it
+				 * will return the delegation.
+				 */
+				nfsv4_unlock(&clp->nfsc_lock, 0);
+				igotlock = 0;
+				if (vp != NULL) {
+					NFSUNLOCKCLSTATE();
+					vrele(vp);
+					NFSLOCKCLSTATE();
+				}
+				goto tryagain;
 			}
 			dp = ndp;
 		}
@@ -3229,8 +3249,39 @@ nfscl_delegreturnall(struct nfsclclient *clp, NFSPROC_T *p)
 	TAILQ_FOREACH_SAFE(dp, &clp->nfsc_deleg, nfsdl_list, ndp) {
 		nfscl_cleandeleg(dp);
 		(void) nfscl_trydelegreturn(dp, cred, clp->nfsc_nmp, p);
-		nfscl_freedeleg(&clp->nfsc_deleg, dp);
+		nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 	}
+	NFSFREECRED(cred);
+}
+
+/*
+ * Return any delegation for this vp.
+ */
+void
+nfscl_delegreturnvp(vnode_t vp, NFSPROC_T *p)
+{
+	struct nfsclclient *clp;
+	struct nfscldeleg *dp;
+	struct ucred *cred;
+	struct nfsnode *np;
+
+	np = VTONFS(vp);
+	cred = newnfs_getcred();
+	dp = NULL;
+	NFSLOCKCLSTATE();
+	clp = VFSTONFS(vp->v_mount)->nm_clp;
+	if (clp != NULL)
+		dp = nfscl_finddeleg(clp, np->n_fhp->nfh_fh,
+		    np->n_fhp->nfh_len);
+	if (dp != NULL) {
+		nfscl_cleandeleg(dp);
+		nfscl_freedeleg(&clp->nfsc_deleg, dp, false);
+		NFSUNLOCKCLSTATE();
+		newnfs_copycred(&dp->nfsdl_cred, cred);
+		nfscl_trydelegreturn(dp, cred, clp->nfsc_nmp, p);
+		free(dp, M_NFSCLDELEG);
+	} else
+		NFSUNLOCKCLSTATE();
 	NFSFREECRED(cred);
 }
 
@@ -3906,16 +3957,18 @@ nfscl_lockt(vnode_t vp, struct nfsclclient *clp, u_int64_t off,
 static int
 nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
     struct nfscldeleg *dp, vnode_t vp, struct ucred *cred, NFSPROC_T *p,
-    int called_from_renewthread)
+    int called_from_renewthread, vnode_t *vpp)
 {
 	struct nfsclowner *owp, *lowp, *nowp;
 	struct nfsclopen *op, *lop;
 	struct nfscllockowner *lp;
 	struct nfscllock *lckp;
 	struct nfsnode *np;
-	int error = 0, ret, gotvp = 0;
+	int error = 0, ret;
 
 	if (vp == NULL) {
+		KASSERT(vpp != NULL, ("nfscl_recalldeleg: vpp NULL"));
+		*vpp = NULL;
 		/*
 		 * First, get a vnode for the file. This is needed to do RPCs.
 		 */
@@ -3929,7 +3982,7 @@ nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
 			return (0);
 		}
 		vp = NFSTOV(np);
-		gotvp = 1;
+		*vpp = vp;
 	} else {
 		np = VTONFS(vp);
 	}
@@ -3956,8 +4009,6 @@ nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
 		 * return now, so that the dirty buffer will be flushed
 		 * later.
 		 */
-		if (gotvp != 0)
-			vrele(vp);
 		return (ret);
 	}
 
@@ -3981,11 +4032,8 @@ nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
 					    owp, dp, cred, p);
 					if (ret == NFSERR_STALECLIENTID ||
 					    ret == NFSERR_STALEDONTRECOVER ||
-					    ret == NFSERR_BADSESSION) {
-						if (gotvp)
-							vrele(vp);
+					    ret == NFSERR_BADSESSION)
 						return (ret);
-					}
 					if (ret) {
 						nfscl_freeopen(lop, 1);
 						if (!error)
@@ -4013,11 +4061,8 @@ nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
 					nfscl_freeopenowner(owp, 0);
 					if (ret == NFSERR_STALECLIENTID ||
 					    ret == NFSERR_STALEDONTRECOVER ||
-					    ret == NFSERR_BADSESSION) {
-						if (gotvp)
-							vrele(vp);
+					    ret == NFSERR_BADSESSION)
 						return (ret);
-					}
 					if (ret) {
 						nfscl_freeopen(lop, 1);
 						if (!error)
@@ -4038,17 +4083,12 @@ nfscl_recalldeleg(struct nfsclclient *clp, struct nfsmount *nmp,
 			if (ret == NFSERR_STALESTATEID ||
 			    ret == NFSERR_STALEDONTRECOVER ||
 			    ret == NFSERR_STALECLIENTID ||
-			    ret == NFSERR_BADSESSION) {
-				if (gotvp)
-					vrele(vp);
+			    ret == NFSERR_BADSESSION)
 				return (ret);
-			}
 			if (ret && !error)
 				error = ret;
 		}
 	}
-	if (gotvp)
-		vrele(vp);
 	return (error);
 }
 
@@ -4460,7 +4500,7 @@ nfscl_removedeleg(vnode_t vp, NFSPROC_T *p, nfsv4stateid_t *stp)
 			NFSUNLOCKCLSTATE();
 			cred = newnfs_getcred();
 			newnfs_copycred(&dp->nfsdl_cred, cred);
-			(void) nfscl_recalldeleg(clp, nmp, dp, vp, cred, p, 0);
+			nfscl_recalldeleg(clp, nmp, dp, vp, cred, p, 0, NULL);
 			NFSFREECRED(cred);
 			triedrecall = 1;
 			NFSLOCKCLSTATE();
@@ -4471,7 +4511,7 @@ nfscl_removedeleg(vnode_t vp, NFSPROC_T *p, nfsv4stateid_t *stp)
 		    *stp = dp->nfsdl_stateid;
 		    retcnt = 1;
 		    nfscl_cleandeleg(dp);
-		    nfscl_freedeleg(&clp->nfsc_deleg, dp);
+		    nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 		}
 		if (igotlock)
 		    nfsv4_unlock(&clp->nfsc_lock, 0);
@@ -4559,7 +4599,7 @@ nfscl_renamedeleg(vnode_t fvp, nfsv4stateid_t *fstp, int *gotfdp, vnode_t tvp,
 			NFSUNLOCKCLSTATE();
 			cred = newnfs_getcred();
 			newnfs_copycred(&dp->nfsdl_cred, cred);
-			(void) nfscl_recalldeleg(clp, nmp, dp, fvp, cred, p, 0);
+			nfscl_recalldeleg(clp, nmp, dp, fvp, cred, p, 0, NULL);
 			NFSFREECRED(cred);
 			triedrecall = 1;
 			NFSLOCKCLSTATE();
@@ -4571,7 +4611,7 @@ nfscl_renamedeleg(vnode_t fvp, nfsv4stateid_t *fstp, int *gotfdp, vnode_t tvp,
 		    retcnt++;
 		    *gotfdp = 1;
 		    nfscl_cleandeleg(dp);
-		    nfscl_freedeleg(&clp->nfsc_deleg, dp);
+		    nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 		}
 		if (igotlock) {
 		    nfsv4_unlock(&clp->nfsc_lock, 0);
@@ -4607,7 +4647,7 @@ nfscl_renamedeleg(vnode_t fvp, nfsv4stateid_t *fstp, int *gotfdp, vnode_t tvp,
 			retcnt++;
 			*gottdp = 1;
 			nfscl_cleandeleg(dp);
-			nfscl_freedeleg(&clp->nfsc_deleg, dp);
+			nfscl_freedeleg(&clp->nfsc_deleg, dp, true);
 		    }
 		}
 		NFSUNLOCKCLSTATE();

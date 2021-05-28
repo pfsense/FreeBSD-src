@@ -866,7 +866,7 @@ tryagain:
 			sep->nfsess_slotseq[nd->nd_slotid] += 10;
 			mtx_unlock(&sep->nfsess_mtx);
 			/* And free the slot. */
-			nfsv4_freeslot(sep, nd->nd_slotid);
+			nfsv4_freeslot(sep, nd->nd_slotid, false);
 		}
 		NFSINCRGLOBAL(nfsstatsv1.rpcinvalid);
 		error = ENXIO;
@@ -1062,7 +1062,9 @@ tryagain:
 			     nd->nd_procnum != NFSPROC_WRITE &&
 			     nd->nd_procnum != NFSPROC_WRITEDS &&
 			     nd->nd_procnum != NFSPROC_OPEN &&
+			     nd->nd_procnum != NFSPROC_OPENLAYGET &&
 			     nd->nd_procnum != NFSPROC_CREATE &&
+			     nd->nd_procnum != NFSPROC_CREATELAYGET &&
 			     nd->nd_procnum != NFSPROC_OPENCONFIRM &&
 			     nd->nd_procnum != NFSPROC_OPENDOWNGRADE &&
 			     nd->nd_procnum != NFSPROC_CLOSE &&
@@ -1103,7 +1105,7 @@ tryagain:
 		if ((nd->nd_flag & ND_NFSV4) != 0) {
 			/* Free the slot, as required. */
 			if (freeslot != -1)
-				nfsv4_freeslot(sep, freeslot);
+				nfsv4_freeslot(sep, freeslot, false);
 			/*
 			 * If this op is Putfh, throw its results away.
 			 */

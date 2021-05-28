@@ -682,6 +682,7 @@ int
 check_cgmagic(int cg, struct bufarea *cgbp)
 {
 	struct cg *cgp = cgbp->b_un.b_cg;
+	static int prevfailcg = -1;
 
 	/*
 	 * Extended cylinder group checks.
@@ -697,6 +698,9 @@ check_cgmagic(int cg, struct bufarea *cgbp)
 	      cgp->cg_initediblk <= sblock.fs_ipg))) {
 		return (1);
 	}
+	if (prevfailcg == cg)
+		return (0);
+	prevfailcg = cg;
 	pfatal("CYLINDER GROUP %d: BAD MAGIC NUMBER", cg);
 	if (!reply("REBUILD CYLINDER GROUP")) {
 		printf("YOU WILL NEED TO RERUN FSCK.\n");
@@ -770,8 +774,10 @@ allocblk(long frags)
 			cg = dtog(&sblock, i + j);
 			cgbp = cglookup(cg);
 			cgp = cgbp->b_un.b_cg;
-			if (!check_cgmagic(cg, cgbp))
-				return (0);
+			if (!check_cgmagic(cg, cgbp)) {
+				i = (cg + 1) * sblock.fs_fpg - sblock.fs_frag;
+				continue;
+			}
 			baseblk = dtogd(&sblock, i + j);
 			for (k = 0; k < frags; k++) {
 				setbmap(i + j + k);

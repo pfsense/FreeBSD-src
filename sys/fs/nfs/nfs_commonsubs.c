@@ -192,7 +192,7 @@ static struct nfsrv_lughash	*nfsgroupnamehash;
  */
 static int nfs_bigreply[NFSV41_NPROCS] = { 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 };
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0 };
 
 /* local functions */
 static int nfsrv_skipace(struct nfsrv_descript *nd, int *acesizep);
@@ -267,6 +267,7 @@ static struct {
 	{ NFSV4OP_COMMIT, 1, "CommitDS", 8, },
 	{ NFSV4OP_OPEN, 3, "OpenLayoutGet", 13, },
 	{ NFSV4OP_OPEN, 8, "CreateLayGet", 12, },
+	{ NFSV4OP_BINDCONNTOSESS, 1, "BindConSess", 11, },
 };
 
 /*
@@ -275,7 +276,7 @@ static struct {
 static int nfs_bigrequest[NFSV41_NPROCS] = {
 	0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0
+	0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0
 };
 
 /*
@@ -4555,12 +4556,13 @@ nfsmout:
  * Handle an NFSv4.1 Sequence request for the session.
  * If reply != NULL, use it to return the cached reply, as required.
  * The client gets a cached reply via this call for callbacks, however the
- * server gets a cached reply via the nfsv4_seqsess_cachereply() call.
+ * server gets a cached reply via the nfsv4_seqsess_cacherep() call.
  */
 int
 nfsv4_seqsession(uint32_t seqid, uint32_t slotid, uint32_t highslot,
     struct nfsslot *slots, struct mbuf **reply, uint16_t maxslot)
 {
+	struct mbuf *m;
 	int error;
 
 	error = 0;
@@ -4574,8 +4576,14 @@ nfsv4_seqsession(uint32_t seqid, uint32_t slotid, uint32_t highslot,
 			error = NFSERR_DELAY;
 		else if (slots[slotid].nfssl_reply != NULL) {
 			if (reply != NULL) {
-				*reply = slots[slotid].nfssl_reply;
-				slots[slotid].nfssl_reply = NULL;
+				m = m_copym(slots[slotid].nfssl_reply, 0,
+				    M_COPYALL, M_NOWAIT);
+				if (m != NULL)
+					*reply = m;
+				else {
+					*reply = slots[slotid].nfssl_reply;
+					slots[slotid].nfssl_reply = NULL;
+				}
 			}
 			slots[slotid].nfssl_inprog = 1;
 			error = NFSERR_REPLYFROMCACHE;
@@ -4602,10 +4610,29 @@ void
 nfsv4_seqsess_cacherep(uint32_t slotid, struct nfsslot *slots, int repstat,
    struct mbuf **rep)
 {
+	struct mbuf *m;
 
 	if (repstat == NFSERR_REPLYFROMCACHE) {
-		*rep = slots[slotid].nfssl_reply;
-		slots[slotid].nfssl_reply = NULL;
+		if (slots[slotid].nfssl_reply != NULL) {
+			/*
+			 * We cannot sleep here, but copy will usually
+			 * succeed.
+			 */
+			m = m_copym(slots[slotid].nfssl_reply, 0, M_COPYALL,
+			    M_NOWAIT);
+			if (m != NULL)
+				*rep = m;
+			else {
+				/*
+				 * Multiple retries would be extremely rare,
+				 * so using the cached reply will likely
+				 * be ok.
+				 */
+				*rep = slots[slotid].nfssl_reply;
+				slots[slotid].nfssl_reply = NULL;
+			}
+		} else
+			*rep = NULL;
 	} else {
 		if (slots[slotid].nfssl_reply != NULL)
 			m_freem(slots[slotid].nfssl_reply);
@@ -4724,7 +4751,7 @@ nfsv4_sequencelookup(struct nfsmount *nmp, struct nfsclsession *sep,
  * Free a session slot.
  */
 void
-nfsv4_freeslot(struct nfsclsession *sep, int slot)
+nfsv4_freeslot(struct nfsclsession *sep, int slot, bool resetseq)
 {
 	uint64_t bitval;
 
@@ -4732,6 +4759,8 @@ nfsv4_freeslot(struct nfsclsession *sep, int slot)
 	if (slot > 0)
 		bitval <<= slot;
 	mtx_lock(&sep->nfsess_mtx);
+	if (resetseq)
+		sep->nfsess_slotseq[slot]--;
 	if ((bitval & sep->nfsess_slots) == 0)
 		printf("freeing free slot!!\n");
 	sep->nfsess_slots &= ~bitval;
