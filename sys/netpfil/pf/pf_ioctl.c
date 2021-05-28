@@ -1516,7 +1516,6 @@ pf_krule_to_rule(const struct pf_krule *krule, struct pf_rule *rule)
 	}
 
 	strlcpy(rule->label, krule->label, sizeof(rule->label));
-	strlcpy(rule->schedule, krule->schedule, sizeof(rule->schedule));
 	strlcpy(rule->ifname, krule->ifname, sizeof(rule->ifname));
 	strlcpy(rule->qname, krule->qname, sizeof(rule->qname));
 	strlcpy(rule->pqname, krule->pqname, sizeof(rule->pqname));
@@ -1657,7 +1656,6 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	bcopy(&rule->dst, &krule->dst, sizeof(rule->dst));
 
 	strlcpy(krule->label, rule->label, sizeof(rule->label));
-	strlcpy(krule->schedule, rule->schedule, sizeof(rule->schedule));
 	strlcpy(krule->ifname, rule->ifname, sizeof(rule->ifname));
 	strlcpy(krule->qname, rule->qname, sizeof(rule->qname));
 	strlcpy(krule->pqname, rule->pqname, sizeof(rule->pqname));
@@ -2496,30 +2494,6 @@ relock_DIOCKILLSTATES:
 		psk->psk_killed = killed;
 		break;
 	}
-
-	case DIOCKILLSCHEDULE: {
-		struct pf_state         *state;
-		struct pfioc_schedule_kill *psk = (struct pfioc_schedule_kill *)addr;
-		int                      killed = 0;
-		u_int			 i;
-
-		for (i = 0; i <= pf_hashmask; i++) {
-			struct pf_idhash *ih = &V_pf_idhash[i];
-
-relock_DIOCKILLSCHEDULE:
-			PF_HASHROW_LOCK(ih);
-			LIST_FOREACH(state, &ih->states, entry) {
-			       if (!strcmp(psk->schedule, state->rule.ptr->schedule)) {
-					pf_unlink_state(state, PF_ENTER_LOCKED);
-					killed++;
-					goto relock_DIOCKILLSCHEDULE;
-				}
-			}
-			PF_HASHROW_UNLOCK(ih);
-               }
-               psk->numberkilled = killed;
-               break;
-       }
 
 	case DIOCADDSTATE: {
 		struct pfioc_state	*ps = (struct pfioc_state *)addr;

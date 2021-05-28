@@ -323,7 +323,6 @@ struct pf_krule {
 	struct pf_rule_addr	 dst;
 	union pf_krule_ptr	 skip[PF_SKIP_COUNT];
 	char			 label[PF_RULE_LABEL_SIZE];
-	char                     schedule[PF_RULE_LABEL_SIZE];
 	char			 ifname[IFNAMSIZ];
 	char			 qname[PF_QNAME_SIZE];
 	char			 pqname[PF_QNAME_SIZE];
@@ -1131,11 +1130,6 @@ struct pfioc_state_kill {
 	u_int			psk_killed;
 };
 
-struct pfioc_schedule_kill {
-	int		numberkilled;
-	char		schedule[PF_RULE_LABEL_SIZE];
-};
-
 struct pfioc_states {
 	int	ps_len;
 	union {
@@ -1372,7 +1366,6 @@ struct pf_ifspeed_v1 {
 
 #define	DIOCGIFSPEEDV0	_IOWR('D', 92, struct pf_ifspeed_v0)
 #define	DIOCGIFSPEEDV1	_IOWR('D', 92, struct pf_ifspeed_v1)
-#define	DIOCKILLSCHEDULE	_IOWR('D', 96, struct pfioc_schedule_kill)
 
 /*
  * Compatibility and convenience macros

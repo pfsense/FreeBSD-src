@@ -245,7 +245,6 @@ static struct filter_opts {
 	int			 fragment;
 	int			 allowopts;
 	char			*label;
-	char 			*schedule;
 	struct node_qassign	 queues;
 	char			*tag;
 	char			*match_tag;
@@ -357,7 +356,6 @@ int		 expand_skip_interface(struct node_if *);
 int	 check_rulestate(int);
 int	 getservice(char *);
 int	 rule_label(struct pf_rule *, char *);
-int	 rule_schedule(struct pf_rule *, char *);
 int	 rt_tableid_max(void);
 
 void	 mv_rules(struct pf_ruleset *, struct pf_ruleset *);
@@ -464,7 +462,7 @@ int	parseport(char *, struct range *r, int);
 %token	PASS BLOCK MATCH SCRUB RETURN IN OS OUT LOG QUICK ON FROM TO FLAGS
 %token	RETURNRST RETURNICMP RETURNICMP6 PROTO INET INET6 ALL ANY ICMPTYPE
 %token	ICMP6TYPE CODE KEEP MODULATE STATE PORT RDR NAT BINAT ARROW NODF
-%token	MINTTL ERROR ALLOWOPTS FASTROUTE FILENAME ROUTETO DUPTO REPLYTO NO LABEL SCHEDULE
+%token	MINTTL ERROR ALLOWOPTS FASTROUTE FILENAME ROUTETO DUPTO REPLYTO NO LABEL
 %token	NOROUTE URPFFAILED FRAGMENT USER GROUP MAXMSS MAXIMUM TTL TOS DSCP DROP TABLE TRACKER
 %token	REASSEMBLE FRAGDROP FRAGCROP ANCHOR NATANCHOR RDRANCHOR BINATANCHOR
 %token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE BLOCKPOLICY FAILPOLICY
@@ -509,7 +507,7 @@ int	parseport(char *, struct range *r, int);
 %type	<v.gid>			gids gid_list gid_item
 %type	<v.route>		route
 %type	<v.redirection>		redirection redirpool
-%type	<v.string>		label schedule stringall tag anchorname
+%type	<v.string>		label stringall tag anchorname
 %type	<v.string>		string varstring numberstring
 %type	<v.keep_state>		keep
 %type	<v.state_opt>		state_opt_spec state_opt_list state_opt_item
@@ -2097,9 +2095,6 @@ pfrule		: action dir logquick interface route af proto fromto
 			if (rule_label(&r, $9.label))
 				YYERROR;
 			free($9.label);
-			if  (rule_schedule(&r, $9.schedule))
-				YYERROR;
-			free($9.schedule);
 			if ($9.tracker)
 				r.cuid = $9.tracker;
 			r.flags = $9.flags.b1;
@@ -2571,13 +2566,6 @@ filter_opt	: USER uids {
 				YYERROR;
 			}
 			filter_opts.label = $1;
-		}
-		| schedule {
-			if (filter_opts.schedule) {
-				yyerror("schedule label cannot be redefined");
-				YYERROR;
-			}
-			filter_opts.schedule = $1;
 		}
 		| qname	{
 			if (filter_opts.queues.qname) {
@@ -3966,11 +3954,6 @@ state_opt_item	: MAXIMUM NUMBER		{
 		;
 
 label		: LABEL STRING			{
-			$$ = $2;
-		}
-		;
-
-schedule	: SCHEDULE STRING 		{
 			$$ = $2;
 		}
 		;
@@ -5394,7 +5377,6 @@ expand_rule(struct pf_rule *r,
 	int			 added = 0, error = 0;
 	char			 ifname[IF_NAMESIZE];
 	char			 label[PF_RULE_LABEL_SIZE];
-	char			 schedule[PF_RULE_LABEL_SIZE];
 	char			 tagname[PF_TAG_NAME_SIZE];
 	char			 match_tagname[PF_TAG_NAME_SIZE];
 	struct pf_pooladdr	*pa;
@@ -5402,8 +5384,6 @@ expand_rule(struct pf_rule *r,
 	u_int8_t		 flags, flagset, keep_state;
 
 	if (strlcpy(label, r->label, sizeof(label)) >= sizeof(label))
-		errx(1, "expand_rule: strlcpy");
-	if (strlcpy(schedule, r->schedule, sizeof(schedule)) > sizeof(schedule))
 		errx(1, "expand_rule: strlcpy");
 	if (strlcpy(tagname, r->tagname, sizeof(tagname)) >= sizeof(tagname))
 		errx(1, "expand_rule: strlcpy");
@@ -5456,9 +5436,6 @@ expand_rule(struct pf_rule *r,
 		if (strlcpy(r->label, label, sizeof(r->label)) >=
 		    sizeof(r->label))
 			errx(1, "expand_rule: strlcpy");
-		if (strlcpy(r->schedule, schedule, sizeof(r->schedule)) >=
-			sizeof(r->schedule))
-			errx(1, "expand_rule: strlcpy");
 		if (strlcpy(r->tagname, tagname, sizeof(r->tagname)) >=
 		    sizeof(r->tagname))
 			errx(1, "expand_rule: strlcpy");
@@ -5467,8 +5444,6 @@ expand_rule(struct pf_rule *r,
 			errx(1, "expand_rule: strlcpy");
 		expand_label(r->label, PF_RULE_LABEL_SIZE, r->ifname, r->af,
 		    src_host, src_port, dst_host, dst_port, proto->proto);
-		expand_label(r->schedule, PF_RULE_LABEL_SIZE, r->ifname, r->af,
-			src_host, src_port, dst_host, dst_port, proto->proto);
 		expand_label(r->tagname, PF_TAG_NAME_SIZE, r->ifname, r->af,
 		    src_host, src_port, dst_host, dst_port, proto->proto);
 		expand_label(r->match_tagname, PF_TAG_NAME_SIZE, r->ifname,
@@ -5738,7 +5713,6 @@ lookup(char *s)
 		{ "rtable",		RTABLE},
 		{ "rule",		RULE},
 		{ "ruleset-optimization",	RULESET_OPTIMIZATION},
-		{ "schedule",		SCHEDULE},
 		{ "scrub",		SCRUB},
 		{ "set",		SET},
 		{ "set-tos",		SETTOS},
@@ -6369,20 +6343,6 @@ rule_label(struct pf_rule *r, char *s)
 		    sizeof(r->label)) {
 			yyerror("rule label too long (max %d chars)",
 			    sizeof(r->label)-1);
-			return (-1);
-		}
-	}
-	return (0);
-}
-
-int
-rule_schedule(struct pf_rule *r, char *s)
-{
-	if (s) {
-		if (strlcpy(r->schedule, s, sizeof(r->label)) >=
-		   sizeof(r->label)) {
-			yyerror("rule schedule label too long (max %d chars)",
-				sizeof(r->label)-1);
 			return (-1);
 		}
 	}
