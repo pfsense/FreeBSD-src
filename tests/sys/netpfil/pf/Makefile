@@ -26,6 +26,9 @@ ATF_TESTS_SH+=	anchor \
 		table \
 		tos
 
+ATF_TESTS_SH+=	\
+	pfsense_match
+
 ${PACKAGE}FILES+=	utils.subr \
 			echo_inetd.conf \
 			CVE-2019-5597.py \
