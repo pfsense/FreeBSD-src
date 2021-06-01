@@ -406,29 +406,6 @@ struct pf_krule {
 	u_int8_t		 allow_opts;
 	u_int8_t		 rt;
 	u_int8_t		 return_ttl;
-
-#ifndef DSCP_EF
-/* Copied from altq_cdnr.h */
-/* diffserve code points */
-#define DSCP_MASK	0xfc
-#define DSCP_CUMASK	0x03
-#define DSCP_VA		0xb0
-#define DSCP_EF		0xb8
-#define DSCP_AF11	0x28
-#define DSCP_AF12	0x30
-#define DSCP_AF13	0x38
-#define DSCP_AF21	0x48
-#define DSCP_AF22	0x50
-#define DSCP_AF23	0x58
-#define DSCP_AF31	0x68
-#define DSCP_AF32	0x70
-#define DSCP_AF33	0x78
-#define DSCP_AF41	0x88
-#define DSCP_AF42	0x90
-#define DSCP_AF43	0x98
-#define AF_CLASSMASK	0xe0
-#define AF_DROPPRECMASK	0x18
-#endif
 	u_int8_t		 tos;
 	u_int8_t		 set_tos;
 	u_int8_t		 anchor_relative;
@@ -443,10 +420,6 @@ struct pf_krule {
 		u_int16_t		port;
 	}			divert;
 };
-
-/* rule flags for TOS or DSCP differentiation */
-#define	PFRULE_TOS		0x2000
-#define	PFRULE_DSCP		0x4000
 
 struct pf_ksrc_node {
 	LIST_ENTRY(pf_ksrc_node) entry;

@@ -3690,11 +3690,7 @@ pf_test_rule(struct pf_krule **rm, struct pf_state **sm, int direction,
 		/* icmp only. type always 0 in other cases */
 		else if (r->code && r->code != icmpcode + 1)
 			r = TAILQ_NEXT(r, entries);
-		else if ((r->rule_flag & PFRULE_TOS) && r->tos &&
-		    !(r->tos == pd->tos))
-			r = TAILQ_NEXT(r, entries);
-		else if ((r->rule_flag & PFRULE_DSCP) && r->tos &&
-		    !(r->tos == (pd->tos & DSCP_MASK)))
+		else if (r->tos && !(r->tos == pd->tos))
 			r = TAILQ_NEXT(r, entries);
 		else if (r->rule_flag & PFRULE_FRAGMENT)
 			r = TAILQ_NEXT(r, entries);
@@ -4140,9 +4136,6 @@ pf_test_fragment(struct pf_krule **rm, int direction, struct pfi_kkif *kif,
 		    r->dst.neg, NULL, M_GETFIB(m)))
 			r = r->skip[PF_SKIP_DST_ADDR].ptr;
 		else if (r->tos && !(r->tos == pd->tos))
-			r = TAILQ_NEXT(r, entries);
-		else if ((r->rule_flag & PFRULE_DSCP) && r->tos &&
-		    !(r->tos == (pd->tos & DSCP_MASK)))
 			r = TAILQ_NEXT(r, entries);
 		else if (r->os_fingerprint != PF_OSFP_ANY)
 			r = TAILQ_NEXT(r, entries);
