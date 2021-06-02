@@ -510,6 +510,9 @@ pf_nvrule_to_krule(const nvlist_t *nvl, struct pf_krule *rule)
 	PFNV_CHK(pf_nvstring(nvl, "qname", rule->qname, sizeof(rule->qname)));
 	PFNV_CHK(pf_nvstring(nvl, "pqname", rule->pqname,
 	    sizeof(rule->pqname)));
+	PFNV_CHK(pf_nvuint32(nvl, "dnpipe", &rule->dnpipe));
+	PFNV_CHK(pf_nvuint32(nvl, "pdnpipe", &rule->pdnpipe));
+	PFNV_CHK(pf_nvuint32(nvl, "dnflags", &rule->free_flags));
 	PFNV_CHK(pf_nvstring(nvl, "tagname", rule->tagname,
 	    sizeof(rule->tagname)));
 	PFNV_CHK(pf_nvstring(nvl, "match_tagname", rule->match_tagname,
@@ -672,6 +675,9 @@ pf_krule_to_nvrule(const struct pf_krule *rule)
 	nvlist_add_string(nvl, "ifname", rule->ifname);
 	nvlist_add_string(nvl, "qname", rule->qname);
 	nvlist_add_string(nvl, "pqname", rule->pqname);
+	nvlist_add_number(nvl, "dnpipe", rule->dnpipe);
+	nvlist_add_number(nvl, "pdnpipe", rule->pdnpipe);
+	nvlist_add_number(nvl, "dnflags", rule->free_flags);
 	nvlist_add_string(nvl, "tagname", rule->tagname);
 	nvlist_add_string(nvl, "match_tagname", rule->match_tagname);
 	nvlist_add_string(nvl, "overload_tblname", rule->overload_tblname);
