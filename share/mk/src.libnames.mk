@@ -59,7 +59,6 @@ _INTERNALLIBS=	\
 		opts \
 		parse \
 		pe \
-		pfctl \
 		pmcstat \
 		sl \
 		sm \
@@ -181,6 +180,7 @@ _LIBRARIES=	\
 		panelw \
 		pcap \
 		pcsclite \
+		pfctl \
 		pjdlog \
 		pmc \
 		proc \
