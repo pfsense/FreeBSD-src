@@ -10,7 +10,7 @@ SRCS=	ftp-proxy.c filter.c
 CFLAGS+=-I${SRCTOP}/contrib/pf/libevent
 CFLAGS+= -I${SRCTOP}/lib/libpfctl -I${OBJTOP}/lib/libpfctl
 
-LIBADD=	event pfctl
+LIBADD=	event nv pfctl
 
 WARNS?=	3
 
