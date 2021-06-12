@@ -28,7 +28,7 @@ CFLAGS+= -DWITH_INET
 
 YFLAGS=
 
-LIBADD=	m md nv pfctl
+LIBADD=	m md pfctl
 
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+= tests

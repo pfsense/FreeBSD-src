@@ -7,7 +7,7 @@ SRCS=	tftp-proxy.c filter.c
 MAN=	tftp-proxy.8
 
 CFLAGS+= -I${SRCTOP}/lib/libpfctl -I${OBJTOP}/lib/libpfctl
-LIBADD= nv pfctl
+LIBADD= pfctl
 
 WARNS?=	3
 
