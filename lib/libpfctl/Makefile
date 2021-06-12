@@ -3,6 +3,7 @@
 PACKAGE=	lib${LIB}
 LIB=		pfctl
 
+LIBADD=	nv
 SRCS=	libpfctl.c
 INCS=	libpfctl.h
 
