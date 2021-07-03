@@ -74,10 +74,10 @@ export TERM
 
 if [ -f /etc/installerconfig ]; then
 	if bsdinstall script /etc/installerconfig; then
-		dialog --backtitle "pfSense Installer" --title "Complete" --no-cancel --ok-label "Reboot" --pause "Installation of pfSense complete! Rebooting in 10 seconds" 10 30 10
+		dialog --backtitle "Skyron Installer" --title "Complete" --no-cancel --ok-label "Reboot" --pause "Installation of pfSense complete! Rebooting in 10 seconds" 10 30 10
 		reboot
 	else
-		dialog --backtitle "pfSense Installer" --title "Error" --textbox /tmp/bsdinstall_log 0 0
+		dialog --backtitle "Skyron Installer" --title "Error" --textbox /tmp/bsdinstall_log 0 0
 	fi
 	exit 
 fi
@@ -156,7 +156,7 @@ EOD
 
 if [ ! -f /tmp/buildroom ]; then
 	exec 3>&1
-	dialog --backtitle "pfSense Installer" \
+	dialog --backtitle "Skyron Installer" \
 		--title "Copyright and distribution notice" \
 		--ok-label "Accept" \
 		--scrollbar --colors \
@@ -173,7 +173,7 @@ if [ -x /root/recover_configxml.sh ] ; then
 fi
 
 exec 3>&1
-IMODE=`echo ${IOPTS} | xargs dialog --backtitle "pfSense Installer" \
+IMODE=`echo ${IOPTS} | xargs dialog --backtitle "Skyron Installer" \
 	--title "Welcome" \
 	--menu "Welcome to pfSense!" \
 	0 0 0 2>&1 1>&3` || exit 1
@@ -190,7 +190,7 @@ case "$IMODE" in
 	trap true SIGINT	# Ignore cntrl-C here
 	env ZFSBOOT_POOL_NAME=pfSense bsdinstall
 	if [ $? -eq 0 ]; then
-		dialog --backtitle "pfSense Installer" --title "Complete" --yes-label "Reboot" --no-label "Shell" --yesno "Installation of pfSense complete! Would you like to reboot into the installed system now?" 0 0 && reboot
+		dialog --backtitle "Skyron Installer" --title "Complete" --yes-label "Reboot" --no-label "Shell" --yesno "Installation of pfSense complete! Would you like to reboot into the installed system now?" 0 0 && reboot
 		clear
 		echo "When finished, type 'exit' to reboot."
 		/bin/sh

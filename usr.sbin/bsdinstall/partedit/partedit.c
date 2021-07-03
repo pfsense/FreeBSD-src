@@ -89,7 +89,7 @@ main(int argc, const char **argv)
 
 	init_dialog(stdin, stdout);
 	if (!sade_mode)
-		dialog_vars.backtitle = __DECONST(char *, "pfSense Installer");
+		dialog_vars.backtitle = __DECONST(char *, "Skyron Installer");
 	dialog_vars.item_help = TRUE;
 	nscroll = i = 0;
 
