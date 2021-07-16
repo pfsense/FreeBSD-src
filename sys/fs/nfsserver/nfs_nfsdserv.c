@@ -2913,12 +2913,14 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 	 */
 	NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 	claim = fxdr_unsigned(int, *tl);
-	if (claim == NFSV4OPEN_CLAIMDELEGATECUR) {
+	if (claim == NFSV4OPEN_CLAIMDELEGATECUR || claim ==
+	    NFSV4OPEN_CLAIMDELEGATECURFH) {
 		NFSM_DISSECT(tl, u_int32_t *, NFSX_STATEID);
 		stateid.seqid = fxdr_unsigned(u_int32_t, *tl++);
 		NFSBCOPY((caddr_t)tl,(caddr_t)stateid.other,NFSX_STATEIDOTHER);
 		stp->ls_flags |= NFSLCK_DELEGCUR;
-	} else if (claim == NFSV4OPEN_CLAIMDELEGATEPREV) {
+	} else if (claim == NFSV4OPEN_CLAIMDELEGATEPREV || claim ==
+	    NFSV4OPEN_CLAIMDELEGATEPREVFH) {
 		stp->ls_flags |= NFSLCK_DELEGPREV;
 	}
 	if (claim == NFSV4OPEN_CLAIMNULL || claim == NFSV4OPEN_CLAIMDELEGATECUR
@@ -2988,7 +2990,8 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 		    &exclusive_flag, &nva, cverf, create, aclp, &attrbits,
 		    nd->nd_cred, p, exp, &vp);
 	} else if (claim == NFSV4OPEN_CLAIMPREVIOUS || claim ==
-	    NFSV4OPEN_CLAIMFH) {
+	    NFSV4OPEN_CLAIMFH || claim == NFSV4OPEN_CLAIMDELEGATECURFH ||
+	    claim == NFSV4OPEN_CLAIMDELEGATEPREVFH) {
 		if (claim == NFSV4OPEN_CLAIMPREVIOUS) {
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 			i = fxdr_unsigned(int, *tl);
@@ -3006,7 +3009,6 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 			}
 			stp->ls_flags |= NFSLCK_RECLAIM;
 		} else {
-			/* CLAIM_NULL_FH */
 			if (nd->nd_repstat == 0 && create == NFSV4OPEN_CREATE)
 				nd->nd_repstat = NFSERR_INVAL;
 		}

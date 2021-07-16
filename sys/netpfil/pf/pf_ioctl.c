@@ -202,7 +202,7 @@ struct cdev *pf_dev;
  */
 static void		 pf_clear_all_states(void);
 static unsigned int	 pf_clear_states(const struct pf_kstate_kill *);
-static int		 pf_killstates(struct pf_kstate_kill *,
+static void		 pf_killstates(struct pf_kstate_kill *,
 			    unsigned int *);
 static int		 pf_killstates_row(struct pf_kstate_kill *,
 			    struct pf_idhash *);
@@ -1790,7 +1790,7 @@ pf_label_match(const struct pf_krule *rule, const char *label)
 static unsigned int
 pf_kill_matching_state(struct pf_state_key_cmp *key, int dir)
 {
-	struct pf_state *match;
+	struct pf_kstate *match;
 	int more = 0;
 	unsigned int killed = 0;
 
@@ -1808,7 +1808,7 @@ pf_kill_matching_state(struct pf_state_key_cmp *key, int dir)
 static int
 pf_killstates_row(struct pf_kstate_kill *psk, struct pf_idhash *ih)
 {
-	struct pf_state		*s;
+	struct pf_kstate		*s;
 	struct pf_state_key	*sk;
 	struct pf_addr		*srcaddr, *dstaddr;
 	struct pf_state_key_cmp	 match_key;
@@ -2118,6 +2118,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		case DIOCNATLOOK:
 		case DIOCSETDEBUG:
 		case DIOCGETSTATES:
+		case DIOCGETSTATESV2:
 		case DIOCGETSTATESNV:
 		case DIOCGETTIMEOUT:
 		case DIOCCLRRULECTRS:
@@ -2171,6 +2172,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		case DIOCGETSTATENV:
 		case DIOCGETSTATUS:
 		case DIOCGETSTATES:
+		case DIOCGETSTATESV2:
 		case DIOCGETSTATESNV:
 		case DIOCGETTIMEOUT:
 		case DIOCGETLIMIT:
@@ -2540,8 +2542,6 @@ DIOCADDRULENV_error:
 			ERROUT(ENOSPC);
 		}
 
-		error = copyout(nvlpacked, nv->data, nv->len);
-
 		if (clear_counter) {
 			counter_u64_zero(rule->evaluations);
 			for (int i = 0; i < 2; i++) {
@@ -2551,6 +2551,8 @@ DIOCADDRULENV_error:
 			counter_u64_zero(rule->states_tot);
 		}
 		PF_RULES_WUNLOCK();
+
+		error = copyout(nvlpacked, nv->data, nv->len);
 
 #undef ERROUT
 DIOCGETRULENV_error:
@@ -2802,7 +2804,7 @@ DIOCCHANGERULE_error:
 			break;
 
 		psk->psk_killed = 0;
-		error = pf_killstates(&kill, &psk->psk_killed);
+		pf_killstates(&kill, &psk->psk_killed);
 		break;
 	}
 
@@ -2830,7 +2832,7 @@ DIOCCHANGERULE_error:
 
 	case DIOCGETSTATE: {
 		struct pfioc_state	*ps = (struct pfioc_state *)addr;
-		struct pf_state		*s;
+		struct pf_kstate	*s;
 
 		s = pf_find_state_byid(ps->state.id, ps->state.creatorid);
 		if (s == NULL) {
@@ -2850,7 +2852,7 @@ DIOCCHANGERULE_error:
 
 	case DIOCGETSTATES: {
 		struct pfioc_states	*ps = (struct pfioc_states *)addr;
-		struct pf_state		*s;
+		struct pf_kstate	*s;
 		struct pfsync_state	*pstore, *p;
 		int i, nr;
 
@@ -2890,6 +2892,84 @@ DIOCGETSTATES_full:
 			break;
 		}
 		ps->ps_len = sizeof(struct pfsync_state) * nr;
+		free(pstore, M_TEMP);
+
+		break;
+	}
+
+	case DIOCGETSTATESV2: {
+		struct pfioc_states_v2	*ps = (struct pfioc_states_v2 *)addr;
+		struct pf_kstate	*s;
+		struct pf_state_export	*pstore, *p;
+		int i, nr;
+		size_t slice_count = 16, count;
+		void *out;
+
+		if (ps->ps_req_version > PF_STATE_VERSION) {
+			error = ENOTSUP;
+			break;
+		}
+
+		if (ps->ps_len <= 0) {
+			nr = uma_zone_get_cur(V_pf_state_z);
+			ps->ps_len = sizeof(struct pf_state_export) * nr;
+			break;
+		}
+
+		out = ps->ps_states;
+		pstore = mallocarray(slice_count,
+		    sizeof(struct pf_state_export), M_TEMP, M_WAITOK | M_ZERO);
+		nr = 0;
+
+		for (i = 0; i <= pf_hashmask; i++) {
+			struct pf_idhash *ih = &V_pf_idhash[i];
+
+DIOCGETSTATESV2_retry:
+			p = pstore;
+
+			if (LIST_EMPTY(&ih->states))
+				continue;
+
+			PF_HASHROW_LOCK(ih);
+			count = 0;
+			LIST_FOREACH(s, &ih->states, entry) {
+				if (s->timeout == PFTM_UNLINKED)
+					continue;
+				count++;
+			}
+
+			if (count > slice_count) {
+				PF_HASHROW_UNLOCK(ih);
+				free(pstore, M_TEMP);
+				slice_count = count * 2;
+				pstore = mallocarray(slice_count,
+				    sizeof(struct pf_state_export), M_TEMP,
+				    M_WAITOK | M_ZERO);
+				goto DIOCGETSTATESV2_retry;
+			}
+
+			if ((nr+count) * sizeof(*p) > ps->ps_len) {
+				PF_HASHROW_UNLOCK(ih);
+				goto DIOCGETSTATESV2_full;
+			}
+
+			LIST_FOREACH(s, &ih->states, entry) {
+				if (s->timeout == PFTM_UNLINKED)
+					continue;
+
+				pf_state_export(p, s);
+				p++;
+				nr++;
+			}
+			PF_HASHROW_UNLOCK(ih);
+			error = copyout(pstore, out,
+			    sizeof(struct pf_state_export) * count);
+			if (error)
+				break;
+			out = ps->ps_states + nr;
+		}
+DIOCGETSTATESV2_full:
+		ps->ps_len = nr * sizeof(struct pf_state_export);
 		free(pstore, M_TEMP);
 
 		break;
@@ -2966,7 +3046,7 @@ DIOCGETSTATES_full:
 	case DIOCNATLOOK: {
 		struct pfioc_natlook	*pnl = (struct pfioc_natlook *)addr;
 		struct pf_state_key	*sk;
-		struct pf_state		*state;
+		struct pf_kstate	*state;
 		struct pf_state_key_cmp	 key;
 		int			 m = 0, direction = pnl->direction;
 		int			 sidx, didx;
@@ -3750,10 +3830,12 @@ DIOCCHANGEADDR_error:
 			error = ENODEV;
 			break;
 		}
-		PF_RULES_WLOCK();
+		PF_TABLE_STATS_LOCK();
+		PF_RULES_RLOCK();
 		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
 		if (n < 0) {
-			PF_RULES_WUNLOCK();
+			PF_RULES_RUNLOCK();
+			PF_TABLE_STATS_UNLOCK();
 			error = EINVAL;
 			break;
 		}
@@ -3764,12 +3846,14 @@ DIOCCHANGEADDR_error:
 		    sizeof(struct pfr_tstats), M_TEMP, M_NOWAIT);
 		if (pfrtstats == NULL) {
 			error = ENOMEM;
-			PF_RULES_WUNLOCK();
+			PF_RULES_RUNLOCK();
+			PF_TABLE_STATS_UNLOCK();
 			break;
 		}
 		error = pfr_get_tstats(&io->pfrio_table, pfrtstats,
 		    &io->pfrio_size, io->pfrio_flags | PFR_FLAG_USERIOCTL);
-		PF_RULES_WUNLOCK();
+		PF_RULES_RUNLOCK();
+		PF_TABLE_STATS_UNLOCK();
 		if (error == 0)
 			error = copyout(pfrtstats, io->pfrio_buffer, totlen);
 		free(pfrtstats, M_TEMP);
@@ -3808,10 +3892,12 @@ DIOCCHANGEADDR_error:
 			break;
 		}
 
-		PF_RULES_WLOCK();
+		PF_TABLE_STATS_LOCK();
+		PF_RULES_RLOCK();
 		error = pfr_clr_tstats(pfrts, io->pfrio_size,
 		    &io->pfrio_nzero, io->pfrio_flags | PFR_FLAG_USERIOCTL);
-		PF_RULES_WUNLOCK();
+		PF_RULES_RUNLOCK();
+		PF_TABLE_STATS_UNLOCK();
 		free(pfrts, M_TEMP);
 		break;
 	}
@@ -4609,7 +4695,7 @@ fail:
 }
 
 void
-pfsync_state_export(struct pfsync_state *sp, struct pf_state *st)
+pfsync_state_export(struct pfsync_state *sp, struct pf_kstate *st)
 {
 	bzero(sp, sizeof(struct pfsync_state));
 
@@ -4662,13 +4748,74 @@ pfsync_state_export(struct pfsync_state *sp, struct pf_state *st)
 	else
 		sp->nat_rule = htonl(st->nat_rule.ptr->nr);
 
-	pf_state_counter_hton(counter_u64_fetch(st->packets[0]),
-	    sp->packets[0]);
-	pf_state_counter_hton(counter_u64_fetch(st->packets[1]),
-	    sp->packets[1]);
-	pf_state_counter_hton(counter_u64_fetch(st->bytes[0]), sp->bytes[0]);
-	pf_state_counter_hton(counter_u64_fetch(st->bytes[1]), sp->bytes[1]);
+	pf_state_counter_hton(st->packets[0], sp->packets[0]);
+	pf_state_counter_hton(st->packets[1], sp->packets[1]);
+	pf_state_counter_hton(st->bytes[0], sp->bytes[0]);
+	pf_state_counter_hton(st->bytes[1], sp->bytes[1]);
+}
 
+void
+pf_state_export(struct pf_state_export *sp, struct pf_kstate *st)
+{
+	bzero(sp, sizeof(*sp));
+
+	sp->version = PF_STATE_VERSION;
+
+	/* copy from state key */
+	sp->key[PF_SK_WIRE].addr[0] = st->key[PF_SK_WIRE]->addr[0];
+	sp->key[PF_SK_WIRE].addr[1] = st->key[PF_SK_WIRE]->addr[1];
+	sp->key[PF_SK_WIRE].port[0] = st->key[PF_SK_WIRE]->port[0];
+	sp->key[PF_SK_WIRE].port[1] = st->key[PF_SK_WIRE]->port[1];
+	sp->key[PF_SK_STACK].addr[0] = st->key[PF_SK_STACK]->addr[0];
+	sp->key[PF_SK_STACK].addr[1] = st->key[PF_SK_STACK]->addr[1];
+	sp->key[PF_SK_STACK].port[0] = st->key[PF_SK_STACK]->port[0];
+	sp->key[PF_SK_STACK].port[1] = st->key[PF_SK_STACK]->port[1];
+	sp->proto = st->key[PF_SK_WIRE]->proto;
+	sp->af = st->key[PF_SK_WIRE]->af;
+
+	/* copy from state */
+	strlcpy(sp->ifname, st->kif->pfik_name, sizeof(sp->ifname));
+	strlcpy(sp->orig_ifname, st->orig_kif->pfik_name,
+	    sizeof(sp->orig_ifname));
+	bcopy(&st->rt_addr, &sp->rt_addr, sizeof(sp->rt_addr));
+	sp->creation = htonl(time_uptime - st->creation);
+	sp->expire = pf_state_expires(st);
+	if (sp->expire <= time_uptime)
+		sp->expire = htonl(0);
+	else
+		sp->expire = htonl(sp->expire - time_uptime);
+
+	sp->direction = st->direction;
+	sp->log = st->log;
+	sp->timeout = st->timeout;
+	sp->state_flags = st->state_flags;
+	if (st->src_node)
+		sp->sync_flags |= PFSYNC_FLAG_SRCNODE;
+	if (st->nat_src_node)
+		sp->sync_flags |= PFSYNC_FLAG_NATSRCNODE;
+
+	sp->id = st->id;
+	sp->creatorid = st->creatorid;
+	pf_state_peer_hton(&st->src, &sp->src);
+	pf_state_peer_hton(&st->dst, &sp->dst);
+
+	if (st->rule.ptr == NULL)
+		sp->rule = htonl(-1);
+	else
+		sp->rule = htonl(st->rule.ptr->nr);
+	if (st->anchor.ptr == NULL)
+		sp->anchor = htonl(-1);
+	else
+		sp->anchor = htonl(st->anchor.ptr->nr);
+	if (st->nat_rule.ptr == NULL)
+		sp->nat_rule = htonl(-1);
+	else
+		sp->nat_rule = htonl(st->nat_rule.ptr->nr);
+
+	sp->packets[0] = st->packets[0];
+	sp->packets[1] = st->packets[1];
+	sp->bytes[0] = st->bytes[0];
+	sp->bytes[1] = st->bytes[1];
 }
 
 static void
@@ -4692,7 +4839,7 @@ pf_tbladdr_copyout(struct pf_addr_wrap *aw)
 static void
 pf_clear_all_states(void)
 {
-	struct pf_state	*s;
+	struct pf_kstate	*s;
 	u_int i;
 
 	for (i = 0; i <= pf_hashmask; i++) {
@@ -4727,7 +4874,7 @@ pf_clear_tables(void)
 static void
 pf_clear_srcnodes(struct pf_ksrc_node *n)
 {
-	struct pf_state *s;
+	struct pf_kstate *s;
 	int i;
 
 	for (i = 0; i <= pf_hashmask; i++) {
@@ -4791,7 +4938,7 @@ pf_kill_srcnodes(struct pfioc_src_node_kill *psnk)
 
 	for (int i = 0; i <= pf_hashmask; i++) {
 		struct pf_idhash *ih = &V_pf_idhash[i];
-		struct pf_state *s;
+		struct pf_kstate *s;
 
 		PF_HASHROW_LOCK(ih);
 		LIST_FOREACH(s, &ih->states, entry) {
@@ -4845,7 +4992,7 @@ static unsigned int
 pf_clear_states(const struct pf_kstate_kill *kill)
 {
 	struct pf_state_key_cmp	 match_key;
-	struct pf_state	*s;
+	struct pf_kstate	*s;
 	struct pfi_kkif	*kif;
 	int		 idx;
 	unsigned int	 killed = 0, dir;
@@ -4908,10 +5055,10 @@ relock_DIOCCLRSTATES:
 	return (killed);
 }
 
-static int
+static void
 pf_killstates(struct pf_kstate_kill *kill, unsigned int *killed)
 {
-	struct pf_state		*s;
+	struct pf_kstate	*s;
 
 	if (kill->psk_pfcmp.id) {
 		if (kill->psk_pfcmp.creatorid == 0)
@@ -4921,13 +5068,13 @@ pf_killstates(struct pf_kstate_kill *kill, unsigned int *killed)
 			pf_unlink_state(s, PF_ENTER_LOCKED);
 			*killed = 1;
 		}
-		return (0);
+		return;
 	}
 
 	for (unsigned int i = 0; i <= pf_hashmask; i++)
 		*killed += pf_killstates_row(kill, &V_pf_idhash[i]);
 
-	return (0);
+	return;
 }
 
 static int
@@ -4960,7 +5107,7 @@ pf_killstates_nv(struct pfioc_nv *nv)
 	if (error)
 		ERROUT(error);
 
-	error = pf_killstates(&kill, &killed);
+	pf_killstates(&kill, &killed);
 
 	free(nvlpacked, M_NVLIST);
 	nvlpacked = NULL;
@@ -5050,11 +5197,11 @@ on_error:
 static int
 pf_getstate(struct pfioc_nv *nv)
 {
-	nvlist_t	*nvl = NULL, *nvls;
-	void		*nvlpacked = NULL;
-	struct pf_state	*s = NULL;
-	int		 error = 0;
-	uint64_t	 id, creatorid;
+	nvlist_t		*nvl = NULL, *nvls;
+	void			*nvlpacked = NULL;
+	struct pf_kstate	*s = NULL;
+	int			 error = 0;
+	uint64_t		 id, creatorid;
 
 #define ERROUT(x)	ERROUT_FUNCTION(errout, x)
 
@@ -5117,11 +5264,11 @@ errout:
 static int
 pf_getstates(struct pfioc_nv *nv)
 {
-	nvlist_t	*nvl = NULL, *nvls;
-	void		*nvlpacked = NULL;
-	struct pf_state	*s = NULL;
-	int		 error = 0;
-	uint64_t	 count = 0;
+	nvlist_t		*nvl = NULL, *nvls;
+	void			*nvlpacked = NULL;
+	struct pf_kstate	*s = NULL;
+	int			 error = 0;
+	uint64_t		 count = 0;
 
 #define ERROUT(x)	ERROUT_FUNCTION(errout, x)
 
@@ -5134,10 +5281,19 @@ pf_getstates(struct pfioc_nv *nv)
 	for (int i = 0; i < pf_hashmask; i++) {
 		struct pf_idhash *ih = &V_pf_idhash[i];
 
+		/* Avoid taking the lock if there are no states in the row. */
+		if (LIST_EMPTY(&ih->states))
+			continue;
+
 		PF_HASHROW_LOCK(ih);
 		LIST_FOREACH(s, &ih->states, entry) {
 			if (s->timeout == PFTM_UNLINKED)
 				continue;
+
+			if (SIGPENDING(curthread)) {
+				PF_HASHROW_UNLOCK(ih);
+				ERROUT(EINTR);
+			}
 
 			nvls = pf_state_to_nvstate(s);
 			if (nvls == NULL) {

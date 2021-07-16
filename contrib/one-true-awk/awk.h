@@ -23,6 +23,13 @@ THIS SOFTWARE.
 ****************************************************************/
 
 #include <assert.h>
+#include <stdint.h>
+#include <stdbool.h>
+#if __STDC_VERSION__ <= 199901L
+#define noreturn
+#else
+#include <stdnoreturn.h>
+#endif
 
 typedef double	Awkfloat;
 
@@ -30,24 +37,34 @@ typedef double	Awkfloat;
 
 typedef	unsigned char uschar;
 
-#define	xfree(a)	{ if ((a) != NULL) { free((void *) (a)); (a) = NULL; } }
+#define	xfree(a)	{ if ((a) != NULL) { free((void *)(intptr_t)(a)); (a) = NULL; } }
+/*
+ * We sometimes cheat writing read-only pointers to NUL-terminate them
+ * and then put back the original value
+ */
+#define setptr(ptr, a)	(*(char *)(intptr_t)(ptr)) = (a)
 
-#define	NN(p)	((p) ? (p) : "(null)")	/* guaranteed non-null for dprintf 
+#define	NN(p)	((p) ? (p) : "(null)")	/* guaranteed non-null for DPRINTF
 */
 #define	DEBUG
 #ifdef	DEBUG
-			/* uses have to be doubly parenthesized */
-#	define	dprintf(x)	if (dbg) printf x
+#	define	DPRINTF(...)	if (dbg) printf(__VA_ARGS__)
 #else
-#	define	dprintf(x)
+#	define	DPRINTF(...)
 #endif
 
-extern int	compile_time;	/* 1 if compiling, 0 if running */
-extern int	safe;		/* 0 => unsafe, 1 => safe */
+extern enum compile_states {
+	RUNNING,
+	COMPILING,
+	ERROR_PRINTING
+} compile_time;
+
+extern bool	safe;		/* false => unsafe, true => safe */
 
 #define	RECSIZE	(8 * 1024)	/* sets limit on records, fields, etc., etc. */
 extern int	recsize;	/* size of current record, orig RECSIZE */
 
+extern char	EMPTY[];	/* this avoid -Wwritable-strings issues */
 extern char	**FS;
 extern char	**RS;
 extern char	**ORS;
@@ -64,13 +81,11 @@ extern Awkfloat *RLENGTH;
 extern char	*record;	/* points to $0 */
 extern int	lineno;		/* line number in awk program */
 extern int	errorflag;	/* 1 if error has occurred */
-extern int	donefld;	/* 1 if record broken into fields */
-extern int	donerec;	/* 1 if record is valid (no fld has changed */
-extern char	inputFS[];	/* FS at time of input, for field splitting */
-
+extern bool	donefld;	/* true if record broken into fields */
+extern bool	donerec;	/* true if record is valid (no fld has changed */
 extern int	dbg;
 
-extern	char	*patbeg;	/* beginning of pattern matched */
+extern const char *patbeg;	/* beginning of pattern matched */
 extern	int	patlen;		/* length of pattern matched.  set in b.c */
 
 /* Cell:  all information about a variable or constant */
@@ -81,7 +96,8 @@ typedef struct Cell {
 	char	*nval;		/* name, for variables only */
 	char	*sval;		/* string value */
 	Awkfloat fval;		/* value as number */
-	int	 tval;		/* type info: STR|NUM|ARR|FCN|FLD|CON|DONTFREE */
+	int	 tval;		/* type info: STR|NUM|ARR|FCN|FLD|CON|DONTFREE|CONVC|CONVO */
+	char	*fmt;		/* CONVFMT/OFMT value used to convert from number */
 	struct Cell *cnext;	/* ptr to next if chained */
 } Cell;
 
@@ -96,9 +112,15 @@ extern Array	*symtab;
 
 extern Cell	*nrloc;		/* NR */
 extern Cell	*fnrloc;	/* FNR */
+extern Cell	*fsloc;		/* FS */
 extern Cell	*nfloc;		/* NF */
+extern Cell	*ofsloc;	/* OFS */
+extern Cell	*orsloc;	/* ORS */
+extern Cell	*rsloc;		/* RS */
 extern Cell	*rstartloc;	/* RSTART */
 extern Cell	*rlengthloc;	/* RLENGTH */
+extern Cell	*subseploc;	/* SUBSEP */
+extern Cell	*symtabloc;	/* SYMTAB */
 
 /* Cell.tval values: */
 #define	NUM	01	/* number value is valid */
@@ -109,6 +131,8 @@ extern Cell	*rlengthloc;	/* RLENGTH */
 #define	FCN	040	/* this is a function name */
 #define FLD	0100	/* this is a field $1, $2, ... */
 #define	REC	0200	/* this is $0 */
+#define CONVC	0400	/* string was converted from number via CONVFMT */
+#define CONVO	01000	/* string was converted from number via OFMT */
 
 
 /* function types */
@@ -126,12 +150,14 @@ extern Cell	*rlengthloc;	/* RLENGTH */
 #define	FTOUPPER 12
 #define	FTOLOWER 13
 #define	FFLUSH	14
-#define	FAND	15
-#define	FFOR	16
-#define	FXOR	17
-#define	FCOMPL	18
-#define	FLSHIFT	19
-#define	FRSHIFT	20
+#define FAND	15
+#define FFOR	16
+#define FXOR	17
+#define FCOMPL	18
+#define FLSHIFT	19
+#define FRSHIFT	20
+#define FSYSTIME	21
+#define FSTRFTIME	22
 
 /* Node:  parse tree is made of nodes, with Cell's at bottom */
 
@@ -159,7 +185,7 @@ extern Node	*nullnode;
 #define CCOPY	6
 #define CCON	5
 #define CTEMP	4
-#define CNAME	3 
+#define CNAME	3
 #define CVAR	2
 #define CFLD	1
 #define	CUNK	0
@@ -209,7 +235,10 @@ extern	int	pairstack[], paircnt;
 
 #define NCHARS	(256+3)		/* 256 handles 8-bit chars; 128 does 7-bit */
 				/* watch out in match(), etc. */
+#define	HAT	(NCHARS+2)	/* matches ^ in regular expr */
 #define NSTATES	32
+#define	HAT	(NCHARS+2)	/* matches ^ in regular expr */
+				/* NCHARS is 2**n */
 
 typedef struct rrow {
 	long	ltype;	/* long avoids pointer warnings on 64-bit */
@@ -222,16 +251,16 @@ typedef struct rrow {
 } rrow;
 
 typedef struct fa {
-	uschar	gototab[NSTATES][NCHARS];
-	uschar	out[NSTATES];
+	unsigned int	**gototab;
+	uschar	*out;
 	uschar	*restr;
-	int	*posns[NSTATES];
-	int	anchor;
+	int	**posns;
+	int	state_count;
+	bool	anchor;
 	int	use;
 	int	initstat;
 	int	curstat;
 	int	accept;
-	int	reset;
 	struct	rrow re[1];	/* variable: actual size set by calling malloc */
 } fa;
 

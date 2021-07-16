@@ -722,8 +722,8 @@ nfsrv_getclient(nfsquad_t clientid, int opflags, struct nfsclient **clpp,
 				    cbprogram, NFSV4_CBVERS);
 			    if (clp->lc_req.nr_client != NULL) {
 				SVC_ACQUIRE(nd->nd_xprt);
-				nd->nd_xprt->xp_p2 =
-				    clp->lc_req.nr_client->cl_private;
+				CLNT_ACQUIRE(clp->lc_req.nr_client);
+				nd->nd_xprt->xp_p2 = clp->lc_req.nr_client;
 				/* Disable idle timeout. */
 				nd->nd_xprt->xp_idletimeout = 0;
 				nsep->sess_cbsess.nfsess_xprt = nd->nd_xprt;
@@ -5279,8 +5279,9 @@ nfsrv_delegconflict(struct nfsstate *stp, int *haslockp, NFSPROC_T *p,
 	 * - check to see if the delegation has expired
 	 *   - if so, get the v4root lock and then expire it
 	 */
-	if ((stp->ls_flags & NFSLCK_DELEGRECALL) == 0 || stp->ls_lastrecall <
-	    time_uptime) {
+	if ((stp->ls_flags & NFSLCK_DELEGRECALL) == 0 || (stp->ls_lastrecall <
+	    NFSD_MONOSEC && clp->lc_expiry >= NFSD_MONOSEC &&
+	    stp->ls_delegtime >= NFSD_MONOSEC)) {
 		/*
 		 * - do a recall callback, since not yet done
 		 * For now, never allow truncate to be set. To use
@@ -6439,8 +6440,8 @@ nfsrv_bindconnsess(struct nfsrv_descript *nd, uint8_t *sessionid, int *foreaftp)
 				    "backchannel\n");
 				savxprt = sep->sess_cbsess.nfsess_xprt;
 				SVC_ACQUIRE(nd->nd_xprt);
-				nd->nd_xprt->xp_p2 =
-				    clp->lc_req.nr_client->cl_private;
+				CLNT_ACQUIRE(clp->lc_req.nr_client);
+				nd->nd_xprt->xp_p2 = clp->lc_req.nr_client;
 				/* Disable idle timeout. */
 				nd->nd_xprt->xp_idletimeout = 0;
 				sep->sess_cbsess.nfsess_xprt = nd->nd_xprt;

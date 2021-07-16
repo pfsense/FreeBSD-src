@@ -41,6 +41,21 @@ __FBSDID("$FreeBSD$");
 
 #define	PF_NV_IMPL_UINT(fnname, type, max)					\
 	int									\
+	pf_nv ## fnname ## _opt(const nvlist_t *nvl, const char *name,		\
+	    type *val, type dflt)						\
+	{									\
+		uint64_t raw;							\
+		if (! nvlist_exists_number(nvl, name)) {			\
+			*val = dflt;						\
+			return (0);						\
+		}								\
+		raw = nvlist_get_number(nvl, name);				\
+		if (raw > max)							\
+			return (ERANGE);					\
+		*val = (type)raw;						\
+		return (0);							\
+	}									\
+	int									\
 	pf_nv ## fnname(const nvlist_t *nvl, const char *name, type *val)	\
 	{									\
 		uint64_t raw;							\
@@ -510,9 +525,11 @@ pf_nvrule_to_krule(const nvlist_t *nvl, struct pf_krule *rule)
 	PFNV_CHK(pf_nvstring(nvl, "qname", rule->qname, sizeof(rule->qname)));
 	PFNV_CHK(pf_nvstring(nvl, "pqname", rule->pqname,
 	    sizeof(rule->pqname)));
+
 	PFNV_CHK(pf_nvuint32(nvl, "dnpipe", &rule->dnpipe));
 	PFNV_CHK(pf_nvuint32(nvl, "pdnpipe", &rule->pdnpipe));
 	PFNV_CHK(pf_nvuint32(nvl, "dnflags", &rule->free_flags));
+
 	PFNV_CHK(pf_nvstring(nvl, "tagname", rule->tagname,
 	    sizeof(rule->tagname)));
 	PFNV_CHK(pf_nvstring(nvl, "match_tagname", rule->match_tagname,
@@ -675,9 +692,11 @@ pf_krule_to_nvrule(const struct pf_krule *rule)
 	nvlist_add_string(nvl, "ifname", rule->ifname);
 	nvlist_add_string(nvl, "qname", rule->qname);
 	nvlist_add_string(nvl, "pqname", rule->pqname);
+
 	nvlist_add_number(nvl, "dnpipe", rule->dnpipe);
 	nvlist_add_number(nvl, "pdnpipe", rule->pdnpipe);
 	nvlist_add_number(nvl, "dnflags", rule->free_flags);
+
 	nvlist_add_string(nvl, "tagname", rule->tagname);
 	nvlist_add_string(nvl, "match_tagname", rule->match_tagname);
 	nvlist_add_string(nvl, "overload_tblname", rule->overload_tblname);
@@ -866,7 +885,7 @@ errout:
 }
 
 static nvlist_t *
-pf_state_scrub_to_nvstate_scrub(const struct pf_state_scrub *scrub)
+pf_state_peer_to_nvstate_peer(const struct pf_state_peer *peer)
 {
 	nvlist_t *nvl;
 
@@ -874,47 +893,17 @@ pf_state_scrub_to_nvstate_scrub(const struct pf_state_scrub *scrub)
 	if (nvl == NULL)
 		return (NULL);
 
-	nvlist_add_bool(nvl, "timestamp", scrub->pfss_flags & PFSS_TIMESTAMP);
-	nvlist_add_number(nvl, "ttl", scrub->pfss_ttl);
-	nvlist_add_number(nvl, "ts_mod", scrub->pfss_ts_mod);
-
-	return (nvl);
-}
-
-static nvlist_t *
-pf_state_peer_to_nvstate_peer(const struct pf_state_peer *peer)
-{
-	nvlist_t *nvl, *tmp;
-
-	nvl = nvlist_create(0);
-	if (nvl == NULL)
-		return (NULL);
-
-	if (peer->scrub) {
-		tmp = pf_state_scrub_to_nvstate_scrub(peer->scrub);
-		if (tmp == NULL)
-			goto errout;
-		nvlist_add_nvlist(nvl, "scrub", tmp);
-		nvlist_destroy(tmp);
-	}
-
 	nvlist_add_number(nvl, "seqlo", peer->seqlo);
 	nvlist_add_number(nvl, "seqhi", peer->seqhi);
 	nvlist_add_number(nvl, "seqdiff", peer->seqdiff);
-	nvlist_add_number(nvl, "max_win", peer->max_win);
-	nvlist_add_number(nvl, "mss", peer->mss);
 	nvlist_add_number(nvl, "state", peer->state);
 	nvlist_add_number(nvl, "wscale", peer->wscale);
 
 	return (nvl);
-
-errout:
-	nvlist_destroy(nvl);
-	return (NULL);
 }
 
 nvlist_t *
-pf_state_to_nvstate(const struct pf_state *s)
+pf_state_to_nvstate(const struct pf_kstate *s)
 {
 	nvlist_t	*nvl, *tmp;
 	uint32_t	 expire, flags = 0;
@@ -973,16 +962,14 @@ pf_state_to_nvstate(const struct pf_state *s)
 
 	for (int i = 0; i < 2; i++) {
 		nvlist_append_number_array(nvl, "packets",
-		    counter_u64_fetch(s->packets[i]));
+		    s->packets[i]);
 		nvlist_append_number_array(nvl, "bytes",
-		    counter_u64_fetch(s->bytes[i]));
+		    s->bytes[i]);
 	}
 
 	nvlist_add_number(nvl, "creatorid", s->creatorid);
 	nvlist_add_number(nvl, "direction", s->direction);
-	nvlist_add_number(nvl, "log", s->log);
 	nvlist_add_number(nvl, "state_flags", s->state_flags);
-	nvlist_add_number(nvl, "timeout", s->timeout);
 	if (s->src_node)
 		flags |= PFSYNC_FLAG_SRCNODE;
 	if (s->nat_src_node)

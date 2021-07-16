@@ -182,7 +182,7 @@ pf_match_translation(struct pf_pdesc *pd, struct mbuf *m, int off,
 			r = TAILQ_NEXT(r, entries);
 		else if (r->os_fingerprint != PF_OSFP_ANY && (pd->proto !=
 		    IPPROTO_TCP || !pf_osfp_match(pf_osfp_fingerprint(pd, m,
-		    off, pd->hdr.tcp), r->os_fingerprint)))
+		    off, &pd->hdr.tcp), r->os_fingerprint)))
 			r = TAILQ_NEXT(r, entries);
 		else {
 			if (r->tag)
@@ -244,13 +244,13 @@ pf_get_sport(sa_family_t af, u_int8_t proto, struct pf_krule *r,
 			 * (traceroute -I through nat)
 			 */
 			key.port[1] = sport;
-			if (pf_find_state_all(&key, PF_IN, NULL) == NULL) {
+			if (!pf_find_state_all_exists(&key, PF_IN)) {
 				*nport = sport;
 				return (0);
 			}
 		} else if (low == high) {
 			key.port[1] = htons(low);
-			if (pf_find_state_all(&key, PF_IN, NULL) == NULL) {
+			if (!pf_find_state_all_exists(&key, PF_IN)) {
 				*nport = htons(low);
 				return (0);
 			}
@@ -268,8 +268,7 @@ pf_get_sport(sa_family_t af, u_int8_t proto, struct pf_krule *r,
 			/* low <= cut <= high */
 			for (tmp = cut; tmp <= high && tmp <= 0xffff; ++tmp) {
 				key.port[1] = htons(tmp);
-				if (pf_find_state_all(&key, PF_IN, NULL) ==
-				    NULL) {
+				if (!pf_find_state_all_exists(&key, PF_IN)) {
 					*nport = htons(tmp);
 					return (0);
 				}
@@ -277,8 +276,7 @@ pf_get_sport(sa_family_t af, u_int8_t proto, struct pf_krule *r,
 			tmp = cut;
 			for (tmp -= 1; tmp >= low && tmp <= 0xffff; --tmp) {
 				key.port[1] = htons(tmp);
-				if (pf_find_state_all(&key, PF_IN, NULL) ==
-				    NULL) {
+				if (!pf_find_state_all_exists(&key, PF_IN)) {
 					*nport = htons(tmp);
 					return (0);
 				}
