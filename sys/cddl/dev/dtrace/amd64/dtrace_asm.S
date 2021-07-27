@@ -334,7 +334,6 @@ dtrace_fuword32_nocheck(void *addr)
 	ENTRY(dtrace_fuword32_nocheck_nosmap)
 	xorq	%rax, %rax
 	movl	(%rdi), %eax
-	clac
 	ret
 	END(dtrace_fuword32_nocheck_nosmap)
 
