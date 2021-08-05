@@ -1477,9 +1477,11 @@ ng_l2tp_seq_rack_timeout(node_p node, hook_p hook, void *arg1, int arg2)
 		return;
 	}
 
-	if (seq->xwin[0] == NULL)
+	if (seq->xwin[0] == NULL) {
 		printf("%s; empty transmit queue on seq %p: ns %u rack %u active %d",
 		    __func__, seq, seq->ns, seq->rack, callout_active(&seq->rack_timer));
+		return;
+	}
 	priv->stats.xmitRetransmits++;
 
 	/* Have we reached the retransmit limit? If so, notify owner. */
