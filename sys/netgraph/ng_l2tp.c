@@ -1278,9 +1278,6 @@ ng_l2tp_seq_reset(priv_p priv)
 
 	/* Stop timers */
 	ng_uncallout(&seq->rack_timer, priv->node);
-	if (callout_active(&seq->rack_timer)) {
-		printf("%s: rack_timer still active on seq %p\n", __func__, seq);
-	}
 	ng_uncallout(&seq->xack_timer, priv->node);
 
 	/* Free retransmit queue */
@@ -1379,12 +1376,8 @@ ng_l2tp_seq_recv_nr(priv_p priv, u_int16_t nr)
 	}
 
 	/* Stop xmit timer */
-	if (callout_active(&seq->rack_timer)) {
+	if (callout_active(&seq->rack_timer))
 		ng_uncallout(&seq->rack_timer, priv->node);
-		if (callout_active(&seq->rack_timer)) {
-			printf("%s: rack_timer still active on seq %p\n", __func__, seq);
-		}
-	}
 
 	/* If transmit queue is empty, we're done for now */
 	if (seq->xwin[0] == NULL) {
@@ -1478,11 +1471,10 @@ ng_l2tp_seq_rack_timeout(node_p node, hook_p hook, void *arg1, int arg2)
 	}
 
 	if (seq->xwin[0] == NULL) {
-		printf("%s; empty transmit queue on seq %p: ns %u rack %u active %d",
-		    __func__, seq, seq->ns, seq->rack, callout_active(&seq->rack_timer));
 		mtx_unlock(&seq->mtx);
 		return;
 	}
+
 	priv->stats.xmitRetransmits++;
 
 	/* Have we reached the retransmit limit? If so, notify owner. */
