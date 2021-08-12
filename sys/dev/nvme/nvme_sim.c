@@ -197,8 +197,12 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 		cpi->xport_specific.nvme.slot = pci_get_slot(dev);
 		cpi->xport_specific.nvme.function = pci_get_function(dev);
 		cpi->xport_specific.nvme.extra = 0;
-		strncpy(cpi->xport_specific.nvme.dev_name, device_get_nameunit(ctrlr->dev),
+		strncpy(cpi->xport_specific.nvme.dev_name, device_get_nameunit(dev),
 		    sizeof(cpi->xport_specific.nvme.dev_name));
+		cpi->hba_vendor = pci_get_vendor(dev);
+		cpi->hba_device = pci_get_device(dev);
+		cpi->hba_subvendor = pci_get_subvendor(dev);
+		cpi->hba_subdevice = pci_get_subdevice(dev);
 		cpi->ccb_h.status = CAM_REQ_CMP;
 		break;
 	}
@@ -315,7 +319,7 @@ err1:
 }
 
 static void *
-nvme_sim_new_ns(struct nvme_namespace *ns, void *sc_arg)
+nvme_sim_ns_change(struct nvme_namespace *ns, void *sc_arg)
 {
 	struct nvme_sim_softc *sc = sc_arg;
 	union ccb *ccb;
@@ -339,7 +343,7 @@ nvme_sim_new_ns(struct nvme_namespace *ns, void *sc_arg)
 	}
 	xpt_rescan(ccb);
 
-	return (ns);
+	return (sc_arg);
 }
 
 static void
@@ -362,7 +366,7 @@ nvme_sim_init(void)
 	if (nvme_use_nvd)
 		return;
 
-	consumer_cookie = nvme_register_consumer(nvme_sim_new_ns,
+	consumer_cookie = nvme_register_consumer(nvme_sim_ns_change,
 	    nvme_sim_new_controller, NULL, nvme_sim_controller_fail);
 }
 

@@ -550,6 +550,8 @@ nvme_qpair_process_completions(struct nvme_qpair *qpair)
 	if (!qpair->is_enabled)
 		return (false);
 
+	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	/*
 	 * A panic can stop the CPU this routine is running on at any point.  If
 	 * we're called during a panic, complete the sq_head wrap protocol for
@@ -583,16 +585,31 @@ nvme_qpair_process_completions(struct nvme_qpair *qpair)
 		}
 	}
 
-	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
-	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	while (1) {
-		cpl = qpair->cpl[qpair->cq_head];
+		uint16_t status;
 
-		/* Convert to host endian */
+		/*
+		 * We need to do this dance to avoid a race between the host and
+		 * the device where the device overtakes the host while the host
+		 * is reading this record, leaving the status field 'new' and
+		 * the sqhd and cid fields potentially stale. If the phase
+		 * doesn't match, that means status hasn't yet been updated and
+		 * we'll get any pending changes next time. It also means that
+		 * the phase must be the same the second time. We have to sync
+		 * before reading to ensure any bouncing completes.
+		 */
+		status = le16toh(qpair->cpl[qpair->cq_head].status);
+		if (NVME_STATUS_GET_P(status) != qpair->phase)
+			break;
+
+		bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
+		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+		cpl = qpair->cpl[qpair->cq_head];
 		nvme_completion_swapbytes(&cpl);
 
-		if (NVME_STATUS_GET_P(cpl.status) != qpair->phase)
-			break;
+		KASSERT(
+		    NVME_STATUS_GET_P(status) == NVME_STATUS_GET_P(cpl.status),
+		    ("Phase unexpectedly inconsistent"));
 
 		tr = qpair->act_tr[cpl.cid];
 
@@ -661,31 +678,6 @@ nvme_qpair_construct(struct nvme_qpair *qpair,
 	qpair->num_trackers = num_trackers;
 	qpair->ctrlr = ctrlr;
 
-	if (ctrlr->msix_enabled) {
-
-		/*
-		 * MSI-X vector resource IDs start at 1, so we add one to
-		 *  the queue's vector to get the corresponding rid to use.
-		 */
-		qpair->rid = qpair->vector + 1;
-
-		qpair->res = bus_alloc_resource_any(ctrlr->dev, SYS_RES_IRQ,
-		    &qpair->rid, RF_ACTIVE);
-		if (bus_setup_intr(ctrlr->dev, qpair->res,
-		    INTR_TYPE_MISC | INTR_MPSAFE, NULL,
-		    nvme_qpair_msix_handler, qpair, &qpair->tag) != 0) {
-			nvme_printf(ctrlr, "unable to setup intx handler\n");
-			goto out;
-		}
-		if (qpair->id == 0) {
-			bus_describe_intr(ctrlr->dev, qpair->res, qpair->tag,
-			    "admin");
-		} else {
-			bus_describe_intr(ctrlr->dev, qpair->res, qpair->tag,
-			    "io%d", qpair->id - 1);
-		}
-	}
-
 	mtx_init(&qpair->lock, "nvme qpair lock", NULL, MTX_DEF);
 
 	/* Note: NVMe PRP format is restricted to 4-byte alignment. */
@@ -726,7 +718,7 @@ nvme_qpair_construct(struct nvme_qpair *qpair,
 	bus_dma_tag_set_domain(qpair->dma_tag, qpair->domain);
 
 	if (bus_dmamem_alloc(qpair->dma_tag, (void **)&queuemem,
-	    BUS_DMA_NOWAIT, &qpair->queuemem_map)) {
+	     BUS_DMA_COHERENT | BUS_DMA_NOWAIT, &qpair->queuemem_map)) {
 		nvme_printf(ctrlr, "failed to alloc qpair memory\n");
 		goto out;
 	}
@@ -806,6 +798,31 @@ nvme_qpair_construct(struct nvme_qpair *qpair,
 	qpair->act_tr = malloc_domainset(sizeof(struct nvme_tracker *) *
 	    qpair->num_entries, M_NVME, DOMAINSET_PREF(qpair->domain),
 	    M_ZERO | M_WAITOK);
+
+	if (ctrlr->msix_enabled) {
+		/*
+		 * MSI-X vector resource IDs start at 1, so we add one to
+		 *  the queue's vector to get the corresponding rid to use.
+		 */
+		qpair->rid = qpair->vector + 1;
+
+		qpair->res = bus_alloc_resource_any(ctrlr->dev, SYS_RES_IRQ,
+		    &qpair->rid, RF_ACTIVE);
+		if (bus_setup_intr(ctrlr->dev, qpair->res,
+		    INTR_TYPE_MISC | INTR_MPSAFE, NULL,
+		    nvme_qpair_msix_handler, qpair, &qpair->tag) != 0) {
+			nvme_printf(ctrlr, "unable to setup intx handler\n");
+			goto out;
+		}
+		if (qpair->id == 0) {
+			bus_describe_intr(ctrlr->dev, qpair->res, qpair->tag,
+			    "admin");
+		} else {
+			bus_describe_intr(ctrlr->dev, qpair->res, qpair->tag,
+			    "io%d", qpair->id - 1);
+		}
+	}
+
 	return (0);
 
 out:
@@ -950,7 +967,7 @@ nvme_timeout(void *arg)
 		    nvme_abort_complete, tr);
 	} else {
 		nvme_printf(ctrlr, "Resetting controller due to a timeout%s.\n",
-		    (csts == 0xffffffff) ? " and possible hot unplug" :
+		    (csts == NVME_GONE) ? " and possible hot unplug" :
 		    (cfs ? " and fatal error status" : ""));
 		nvme_ctrlr_reset(ctrlr);
 	}
@@ -987,14 +1004,6 @@ nvme_qpair_submit_tracker(struct nvme_qpair *qpair, struct nvme_tracker *tr)
 
 	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
 	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
-#ifndef __powerpc__
-	/*
-	 * powerpc's bus_dmamap_sync() already includes a heavyweight sync, but
-	 * no other archs do.
-	 */
-	wmb();
-#endif
-
 	bus_space_write_4(qpair->ctrlr->bus_tag, qpair->ctrlr->bus_handle,
 	    qpair->sq_tdbl_off, qpair->sq_tail);
 	qpair->num_cmds++;

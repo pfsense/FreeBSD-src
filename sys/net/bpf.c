@@ -126,7 +126,7 @@ CTASSERT(offsetof(struct bpf_if, bif_ext) == 0);
 #if defined(DEV_BPF) || defined(NETGRAPH_BPF)
 
 #define PRINET  26			/* interruptible */
-#define	BPF_PRIO_MAX	7
+#define BPF_PRIO_MAX	7
 
 #define	SIZEOF_BPF_HDR(type)	\
     (offsetof(type, bh_hdrlen) + sizeof(((type *)0)->bh_hdrlen))
@@ -1221,7 +1221,7 @@ bpfwrite(struct cdev *dev, struct uio *uio, int ioflag)
 	}
 
 	if (d->bd_pcp != 0)
-		bpf_setpcp(m, d->bd_pcp);
+		vlan_set_pcp(m, d->bd_pcp);
 
 	error = (*ifp->if_output)(ifp, m, &dst, &ro);
 	if (error)
@@ -1302,7 +1302,7 @@ reset_d(struct bpf_d *d)
  *  BIOCROTZBUF		Force rotation of zero-copy buffer
  *  BIOCSETBUFMODE	Set buffer mode.
  *  BIOCGETBUFMODE	Get current buffer mode.
- *  BIOCSETPCP		Set VLAN PCP tag.
+ *  BIOCSETVLANPCP	Set VLAN PCP tag.
  */
 /* ARGSUSED */
 static	int
@@ -1855,7 +1855,7 @@ bpfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 		error = bpf_ioctl_rotzbuf(td, d, (struct bpf_zbuf *)addr);
 		break;
 
-	case BIOCSETPCP:
+	case BIOCSETVLANPCP:
 		{
 			u_int pcp;
 

@@ -103,6 +103,7 @@ static void fdisp_make_pid(struct fuse_dispatcher *fdip, enum fuse_opcode op,
 static void fuse_interrupt_send(struct fuse_ticket *otick, int err);
 static struct fuse_ticket *fticket_alloc(struct fuse_data *data);
 static void fticket_refresh(struct fuse_ticket *ftick);
+static inline void fticket_reset(struct fuse_ticket *ftick);
 static void fticket_destroy(struct fuse_ticket *ftick);
 static int fticket_wait_answer(struct fuse_ticket *ftick);
 static inline int 
@@ -319,19 +320,11 @@ fticket_ctor(void *mem, int size, void *arg, int flags)
 	FUSE_ASSERT_AW_DONE(ftick);
 
 	ftick->tk_data = data;
-
-	if (ftick->tk_unique != 0)
-		fticket_refresh(ftick);
-
-	/* May be truncated to 32 bits */
-	ftick->tk_unique = atomic_fetchadd_long(&data->ticketer, 1);
-	if (ftick->tk_unique == 0)
-		ftick->tk_unique = atomic_fetchadd_long(&data->ticketer, 1);
-
 	ftick->irq_unique = 0;
-
 	refcount_init(&ftick->tk_refcount, 1);
 	counter_u64_add(fuse_ticket_count, 1);
+
+	fticket_refresh(ftick);
 
 	return 0;
 }
@@ -357,11 +350,9 @@ fticket_init(void *mem, int size, int flags)
 	bzero(ftick, sizeof(struct fuse_ticket));
 
 	fiov_init(&ftick->tk_ms_fiov, sizeof(struct fuse_in_header));
-	ftick->tk_ms_type = FT_M_FIOV;
 
 	mtx_init(&ftick->tk_aw_mtx, "fuse answer delivery mutex", NULL, MTX_DEF);
 	fiov_init(&ftick->tk_aw_fiov, 0);
-	ftick->tk_aw_type = FT_A_FIOV;
 
 	return 0;
 }
@@ -388,48 +379,34 @@ fticket_destroy(struct fuse_ticket *ftick)
 	return uma_zfree(ticket_zone, ftick);
 }
 
-static inline
-void
+/* Prepare the ticket to be reused and clear its data buffers */
+static inline void
 fticket_refresh(struct fuse_ticket *ftick)
 {
-	FUSE_ASSERT_MS_DONE(ftick);
-	FUSE_ASSERT_AW_DONE(ftick);
+	fticket_reset(ftick);
 
 	fiov_refresh(&ftick->tk_ms_fiov);
-	ftick->tk_ms_bufdata = NULL;
-	ftick->tk_ms_bufsize = 0;
-	ftick->tk_ms_type = FT_M_FIOV;
-
-	bzero(&ftick->tk_aw_ohead, sizeof(struct fuse_out_header));
-
 	fiov_refresh(&ftick->tk_aw_fiov);
-	ftick->tk_aw_errno = 0;
-	ftick->tk_aw_bufdata = NULL;
-	ftick->tk_aw_bufsize = 0;
-	ftick->tk_aw_type = FT_A_FIOV;
-
-	ftick->tk_flag = 0;
 }
 
-/* Prepar the ticket to be reused, but don't clear its data buffers */
+/* Prepare the ticket to be reused, but don't clear its data buffers */
 static inline void
 fticket_reset(struct fuse_ticket *ftick)
 {
+	struct fuse_data *data = ftick->tk_data;
+
 	FUSE_ASSERT_MS_DONE(ftick);
 	FUSE_ASSERT_AW_DONE(ftick);
-
-	ftick->tk_ms_bufdata = NULL;
-	ftick->tk_ms_bufsize = 0;
-	ftick->tk_ms_type = FT_M_FIOV;
 
 	bzero(&ftick->tk_aw_ohead, sizeof(struct fuse_out_header));
 
 	ftick->tk_aw_errno = 0;
-	ftick->tk_aw_bufdata = NULL;
-	ftick->tk_aw_bufsize = 0;
-	ftick->tk_aw_type = FT_A_FIOV;
-
 	ftick->tk_flag = 0;
+
+	/* May be truncated to 32 bits on LP32 arches */
+	ftick->tk_unique = atomic_fetchadd_long(&data->ticketer, 1);
+	if (ftick->tk_unique == 0)
+		ftick->tk_unique = atomic_fetchadd_long(&data->ticketer, 1);
 }
 
 static int
@@ -547,20 +524,8 @@ fticket_aw_pull_uio(struct fuse_ticket *ftick, struct uio *uio)
 	size_t len = uio_resid(uio);
 
 	if (len) {
-		switch (ftick->tk_aw_type) {
-		case FT_A_FIOV:
-			fiov_adjust(fticket_resp(ftick), len);
-			err = uiomove(fticket_resp(ftick)->base, len, uio);
-			break;
-
-		case FT_A_BUF:
-			ftick->tk_aw_bufsize = len;
-			err = uiomove(ftick->tk_aw_bufdata, len, uio);
-			break;
-
-		default:
-			panic("FUSE: unknown answer type for ticket %p", ftick);
-		}
+		fiov_adjust(fticket_resp(ftick), len);
+		err = uiomove(fticket_resp(ftick)->base, len, uio);
 	}
 	return err;
 }
@@ -998,12 +963,6 @@ fdisp_refresh_vp(struct fuse_dispatcher *fdip, enum fuse_opcode op,
 	    td->td_proc->p_pid, cred);
 }
 
-void
-fdisp_refresh(struct fuse_dispatcher *fdip)
-{
-	fticket_refresh(fdip->tick);
-}
-
 SDT_PROBE_DEFINE2(fusefs, , ipc, fdisp_wait_answ_error, "char*", "int");
 
 int
@@ -1094,4 +1053,18 @@ fuse_ipc_destroy(void)
 {
 	counter_u64_free(fuse_ticket_count);
 	uma_zdestroy(ticket_zone);
+}
+
+SDT_PROBE_DEFINE3(fusefs,, ipc, warn, "struct fuse_data*", "unsigned", "char*");
+void
+fuse_warn(struct fuse_data *data, unsigned flag, const char *msg)
+{
+	SDT_PROBE3(fusefs, , ipc, warn, data, flag, msg);
+	if (!(data->dataflags & flag)) {
+		printf("WARNING: FUSE protocol violation for server mounted at "
+		    "%s: %s  "
+		    "This warning will not be repeated.\n",
+		    data->mp->mnt_stat.f_mntonname, msg);
+		data->dataflags |= flag;
+	}
 }

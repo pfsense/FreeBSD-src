@@ -92,7 +92,7 @@ if_register_bpf(struct interface_info *info, int flags)
 
 	/* Tag the packets with the proper VLAN PCP setting. */
 	if (info->client->config->vlan_pcp != 0) {
-		if (ioctl(sock, BIOCSETPCP,
+		if (ioctl(sock, BIOCSETVLANPCP,
 		    &info->client->config->vlan_pcp) < 0)
 			error( "Can't set the VLAN PCP tag on interface %s: %m",
 			    info->name);

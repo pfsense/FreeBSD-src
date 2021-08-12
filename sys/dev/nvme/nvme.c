@@ -49,7 +49,6 @@ struct nvme_consumer {
 struct nvme_consumer nvme_consumer[NVME_MAX_CONSUMERS];
 #define	INVALID_CONSUMER_ID	0xFFFF
 
-uma_zone_t	nvme_request_zone;
 int32_t		nvme_retry_count;
 
 
@@ -62,9 +61,6 @@ nvme_init(void)
 {
 	uint32_t	i;
 
-	nvme_request_zone = uma_zcreate("nvme_request",
-	    sizeof(struct nvme_request), NULL, NULL, NULL, NULL, 0, 0);
-
 	for (i = 0; i < NVME_MAX_CONSUMERS; i++)
 		nvme_consumer[i].id = INVALID_CONSUMER_ID;
 }
@@ -74,7 +70,6 @@ SYSINIT(nvme_register, SI_SUB_DRIVERS, SI_ORDER_SECOND, nvme_init, NULL);
 static void
 nvme_uninit(void)
 {
-	uma_zdestroy(nvme_request_zone);
 }
 
 SYSUNINIT(nvme_unregister, SI_SUB_DRIVERS, SI_ORDER_SECOND, nvme_uninit, NULL);
@@ -149,10 +144,7 @@ nvme_detach(device_t dev)
 {
 	struct nvme_controller	*ctrlr = DEVICE2SOFTC(dev);
 
-	if (ctrlr->config_hook.ich_arg != NULL) {
-		config_intrhook_disestablish(&ctrlr->config_hook);
-		ctrlr->config_hook.ich_arg = NULL;
-	}
+	config_intrhook_drain(&ctrlr->config_hook);
 
 	nvme_ctrlr_destruct(ctrlr, dev);
 	return (0);
@@ -291,13 +283,18 @@ void
 nvme_notify_ns(struct nvme_controller *ctrlr, int nsid)
 {
 	struct nvme_consumer	*cons;
-	struct nvme_namespace	*ns = &ctrlr->ns[nsid - 1];
+	struct nvme_namespace	*ns;
 	void			*ctrlr_cookie;
 	uint32_t		i;
+
+	KASSERT(nsid <= NVME_MAX_NAMESPACES,
+	    ("%s: Namespace notification to nsid %d exceeds range\n",
+		device_get_nameunit(ctrlr->dev), nsid));
 
 	if (!ctrlr->is_initialized)
 		return;
 
+	ns = &ctrlr->ns[nsid - 1];
 	for (i = 0; i < NVME_MAX_CONSUMERS; i++) {
 		cons = &nvme_consumer[i];
 		if (cons->id != INVALID_CONSUMER_ID && cons->ns_fn != NULL &&

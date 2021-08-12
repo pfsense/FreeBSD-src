@@ -497,6 +497,8 @@ enum nvme_critical_warning_state {
 	NVME_CRIT_WARN_ST_VOLATILE_MEMORY_BACKUP	= 0x10,
 };
 #define NVME_CRIT_WARN_ST_RESERVED_MASK			(0xE0)
+#define	NVME_ASYNC_EVENT_NS_ATTRIBUTE			(0x100)
+#define	NVME_ASYNC_EVENT_FW_ACTIVATE			(0x200)
 
 /* slot for current FW */
 #define NVME_FIRMWARE_PAGE_AFI_SLOT_SHIFT		(0)
@@ -544,8 +546,7 @@ enum shst_value {
 	NVME_SHST_COMPLETE	= 0x2,
 };
 
-struct nvme_registers
-{
+struct nvme_registers {
 	uint32_t	cap_lo; /* controller capabilities */
 	uint32_t	cap_hi;
 	uint32_t	vs;	/* version */
@@ -577,13 +578,12 @@ struct nvme_registers
 	struct {
 	    uint32_t	sq_tdbl; /* submission queue tail doorbell */
 	    uint32_t	cq_hdbl; /* completion queue head doorbell */
-	} doorbell[1] __packed;
-} __packed;
+	} doorbell[1];
+};
 
 _Static_assert(sizeof(struct nvme_registers) == 0x1008, "bad size for nvme_registers");
 
-struct nvme_command
-{
+struct nvme_command {
 	/* dword 0 */
 	uint8_t opc;		/* opcode */
 	uint8_t fuse;		/* fused operation */
@@ -612,7 +612,7 @@ struct nvme_command
 	uint32_t cdw13;		/* command-specific */
 	uint32_t cdw14;		/* command-specific */
 	uint32_t cdw15;		/* command-specific */
-} __packed;
+};
 
 _Static_assert(sizeof(struct nvme_command) == 16 * 4, "bad size for nvme_command");
 
@@ -631,7 +631,7 @@ struct nvme_completion {
 	/* dword 3 */
 	uint16_t		cid;	/* command identifier */
 	uint16_t		status;
-} __packed;
+} __aligned(8);	/* riscv: nvme_qpair_process_completions has better code gen */
 
 _Static_assert(sizeof(struct nvme_completion) == 4 * 4, "bad size for nvme_completion");
 
@@ -639,7 +639,7 @@ struct nvme_dsm_range {
 	uint32_t attributes;
 	uint32_t length;
 	uint64_t starting_lba;
-} __packed;
+};
 
 /* Largest DSM Trim that can be done */
 #define NVME_MAX_DSM_TRIM		4096
@@ -1401,6 +1401,28 @@ struct nvme_command_effects_page {
 _Static_assert(sizeof(struct nvme_command_effects_page) == 4096,
     "bad size for nvme_command_effects_page");
 
+struct nvme_device_self_test_page {
+	uint8_t			curr_operation;
+	uint8_t			curr_compl;
+	uint8_t			rsvd2[2];
+	struct {
+		uint8_t		status;
+		uint8_t		segment_num;
+		uint8_t		valid_diag_info;
+		uint8_t		rsvd3;
+		uint64_t	poh;
+		uint32_t	nsid;
+		/* Define as an array to simplify alignment issues */
+		uint8_t		failing_lba[8];
+		uint8_t		status_code_type;
+		uint8_t		status_code;
+		uint8_t		vendor_specific[2];
+	} __packed result[20];
+} __packed __aligned(4);
+
+_Static_assert(sizeof(struct nvme_device_self_test_page) == 564,
+    "bad size for nvme_device_self_test_page");
+
 struct nvme_res_notification_page {
 	uint64_t		log_page_count;
 	uint8_t			log_page_type;
@@ -1429,8 +1451,7 @@ struct nvme_sanitize_status_page {
 _Static_assert(sizeof(struct nvme_sanitize_status_page) == 512,
     "bad size for nvme_sanitize_status_page");
 
-struct intel_log_temp_stats
-{
+struct intel_log_temp_stats {
 	uint64_t	current;
 	uint64_t	overtemp_flag_last;
 	uint64_t	overtemp_flag_life;
@@ -1444,8 +1465,7 @@ struct intel_log_temp_stats
 
 _Static_assert(sizeof(struct intel_log_temp_stats) == 13 * 8, "bad size for intel_log_temp_stats");
 
-struct nvme_resv_reg_ctrlr
-{
+struct nvme_resv_reg_ctrlr {
 	uint16_t		ctrlr_id;	/* Controller ID */
 	uint8_t			rcsts;		/* Reservation Status */
 	uint8_t			reserved3[5];
@@ -1455,8 +1475,7 @@ struct nvme_resv_reg_ctrlr
 
 _Static_assert(sizeof(struct nvme_resv_reg_ctrlr) == 24, "bad size for nvme_resv_reg_ctrlr");
 
-struct nvme_resv_reg_ctrlr_ext
-{
+struct nvme_resv_reg_ctrlr_ext {
 	uint16_t		ctrlr_id;	/* Controller ID */
 	uint8_t			rcsts;		/* Reservation Status */
 	uint8_t			reserved3[5];
@@ -1467,8 +1486,7 @@ struct nvme_resv_reg_ctrlr_ext
 
 _Static_assert(sizeof(struct nvme_resv_reg_ctrlr_ext) == 64, "bad size for nvme_resv_reg_ctrlr_ext");
 
-struct nvme_resv_status
-{
+struct nvme_resv_status {
 	uint32_t		gen;		/* Generation */
 	uint8_t			rtype;		/* Reservation Type */
 	uint8_t			regctl[2];	/* Number of Registered Controllers */
@@ -1480,8 +1498,7 @@ struct nvme_resv_status
 
 _Static_assert(sizeof(struct nvme_resv_status) == 24, "bad size for nvme_resv_status");
 
-struct nvme_resv_status_ext
-{
+struct nvme_resv_status_ext {
 	uint32_t		gen;		/* Generation */
 	uint8_t			rtype;		/* Reservation Type */
 	uint8_t			regctl[2];	/* Number of Registered Controllers */
@@ -2025,4 +2042,25 @@ void	nvme_resv_status_ext_swapbytes(struct nvme_resv_status_ext *s __unused,
 #endif
 }
 
+static inline void
+nvme_device_self_test_swapbytes(struct nvme_device_self_test_page *s __unused)
+{
+#if _BYTE_ORDER != _LITTLE_ENDIAN
+	uint8_t *tmp;
+	uint32_t r, i;
+	uint8_t b;
+
+	for (r = 0; r < 20; r++) {
+		s->result[r].poh = le64toh(s->result[r].poh);
+		s->result[r].nsid = le32toh(s->result[r].nsid);
+		/* Unaligned 64-bit loads fail on some architectures */
+		tmp = s->result[r].failing_lba;
+		for (i = 0; i < 4; i++) {
+			b = tmp[i];
+			tmp[i] = tmp[7-i];
+			tmp[7-i] = b;
+		}
+	}
+#endif
+}
 #endif /* __NVME_H__ */

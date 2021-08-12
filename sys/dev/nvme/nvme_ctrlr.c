@@ -40,7 +40,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/smp.h>
 #include <sys/uio.h>
+#include <sys/sbuf.h>
 #include <sys/endian.h>
+#include <machine/stdarg.h>
 #include <vm/vm.h>
 
 #include "nvme_private.h"
@@ -49,6 +51,35 @@ __FBSDID("$FreeBSD$");
 
 static void nvme_ctrlr_construct_and_submit_aer(struct nvme_controller *ctrlr,
 						struct nvme_async_event_request *aer);
+
+static void
+nvme_ctrlr_devctl_log(struct nvme_controller *ctrlr, const char *type, const char *msg, ...)
+{
+	struct sbuf sb;
+	va_list ap;
+	int error;
+
+	if (sbuf_new(&sb, NULL, 0, SBUF_AUTOEXTEND | SBUF_NOWAIT) == NULL)
+		return;
+	sbuf_printf(&sb, "%s: ", device_get_nameunit(ctrlr->dev));
+	va_start(ap, msg);
+	sbuf_vprintf(&sb, msg, ap);
+	va_end(ap);
+	error = sbuf_finish(&sb);
+	if (error == 0)
+		printf("%s\n", sbuf_data(&sb));
+
+	sbuf_clear(&sb);
+	sbuf_printf(&sb, "name=\"%s\" reason=\"", device_get_nameunit(ctrlr->dev));
+	va_start(ap, msg);
+	sbuf_vprintf(&sb, msg, ap);
+	va_end(ap);
+	sbuf_printf(&sb, "\"");
+	error = sbuf_finish(&sb);
+	if (error == 0)
+		devctl_notify("nvme", "controller", type, sbuf_data(&sb));
+	sbuf_delete(&sb);
+}
 
 static int
 nvme_ctrlr_construct_admin_qpair(struct nvme_controller *ctrlr)
@@ -229,7 +260,7 @@ nvme_ctrlr_wait_for_ready(struct nvme_controller *ctrlr, int desired_val)
 
 	while (1) {
 		csts = nvme_mmio_read_4(ctrlr, csts);
-		if (csts == 0xffffffff)		/* Hot unplug. */
+		if (csts == NVME_GONE)		/* Hot unplug. */
 			return (ENXIO);
 		if (((csts >> NVME_CSTS_REG_RDY_SHIFT) & NVME_CSTS_REG_RDY_MASK)
 		    == desired_val)
@@ -371,7 +402,7 @@ nvme_ctrlr_disable_qpairs(struct nvme_controller *ctrlr)
 	}
 }
 
-int
+static int
 nvme_ctrlr_hw_reset(struct nvme_controller *ctrlr)
 {
 	int err;
@@ -606,23 +637,28 @@ nvme_ctrlr_log_critical_warnings(struct nvme_controller *ctrlr,
 {
 
 	if (state & NVME_CRIT_WARN_ST_AVAILABLE_SPARE)
-		nvme_printf(ctrlr, "available spare space below threshold\n");
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "available spare space below threshold");
 
 	if (state & NVME_CRIT_WARN_ST_TEMPERATURE)
-		nvme_printf(ctrlr, "temperature above threshold\n");
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "temperature above threshold");
 
 	if (state & NVME_CRIT_WARN_ST_DEVICE_RELIABILITY)
-		nvme_printf(ctrlr, "device reliability degraded\n");
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "device reliability degraded");
 
 	if (state & NVME_CRIT_WARN_ST_READ_ONLY)
-		nvme_printf(ctrlr, "media placed in read only mode\n");
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "media placed in read only mode");
 
 	if (state & NVME_CRIT_WARN_ST_VOLATILE_MEMORY_BACKUP)
-		nvme_printf(ctrlr, "volatile memory backup device failed\n");
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "volatile memory backup device failed");
 
 	if (state & NVME_CRIT_WARN_ST_RESERVED_MASK)
-		nvme_printf(ctrlr,
-		    "unknown critical warning(s): state = 0x%02x\n", state);
+		nvme_ctrlr_devctl_log(ctrlr, "critical",
+		    "unknown critical warning(s): state = 0x%02x", state);
 }
 
 static void
@@ -798,7 +834,8 @@ nvme_ctrlr_configure_aer(struct nvme_controller *ctrlr)
 	    NVME_CRIT_WARN_ST_READ_ONLY |
 	    NVME_CRIT_WARN_ST_VOLATILE_MEMORY_BACKUP;
 	if (ctrlr->cdata.ver >= NVME_REV(1, 2))
-		ctrlr->async_event_config |= 0x300;
+		ctrlr->async_event_config |= NVME_ASYNC_EVENT_NS_ATTRIBUTE |
+		    NVME_ASYNC_EVENT_FW_ACTIVATE;
 
 	status.done = 0;
 	nvme_ctrlr_cmd_get_feature(ctrlr, NVME_FEAT_TEMPERATURE_THRESHOLD,
@@ -1098,7 +1135,6 @@ nvme_ctrlr_start_config_hook(void *arg)
 fail:
 		nvme_ctrlr_fail(ctrlr);
 		config_intrhook_disestablish(&ctrlr->config_hook);
-		ctrlr->config_hook.ich_arg = NULL;
 		return;
 	}
 
@@ -1117,7 +1153,6 @@ fail:
 
 	nvme_sysctl_initialize_ctrlr(ctrlr);
 	config_intrhook_disestablish(&ctrlr->config_hook);
-	ctrlr->config_hook.ich_arg = NULL;
 
 	ctrlr->is_initialized = 1;
 	nvme_notify_new_controller(ctrlr);
@@ -1129,7 +1164,7 @@ nvme_ctrlr_reset_task(void *arg, int pending)
 	struct nvme_controller	*ctrlr = arg;
 	int			status;
 
-	nvme_printf(ctrlr, "resetting controller\n");
+	nvme_ctrlr_devctl_log(ctrlr, "RESET", "resetting controller");
 	status = nvme_ctrlr_hw_reset(ctrlr);
 	/*
 	 * Use pause instead of DELAY, so that we yield to any nvme interrupt
@@ -1407,9 +1442,20 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 	if (nvme_ctrlr_construct_admin_qpair(ctrlr) != 0)
 		return (ENXIO);
 
+	/*
+	 * Create 2 threads for the taskqueue. The reset thread will block when
+	 * it detects that the controller has failed until all I/O has been
+	 * failed up the stack. The fail_req task needs to be able to run in
+	 * this case to finish the request failure for some cases.
+	 *
+	 * We could partially solve this race by draining the failed requeust
+	 * queue before proceding to free the sim, though nothing would stop
+	 * new I/O from coming in after we do that drain, but before we reach
+	 * cam_sim_free, so this big hammer is used instead.
+	 */
 	ctrlr->taskqueue = taskqueue_create("nvme_taskq", M_WAITOK,
 	    taskqueue_thread_enqueue, &ctrlr->taskqueue);
-	taskqueue_start_threads(&ctrlr->taskqueue, 1, PI_DISK, "nvme taskq");
+	taskqueue_start_threads(&ctrlr->taskqueue, 2, PI_DISK, "nvme taskq");
 
 	ctrlr->is_resetting = 0;
 	ctrlr->is_initialized = 0;
@@ -1446,7 +1492,7 @@ nvme_ctrlr_destruct(struct nvme_controller *ctrlr, device_t dev)
 	 * Check whether it is a hot unplug or a clean driver detach.
 	 * If device is not there any more, skip any shutdown commands.
 	 */
-	gone = (nvme_mmio_read_4(ctrlr, csts) == 0xffffffff);
+	gone = (nvme_mmio_read_4(ctrlr, csts) == NVME_GONE);
 	if (gone)
 		nvme_ctrlr_fail(ctrlr);
 	else
@@ -1524,7 +1570,7 @@ nvme_ctrlr_shutdown(struct nvme_controller *ctrlr)
 	    ((uint64_t)ctrlr->cdata.rtd3e * hz + 999999) / 1000000);
 	while (1) {
 		csts = nvme_mmio_read_4(ctrlr, csts);
-		if (csts == 0xffffffff)		/* Hot unplug. */
+		if (csts == NVME_GONE)		/* Hot unplug. */
 			break;
 		if (NVME_CSTS_GET_SHST(csts) == NVME_SHST_COMPLETE)
 			break;

@@ -202,7 +202,7 @@ parse_client_statement(FILE *cfile, struct interface_info *ip,
 	int		 token;
 	char		*val;
 	struct option	*option;
-	time_t		tmp;
+	time_t		 tmp;
 
 	switch (next_token(&val, cfile)) {
 	case SEND:
