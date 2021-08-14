@@ -560,6 +560,9 @@ struct pf_kpool {
 struct pf_rule_actions {
 	u_int32_t       qid;
 	u_int32_t       pqid;
+	u_int32_t       pdnpipe;
+	u_int32_t       dnpipe;
+	u_int8_t        flags;
 };
 
 union pf_krule_ptr {

@@ -4854,7 +4854,7 @@ pf_test_state_tcp(struct pf_kstate **state, int direction, struct pfi_kkif *kif,
 		key.port[0] = th->th_dport;
 	}
 
-	STATE_LOOKUP(kif, &key, direction, *state, pd);
+	STATE_LOOKUP(kif, &key, direction, *state, off, pd);
 
 	if (direction == (*state)->direction) {
 		src = &(*state)->src;
