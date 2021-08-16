@@ -1928,7 +1928,7 @@ do {						\
 			}
 
 			case O_MACADDR2_LOOKUP:
-				if (args->eh != NULL) {	/* have MAC header */
+				if (args->flags & IPFW_ARGS_ETHER) {
 					uint32_t v = 0;
 					match = ipfw_lookup_table(chain,
 					    cmd->arg1, 0, args->eh, &v, NULL,
