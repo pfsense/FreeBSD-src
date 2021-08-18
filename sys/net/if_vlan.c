@@ -238,6 +238,9 @@ static struct sx _VLAN_SX_ID;
 #define	VLAN_RUNLOCK()			NET_EPOCH_EXIT();
 #define	VLAN_RLOCK_ASSERT()		MPASS(in_epoch(net_epoch_preempt))
 
+#define	VLAN_RLOCK_COND()		struct net_epoch_enter_cond _neec; NET_EPOCH_ENTER_COND(&_neec)
+#define	VLAN_RUNLOCK_COND()		NET_EPOCH_EXIT_COND(&_neec)
+
 #define	VLAN_SLOCK()			sx_slock(&_VLAN_SX_ID)
 #define	VLAN_SUNLOCK()			sx_sunlock(&_VLAN_SX_ID)
 #define	VLAN_XLOCK()			sx_xlock(&_VLAN_SX_ID)
@@ -1151,11 +1154,11 @@ vlan_transmit(struct ifnet *ifp, struct mbuf *m)
 	struct ifnet *p;
 	int error, len, mcast;
 
-	VLAN_RLOCK();
+	VLAN_RLOCK_COND();
 	ifv = ifp->if_softc;
 	if (TRUNK(ifv) == NULL) {
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-		VLAN_RUNLOCK();
+		VLAN_RUNLOCK_COND();
 		m_freem(m);
 		return (ENETDOWN);
 	}
@@ -1171,14 +1174,14 @@ vlan_transmit(struct ifnet *ifp, struct mbuf *m)
 	 */
 	if (!UP_AND_RUNNING(p)) {
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-		VLAN_RUNLOCK();
+		VLAN_RUNLOCK_COND();
 		m_freem(m);
 		return (ENETDOWN);
 	}
 
 	if (!ether_8021q_frame(&m, ifp, p, ifv->ifv_vid, ifv->ifv_pcp)) {
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-		VLAN_RUNLOCK();
+		VLAN_RUNLOCK_COND();
 		return (0);
 	}
 
@@ -1192,7 +1195,7 @@ vlan_transmit(struct ifnet *ifp, struct mbuf *m)
 		if_inc_counter(ifp, IFCOUNTER_OMCASTS, mcast);
 	} else
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
-	VLAN_RUNLOCK();
+	VLAN_RUNLOCK_COND();
 	return (error);
 }
 
@@ -1263,10 +1266,10 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 	struct m_tag *mtag;
 	uint16_t vid, tag;
 
-	VLAN_RLOCK();
+	VLAN_RLOCK_COND();
 	trunk = ifp->if_vlantrunk;
 	if (trunk == NULL) {
-		VLAN_RUNLOCK();
+		VLAN_RUNLOCK_COND();
 		m_freem(m);
 		return;
 	}
@@ -1289,7 +1292,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 			if (m->m_len < sizeof(*evl) &&
 			    (m = m_pullup(m, sizeof(*evl))) == NULL) {
 				if_printf(ifp, "cannot pullup VLAN header\n");
-				VLAN_RUNLOCK();
+				VLAN_RUNLOCK_COND();
 				return;
 			}
 			evl = mtod(m, struct ether_vlan_header *);
@@ -1312,7 +1315,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 			      __func__, ifp->if_xname, ifp->if_type);
 #endif
 			if_inc_counter(ifp, IFCOUNTER_NOPROTO, 1);
-			VLAN_RUNLOCK();
+			VLAN_RUNLOCK_COND();
 			m_freem(m);
 			return;
 		}
@@ -1322,7 +1325,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 
 	ifv = vlan_gethash(trunk, vid);
 	if (ifv == NULL || !UP_AND_RUNNING(ifv->ifv_ifp)) {
-		VLAN_RUNLOCK();
+		VLAN_RUNLOCK_COND();
 		if_inc_counter(ifp, IFCOUNTER_NOPROTO, 1);
 		m_freem(m);
 		return;
@@ -1342,7 +1345,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 			    sizeof(uint8_t), M_NOWAIT);
 			if (mtag == NULL) {
 				if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
-				VLAN_RUNLOCK();
+				VLAN_RUNLOCK_COND();
 				m_freem(m);
 				return;
 			}
@@ -1353,7 +1356,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 
 	m->m_pkthdr.rcvif = ifv->ifv_ifp;
 	if_inc_counter(ifv->ifv_ifp, IFCOUNTER_IPACKETS, 1);
-	VLAN_RUNLOCK();
+	VLAN_RUNLOCK_COND();
 
 	/* Pass it back through the parent's input routine. */
 	(*ifv->ifv_ifp->if_input)(ifv->ifv_ifp, m);
