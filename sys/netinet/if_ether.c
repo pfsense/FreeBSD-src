@@ -629,7 +629,7 @@ arpresolve(struct ifnet *ifp, int is_gw, struct mbuf *m,
 		}
 	}
 
-	IF_AFDATA_RLOCK(ifp);
+	IF_AFDATA_RLOCK_COND(ifp);
 	la = lla_lookup(LLTABLE(ifp), plle ? LLE_EXCLUSIVE : LLE_UNLOCKED, dst);
 	if (la != NULL && (la->r_flags & RLLE_VALID) != 0) {
 		/* Entry found, let's copy lle info */
@@ -643,12 +643,12 @@ arpresolve(struct ifnet *ifp, int is_gw, struct mbuf *m,
 			*plle = la;
 			LLE_WUNLOCK(la);
 		}
-		IF_AFDATA_RUNLOCK(ifp);
+		IF_AFDATA_RUNLOCK_COND(ifp);
 		return (0);
 	}
 	if (plle && la)
 		LLE_WUNLOCK(la);
-	IF_AFDATA_RUNLOCK(ifp);
+	IF_AFDATA_RUNLOCK_COND(ifp);
 
 	return (arpresolve_full(ifp, is_gw, la == NULL ? LLE_CREATE : 0, m, dst,
 	    desten, pflags, plle));
