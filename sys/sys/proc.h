@@ -246,6 +246,7 @@ struct thread {
 /* Cleared during fork1() */
 #define	td_startzero td_epochnest
 	u_char		td_epochnest;	/* (k) Epoch nest counter. */
+	u_char		td_net_epoch;	/* (k) net epoch counter. */
 	int		td_flags;	/* (t) TDF_* flags. */
 	int		td_inhibitors;	/* (t) Why can not run. */
 	int		td_pflags;	/* (k) Private thread (TDP_*) flags. */

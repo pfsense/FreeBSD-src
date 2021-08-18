@@ -402,6 +402,9 @@ struct ifnet {
 #define	IF_ADDR_RLOCK(if)       struct epoch_tracker if_addr_et; epoch_enter_preempt(net_epoch_preempt, &if_addr_et);
 #define	IF_ADDR_RUNLOCK(if)     epoch_exit_preempt(net_epoch_preempt, &if_addr_et);
 
+#define	IF_ADDR_RLOCK_COND(if)       struct net_epoch_enter_cond _neec; NET_EPOCH_ENTER_COND(&_neec)
+#define	IF_ADDR_RUNLOCK_COND(if)     NET_EPOCH_EXIT_COND(&_neec)
+
 #define	IF_ADDR_WLOCK(if)	mtx_lock(&(if)->if_addr_lock)
 #define	IF_ADDR_WUNLOCK(if)	mtx_unlock(&(if)->if_addr_lock)
 #define	IF_ADDR_LOCK_ASSERT(if)	MPASS(in_epoch(net_epoch_preempt) || mtx_owned(&(if)->if_addr_lock))
@@ -413,6 +416,32 @@ struct ifnet {
 #define	NET_EPOCH_WAIT() epoch_wait_preempt(net_epoch_preempt)
 #define	NET_EPOCH_ASSERT() MPASS(in_epoch(net_epoch_preempt))
 
+#ifdef _KERNEL
+struct net_epoch_enter_cond {
+	struct epoch_tracker et;
+	bool entered;
+};
+
+static inline void
+NET_EPOCH_ENTER_COND(struct net_epoch_enter_cond *neec)
+{
+
+	neec->entered = false;
+	if (curthread->td_net_epoch == 0) {
+		NET_EPOCH_ENTER_ET(neec->et);
+		neec->entered = true;
+	}
+}
+
+static inline void
+NET_EPOCH_EXIT_COND(struct net_epoch_enter_cond *neec)
+{
+
+	if (neec->entered) {
+		NET_EPOCH_EXIT_ET(neec->et);
+	}
+}
+#endif
 
 /*
  * Function variations on locking macros intended to be used by loadable
@@ -499,6 +528,9 @@ EVENTHANDLER_DECLARE(group_change_event, group_change_event_handler_t);
 #define	IF_AFDATA_UNLOCK(ifp)	IF_AFDATA_WUNLOCK(ifp)
 #define	IF_AFDATA_TRYLOCK(ifp)	mtx_trylock(&(ifp)->if_afdata_lock)
 #define	IF_AFDATA_DESTROY(ifp)	mtx_destroy(&(ifp)->if_afdata_lock)
+
+#define	IF_AFDATA_RLOCK_COND(ifp)	struct net_epoch_enter_cond _neec; NET_EPOCH_ENTER_COND(&_neec)
+#define	IF_AFDATA_RUNLOCK_COND(ifp)	NET_EPOCH_EXIT_COND(&_neec)
 
 #define	IF_AFDATA_LOCK_ASSERT(ifp)	MPASS(in_epoch(net_epoch_preempt) || mtx_owned(&(ifp)->if_afdata_lock))
 #define	IF_AFDATA_RLOCK_ASSERT(ifp)	MPASS(in_epoch(net_epoch_preempt));

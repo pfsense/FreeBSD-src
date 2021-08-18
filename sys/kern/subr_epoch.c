@@ -60,6 +60,11 @@ __FBSDID("$FreeBSD$");
 #define EPOCH_ALIGN CACHE_LINE_SIZE
 #endif
 
+/*
+ * pfSense hack
+ */
+extern epoch_t net_epoch_preempt;
+
 TAILQ_HEAD (epoch_tdlist, epoch_tracker);
 typedef struct epoch_record {
 	ck_epoch_record_t er_record;
@@ -323,6 +328,8 @@ epoch_enter_preempt(epoch_t epoch, epoch_tracker_t et)
 	td = curthread;
 	et->et_td = td;
 	td->td_epochnest++;
+	if (epoch == net_epoch_preempt)
+		td->td_net_epoch++;
 	critical_enter();
 	sched_pin();
 
@@ -370,6 +377,9 @@ epoch_exit_preempt(epoch_t epoch, epoch_tracker_t et)
 	td = curthread;
 	critical_enter();
 	sched_unpin();
+	MPASS(td->td_net_epoch);
+	if (epoch == net_epoch_preempt)
+		td->td_net_epoch--;
 	MPASS(td->td_epochnest);
 	td->td_epochnest--;
 	er = epoch_currecord(epoch);
