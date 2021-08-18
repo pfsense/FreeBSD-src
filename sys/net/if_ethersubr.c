@@ -762,7 +762,7 @@ VNET_SYSUNINIT(vnet_ether_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY,
 static void
 ether_input(struct ifnet *ifp, struct mbuf *m)
 {
-
+	struct net_epoch_enter_cond neec;
 	struct mbuf *mn;
 
 	/*
@@ -770,6 +770,8 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 	 * m_nextpkt. We split them up into separate packets here and pass
 	 * them up. This allows the drivers to amortize the receive lock.
 	 */
+	CURVNET_SET_QUIET(ifp->if_vnet);
+	NET_EPOCH_ENTER_COND(&neec);
 	while (m) {
 		mn = m->m_nextpkt;
 		m->m_nextpkt = NULL;
@@ -780,11 +782,11 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 		 */
 		KASSERT(m->m_pkthdr.rcvif == ifp, ("%s: ifnet mismatch m %p "
 		    "rcvif %p ifp %p", __func__, m, m->m_pkthdr.rcvif, ifp));
-		CURVNET_SET_QUIET(ifp->if_vnet);
 		netisr_dispatch(NETISR_ETHER, m);
-		CURVNET_RESTORE();
 		m = mn;
 	}
+	NET_EPOCH_EXIT_COND(&neec);
+	CURVNET_RESTORE();
 }
 
 /*
