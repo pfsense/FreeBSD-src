@@ -954,6 +954,7 @@ u_char inetctlerrmap[PRC_NCMDS] = {
 void
 ip_forward(struct mbuf *m, int srcrt)
 {
+	struct net_epoch_enter_cond neec;
 	struct ip *ip = mtod(m, struct ip *);
 	struct in_ifaddr *ia;
 	struct mbuf *mcopy;
@@ -988,7 +989,7 @@ ip_forward(struct mbuf *m, int srcrt)
 #else
 	in_rtalloc_ign(&ro, 0, M_GETFIB(m));
 #endif
-	NET_EPOCH_ENTER();
+	NET_EPOCH_ENTER_COND(&neec);
 	if (ro.ro_rt != NULL) {
 		ia = ifatoia(ro.ro_rt->rt_ifa);
 	} else
@@ -1140,7 +1141,7 @@ ip_forward(struct mbuf *m, int srcrt)
 	}
 	icmp_error(mcopy, type, code, dest.s_addr, mtu);
  out:
-	NET_EPOCH_EXIT();
+	NET_EPOCH_EXIT_COND(&neec);
 }
 
 #define	CHECK_SO_CT(sp, ct) \
