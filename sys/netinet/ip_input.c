@@ -712,7 +712,7 @@ passin:
 	 * into the stack for SIMPLEX interfaces handled by ether_output().
 	 */
 	if (ifp != NULL && ifp->if_flags & IFF_BROADCAST) {
-		IF_ADDR_RLOCK(ifp);
+		IF_ADDR_RLOCK_COND(ifp);
 		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			if (ifa->ifa_addr->sa_family != AF_INET)
 				continue;
@@ -722,7 +722,7 @@ passin:
 				counter_u64_add(ia->ia_ifa.ifa_ipackets, 1);
 				counter_u64_add(ia->ia_ifa.ifa_ibytes,
 				    m->m_pkthdr.len);
-				IF_ADDR_RUNLOCK(ifp);
+				IF_ADDR_RUNLOCK_COND(ifp);
 				goto ours;
 			}
 #ifdef BOOTP_COMPAT
@@ -730,12 +730,12 @@ passin:
 				counter_u64_add(ia->ia_ifa.ifa_ipackets, 1);
 				counter_u64_add(ia->ia_ifa.ifa_ibytes,
 				    m->m_pkthdr.len);
-				IF_ADDR_RUNLOCK(ifp);
+				IF_ADDR_RUNLOCK_COND(ifp);
 				goto ours;
 			}
 #endif
 		}
-		IF_ADDR_RUNLOCK(ifp);
+		IF_ADDR_RUNLOCK_COND(ifp);
 		ia = NULL;
 	}
 	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr))) {
