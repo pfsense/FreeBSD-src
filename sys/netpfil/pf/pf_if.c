@@ -396,13 +396,13 @@ pfi_kkif_match(struct pfi_kkif *rule_kif, struct pfi_kkif *packet_kif)
 		return (1);
 
 	if (rule_kif->pfik_group != NULL) {
-		IF_ADDR_RLOCK(packet_kif->pfik_ifp);
+		IF_ADDR_RLOCK_COND(packet_kif->pfik_ifp);
 		CK_STAILQ_FOREACH(p, &packet_kif->pfik_ifp->if_groups, ifgl_next)
 			if (p->ifgl_group == rule_kif->pfik_group) {
-				IF_ADDR_RUNLOCK(packet_kif->pfik_ifp);
+				IF_ADDR_RUNLOCK_COND(packet_kif->pfik_ifp);
 				return (1);
 			}
-		IF_ADDR_RUNLOCK(packet_kif->pfik_ifp);
+		IF_ADDR_RUNLOCK_COND(packet_kif->pfik_ifp);
 	}
 
 
