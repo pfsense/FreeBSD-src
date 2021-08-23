@@ -1062,29 +1062,36 @@ igc_if_media_change(if_ctx_t ctx)
 	if (IFM_TYPE(ifm->ifm_media) != IFM_ETHER)
 		return (EINVAL);
 
-	adapter->hw.mac.autoneg = DO_AUTO_NEG;
-
 	switch (IFM_SUBTYPE(ifm->ifm_media)) {
 	case IFM_AUTO:
+		adapter->hw.mac.autoneg = DO_AUTO_NEG;
 		adapter->hw.phy.autoneg_advertised = AUTONEG_ADV_DEFAULT;
 		break;
         case IFM_2500_T:
+                adapter->hw.mac.autoneg = DO_AUTO_NEG;
                 adapter->hw.phy.autoneg_advertised = ADVERTISE_2500_FULL;
                 break;
+	case IFM_1000_LX:
+	case IFM_1000_SX:
 	case IFM_1000_T:
+		adapter->hw.mac.autoneg = DO_AUTO_NEG;
 		adapter->hw.phy.autoneg_advertised = ADVERTISE_1000_FULL;
 		break;
 	case IFM_100_TX:
+		adapter->hw.mac.autoneg = FALSE;
+		adapter->hw.phy.autoneg_advertised = 0;
 		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_100_FULL;
+			adapter->hw.mac.forced_speed_duplex = ADVERTISE_100_FULL;
 		else
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_100_HALF;
+			adapter->hw.mac.forced_speed_duplex = ADVERTISE_100_HALF;
 		break;
 	case IFM_10_T:
+		adapter->hw.mac.autoneg = FALSE;
+		adapter->hw.phy.autoneg_advertised = 0;
 		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_10_FULL;
+			adapter->hw.mac.forced_speed_duplex = ADVERTISE_10_FULL;
 		else
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_10_HALF;
+			adapter->hw.mac.forced_speed_duplex = ADVERTISE_10_HALF;
 		break;
 	default:
 		device_printf(adapter->dev, "Unsupported media type\n");
