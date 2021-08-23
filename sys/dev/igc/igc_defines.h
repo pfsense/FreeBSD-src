@@ -94,6 +94,7 @@
 #define IGC_CTRL_EXT_SPD_BYPS	0x00008000 /* Speed Select Bypass */
 #define IGC_CTRL_EXT_RO_DIS	0x00020000 /* Relaxed Ordering disable */
 #define IGC_CTRL_EXT_DMA_DYN_CLK_EN	0x00080000 /* DMA Dynamic Clk Gating */
+#define IGC_CTRL_EXT_LINK_MODE_MASK	0x00C00000
 #define IGC_CTRL_EXT_LINK_MODE_PCIE_SERDES	0x00C00000
 #define IGC_CTRL_EXT_EIAME		0x01000000
 #define IGC_CTRL_EXT_DRV_LOAD		0x10000000 /* Drv loaded bit for FW */
@@ -128,9 +129,21 @@
 
 #define IGC_RXDEXT_STATERR_TST	0x00000100 /* Time Stamp taken */
 #define IGC_RXDEXT_STATERR_LB		0x00040000
-#define IGC_RXDEXT_STATERR_L4E	0x20000000
+#define IGC_RXDEXT_STATERR_CE		0x01000000
+#define IGC_RXDEXT_STATERR_SE		0x02000000
+#define IGC_RXDEXT_STATERR_SEQ	0x04000000
+#define IGC_RXDEXT_STATERR_CXE	0x10000000
+#define IGC_RXDEXT_STATERR_TCPE	0x20000000
 #define IGC_RXDEXT_STATERR_IPE	0x40000000
 #define IGC_RXDEXT_STATERR_RXE	0x80000000
+
+/* mask to determine if packets should be dropped due to frame errors */
+#define IGC_RXD_ERR_FRAME_ERR_MASK ( \
+	IGC_RXD_ERR_CE  |		\
+	IGC_RXD_ERR_SE  |		\
+	IGC_RXD_ERR_SEQ |		\
+	IGC_RXD_ERR_CXE |		\
+	IGC_RXD_ERR_RXE)
 
 /* Same mask, but for extended and packet split descriptors */
 #define IGC_RXDEXT_ERR_FRAME_ERR_MASK ( \
@@ -344,9 +357,13 @@
 #define IGC_TXD_CMD_VLE	0x40000000 /* Add VLAN tag */
 #define IGC_TXD_CMD_IDE	0x80000000 /* Enable Tidv register */
 #define IGC_TXD_STAT_DD	0x00000001 /* Descriptor Done */
+#define IGC_TXD_STAT_EC	0x00000002 /* Excess Collisions */
+#define IGC_TXD_STAT_LC	0x00000004 /* Late Collisions */
+#define IGC_TXD_STAT_TU	0x00000008 /* Transmit underrun */
 #define IGC_TXD_CMD_TCP	0x01000000 /* TCP packet */
 #define IGC_TXD_CMD_IP	0x02000000 /* IP packet */
 #define IGC_TXD_CMD_TSE	0x04000000 /* TCP Seg enable */
+#define IGC_TXD_STAT_TC	0x00000004 /* Tx Underrun */
 #define IGC_TXD_EXTCMD_TSTAMP	0x00000010 /* IEEE1588 Timestamp packet */
 
 /* Transmit Control */
@@ -563,6 +580,7 @@
 #define IGC_ICS_LSC		IGC_ICR_LSC       /* Link Status Change */
 #define IGC_ICS_RXSEQ		IGC_ICR_RXSEQ     /* Rx sequence error */
 #define IGC_ICS_RXDMT0	IGC_ICR_RXDMT0    /* Rx desc min. threshold */
+#define IGC_ICS_DRSTA		IGC_ICR_DRSTA     /* Device Reset Aserted */
 
 /* Extended Interrupt Cause Set */
 #define IGC_EICS_RX_QUEUE0	IGC_EICR_RX_QUEUE0 /* Rx Queue 0 Interrupt */
@@ -611,6 +629,8 @@
 #define IGC_RAH_AV		0x80000000 /* Receive descriptor valid */
 #define IGC_RAL_MAC_ADDR_LEN	4
 #define IGC_RAH_MAC_ADDR_LEN	2
+#define IGC_RAH_QUEUE_MASK_82575	0x000C0000
+#define IGC_RAH_POOL_1	0x00040000
 
 /* Error Codes */
 #define IGC_SUCCESS			0
@@ -633,8 +653,10 @@
 #define IGC_ERR_INVM_VALUE_NOT_FOUND	20
 
 /* Loop limit on how long we wait for auto-negotiation to complete */
+#define FIBER_LINK_UP_LIMIT		50
 #define COPPER_LINK_UP_LIMIT		10
 #define PHY_AUTO_NEG_LIMIT		45
+#define PHY_FORCE_LIMIT			20
 /* Number of 100 microseconds we wait for PCI Express master disable */
 #define MASTER_DISABLE_TIMEOUT		800
 /* Number of milliseconds we wait for PHY configuration done after MAC reset */
@@ -662,7 +684,7 @@
 #define IGC_RXCW_C		0x20000000 /* Receive config */
 #define IGC_RXCW_SYNCH	0x40000000 /* Receive config synch */
 
-#define IGC_TSYNCTXCTL_TXTT_0	0x00000001 /* Tx timestamp reg 0 valid */
+#define IGC_TSYNCTXCTL_VALID		0x00000001 /* Tx timestamp valid */
 #define IGC_TSYNCTXCTL_ENABLED	0x00000010 /* enable Tx timestamping */
 
 #define IGC_TSYNCRXCTL_VALID		0x00000001 /* Rx timestamp valid */
@@ -841,6 +863,21 @@
 #define IGC_EEE_SU_LPI_CLK_STP	0x00800000 /* EEE LPI Clock Stop */
 #define IGC_EEE_LP_ADV_DEV_I225	7          /* EEE LP Adv Device */
 #define IGC_EEE_LP_ADV_ADDR_I225	61         /* EEE LP Adv Register */
+
+/* PCI Express Control */
+#define IGC_GCR_RXD_NO_SNOOP		0x00000001
+#define IGC_GCR_RXDSCW_NO_SNOOP	0x00000002
+#define IGC_GCR_RXDSCR_NO_SNOOP	0x00000004
+#define IGC_GCR_TXD_NO_SNOOP		0x00000008
+#define IGC_GCR_TXDSCW_NO_SNOOP	0x00000010
+#define IGC_GCR_TXDSCR_NO_SNOOP	0x00000020
+
+#define PCIE_NO_SNOOP_ALL	(IGC_GCR_RXD_NO_SNOOP | \
+				 IGC_GCR_RXDSCW_NO_SNOOP | \
+				 IGC_GCR_RXDSCR_NO_SNOOP | \
+				 IGC_GCR_TXD_NO_SNOOP    | \
+				 IGC_GCR_TXDSCW_NO_SNOOP | \
+				 IGC_GCR_TXDSCR_NO_SNOOP)
 
 #define IGC_MMDAC_FUNC_DATA	0x4000 /* Data, no post increment */
 
@@ -1221,9 +1258,9 @@
 #define IGC_MAX_MAC_HDR_LEN	127
 #define IGC_MAX_NETWORK_HDR_LEN	511
 
-#define IGC_VLANPQF_QUEUE_SEL(_n, q_idx) ((q_idx) << ((_n) * 4))
-#define IGC_VLANPQF_P_VALID(_n)	(0x1 << (3 + (_n) * 4))
-#define IGC_VLANPQF_QUEUE_MASK	0x03
+#define IGC_VLAPQF_QUEUE_SEL(_n, q_idx) ((q_idx) << ((_n) * 4))
+#define IGC_VLAPQF_P_VALID(_n)	(0x1 << (3 + (_n) * 4))
+#define IGC_VLAPQF_QUEUE_MASK	0x03
 #define IGC_VFTA_BLOCK_SIZE	8
 /* SerDes Control */
 #define IGC_GEN_POLL_TIMEOUT		640

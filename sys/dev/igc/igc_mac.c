@@ -435,14 +435,15 @@ void igc_clear_hw_cntrs_base_generic(struct igc_hw *hw)
 	DEBUGFUNC("igc_clear_hw_cntrs_base_generic");
 
 	IGC_READ_REG(hw, IGC_CRCERRS);
+	IGC_READ_REG(hw, IGC_SYMERRS);
 	IGC_READ_REG(hw, IGC_MPC);
 	IGC_READ_REG(hw, IGC_SCC);
 	IGC_READ_REG(hw, IGC_ECOL);
 	IGC_READ_REG(hw, IGC_MCC);
 	IGC_READ_REG(hw, IGC_LATECOL);
 	IGC_READ_REG(hw, IGC_COLC);
-	IGC_READ_REG(hw, IGC_RERC);
 	IGC_READ_REG(hw, IGC_DC);
+	IGC_READ_REG(hw, IGC_SEC);
 	IGC_READ_REG(hw, IGC_RLEC);
 	IGC_READ_REG(hw, IGC_XONRXC);
 	IGC_READ_REG(hw, IGC_XONTXC);
@@ -470,9 +471,6 @@ void igc_clear_hw_cntrs_base_generic(struct igc_hw *hw)
 	IGC_READ_REG(hw, IGC_TPT);
 	IGC_READ_REG(hw, IGC_MPTC);
 	IGC_READ_REG(hw, IGC_BPTC);
-	IGC_READ_REG(hw, IGC_TLPIC);
-	IGC_READ_REG(hw, IGC_RLPIC);
-	IGC_READ_REG(hw, IGC_RXDMTC);
 }
 
 /**
@@ -487,7 +485,7 @@ s32 igc_check_for_copper_link_generic(struct igc_hw *hw)
 {
 	struct igc_mac_info *mac = &hw->mac;
 	s32 ret_val;
-	bool link = false;
+	bool link;
 
 	DEBUGFUNC("igc_check_for_copper_link");
 
@@ -542,6 +540,179 @@ s32 igc_check_for_copper_link_generic(struct igc_hw *hw)
 }
 
 /**
+ *  igc_check_for_fiber_link_generic - Check for link (Fiber)
+ *  @hw: pointer to the HW structure
+ *
+ *  Checks for link up on the hardware.  If link is not up and we have
+ *  a signal, then we need to force link up.
+ **/
+s32 igc_check_for_fiber_link_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+	u32 rxcw;
+	u32 ctrl;
+	u32 status;
+	s32 ret_val;
+
+	DEBUGFUNC("igc_check_for_fiber_link_generic");
+
+	ctrl = IGC_READ_REG(hw, IGC_CTRL);
+	status = IGC_READ_REG(hw, IGC_STATUS);
+	rxcw = IGC_READ_REG(hw, IGC_RXCW);
+
+	/* If we don't have link (auto-negotiation failed or link partner
+	 * cannot auto-negotiate), the cable is plugged in (we have signal),
+	 * and our link partner is not trying to auto-negotiate with us (we
+	 * are receiving idles or data), we need to force link up. We also
+	 * need to give auto-negotiation time to complete, in case the cable
+	 * was just plugged in. The autoneg_failed flag does this.
+	 */
+	/* (ctrl & IGC_CTRL_SWDPIN1) == 1 == have signal */
+	if ((ctrl & IGC_CTRL_SWDPIN1) && !(status & IGC_STATUS_LU) &&
+	    !(rxcw & IGC_RXCW_C)) {
+		if (!mac->autoneg_failed) {
+			mac->autoneg_failed = TRUE;
+			return IGC_SUCCESS;
+		}
+		DEBUGOUT("NOT Rx'ing /C/, disable AutoNeg and force link.\n");
+
+		/* Disable auto-negotiation in the TXCW register */
+		IGC_WRITE_REG(hw, IGC_TXCW, (mac->txcw & ~IGC_TXCW_ANE));
+
+		/* Force link-up and also force full-duplex. */
+		ctrl = IGC_READ_REG(hw, IGC_CTRL);
+		ctrl |= (IGC_CTRL_SLU | IGC_CTRL_FD);
+		IGC_WRITE_REG(hw, IGC_CTRL, ctrl);
+
+		/* Configure Flow Control after forcing link up. */
+		ret_val = igc_config_fc_after_link_up_generic(hw);
+		if (ret_val) {
+			DEBUGOUT("Error configuring flow control\n");
+			return ret_val;
+		}
+	} else if ((ctrl & IGC_CTRL_SLU) && (rxcw & IGC_RXCW_C)) {
+		/* If we are forcing link and we are receiving /C/ ordered
+		 * sets, re-enable auto-negotiation in the TXCW register
+		 * and disable forced link in the Device Control register
+		 * in an attempt to auto-negotiate with our link partner.
+		 */
+		DEBUGOUT("Rx'ing /C/, enable AutoNeg and stop forcing link.\n");
+		IGC_WRITE_REG(hw, IGC_TXCW, mac->txcw);
+		IGC_WRITE_REG(hw, IGC_CTRL, (ctrl & ~IGC_CTRL_SLU));
+
+		mac->serdes_has_link = TRUE;
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_check_for_serdes_link_generic - Check for link (Serdes)
+ *  @hw: pointer to the HW structure
+ *
+ *  Checks for link up on the hardware.  If link is not up and we have
+ *  a signal, then we need to force link up.
+ **/
+s32 igc_check_for_serdes_link_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+	u32 rxcw;
+	u32 ctrl;
+	u32 status;
+	s32 ret_val;
+
+	DEBUGFUNC("igc_check_for_serdes_link_generic");
+
+	ctrl = IGC_READ_REG(hw, IGC_CTRL);
+	status = IGC_READ_REG(hw, IGC_STATUS);
+	rxcw = IGC_READ_REG(hw, IGC_RXCW);
+
+	/* If we don't have link (auto-negotiation failed or link partner
+	 * cannot auto-negotiate), and our link partner is not trying to
+	 * auto-negotiate with us (we are receiving idles or data),
+	 * we need to force link up. We also need to give auto-negotiation
+	 * time to complete.
+	 */
+	/* (ctrl & IGC_CTRL_SWDPIN1) == 1 == have signal */
+	if (!(status & IGC_STATUS_LU) && !(rxcw & IGC_RXCW_C)) {
+		if (!mac->autoneg_failed) {
+			mac->autoneg_failed = TRUE;
+			return IGC_SUCCESS;
+		}
+		DEBUGOUT("NOT Rx'ing /C/, disable AutoNeg and force link.\n");
+
+		/* Disable auto-negotiation in the TXCW register */
+		IGC_WRITE_REG(hw, IGC_TXCW, (mac->txcw & ~IGC_TXCW_ANE));
+
+		/* Force link-up and also force full-duplex. */
+		ctrl = IGC_READ_REG(hw, IGC_CTRL);
+		ctrl |= (IGC_CTRL_SLU | IGC_CTRL_FD);
+		IGC_WRITE_REG(hw, IGC_CTRL, ctrl);
+
+		/* Configure Flow Control after forcing link up. */
+		ret_val = igc_config_fc_after_link_up_generic(hw);
+		if (ret_val) {
+			DEBUGOUT("Error configuring flow control\n");
+			return ret_val;
+		}
+	} else if ((ctrl & IGC_CTRL_SLU) && (rxcw & IGC_RXCW_C)) {
+		/* If we are forcing link and we are receiving /C/ ordered
+		 * sets, re-enable auto-negotiation in the TXCW register
+		 * and disable forced link in the Device Control register
+		 * in an attempt to auto-negotiate with our link partner.
+		 */
+		DEBUGOUT("Rx'ing /C/, enable AutoNeg and stop forcing link.\n");
+		IGC_WRITE_REG(hw, IGC_TXCW, mac->txcw);
+		IGC_WRITE_REG(hw, IGC_CTRL, (ctrl & ~IGC_CTRL_SLU));
+
+		mac->serdes_has_link = TRUE;
+	} else if (!(IGC_TXCW_ANE & IGC_READ_REG(hw, IGC_TXCW))) {
+		/* If we force link for non-auto-negotiation switch, check
+		 * link status based on MAC synchronization for internal
+		 * serdes media type.
+		 */
+		/* SYNCH bit and IV bit are sticky. */
+		usec_delay(10);
+		rxcw = IGC_READ_REG(hw, IGC_RXCW);
+		if (rxcw & IGC_RXCW_SYNCH) {
+			if (!(rxcw & IGC_RXCW_IV)) {
+				mac->serdes_has_link = TRUE;
+				DEBUGOUT("SERDES: Link up - forced.\n");
+			}
+		} else {
+			mac->serdes_has_link = FALSE;
+			DEBUGOUT("SERDES: Link down - force failed.\n");
+		}
+	}
+
+	if (IGC_TXCW_ANE & IGC_READ_REG(hw, IGC_TXCW)) {
+		status = IGC_READ_REG(hw, IGC_STATUS);
+		if (status & IGC_STATUS_LU) {
+			/* SYNCH bit and IV bit are sticky, so reread rxcw. */
+			usec_delay(10);
+			rxcw = IGC_READ_REG(hw, IGC_RXCW);
+			if (rxcw & IGC_RXCW_SYNCH) {
+				if (!(rxcw & IGC_RXCW_IV)) {
+					mac->serdes_has_link = TRUE;
+					DEBUGOUT("SERDES: Link up - autoneg completed successfully.\n");
+				} else {
+					mac->serdes_has_link = FALSE;
+					DEBUGOUT("SERDES: Link down - invalid codewords detected in autoneg.\n");
+				}
+			} else {
+				mac->serdes_has_link = FALSE;
+				DEBUGOUT("SERDES: Link down - no sync.\n");
+			}
+		} else {
+			mac->serdes_has_link = FALSE;
+			DEBUGOUT("SERDES: Link down - autoneg failed\n");
+		}
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
  *  igc_setup_link_generic - Setup flow control and link settings
  *  @hw: pointer to the HW structure
  *
@@ -564,7 +735,7 @@ s32 igc_setup_link_generic(struct igc_hw *hw)
 		return IGC_SUCCESS;
 
 	/* If requested flow control is set to default, set flow control
-	 * for both 'rx' and 'tx' pause frames.
+	 * based on the EEPROM flow control settings.
 	 */
 	if (hw->fc.requested_mode == igc_fc_default) {
 		hw->fc.requested_mode = igc_fc_full;
@@ -596,6 +767,175 @@ s32 igc_setup_link_generic(struct igc_hw *hw)
 	IGC_WRITE_REG(hw, IGC_FCTTV, hw->fc.pause_time);
 
 	return igc_set_fc_watermarks_generic(hw);
+}
+
+/**
+ *  igc_commit_fc_settings_generic - Configure flow control
+ *  @hw: pointer to the HW structure
+ *
+ *  Write the flow control settings to the Transmit Config Word Register (TXCW)
+ *  base on the flow control settings in igc_mac_info.
+ **/
+static s32 igc_commit_fc_settings_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+	u32 txcw;
+
+	DEBUGFUNC("igc_commit_fc_settings_generic");
+
+	/* Check for a software override of the flow control settings, and
+	 * setup the device accordingly.  If auto-negotiation is enabled, then
+	 * software will have to set the "PAUSE" bits to the correct value in
+	 * the Transmit Config Word Register (TXCW) and re-start auto-
+	 * negotiation.  However, if auto-negotiation is disabled, then
+	 * software will have to manually configure the two flow control enable
+	 * bits in the CTRL register.
+	 *
+	 * The possible values of the "fc" parameter are:
+	 *      0:  Flow control is completely disabled
+	 *      1:  Rx flow control is enabled (we can receive pause frames,
+	 *          but not send pause frames).
+	 *      2:  Tx flow control is enabled (we can send pause frames but we
+	 *          do not support receiving pause frames).
+	 *      3:  Both Rx and Tx flow control (symmetric) are enabled.
+	 */
+	switch (hw->fc.current_mode) {
+	case igc_fc_none:
+		/* Flow control completely disabled by a software over-ride. */
+		txcw = (IGC_TXCW_ANE | IGC_TXCW_FD);
+		break;
+	case igc_fc_rx_pause:
+		/* Rx Flow control is enabled and Tx Flow control is disabled
+		 * by a software over-ride. Since there really isn't a way to
+		 * advertise that we are capable of Rx Pause ONLY, we will
+		 * advertise that we support both symmetric and asymmetric Rx
+		 * PAUSE.  Later, we will disable the adapter's ability to send
+		 * PAUSE frames.
+		 */
+		txcw = (IGC_TXCW_ANE | IGC_TXCW_FD | IGC_TXCW_PAUSE_MASK);
+		break;
+	case igc_fc_tx_pause:
+		/* Tx Flow control is enabled, and Rx Flow control is disabled,
+		 * by a software over-ride.
+		 */
+		txcw = (IGC_TXCW_ANE | IGC_TXCW_FD | IGC_TXCW_ASM_DIR);
+		break;
+	case igc_fc_full:
+		/* Flow control (both Rx and Tx) is enabled by a software
+		 * over-ride.
+		 */
+		txcw = (IGC_TXCW_ANE | IGC_TXCW_FD | IGC_TXCW_PAUSE_MASK);
+		break;
+	default:
+		DEBUGOUT("Flow control param set incorrectly\n");
+		return -IGC_ERR_CONFIG;
+		break;
+	}
+
+	IGC_WRITE_REG(hw, IGC_TXCW, txcw);
+	mac->txcw = txcw;
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_poll_fiber_serdes_link_generic - Poll for link up
+ *  @hw: pointer to the HW structure
+ *
+ *  Polls for link up by reading the status register, if link fails to come
+ *  up with auto-negotiation, then the link is forced if a signal is detected.
+ **/
+static s32 igc_poll_fiber_serdes_link_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+	u32 i, status;
+	s32 ret_val;
+
+	DEBUGFUNC("igc_poll_fiber_serdes_link_generic");
+
+	/* If we have a signal (the cable is plugged in, or assumed TRUE for
+	 * serdes media) then poll for a "Link-Up" indication in the Device
+	 * Status Register.  Time-out if a link isn't seen in 500 milliseconds
+	 * seconds (Auto-negotiation should complete in less than 500
+	 * milliseconds even if the other end is doing it in SW).
+	 */
+	for (i = 0; i < FIBER_LINK_UP_LIMIT; i++) {
+		msec_delay(10);
+		status = IGC_READ_REG(hw, IGC_STATUS);
+		if (status & IGC_STATUS_LU)
+			break;
+	}
+	if (i == FIBER_LINK_UP_LIMIT) {
+		DEBUGOUT("Never got a valid link from auto-neg!!!\n");
+		mac->autoneg_failed = TRUE;
+		/* AutoNeg failed to achieve a link, so we'll call
+		 * mac->check_for_link. This routine will force the
+		 * link up if we detect a signal. This will allow us to
+		 * communicate with non-autonegotiating link partners.
+		 */
+		ret_val = mac->ops.check_for_link(hw);
+		if (ret_val) {
+			DEBUGOUT("Error while checking for link\n");
+			return ret_val;
+		}
+		mac->autoneg_failed = FALSE;
+	} else {
+		mac->autoneg_failed = FALSE;
+		DEBUGOUT("Valid Link Found\n");
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_setup_fiber_serdes_link_generic - Setup link for fiber/serdes
+ *  @hw: pointer to the HW structure
+ *
+ *  Configures collision distance and flow control for fiber and serdes
+ *  links.  Upon successful setup, poll for link.
+ **/
+s32 igc_setup_fiber_serdes_link_generic(struct igc_hw *hw)
+{
+	u32 ctrl;
+	s32 ret_val;
+
+	DEBUGFUNC("igc_setup_fiber_serdes_link_generic");
+
+	ctrl = IGC_READ_REG(hw, IGC_CTRL);
+
+	/* Take the link out of reset */
+	ctrl &= ~IGC_CTRL_LRST;
+
+	hw->mac.ops.config_collision_dist(hw);
+
+	ret_val = igc_commit_fc_settings_generic(hw);
+	if (ret_val)
+		return ret_val;
+
+	/* Since auto-negotiation is enabled, take the link out of reset (the
+	 * link will be in reset, because we previously reset the chip). This
+	 * will restart auto-negotiation.  If auto-negotiation is successful
+	 * then the link-up status bit will be set and the flow control enable
+	 * bits (RFCE and TFCE) will be set according to their negotiated value.
+	 */
+	DEBUGOUT("Auto-negotiation enabled\n");
+
+	IGC_WRITE_REG(hw, IGC_CTRL, ctrl);
+	IGC_WRITE_FLUSH(hw);
+	msec_delay(1);
+
+	/* For these adapters, the SW definable pin 1 is set when the optics
+	 * detect a signal.  If we have a signal, then poll for a "Link-Up"
+	 * indication.
+	 */
+	if (hw->phy.media_type == igc_media_type_internal_serdes ||
+	    (IGC_READ_REG(hw, IGC_CTRL) & IGC_CTRL_SWDPIN1)) {
+		ret_val = igc_poll_fiber_serdes_link_generic(hw);
+	} else {
+		DEBUGOUT("No signal detected\n");
+	}
+
+	return ret_val;
 }
 
 /**
@@ -742,8 +1082,10 @@ s32 igc_config_fc_after_link_up_generic(struct igc_hw *hw)
 	 * so we had to force link.  In this case, we need to force the
 	 * configuration of the MAC to match the "fc" parameter.
 	 */
-	if (mac->autoneg_failed)
-		ret_val = igc_force_mac_fc_generic(hw);
+	if (mac->autoneg_failed) {
+		if (hw->phy.media_type == igc_media_type_copper)
+			ret_val = igc_force_mac_fc_generic(hw);
+	}
 
 	if (ret_val) {
 		DEBUGOUT("Error forcing flow control settings\n");
@@ -755,7 +1097,7 @@ s32 igc_config_fc_after_link_up_generic(struct igc_hw *hw)
 	 * has completed, and if so, how the PHY and link partner has
 	 * flow control configured.
 	 */
-	if (mac->autoneg) {
+	if ((hw->phy.media_type == igc_media_type_copper) && mac->autoneg) {
 		/* Read the MII Status Register and check to see if AutoNeg
 		 * has completed.  We read this twice because this reg has
 		 * some "sticky" (latched) bits.
@@ -947,6 +1289,26 @@ s32 igc_get_speed_and_duplex_copper_generic(struct igc_hw *hw, u16 *speed,
 }
 
 /**
+ *  igc_get_speed_and_duplex_fiber_generic - Retrieve current speed/duplex
+ *  @hw: pointer to the HW structure
+ *  @speed: stores the current speed
+ *  @duplex: stores the current duplex
+ *
+ *  Sets the speed and duplex to gigabit full duplex (the only possible option)
+ *  for fiber/serdes links.
+ **/
+s32 igc_get_speed_and_duplex_fiber_serdes_generic(struct igc_hw IGC_UNUSEDARG *hw,
+						    u16 *speed, u16 *duplex)
+{
+	DEBUGFUNC("igc_get_speed_and_duplex_fiber_serdes_generic");
+
+	*speed = SPEED_1000;
+	*duplex = FULL_DUPLEX;
+
+	return IGC_SUCCESS;
+}
+
+/**
  *  igc_get_hw_semaphore_generic - Acquire hardware semaphore
  *  @hw: pointer to the HW structure
  *
@@ -1044,6 +1406,250 @@ s32 igc_get_auto_rd_done_generic(struct igc_hw *hw)
 }
 
 /**
+ *  igc_valid_led_default_generic - Verify a valid default LED config
+ *  @hw: pointer to the HW structure
+ *  @data: pointer to the NVM (EEPROM)
+ *
+ *  Read the EEPROM for the current default LED configuration.  If the
+ *  LED configuration is not valid, set to a valid LED configuration.
+ **/
+s32 igc_valid_led_default_generic(struct igc_hw *hw, u16 *data)
+{
+	s32 ret_val;
+
+	DEBUGFUNC("igc_valid_led_default_generic");
+
+	ret_val = hw->nvm.ops.read(hw, NVM_ID_LED_SETTINGS, 1, data);
+	if (ret_val) {
+		DEBUGOUT("NVM Read Error\n");
+		return ret_val;
+	}
+
+	if (*data == ID_LED_RESERVED_0000 || *data == ID_LED_RESERVED_FFFF)
+		*data = ID_LED_DEFAULT;
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_id_led_init_generic -
+ *  @hw: pointer to the HW structure
+ *
+ **/
+s32 igc_id_led_init_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+	s32 ret_val;
+	const u32 ledctl_mask = 0x000000FF;
+	const u32 ledctl_on = IGC_LEDCTL_MODE_LED_ON;
+	const u32 ledctl_off = IGC_LEDCTL_MODE_LED_OFF;
+	u16 data, i, temp;
+	const u16 led_mask = 0x0F;
+
+	DEBUGFUNC("igc_id_led_init_generic");
+
+	ret_val = hw->nvm.ops.valid_led_default(hw, &data);
+	if (ret_val)
+		return ret_val;
+
+	mac->ledctl_default = IGC_READ_REG(hw, IGC_LEDCTL);
+	mac->ledctl_mode1 = mac->ledctl_default;
+	mac->ledctl_mode2 = mac->ledctl_default;
+
+	for (i = 0; i < 4; i++) {
+		temp = (data >> (i << 2)) & led_mask;
+		switch (temp) {
+		case ID_LED_ON1_DEF2:
+		case ID_LED_ON1_ON2:
+		case ID_LED_ON1_OFF2:
+			mac->ledctl_mode1 &= ~(ledctl_mask << (i << 3));
+			mac->ledctl_mode1 |= ledctl_on << (i << 3);
+			break;
+		case ID_LED_OFF1_DEF2:
+		case ID_LED_OFF1_ON2:
+		case ID_LED_OFF1_OFF2:
+			mac->ledctl_mode1 &= ~(ledctl_mask << (i << 3));
+			mac->ledctl_mode1 |= ledctl_off << (i << 3);
+			break;
+		default:
+			/* Do nothing */
+			break;
+		}
+		switch (temp) {
+		case ID_LED_DEF1_ON2:
+		case ID_LED_ON1_ON2:
+		case ID_LED_OFF1_ON2:
+			mac->ledctl_mode2 &= ~(ledctl_mask << (i << 3));
+			mac->ledctl_mode2 |= ledctl_on << (i << 3);
+			break;
+		case ID_LED_DEF1_OFF2:
+		case ID_LED_ON1_OFF2:
+		case ID_LED_OFF1_OFF2:
+			mac->ledctl_mode2 &= ~(ledctl_mask << (i << 3));
+			mac->ledctl_mode2 |= ledctl_off << (i << 3);
+			break;
+		default:
+			/* Do nothing */
+			break;
+		}
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_setup_led_generic - Configures SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  This prepares the SW controllable LED for use and saves the current state
+ *  of the LED so it can be later restored.
+ **/
+s32 igc_setup_led_generic(struct igc_hw *hw)
+{
+	u32 ledctl;
+
+	DEBUGFUNC("igc_setup_led_generic");
+
+	if (hw->mac.ops.setup_led != igc_setup_led_generic)
+		return -IGC_ERR_CONFIG;
+
+	if (hw->phy.media_type == igc_media_type_fiber) {
+		ledctl = IGC_READ_REG(hw, IGC_LEDCTL);
+		hw->mac.ledctl_default = ledctl;
+		/* Turn off LED0 */
+		ledctl &= ~(IGC_LEDCTL_LED0_IVRT | IGC_LEDCTL_LED0_BLINK |
+			    IGC_LEDCTL_LED0_MODE_MASK);
+		ledctl |= (IGC_LEDCTL_MODE_LED_OFF <<
+			   IGC_LEDCTL_LED0_MODE_SHIFT);
+		IGC_WRITE_REG(hw, IGC_LEDCTL, ledctl);
+	} else if (hw->phy.media_type == igc_media_type_copper) {
+		IGC_WRITE_REG(hw, IGC_LEDCTL, hw->mac.ledctl_mode1);
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_cleanup_led_generic - Set LED config to default operation
+ *  @hw: pointer to the HW structure
+ *
+ *  Remove the current LED configuration and set the LED configuration
+ *  to the default value, saved from the EEPROM.
+ **/
+s32 igc_cleanup_led_generic(struct igc_hw *hw)
+{
+	DEBUGFUNC("igc_cleanup_led_generic");
+
+	IGC_WRITE_REG(hw, IGC_LEDCTL, hw->mac.ledctl_default);
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_blink_led_generic - Blink LED
+ *  @hw: pointer to the HW structure
+ *
+ *  Blink the LEDs which are set to be on.
+ **/
+s32 igc_blink_led_generic(struct igc_hw *hw)
+{
+	u32 ledctl_blink = 0;
+	u32 i;
+
+	DEBUGFUNC("igc_blink_led_generic");
+
+	if (hw->phy.media_type == igc_media_type_fiber) {
+		/* always blink LED0 for PCI-E fiber */
+		ledctl_blink = IGC_LEDCTL_LED0_BLINK |
+		     (IGC_LEDCTL_MODE_LED_ON << IGC_LEDCTL_LED0_MODE_SHIFT);
+	} else {
+		/* Set the blink bit for each LED that's "on" (0x0E)
+		 * (or "off" if inverted) in ledctl_mode2.  The blink
+		 * logic in hardware only works when mode is set to "on"
+		 * so it must be changed accordingly when the mode is
+		 * "off" and inverted.
+		 */
+		ledctl_blink = hw->mac.ledctl_mode2;
+		for (i = 0; i < 32; i += 8) {
+			u32 mode = (hw->mac.ledctl_mode2 >> i) &
+			    IGC_LEDCTL_LED0_MODE_MASK;
+			u32 led_default = hw->mac.ledctl_default >> i;
+
+			if ((!(led_default & IGC_LEDCTL_LED0_IVRT) &&
+			     (mode == IGC_LEDCTL_MODE_LED_ON)) ||
+			    ((led_default & IGC_LEDCTL_LED0_IVRT) &&
+			     (mode == IGC_LEDCTL_MODE_LED_OFF))) {
+				ledctl_blink &=
+				    ~(IGC_LEDCTL_LED0_MODE_MASK << i);
+				ledctl_blink |= (IGC_LEDCTL_LED0_BLINK |
+						 IGC_LEDCTL_MODE_LED_ON) << i;
+			}
+		}
+	}
+
+	IGC_WRITE_REG(hw, IGC_LEDCTL, ledctl_blink);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_led_on_generic - Turn LED on
+ *  @hw: pointer to the HW structure
+ *
+ *  Turn LED on.
+ **/
+s32 igc_led_on_generic(struct igc_hw *hw)
+{
+	u32 ctrl;
+
+	DEBUGFUNC("igc_led_on_generic");
+
+	switch (hw->phy.media_type) {
+	case igc_media_type_fiber:
+		ctrl = IGC_READ_REG(hw, IGC_CTRL);
+		ctrl &= ~IGC_CTRL_SWDPIN0;
+		ctrl |= IGC_CTRL_SWDPIO0;
+		IGC_WRITE_REG(hw, IGC_CTRL, ctrl);
+		break;
+	case igc_media_type_copper:
+		IGC_WRITE_REG(hw, IGC_LEDCTL, hw->mac.ledctl_mode2);
+		break;
+	default:
+		break;
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_led_off_generic - Turn LED off
+ *  @hw: pointer to the HW structure
+ *
+ *  Turn LED off.
+ **/
+s32 igc_led_off_generic(struct igc_hw *hw)
+{
+	u32 ctrl;
+
+	DEBUGFUNC("igc_led_off_generic");
+
+	switch (hw->phy.media_type) {
+	case igc_media_type_fiber:
+		ctrl = IGC_READ_REG(hw, IGC_CTRL);
+		ctrl |= IGC_CTRL_SWDPIN0;
+		ctrl |= IGC_CTRL_SWDPIO0;
+		IGC_WRITE_REG(hw, IGC_CTRL, ctrl);
+		break;
+	case igc_media_type_copper:
+		IGC_WRITE_REG(hw, IGC_LEDCTL, hw->mac.ledctl_mode1);
+		break;
+	default:
+		break;
+	}
+
+	return IGC_SUCCESS;
+}
+
+/**
  *  igc_disable_pcie_master_generic - Disables PCI-express master access
  *  @hw: pointer to the HW structure
  *
@@ -1080,3 +1686,72 @@ s32 igc_disable_pcie_master_generic(struct igc_hw *hw)
 
 	return IGC_SUCCESS;
 }
+
+/**
+ *  igc_reset_adaptive_generic - Reset Adaptive Interframe Spacing
+ *  @hw: pointer to the HW structure
+ *
+ *  Reset the Adaptive Interframe Spacing throttle to default values.
+ **/
+void igc_reset_adaptive_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+
+	DEBUGFUNC("igc_reset_adaptive_generic");
+
+	if (!mac->adaptive_ifs) {
+		DEBUGOUT("Not in Adaptive IFS mode!\n");
+		return;
+	}
+
+	mac->current_ifs_val = 0;
+	mac->ifs_min_val = IFS_MIN;
+	mac->ifs_max_val = IFS_MAX;
+	mac->ifs_step_size = IFS_STEP;
+	mac->ifs_ratio = IFS_RATIO;
+
+	mac->in_ifs_mode = FALSE;
+	IGC_WRITE_REG(hw, IGC_AIT, 0);
+}
+
+/**
+ *  igc_update_adaptive_generic - Update Adaptive Interframe Spacing
+ *  @hw: pointer to the HW structure
+ *
+ *  Update the Adaptive Interframe Spacing Throttle value based on the
+ *  time between transmitted packets and time between collisions.
+ **/
+void igc_update_adaptive_generic(struct igc_hw *hw)
+{
+	struct igc_mac_info *mac = &hw->mac;
+
+	DEBUGFUNC("igc_update_adaptive_generic");
+
+	if (!mac->adaptive_ifs) {
+		DEBUGOUT("Not in Adaptive IFS mode!\n");
+		return;
+	}
+
+	if ((mac->collision_delta * mac->ifs_ratio) > mac->tx_packet_delta) {
+		if (mac->tx_packet_delta > MIN_NUM_XMITS) {
+			mac->in_ifs_mode = TRUE;
+			if (mac->current_ifs_val < mac->ifs_max_val) {
+				if (!mac->current_ifs_val)
+					mac->current_ifs_val = mac->ifs_min_val;
+				else
+					mac->current_ifs_val +=
+						mac->ifs_step_size;
+				IGC_WRITE_REG(hw, IGC_AIT,
+						mac->current_ifs_val);
+			}
+		}
+	} else {
+		if (mac->in_ifs_mode &&
+		    (mac->tx_packet_delta <= MIN_NUM_XMITS)) {
+			mac->current_ifs_val = 0;
+			mac->in_ifs_mode = FALSE;
+			IGC_WRITE_REG(hw, IGC_AIT, 0);
+		}
+	}
+}
+

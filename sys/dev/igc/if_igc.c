@@ -33,6 +33,11 @@
 #include <machine/_inttypes.h>
 
 /*********************************************************************
+ *  Driver version:
+ *********************************************************************/
+char igc_driver_version[] = "7.6.1-k";
+
+/*********************************************************************
  *  PCI Device ID Table
  *
  *  Used by probe to select devices to load on
@@ -43,22 +48,12 @@
 
 static pci_vendor_info_t igc_vendor_info_array[] =
 {
-#define	IGC_BOARD_NAME		"Intel(R) PRO/1000 PCI-Express Network Driver"
 	/* Intel(R) PRO/1000 Network Connection - igc */
-	PVID(0x8086, IGC_DEV_ID_I225_LM, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_V, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_K, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_I, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_V, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_K2, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_LMVP, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_IT, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I226_LM, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I226_V, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I226_IT, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I221_V, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I226_BLANK_NVM, IGC_BOARD_NAME),
-	PVID(0x8086, IGC_DEV_ID_I225_BLANK_NVM, IGC_BOARD_NAME),
+	PVID(0x8086, IGC_DEV_ID_I225_LM, "Intel(R) PRO/1000 PCI-Express Network Driver"),
+	PVID(0x8086, IGC_DEV_ID_I225_V, "Intel(R) PRO/1000 PCI-Express Network Driver"),
+	PVID(0x8086, IGC_DEV_ID_I225_K, "Intel(R) PRO/1000 PCI-Express Network Driver"),
+	PVID(0x8086, IGC_DEV_ID_I225_I, "Intel(R) PRO/1000 PCI-Express Network Driver"),
+	PVID(0x8086, IGC_DEV_ID_I225_V, "Intel(R) PRO/1000 PCI-Express Network Driver"),
 	/* required last entry */
 	PVID_END
 };
@@ -107,22 +102,22 @@ static int	igc_if_tx_queue_intr_enable(if_ctx_t ctx, uint16_t txqid);
 static void	igc_if_multi_set(if_ctx_t ctx);
 static void	igc_if_update_admin_status(if_ctx_t ctx);
 static void	igc_if_debug(if_ctx_t ctx);
-static void	igc_update_stats_counters(struct igc_adapter *);
-static void	igc_add_hw_stats(struct igc_adapter *adapter);
+static void	igc_update_stats_counters(struct adapter *);
+static void	igc_add_hw_stats(struct adapter *adapter);
 static int	igc_if_set_promisc(if_ctx_t ctx, int flags);
-static void	igc_setup_vlan_hw_support(struct igc_adapter *);
+static void	igc_setup_vlan_hw_support(struct adapter *);
 static int	igc_sysctl_nvm_info(SYSCTL_HANDLER_ARGS);
-static void	igc_print_nvm_info(struct igc_adapter *);
+static void	igc_print_nvm_info(struct adapter *);
 static int	igc_sysctl_debug_info(SYSCTL_HANDLER_ARGS);
 static int	igc_get_rs(SYSCTL_HANDLER_ARGS);
-static void	igc_print_debug_info(struct igc_adapter *);
+static void	igc_print_debug_info(struct adapter *);
 static int 	igc_is_valid_ether_addr(u8 *);
 static int	igc_sysctl_int_delay(SYSCTL_HANDLER_ARGS);
-static void	igc_add_int_delay_sysctl(struct igc_adapter *, const char *,
+static void	igc_add_int_delay_sysctl(struct adapter *, const char *,
 		    const char *, struct igc_int_delay_info *, int, int);
 /* Management and WOL Support */
-static void	igc_get_hw_control(struct igc_adapter *);
-static void	igc_release_hw_control(struct igc_adapter *);
+static void	igc_get_hw_control(struct adapter *);
+static void	igc_release_hw_control(struct adapter *);
 static void	igc_get_wakeup(if_ctx_t ctx);
 static void	igc_enable_wakeup(if_ctx_t ctx);
 
@@ -136,10 +131,11 @@ static void	igc_handle_link(void *context);
 
 static int	igc_set_flowcntl(SYSCTL_HANDLER_ARGS);
 static int	igc_sysctl_eee(SYSCTL_HANDLER_ARGS);
+static void	igc_if_led_func(if_ctx_t ctx, int onoff);
 
 static int	igc_get_regs(SYSCTL_HANDLER_ARGS);
 
-static void	igc_configure_queues(struct igc_adapter *adapter);
+static void	igc_configure_queues(struct adapter *adapter);
 
 
 /*********************************************************************
@@ -158,7 +154,7 @@ static device_method_t igc_methods[] = {
 };
 
 static driver_t igc_driver = {
-	"igc", igc_methods, sizeof(struct igc_adapter),
+	"igc", igc_methods, sizeof(struct adapter),
 };
 
 static devclass_t igc_devclass;
@@ -196,6 +192,7 @@ static device_method_t igc_if_methods[] = {
 	DEVMETHOD(ifdi_vlan_register, igc_if_vlan_register),
 	DEVMETHOD(ifdi_vlan_unregister, igc_if_vlan_unregister),
 	DEVMETHOD(ifdi_get_counter, igc_if_get_counter),
+	DEVMETHOD(ifdi_led_func, igc_if_led_func),
 	DEVMETHOD(ifdi_rx_queue_intr_enable, igc_if_rx_queue_intr_enable),
 	DEVMETHOD(ifdi_tx_queue_intr_enable, igc_if_tx_queue_intr_enable),
 	DEVMETHOD(ifdi_debug, igc_if_debug),
@@ -204,7 +201,7 @@ static device_method_t igc_if_methods[] = {
 };
 
 static driver_t igc_if_driver = {
-	"igc_if", igc_if_methods, sizeof(struct igc_adapter)
+	"igc_if", igc_if_methods, sizeof(struct adapter)
 };
 
 /*********************************************************************
@@ -289,7 +286,7 @@ static struct if_shared_ctx igc_sctx_init = {
 	.isc_ntxqs = 1,
 	.isc_admin_intrcnt = 1,
 	.isc_vendor_info = igc_vendor_info_array,
-	.isc_driver_version = "1",
+	.isc_driver_version = igc_driver_version,
 	.isc_driver = &igc_if_driver,
 	.isc_flags = IFLIB_NEED_SCRATCH | IFLIB_TSO_INIT_IP | IFLIB_NEED_ZERO_CSUM,
 
@@ -312,7 +309,7 @@ if_shared_ctx_t igc_sctx = &igc_sctx_init;
 
 static int igc_get_regs(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter = (struct igc_adapter *)arg1;
+	struct adapter *adapter = (struct adapter *)arg1;
 	struct igc_hw *hw = &adapter->hw;
 	struct sbuf *sb;
 	u32 *regs_buff;
@@ -354,6 +351,10 @@ static int igc_get_regs(SYSCTL_HANDLER_ARGS)
 	regs_buff[15] = IGC_READ_REG(hw, IGC_TDH(0));
 	regs_buff[16] = IGC_READ_REG(hw, IGC_TDT(0));
 	regs_buff[17] = IGC_READ_REG(hw, IGC_TXDCTL(0));
+	regs_buff[18] = IGC_READ_REG(hw, IGC_TDFH);
+	regs_buff[19] = IGC_READ_REG(hw, IGC_TDFT);
+	regs_buff[20] = IGC_READ_REG(hw, IGC_TDFHS);
+	regs_buff[21] = IGC_READ_REG(hw, IGC_TDFPC);
 
 	sbuf_printf(sb, "General Registers\n");
 	sbuf_printf(sb, "\tCTRL\t %08x\n", regs_buff[0]);
@@ -452,7 +453,7 @@ igc_set_num_queues(if_ctx_t ctx)
 static int
 igc_if_attach_pre(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter;
+	struct adapter *adapter;
 	if_softc_ctx_t scctx;
 	device_t dev;
 	struct igc_hw *hw;
@@ -679,7 +680,7 @@ err_pci:
 static int
 igc_if_attach_post(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_hw *hw = &adapter->hw;
 	int error = 0;
 	
@@ -726,7 +727,7 @@ err_late:
 static int
 igc_if_detach(if_ctx_t ctx)
 {
-	struct igc_adapter	*adapter = iflib_get_softc(ctx);
+	struct adapter	*adapter = iflib_get_softc(ctx);
 
 	INIT_DEBUGOUT("igc_if_detach: begin");
 
@@ -756,7 +757,7 @@ igc_if_shutdown(if_ctx_t ctx)
 static int
 igc_if_suspend(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	igc_release_hw_control(adapter);
 	igc_enable_wakeup(ctx);
@@ -775,7 +776,7 @@ static int
 igc_if_mtu_set(if_ctx_t ctx, uint32_t mtu)
 {
 	int max_frame_size;
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = iflib_get_softc_ctx(ctx);
 
 	 IOCTL_DEBUGOUT("ioctl rcv'd: SIOCSIFMTU (Set Interface MTU)");
@@ -804,7 +805,7 @@ igc_if_mtu_set(if_ctx_t ctx, uint32_t mtu)
 static void
 igc_if_init(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = adapter->shared;
 	struct ifnet *ifp = iflib_get_ifp(ctx);
 	struct igc_tx_queue *tx_que;
@@ -888,7 +889,7 @@ igc_if_init(if_ctx_t ctx)
 int
 igc_intr(void *arg)
 {
-	struct igc_adapter *adapter = arg;
+	struct adapter *adapter = arg;
 	if_ctx_t ctx = adapter->ctx;
 	u32 reg_icr;
 
@@ -926,7 +927,7 @@ igc_intr(void *arg)
 static int
 igc_if_rx_queue_intr_enable(if_ctx_t ctx, uint16_t rxqid)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_rx_queue *rxq = &adapter->rx_queues[rxqid];
 
 	IGC_WRITE_REG(&adapter->hw, IGC_EIMS, rxq->eims);
@@ -936,7 +937,7 @@ igc_if_rx_queue_intr_enable(if_ctx_t ctx, uint16_t rxqid)
 static int
 igc_if_tx_queue_intr_enable(if_ctx_t ctx, uint16_t txqid)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_tx_queue *txq = &adapter->tx_queues[txqid];
 
 	IGC_WRITE_REG(&adapter->hw, IGC_EIMS, txq->eims);
@@ -966,7 +967,7 @@ igc_msix_que(void *arg)
 static int
 igc_msix_link(void *arg)
 {
-	struct igc_adapter *adapter = arg;
+	struct adapter *adapter = arg;
 	u32 reg_icr;
 
 	++adapter->link_irq;
@@ -990,7 +991,7 @@ static void
 igc_handle_link(void *context)
 {
 	if_ctx_t ctx = context;
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	adapter->hw.mac.get_link_status = 1;
 	iflib_admin_intr_deferred(ctx);
@@ -1007,7 +1008,7 @@ igc_handle_link(void *context)
 static void
 igc_if_media_status(if_ctx_t ctx, struct ifmediareq *ifmr)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	INIT_DEBUGOUT("igc_if_media_status: begin");
 
@@ -1027,7 +1028,15 @@ igc_if_media_status(if_ctx_t ctx, struct ifmediareq *ifmr)
 		ifmr->ifm_active |= IFM_10_T;
 		break;
 	case 100:
-		ifmr->ifm_active |= IFM_100_TX;
+                /*
+                ** Support for 100Mb SFP - these are Fiber 
+                ** but the media type appears as serdes
+                */
+                if (adapter->hw.phy.media_type ==
+                    igc_media_type_internal_serdes)
+                        ifmr->ifm_active |= IFM_100_FX;
+                else
+                        ifmr->ifm_active |= IFM_100_TX;
                 break;
 	case 1000:
 		ifmr->ifm_active |= IFM_1000_T;
@@ -1054,7 +1063,7 @@ igc_if_media_status(if_ctx_t ctx, struct ifmediareq *ifmr)
 static int
 igc_if_media_change(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct ifmedia *ifm = iflib_get_media(ctx);
 
 	INIT_DEBUGOUT("igc_if_media_change: begin");
@@ -1105,7 +1114,7 @@ igc_if_media_change(if_ctx_t ctx)
 static int
 igc_if_set_promisc(if_ctx_t ctx, int flags)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	u32 reg_rctl;
 
 	igc_disable_promisc(ctx);
@@ -1129,7 +1138,7 @@ igc_if_set_promisc(if_ctx_t ctx, int flags)
 static void
 igc_disable_promisc(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct ifnet *ifp = iflib_get_ifp(ctx);
 	u32 reg_rctl;
 	int mcnt = 0;
@@ -1139,7 +1148,7 @@ igc_disable_promisc(if_ctx_t ctx)
 	if (if_getflags(ifp) & IFF_ALLMULTI)
 		mcnt = MAX_NUM_MULTICAST_ADDRESSES;
 	else
-		mcnt = if_multiaddr_count(ifp, MAX_NUM_MULTICAST_ADDRESSES);
+		mcnt = if_multiaddr_count(ifp, MAX_NUM_MULTICAST_ADDRESSES);;
 	/* Don't disable if in MAX groups */
 	if (mcnt < MAX_NUM_MULTICAST_ADDRESSES)
 		reg_rctl &=  (~IGC_RCTL_MPE);
@@ -1157,7 +1166,7 @@ igc_disable_promisc(if_ctx_t ctx)
 static void
 igc_if_multi_set(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct ifnet *ifp = iflib_get_ifp(ctx);
 	u32 reg_rctl = 0;
 	u8  *mta; /* Multicast array memory */
@@ -1199,7 +1208,7 @@ igc_if_timer(if_ctx_t ctx, uint16_t qid)
 static void
 igc_if_update_admin_status(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_hw *hw = &adapter->hw;
 	device_t dev = iflib_get_dev(ctx);
 	u32 link_check, thstat, ctrl;
@@ -1215,6 +1224,16 @@ igc_if_update_admin_status(if_ctx_t ctx)
 		} else
 			link_check = TRUE;
 		break;
+	case igc_media_type_fiber:
+		igc_check_for_link(hw);
+		link_check = (IGC_READ_REG(hw, IGC_STATUS) &
+			    IGC_STATUS_LU);
+		break;
+	case igc_media_type_internal_serdes:
+		igc_check_for_link(hw);
+		link_check = adapter->hw.mac.serdes_has_link;
+		break;
+	/* VF device is type_unknown */
 	case igc_media_type_unknown:
 		igc_check_for_link(hw);
 		link_check = !hw->mac.get_link_status;
@@ -1247,7 +1266,7 @@ igc_if_update_admin_status(if_ctx_t ctx)
 static void
 igc_if_watchdog_reset(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	/*
 	 * Just count the event; iflib(4) will already trigger a
@@ -1265,12 +1284,15 @@ igc_if_watchdog_reset(if_ctx_t ctx)
 static void
 igc_if_stop(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	INIT_DEBUGOUT("igc_if_stop: begin");
 
 	igc_reset_hw(&adapter->hw);
 	IGC_WRITE_REG(&adapter->hw, IGC_WUC, 0);
+		
+	igc_led_off(&adapter->hw);
+	igc_cleanup_led(&adapter->hw);
 }
 
 /*********************************************************************
@@ -1282,7 +1304,7 @@ static void
 igc_identify_hardware(if_ctx_t ctx)
 {
 	device_t dev = iflib_get_dev(ctx);
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 
 	/* Make sure our PCI config space has the necessary stuff set */
 	adapter->hw.bus.pci_cmd_word = pci_read_config(dev, PCIR_COMMAND, 2);
@@ -1306,7 +1328,7 @@ igc_identify_hardware(if_ctx_t ctx)
 static int
 igc_allocate_pci_resources(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	device_t dev = iflib_get_dev(ctx);
 	int rid;
 
@@ -1335,7 +1357,7 @@ igc_allocate_pci_resources(if_ctx_t ctx)
 static int
 igc_if_msix_intr_assign(if_ctx_t ctx, int msix)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_rx_queue *rx_que = adapter->rx_queues;
 	struct igc_tx_queue *tx_que = adapter->tx_queues;
 	int error, rid, i, vector = 0, rx_vectors;
@@ -1402,7 +1424,7 @@ fail:
 }
 
 static void
-igc_configure_queues(struct igc_adapter *adapter)
+igc_configure_queues(struct adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
 	struct igc_rx_queue *rx_que;
@@ -1467,7 +1489,7 @@ igc_configure_queues(struct igc_adapter *adapter)
 static void
 igc_free_pci_resources(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_rx_queue *que = adapter->rx_queues;
 	device_t dev = iflib_get_dev(ctx);
 
@@ -1511,7 +1533,7 @@ igc_setup_msix(if_ctx_t ctx)
  *
  **********************************************************************/
 static void
-igc_init_dmac(struct igc_adapter *adapter, u32 pba)
+igc_init_dmac(struct adapter *adapter, u32 pba)
 {
 	device_t	dev = adapter->dev;
 	struct igc_hw *hw = &adapter->hw;
@@ -1606,7 +1628,7 @@ static void
 igc_reset(if_ctx_t ctx)
 {
 	device_t dev = iflib_get_dev(ctx);
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_hw *hw = &adapter->hw;
 	u16 rx_buffer_size;
 	u32 pba;
@@ -1685,7 +1707,7 @@ igc_reset(if_ctx_t ctx)
 
 #define RSSKEYLEN 10
 static void
-igc_initialize_rss_mapping(struct igc_adapter *adapter)
+igc_initialize_rss_mapping(struct adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
 	int i;
@@ -1784,7 +1806,7 @@ static int
 igc_setup_interface(if_ctx_t ctx)
 {
 	struct ifnet *ifp = iflib_get_ifp(ctx);
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = adapter->shared;
 
 	INIT_DEBUGOUT("igc_setup_interface: begin");
@@ -1799,14 +1821,24 @@ igc_setup_interface(if_ctx_t ctx)
 	 * Specify the media types supported by this adapter and register
 	 * callbacks to update media and link information
 	 */
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_10_T, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_10_T | IFM_FDX, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_100_TX, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_100_TX | IFM_FDX, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_1000_T | IFM_FDX, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_1000_T, 0, NULL);
-	ifmedia_add(adapter->media, IFM_ETHER | IFM_2500_T, 0, NULL);
+	if ((adapter->hw.phy.media_type == igc_media_type_fiber) ||
+	    (adapter->hw.phy.media_type == igc_media_type_internal_serdes)) {
+		u_char fiber_type = IFM_1000_SX;	/* default type */
 
+		ifmedia_add(adapter->media, IFM_ETHER | fiber_type | IFM_FDX, 0, NULL);
+		ifmedia_add(adapter->media, IFM_ETHER | fiber_type, 0, NULL);
+	} else {
+		ifmedia_add(adapter->media, IFM_ETHER | IFM_10_T, 0, NULL);
+		ifmedia_add(adapter->media, IFM_ETHER | IFM_10_T | IFM_FDX, 0, NULL);
+		ifmedia_add(adapter->media, IFM_ETHER | IFM_100_TX, 0, NULL);
+		ifmedia_add(adapter->media, IFM_ETHER | IFM_100_TX | IFM_FDX, 0, NULL);
+		if (adapter->hw.phy.type != igc_phy_ife) {
+			ifmedia_add(adapter->media, IFM_ETHER | IFM_1000_T | IFM_FDX, 0, NULL);
+			ifmedia_add(adapter->media, IFM_ETHER | IFM_1000_T, 0, NULL);
+		}
+
+                ifmedia_add(adapter->media, IFM_ETHER | IFM_2500_T, 0, NULL);
+	}
 	ifmedia_add(adapter->media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(adapter->media, IFM_ETHER | IFM_AUTO);
 	return (0);
@@ -1815,7 +1847,7 @@ igc_setup_interface(if_ctx_t ctx)
 static int
 igc_if_tx_queues_alloc(if_ctx_t ctx, caddr_t *vaddrs, uint64_t *paddrs, int ntxqs, int ntxqsets)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = adapter->shared;
 	int error = IGC_SUCCESS;
 	struct igc_tx_queue *que;
@@ -1864,7 +1896,7 @@ fail:
 static int
 igc_if_rx_queues_alloc(if_ctx_t ctx, caddr_t *vaddrs, uint64_t *paddrs, int nrxqs, int nrxqsets)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	int error = IGC_SUCCESS;
 	struct igc_rx_queue *que;
 	int i;
@@ -1906,7 +1938,7 @@ fail:
 static void
 igc_if_queues_free(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_tx_queue *tx_que = adapter->tx_queues;
 	struct igc_rx_queue *rx_que = adapter->rx_queues;
 
@@ -1943,7 +1975,7 @@ igc_if_queues_free(if_ctx_t ctx)
 static void
 igc_initialize_transmit_unit(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = adapter->shared;
 	struct igc_tx_queue *que;
 	struct tx_ring	*txr;
@@ -2010,7 +2042,7 @@ igc_initialize_transmit_unit(if_ctx_t ctx)
 static void
 igc_initialize_receive_unit(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	if_softc_ctx_t scctx = adapter->shared;
 	struct ifnet *ifp = iflib_get_ifp(ctx);
 	struct igc_hw	*hw = &adapter->hw;
@@ -2146,7 +2178,7 @@ igc_initialize_receive_unit(if_ctx_t ctx)
 static void
 igc_if_vlan_register(if_ctx_t ctx, u16 vtag)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	u32 index, bit;
 
 	index = (vtag >> 5) & 0x7F;
@@ -2158,7 +2190,7 @@ igc_if_vlan_register(if_ctx_t ctx, u16 vtag)
 static void
 igc_if_vlan_unregister(if_ctx_t ctx, u16 vtag)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	u32 index, bit;
 
 	index = (vtag >> 5) & 0x7F;
@@ -2168,7 +2200,7 @@ igc_if_vlan_unregister(if_ctx_t ctx, u16 vtag)
 }
 
 static void
-igc_setup_vlan_hw_support(struct igc_adapter *adapter)
+igc_setup_vlan_hw_support(struct adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
 	u32 reg;
@@ -2205,7 +2237,7 @@ igc_setup_vlan_hw_support(struct igc_adapter *adapter)
 static void
 igc_if_intr_enable(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_hw *hw = &adapter->hw;
 	u32 mask;
 
@@ -2223,7 +2255,7 @@ igc_if_intr_enable(if_ctx_t ctx)
 static void
 igc_if_intr_disable(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct igc_hw *hw = &adapter->hw;
 
 	if (__predict_true(adapter->intr_type == IFLIB_INTR_MSIX)) {
@@ -2241,7 +2273,7 @@ igc_if_intr_disable(if_ctx_t ctx)
  * this means that the network i/f is open.
  */
 static void
-igc_get_hw_control(struct igc_adapter *adapter)
+igc_get_hw_control(struct adapter *adapter)
 {
 	u32 ctrl_ext;
 
@@ -2260,7 +2292,7 @@ igc_get_hw_control(struct igc_adapter *adapter)
  * f/w this means that the network i/f is closed.
  */
 static void
-igc_release_hw_control(struct igc_adapter *adapter)
+igc_release_hw_control(struct adapter *adapter)
 {
 	u32 ctrl_ext;
 
@@ -2293,7 +2325,7 @@ igc_is_valid_ether_addr(u8 *addr)
 static void
 igc_get_wakeup(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	u16 eeprom_data = 0, apme_mask;
 
 	apme_mask = IGC_WUC_APME;
@@ -2311,7 +2343,7 @@ igc_get_wakeup(if_ctx_t ctx)
 static void
 igc_enable_wakeup(if_ctx_t ctx)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	device_t dev = iflib_get_dev(ctx);
 	if_t ifp = iflib_get_ifp(ctx);
 	int error = 0;
@@ -2361,16 +2393,35 @@ pme:
 	return;
 }
 
+static void
+igc_if_led_func(if_ctx_t ctx, int onoff)
+{
+	struct adapter *adapter = iflib_get_softc(ctx);
+
+	if (onoff) {
+		igc_setup_led(&adapter->hw);
+		igc_led_on(&adapter->hw);
+	} else {
+		igc_led_off(&adapter->hw);
+		igc_cleanup_led(&adapter->hw);
+	}
+}
+
 /**********************************************************************
  *
  *  Update the board statistics counters.
  *
  **********************************************************************/
 static void
-igc_update_stats_counters(struct igc_adapter *adapter)
+igc_update_stats_counters(struct adapter *adapter)
 {
 	u64 prev_xoffrxc = adapter->stats.xoffrxc;
 
+	if(adapter->hw.phy.media_type == igc_media_type_copper ||
+	   (IGC_READ_REG(&adapter->hw, IGC_STATUS) & IGC_STATUS_LU)) {
+		adapter->stats.symerrs += IGC_READ_REG(&adapter->hw, IGC_SYMERRS);
+		adapter->stats.sec += IGC_READ_REG(&adapter->hw, IGC_SEC);
+	}
 	adapter->stats.crcerrs += IGC_READ_REG(&adapter->hw, IGC_CRCERRS);
 	adapter->stats.mpc += IGC_READ_REG(&adapter->hw, IGC_MPC);
 	adapter->stats.scc += IGC_READ_REG(&adapter->hw, IGC_SCC);
@@ -2379,16 +2430,15 @@ igc_update_stats_counters(struct igc_adapter *adapter)
 	adapter->stats.mcc += IGC_READ_REG(&adapter->hw, IGC_MCC);
 	adapter->stats.latecol += IGC_READ_REG(&adapter->hw, IGC_LATECOL);
 	adapter->stats.colc += IGC_READ_REG(&adapter->hw, IGC_COLC);
-	adapter->stats.colc += IGC_READ_REG(&adapter->hw, IGC_RERC);
 	adapter->stats.dc += IGC_READ_REG(&adapter->hw, IGC_DC);
 	adapter->stats.rlec += IGC_READ_REG(&adapter->hw, IGC_RLEC);
 	adapter->stats.xonrxc += IGC_READ_REG(&adapter->hw, IGC_XONRXC);
 	adapter->stats.xontxc += IGC_READ_REG(&adapter->hw, IGC_XONTXC);
 	adapter->stats.xoffrxc += IGC_READ_REG(&adapter->hw, IGC_XOFFRXC);
 	/*
-	 * For watchdog management we need to know if we have been
-	 * paused during the last interval, so capture that here.
-	 */
+	 ** For watchdog management we need to know if we have been
+	 ** paused during the last interval, so capture that here.
+	*/
 	if (adapter->stats.xoffrxc != prev_xoffrxc)
 		adapter->shared->isc_pause_frames = 1;
 	adapter->stats.xofftxc += IGC_READ_REG(&adapter->hw, IGC_XOFFTXC);
@@ -2399,8 +2449,6 @@ igc_update_stats_counters(struct igc_adapter *adapter)
 	adapter->stats.prc511 += IGC_READ_REG(&adapter->hw, IGC_PRC511);
 	adapter->stats.prc1023 += IGC_READ_REG(&adapter->hw, IGC_PRC1023);
 	adapter->stats.prc1522 += IGC_READ_REG(&adapter->hw, IGC_PRC1522);
-	adapter->stats.tlpic += IGC_READ_REG(&adapter->hw, IGC_TLPIC);
-	adapter->stats.rlpic += IGC_READ_REG(&adapter->hw, IGC_RLPIC);
 	adapter->stats.gprc += IGC_READ_REG(&adapter->hw, IGC_GPRC);
 	adapter->stats.bprc += IGC_READ_REG(&adapter->hw, IGC_BPRC);
 	adapter->stats.mprc += IGC_READ_REG(&adapter->hw, IGC_MPRC);
@@ -2435,19 +2483,29 @@ igc_update_stats_counters(struct igc_adapter *adapter)
 	adapter->stats.bptc += IGC_READ_REG(&adapter->hw, IGC_BPTC);
 
 	/* Interrupt Counts */
+
 	adapter->stats.iac += IGC_READ_REG(&adapter->hw, IGC_IAC);
-	adapter->stats.rxdmtc += IGC_READ_REG(&adapter->hw, IGC_RXDMTC);
+	adapter->stats.icrxptc += IGC_READ_REG(&adapter->hw, IGC_ICRXPTC);
+	adapter->stats.icrxatc += IGC_READ_REG(&adapter->hw, IGC_ICRXATC);
+	adapter->stats.ictxptc += IGC_READ_REG(&adapter->hw, IGC_ICTXPTC);
+	adapter->stats.ictxatc += IGC_READ_REG(&adapter->hw, IGC_ICTXATC);
+	adapter->stats.ictxqec += IGC_READ_REG(&adapter->hw, IGC_ICTXQEC);
+	adapter->stats.ictxqmtc += IGC_READ_REG(&adapter->hw, IGC_ICTXQMTC);
+	adapter->stats.icrxdmtc += IGC_READ_REG(&adapter->hw, IGC_ICRXDMTC);
+	adapter->stats.icrxoc += IGC_READ_REG(&adapter->hw, IGC_ICRXOC);
 
 	adapter->stats.algnerrc += IGC_READ_REG(&adapter->hw, IGC_ALGNERRC);
+	adapter->stats.rxerrc += IGC_READ_REG(&adapter->hw, IGC_RXERRC);
 	adapter->stats.tncrs += IGC_READ_REG(&adapter->hw, IGC_TNCRS);
-	adapter->stats.htdpmc += IGC_READ_REG(&adapter->hw, IGC_HTDPMC);
+	adapter->stats.cexterr += IGC_READ_REG(&adapter->hw, IGC_CEXTERR);
 	adapter->stats.tsctc += IGC_READ_REG(&adapter->hw, IGC_TSCTC);
+	adapter->stats.tsctfc += IGC_READ_REG(&adapter->hw, IGC_TSCTFC);
 }
 
 static uint64_t
 igc_if_get_counter(if_ctx_t ctx, ift_counter cnt)
 {
-	struct igc_adapter *adapter = iflib_get_softc(ctx);
+	struct adapter *adapter = iflib_get_softc(ctx);
 	struct ifnet *ifp = iflib_get_ifp(ctx);
 
 	switch (cnt) {
@@ -2457,7 +2515,7 @@ igc_if_get_counter(if_ctx_t ctx, ift_counter cnt)
 		return (adapter->dropped_pkts + adapter->stats.rxerrc +
 		    adapter->stats.crcerrs + adapter->stats.algnerrc +
 		    adapter->stats.ruc + adapter->stats.roc +
-		    adapter->stats.mpc + adapter->stats.htdpmc);
+		    adapter->stats.mpc + adapter->stats.cexterr);
 	case IFCOUNTER_OERRORS:
 		return (adapter->stats.ecol + adapter->stats.latecol +
 		    adapter->watchdog_events);
@@ -2488,7 +2546,7 @@ igc_if_needs_restart(if_ctx_t ctx __unused, enum iflib_restart_event event)
 static int
 igc_sysctl_reg_handler(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter;
+	struct adapter *adapter;
 	u_int val;
 
 	adapter = oidp->oid_arg1;
@@ -2500,7 +2558,7 @@ igc_sysctl_reg_handler(SYSCTL_HANDLER_ARGS)
  * Add sysctl variables, one per statistic, to the system.
  */
 static void
-igc_add_hw_stats(struct igc_adapter *adapter)
+igc_add_hw_stats(struct adapter *adapter)
 {
 	device_t dev = iflib_get_dev(adapter->ctx);
 	struct igc_tx_queue *tx_que = adapter->tx_queues;
@@ -2642,6 +2700,10 @@ igc_add_hw_stats(struct igc_adapter *adapter)
 	SYSCTL_ADD_UQUAD(ctx, stat_list, OID_AUTO, "alignment_errs",
 			CTLFLAG_RD, &adapter->stats.algnerrc,
 			"Alignment Errors");
+	/* On 82575 these are collision counts */
+	SYSCTL_ADD_UQUAD(ctx, stat_list, OID_AUTO, "coll_ext_errs",
+			CTLFLAG_RD, &adapter->stats.cexterr,
+			"Collision/Carrier extension errors");
 	SYSCTL_ADD_UQUAD(ctx, stat_list, OID_AUTO, "xon_recvd",
 			CTLFLAG_RD, &adapter->stats.xonrxc,
 			"XON Received");
@@ -2727,6 +2789,10 @@ igc_add_hw_stats(struct igc_adapter *adapter)
 	SYSCTL_ADD_UQUAD(ctx, stat_list, OID_AUTO, "tso_txd",
 			CTLFLAG_RD, &adapter->stats.tsctc,
 			"TSO Contexts Transmitted");
+	SYSCTL_ADD_UQUAD(ctx, stat_list, OID_AUTO, "tso_ctx_fail",
+			CTLFLAG_RD, &adapter->stats.tsctfc,
+			"TSO Contexts Failed");
+
 
 	/* Interrupt Stats */
 
@@ -2738,9 +2804,37 @@ igc_add_hw_stats(struct igc_adapter *adapter)
 			CTLFLAG_RD, &adapter->stats.iac,
 			"Interrupt Assertion Count");
 
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "rx_pkt_timer",
+			CTLFLAG_RD, &adapter->stats.icrxptc,
+			"Interrupt Cause Rx Pkt Timer Expire Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "rx_abs_timer",
+			CTLFLAG_RD, &adapter->stats.icrxatc,
+			"Interrupt Cause Rx Abs Timer Expire Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "tx_pkt_timer",
+			CTLFLAG_RD, &adapter->stats.ictxptc,
+			"Interrupt Cause Tx Pkt Timer Expire Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "tx_abs_timer",
+			CTLFLAG_RD, &adapter->stats.ictxatc,
+			"Interrupt Cause Tx Abs Timer Expire Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "tx_queue_empty",
+			CTLFLAG_RD, &adapter->stats.ictxqec,
+			"Interrupt Cause Tx Queue Empty Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "tx_queue_min_thresh",
+			CTLFLAG_RD, &adapter->stats.ictxqmtc,
+			"Interrupt Cause Tx Queue Min Thresh Count");
+
 	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "rx_desc_min_thresh",
-			CTLFLAG_RD, &adapter->stats.rxdmtc,
-			"Rx Desc Min Thresh Count");
+			CTLFLAG_RD, &adapter->stats.icrxdmtc,
+			"Interrupt Cause Rx Desc Min Thresh Count");
+
+	SYSCTL_ADD_UQUAD(ctx, int_list, OID_AUTO, "rx_overrun",
+			CTLFLAG_RD, &adapter->stats.icrxoc,
+			"Interrupt Cause Receiver Overrun Count");
 }
 
 /**********************************************************************
@@ -2753,7 +2847,7 @@ igc_add_hw_stats(struct igc_adapter *adapter)
 static int
 igc_sysctl_nvm_info(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter = (struct igc_adapter *)arg1;
+	struct adapter *adapter = (struct adapter *)arg1;
 	int error;
 	int result;
 
@@ -2775,7 +2869,7 @@ igc_sysctl_nvm_info(SYSCTL_HANDLER_ARGS)
 }
 
 static void
-igc_print_nvm_info(struct igc_adapter *adapter)
+igc_print_nvm_info(struct adapter *adapter)
 {
 	u16 eeprom_data;
 	int i, j, row = 0;
@@ -2798,7 +2892,7 @@ static int
 igc_sysctl_int_delay(SYSCTL_HANDLER_ARGS)
 {
 	struct igc_int_delay_info *info;
-	struct igc_adapter *adapter;
+	struct adapter *adapter;
 	u32 regval;
 	int error, usecs, ticks;
 
@@ -2836,7 +2930,7 @@ igc_sysctl_int_delay(SYSCTL_HANDLER_ARGS)
 }
 
 static void
-igc_add_int_delay_sysctl(struct igc_adapter *adapter, const char *name,
+igc_add_int_delay_sysctl(struct adapter *adapter, const char *name,
 	const char *description, struct igc_int_delay_info *info,
 	int offset, int value)
 {
@@ -2862,7 +2956,7 @@ igc_set_flowcntl(SYSCTL_HANDLER_ARGS)
 {
 	int error;
 	static int input = 3; /* default is full */
-	struct igc_adapter	*adapter = (struct igc_adapter *) arg1;
+	struct adapter	*adapter = (struct adapter *) arg1;
 
 	error = sysctl_handle_int(oidp, &input, 0, req);
 
@@ -2898,7 +2992,7 @@ igc_set_flowcntl(SYSCTL_HANDLER_ARGS)
 static int
 igc_sysctl_eee(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter = (struct igc_adapter *) arg1;
+	struct adapter *adapter = (struct adapter *) arg1;
 	int error, value;
 
 	//value = adapter->hw.dev_spec.ich8lan.eee_disable;
@@ -2916,7 +3010,7 @@ igc_sysctl_eee(SYSCTL_HANDLER_ARGS)
 static int
 igc_sysctl_debug_info(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter;
+	struct adapter *adapter;
 	int error;
 	int result;
 
@@ -2927,7 +3021,7 @@ igc_sysctl_debug_info(SYSCTL_HANDLER_ARGS)
 		return (error);
 
 	if (result == 1) {
-		adapter = (struct igc_adapter *) arg1;
+		adapter = (struct adapter *) arg1;
 		igc_print_debug_info(adapter);
 	}
 
@@ -2937,7 +3031,7 @@ igc_sysctl_debug_info(SYSCTL_HANDLER_ARGS)
 static int
 igc_get_rs(SYSCTL_HANDLER_ARGS)
 {
-	struct igc_adapter *adapter = (struct igc_adapter *) arg1;
+	struct adapter *adapter = (struct adapter *) arg1;
 	int error;
 	int result;
 
@@ -2962,7 +3056,7 @@ igc_if_debug(if_ctx_t ctx)
  * needed for debugging a problem.  -jfv
  */
 static void
-igc_print_debug_info(struct igc_adapter *adapter)
+igc_print_debug_info(struct adapter *adapter)
 {
 	device_t dev = iflib_get_dev(adapter->ctx);
 	struct ifnet *ifp = iflib_get_ifp(adapter->ctx);

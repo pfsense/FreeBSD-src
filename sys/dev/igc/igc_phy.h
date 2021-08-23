@@ -42,16 +42,42 @@ s32  igc_null_lplu_state(struct igc_hw *hw, bool active);
 s32  igc_null_write_reg(struct igc_hw *hw, u32 offset, u16 data);
 s32  igc_null_set_page(struct igc_hw *hw, u16 data);
 s32  igc_check_downshift_generic(struct igc_hw *hw);
+s32  igc_check_polarity_m88(struct igc_hw *hw);
+s32  igc_check_polarity_igp(struct igc_hw *hw);
+s32  igc_check_polarity_ife(struct igc_hw *hw);
 s32  igc_check_reset_block_generic(struct igc_hw *hw);
+s32  igc_copper_link_setup_igp(struct igc_hw *hw);
+s32  igc_copper_link_setup_m88(struct igc_hw *hw);
+s32  igc_phy_force_speed_duplex_igp(struct igc_hw *hw);
+s32  igc_phy_force_speed_duplex_m88(struct igc_hw *hw);
+s32  igc_phy_force_speed_duplex_ife(struct igc_hw *hw);
+s32  igc_get_cable_length_m88(struct igc_hw *hw);
+s32  igc_get_cable_length_igp_2(struct igc_hw *hw);
+s32  igc_get_cfg_done_generic(struct igc_hw *hw);
 s32  igc_get_phy_id(struct igc_hw *hw);
+s32  igc_get_phy_info_igp(struct igc_hw *hw);
+s32  igc_get_phy_info_m88(struct igc_hw *hw);
+s32  igc_get_phy_info_ife(struct igc_hw *hw);
 s32  igc_phy_sw_reset_generic(struct igc_hw *hw);
 void igc_phy_force_speed_duplex_setup(struct igc_hw *hw, u16 *phy_ctrl);
 s32  igc_phy_hw_reset_generic(struct igc_hw *hw);
 s32  igc_phy_reset_dsp_generic(struct igc_hw *hw);
+s32  igc_read_kmrn_reg_generic(struct igc_hw *hw, u32 offset, u16 *data);
+s32  igc_read_kmrn_reg_locked(struct igc_hw *hw, u32 offset, u16 *data);
+s32  igc_set_page_igp(struct igc_hw *hw, u16 page);
+s32  igc_read_phy_reg_igp(struct igc_hw *hw, u32 offset, u16 *data);
+s32  igc_read_phy_reg_igp_locked(struct igc_hw *hw, u32 offset, u16 *data);
+s32  igc_read_phy_reg_m88(struct igc_hw *hw, u32 offset, u16 *data);
 s32  igc_set_d3_lplu_state_generic(struct igc_hw *hw, bool active);
 s32  igc_setup_copper_link_generic(struct igc_hw *hw);
+s32  igc_write_kmrn_reg_generic(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_write_kmrn_reg_locked(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_write_phy_reg_igp(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_write_phy_reg_igp_locked(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_write_phy_reg_m88(struct igc_hw *hw, u32 offset, u16 data);
 s32  igc_phy_has_link_generic(struct igc_hw *hw, u32 iterations,
 				u32 usec_interval, bool *success);
+s32  igc_phy_init_script_igp3(struct igc_hw *hw);
 enum igc_phy_type igc_get_phy_type_from_id(u32 phy_id);
 s32  igc_determine_phy_address(struct igc_hw *hw);
 s32  igc_enable_phy_wakeup_reg_access_bm(struct igc_hw *hw, u16 *phy_reg);
@@ -60,13 +86,13 @@ void igc_power_up_phy_copper(struct igc_hw *hw);
 void igc_power_down_phy_copper(struct igc_hw *hw);
 s32  igc_read_phy_reg_mdic(struct igc_hw *hw, u32 offset, u16 *data);
 s32  igc_write_phy_reg_mdic(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_write_phy_reg_gpy(struct igc_hw *hw, u32 offset, u16 data);
+s32  igc_read_phy_reg_gpy(struct igc_hw *hw, u32 offset, u16 *data);
 
 s32 igc_read_xmdio_reg(struct igc_hw *hw, u16 addr, u8 dev_addr,
 			 u16 *data);
 s32 igc_write_xmdio_reg(struct igc_hw *hw, u16 addr, u8 dev_addr,
 			  u16 data);
-s32  igc_write_phy_reg_gpy(struct igc_hw *hw, u32 offset, u16 data);
-s32  igc_read_phy_reg_gpy(struct igc_hw *hw, u32 offset, u16 *data);
 
 #define IGC_MAX_PHY_ADDR		8
 

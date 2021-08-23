@@ -134,14 +134,6 @@ s32 igc_set_mac_type(struct igc_hw *hw)
 	case IGC_DEV_ID_I225_K:
 	case IGC_DEV_ID_I225_I:
 	case IGC_DEV_ID_I220_V:
-	case IGC_DEV_ID_I225_K2:
-	case IGC_DEV_ID_I225_LMVP:
-	case IGC_DEV_ID_I225_IT:
-	case IGC_DEV_ID_I226_LM:
-	case IGC_DEV_ID_I226_V:
-	case IGC_DEV_ID_I226_IT:
-	case IGC_DEV_ID_I221_V:
-	case IGC_DEV_ID_I226_BLANK_NVM:
 	case IGC_DEV_ID_I225_BLANK_NVM:
 		mac->type = igc_i225;
 		break;
@@ -383,6 +375,122 @@ s32 igc_get_speed_and_duplex(struct igc_hw *hw, u16 *speed, u16 *duplex)
 }
 
 /**
+ *  igc_setup_led - Configures SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  This prepares the SW controllable LED for use and saves the current state
+ *  of the LED so it can be later restored. This is a function pointer entry
+ *  point called by drivers.
+ **/
+s32 igc_setup_led(struct igc_hw *hw)
+{
+	if (hw->mac.ops.setup_led)
+		return hw->mac.ops.setup_led(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_cleanup_led - Restores SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  This restores the SW controllable LED to the value saved off by
+ *  igc_setup_led. This is a function pointer entry point called by drivers.
+ **/
+s32 igc_cleanup_led(struct igc_hw *hw)
+{
+	if (hw->mac.ops.cleanup_led)
+		return hw->mac.ops.cleanup_led(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_blink_led - Blink SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  This starts the adapter LED blinking. Request the LED to be setup first
+ *  and cleaned up after. This is a function pointer entry point called by
+ *  drivers.
+ **/
+s32 igc_blink_led(struct igc_hw *hw)
+{
+	if (hw->mac.ops.blink_led)
+		return hw->mac.ops.blink_led(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_id_led_init - store LED configurations in SW
+ *  @hw: pointer to the HW structure
+ *
+ *  Initializes the LED config in SW. This is a function pointer entry point
+ *  called by drivers.
+ **/
+s32 igc_id_led_init(struct igc_hw *hw)
+{
+	if (hw->mac.ops.id_led_init)
+		return hw->mac.ops.id_led_init(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_led_on - Turn on SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  Turns the SW defined LED on. This is a function pointer entry point
+ *  called by drivers.
+ **/
+s32 igc_led_on(struct igc_hw *hw)
+{
+	if (hw->mac.ops.led_on)
+		return hw->mac.ops.led_on(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_led_off - Turn off SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  Turns the SW defined LED off. This is a function pointer entry point
+ *  called by drivers.
+ **/
+s32 igc_led_off(struct igc_hw *hw)
+{
+	if (hw->mac.ops.led_off)
+		return hw->mac.ops.led_off(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_reset_adaptive - Reset adaptive IFS
+ *  @hw: pointer to the HW structure
+ *
+ *  Resets the adaptive IFS. Currently no func pointer exists and all
+ *  implementations are handled in the generic version of this function.
+ **/
+void igc_reset_adaptive(struct igc_hw *hw)
+{
+	igc_reset_adaptive_generic(hw);
+}
+
+/**
+ *  igc_update_adaptive - Update adaptive IFS
+ *  @hw: pointer to the HW structure
+ *
+ *  Updates adapter IFS. Currently no func pointer exists and all
+ *  implementations are handled in the generic version of this function.
+ **/
+void igc_update_adaptive(struct igc_hw *hw)
+{
+	igc_update_adaptive_generic(hw);
+}
+
+/**
  *  igc_disable_pcie_master - Disable PCI-Express master access
  *  @hw: pointer to the HW structure
  *
@@ -525,6 +633,52 @@ s32 igc_acquire_phy(struct igc_hw *hw)
 {
 	if (hw->phy.ops.acquire)
 		return hw->phy.ops.acquire(hw);
+
+	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_read_kmrn_reg - Reads register using Kumeran interface
+ *  @hw: pointer to the HW structure
+ *  @offset: the register to read
+ *  @data: the location to store the 16-bit value read.
+ *
+ *  Reads a register out of the Kumeran interface. Currently no func pointer
+ *  exists and all implementations are handled in the generic version of
+ *  this function.
+ **/
+s32 igc_read_kmrn_reg(struct igc_hw *hw, u32 offset, u16 *data)
+{
+	return igc_read_kmrn_reg_generic(hw, offset, data);
+}
+
+/**
+ *  igc_write_kmrn_reg - Writes register using Kumeran interface
+ *  @hw: pointer to the HW structure
+ *  @offset: the register to write
+ *  @data: the value to write.
+ *
+ *  Writes a register to the Kumeran interface. Currently no func pointer
+ *  exists and all implementations are handled in the generic version of
+ *  this function.
+ **/
+s32 igc_write_kmrn_reg(struct igc_hw *hw, u32 offset, u16 data)
+{
+	return igc_write_kmrn_reg_generic(hw, offset, data);
+}
+
+/**
+ *  igc_get_cable_length - Retrieves cable length estimation
+ *  @hw: pointer to the HW structure
+ *
+ *  This function estimates the cable length and stores them in
+ *  hw->phy.min_length and hw->phy.max_length. This is a function pointer
+ *  entry point called by drivers.
+ **/
+s32 igc_get_cable_length(struct igc_hw *hw)
+{
+	if (hw->phy.ops.get_cable_length)
+		return hw->phy.ops.get_cable_length(hw);
 
 	return IGC_SUCCESS;
 }

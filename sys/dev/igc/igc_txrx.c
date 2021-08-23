@@ -74,7 +74,7 @@ struct if_txrx igc_txrx = {
 };
 
 void
-igc_dump_rs(struct igc_adapter *adapter)
+igc_dump_rs(struct adapter *adapter)
 {
 	if_softc_ctx_t scctx = adapter->shared;
 	struct igc_tx_queue *que;
@@ -229,7 +229,7 @@ igc_tx_ctx_setup(struct tx_ring *txr, if_pkt_info_t pi, u32 *cmd_type_len, u32 *
 		break;
 	case IPPROTO_UDP:
 		if (pi->ipi_csum_flags & (CSUM_IP_UDP | CSUM_IP6_UDP)) {
-			type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_TCP;
+			type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_UDP;
 			*olinfo_status |= IGC_TXD_POPTS_TXSM << 8;
 		}
 		break;
@@ -238,7 +238,7 @@ igc_tx_ctx_setup(struct tx_ring *txr, if_pkt_info_t pi, u32 *cmd_type_len, u32 *
 			type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_SCTP;
 			*olinfo_status |= IGC_TXD_POPTS_TXSM << 8;
 		}
-               break;
+		break;
 	default:
 		break;
 	}
@@ -255,7 +255,7 @@ igc_tx_ctx_setup(struct tx_ring *txr, if_pkt_info_t pi, u32 *cmd_type_len, u32 *
 static int
 igc_isc_txd_encap(void *arg, if_pkt_info_t pi)
 {
-	struct igc_adapter *sc = arg;
+	struct adapter *sc = arg;
 	if_softc_ctx_t scctx = sc->shared;
 	struct igc_tx_queue *que = &sc->tx_queues[pi->ipi_qsidx];
 	struct tx_ring *txr = &que->txr;
@@ -291,7 +291,7 @@ igc_isc_txd_encap(void *arg, if_pkt_info_t pi)
 		segaddr = htole64(segs[j].ds_addr);
 
 		txd->read.buffer_addr = segaddr;
-		txd->read.cmd_type_len = htole32(IGC_ADVTXD_DCMD_IFCS |
+		txd->read.cmd_type_len = htole32(IGC_TXD_CMD_IFCS |
 		    cmd_type_len | seglen);
 		txd->read.olinfo_status = htole32(olinfo_status);
 		pidx_last = i;
@@ -305,7 +305,7 @@ igc_isc_txd_encap(void *arg, if_pkt_info_t pi)
 		MPASS(txr->tx_rs_pidx != txr->tx_rs_cidx);
 	}
 
-	txd->read.cmd_type_len |= htole32(IGC_ADVTXD_DCMD_EOP | txd_flags);
+	txd->read.cmd_type_len |= htole32(IGC_TXD_CMD_EOP | txd_flags);
 	pi->ipi_new_pidx = i;
 
 	return (0);
@@ -314,7 +314,7 @@ igc_isc_txd_encap(void *arg, if_pkt_info_t pi)
 static void
 igc_isc_txd_flush(void *arg, uint16_t txqid, qidx_t pidx)
 {
-	struct igc_adapter *adapter	= arg;
+	struct adapter *adapter	= arg;
 	struct igc_tx_queue *que	= &adapter->tx_queues[txqid];
 	struct tx_ring *txr	= &que->txr;
 
@@ -324,7 +324,7 @@ igc_isc_txd_flush(void *arg, uint16_t txqid, qidx_t pidx)
 static int
 igc_isc_txd_credits_update(void *arg, uint16_t txqid, bool clear)
 {
-	struct igc_adapter *adapter = arg;
+	struct adapter *adapter = arg;
 	if_softc_ctx_t scctx = adapter->shared;
 	struct igc_tx_queue *que = &adapter->tx_queues[txqid];
 	struct tx_ring *txr = &que->txr;
@@ -376,7 +376,7 @@ igc_isc_txd_credits_update(void *arg, uint16_t txqid, bool clear)
 static void
 igc_isc_rxd_refill(void *arg, if_rxd_update_t iru)
 {
-	struct igc_adapter *sc = arg;
+	struct adapter *sc = arg;
 	if_softc_ctx_t scctx = sc->shared;
 	uint16_t rxqid = iru->iru_qsidx;
 	struct igc_rx_queue *que = &sc->rx_queues[rxqid];
@@ -403,7 +403,7 @@ igc_isc_rxd_refill(void *arg, if_rxd_update_t iru)
 static void
 igc_isc_rxd_flush(void *arg, uint16_t rxqid, uint8_t flid __unused, qidx_t pidx)
 {
-	struct igc_adapter *sc = arg;
+	struct adapter *sc = arg;
 	struct igc_rx_queue *que = &sc->rx_queues[rxqid];
 	struct rx_ring *rxr = &que->rxr;
 
@@ -413,7 +413,7 @@ igc_isc_rxd_flush(void *arg, uint16_t rxqid, uint8_t flid __unused, qidx_t pidx)
 static int
 igc_isc_rxd_available(void *arg, uint16_t rxqid, qidx_t idx, qidx_t budget)
 {
-	struct igc_adapter *sc = arg;
+	struct adapter *sc = arg;
 	if_softc_ctx_t scctx = sc->shared;
 	struct igc_rx_queue *que = &sc->rx_queues[rxqid];
 	struct rx_ring *rxr = &que->rxr;
@@ -445,7 +445,7 @@ igc_isc_rxd_available(void *arg, uint16_t rxqid, qidx_t idx, qidx_t budget)
 static int
 igc_isc_rxd_pkt_get(void *arg, if_rxd_info_t ri)
 {
-	struct igc_adapter *adapter = arg;
+	struct adapter *adapter = arg;
 	if_softc_ctx_t scctx = adapter->shared;
 	struct igc_rx_queue *que = &adapter->rx_queues[ri->iri_qsidx];
 	struct rx_ring *rxr = &que->rxr;
@@ -479,7 +479,7 @@ igc_isc_rxd_pkt_get(void *arg, if_rxd_info_t ri)
 		vtag = le16toh(rxd->wb.upper.vlan);
 
 		/* Make sure bad packets are discarded */
-		if (eop && ((staterr & IGC_RXDEXT_STATERR_RXE) != 0)) {
+		if (eop && ((staterr & IGC_RXDEXT_ERR_FRAME_ERR_MASK) != 0)) {
 			adapter->dropped_pkts++;
 			++rxr->rx_discarded;
 			return (EBADMSG);
@@ -531,6 +531,7 @@ igc_rx_checksum(u32 staterr, if_rxd_info_t ri, u32 ptype)
 {
 	u16 status = (u16)staterr;
 	u8 errors = (u8) (staterr >> 24);
+	bool sctp = FALSE;
 
 	/* Ignore Checksum bit is set */
 	if (status & IGC_RXD_STAT_IXSM) {
@@ -538,12 +539,31 @@ igc_rx_checksum(u32 staterr, if_rxd_info_t ri, u32 ptype)
 		return;
 	}
 
+	if ((ptype & IGC_RXDADV_PKTTYPE_ETQF) == 0 &&
+	    (ptype & IGC_RXDADV_PKTTYPE_SCTP) != 0)
+		sctp = 1;
+	else
+		sctp = 0;
+
+	if (status & IGC_RXD_STAT_IPCS) {
+		/* Did it pass? */
+		if (!(errors & IGC_RXD_ERR_IPE)) {
+			/* IP Checksum Good */
+			ri->iri_csum_flags = CSUM_IP_CHECKED;
+			ri->iri_csum_flags |= CSUM_IP_VALID;
+		} else
+			ri->iri_csum_flags = 0;
+	}
+
 	if (status & (IGC_RXD_STAT_TCPCS | IGC_RXD_STAT_UDPCS)) {
 		u64 type = (CSUM_DATA_VALID | CSUM_PSEUDO_HDR);
+		if (sctp) /* reassign */
+			type = CSUM_SCTP_VALID;
 		/* Did it pass? */
 		if (!(errors & IGC_RXD_ERR_TCPE)) {
 			ri->iri_csum_flags |= type;
-			ri->iri_csum_data = htons(0xffff);
+			if (sctp == 0)
+				ri->iri_csum_data = htons(0xffff);
 		}
 	}
 	return;

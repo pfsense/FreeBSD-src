@@ -48,13 +48,19 @@ s32  igc_poll_eerd_eewr_done(struct igc_hw *hw, int ee_reg);
 s32  igc_read_mac_addr_generic(struct igc_hw *hw);
 s32  igc_read_pba_string_generic(struct igc_hw *hw, u8 *pba_num,
 				   u32 pba_num_size);
+s32  igc_read_nvm_microwire(struct igc_hw *hw, u16 offset,
+			      u16 words, u16 *data);
 s32  igc_read_nvm_eerd(struct igc_hw *hw, u16 offset, u16 words,
 			 u16 *data);
 s32  igc_valid_led_default_generic(struct igc_hw *hw, u16 *data);
 s32  igc_validate_nvm_checksum_generic(struct igc_hw *hw);
+s32  igc_write_nvm_microwire(struct igc_hw *hw, u16 offset,
+			       u16 words, u16 *data);
 s32  igc_write_nvm_spi(struct igc_hw *hw, u16 offset, u16 words,
 			 u16 *data);
 s32  igc_update_nvm_checksum_generic(struct igc_hw *hw);
 void igc_release_nvm_generic(struct igc_hw *hw);
+
+#define IGC_STM_OPCODE	0xDB00
 
 #endif

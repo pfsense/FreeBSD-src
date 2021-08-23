@@ -44,6 +44,7 @@ static s32 igc_get_hw_semaphore_i225(struct igc_hw *hw);
 static s32 __igc_write_nvm_srwr(struct igc_hw *hw, u16 offset, u16 words,
 				  u16 *data);
 static s32 igc_pool_flash_update_done_i225(struct igc_hw *hw);
+static s32 igc_valid_led_default_i225(struct igc_hw *hw, u16 *data);
 
 /**
  *  igc_init_nvm_params_i225 - Init NVM func ptrs.
@@ -86,6 +87,7 @@ static s32 igc_init_nvm_params_i225(struct igc_hw *hw)
 
 	nvm->ops.acquire = igc_acquire_nvm_i225;
 	nvm->ops.release = igc_release_nvm_i225;
+	nvm->ops.valid_led_default = igc_valid_led_default_i225;
 	if (igc_get_flash_presence_i225(hw)) {
 		hw->nvm.type = igc_nvm_flash_hw;
 		nvm->ops.read    = igc_read_nvm_srrd_i225;
@@ -1119,6 +1121,68 @@ void igc_init_function_pointers_i225(struct igc_hw *hw)
 	hw->phy.ops.init_params = igc_init_phy_params_i225;
 }
 
+/* igc_valid_led_default_i225 - Verify a valid default LED config
+ * @hw: pointer to the HW structure
+ * @data: pointer to the NVM (EEPROM)
+ *
+ * Read the EEPROM for the current default LED configuration.  If the
+ * LED configuration is not valid, set to a valid LED configuration.
+ */
+static s32 igc_valid_led_default_i225(struct igc_hw *hw, u16 *data)
+{
+	s32 ret_val;
+
+	DEBUGFUNC("igc_valid_led_default_i225");
+
+	ret_val = hw->nvm.ops.read(hw, NVM_ID_LED_SETTINGS, 1, data);
+	if (ret_val) {
+		DEBUGOUT("NVM Read Error\n");
+		goto out;
+	}
+
+	if (*data == ID_LED_RESERVED_0000 || *data == ID_LED_RESERVED_FFFF) {
+		switch (hw->phy.media_type) {
+		case igc_media_type_internal_serdes:
+			*data = ID_LED_DEFAULT_I225_SERDES;
+			break;
+		case igc_media_type_copper:
+		default:
+			*data = ID_LED_DEFAULT_I225;
+			break;
+		}
+	}
+out:
+	return ret_val;
+}
+
+/* igc_get_cfg_done_i225 - Read config done bit
+ * @hw: pointer to the HW structure
+ *
+ * Read the management control register for the config done bit for
+ * completion status.  NOTE: silicon which is EEPROM-less will fail trying
+ * to read the config done bit, so an error is *ONLY* logged and returns
+ * IGC_SUCCESS.  If we were to return with error, EEPROM-less silicon
+ * would not be able to be reset or change link.
+ */
+static s32 igc_get_cfg_done_i225(struct igc_hw *hw)
+{
+	s32 timeout = PHY_CFG_TIMEOUT;
+	u32 mask = IGC_NVM_CFG_DONE_PORT_0;
+
+	DEBUGFUNC("igc_get_cfg_done_i225");
+
+	while (timeout) {
+		if (IGC_READ_REG(hw, IGC_EEMNGCTL_I225) & mask)
+			break;
+		msec_delay(1);
+		timeout--;
+	}
+	if (!timeout)
+		DEBUGOUT("MNG configuration cycle has not completed.\n");
+
+	return IGC_SUCCESS;
+}
+
 /* igc_init_hw_i225 - Init hw for I225
  * @hw: pointer to the HW structure
  *
@@ -1130,6 +1194,7 @@ s32 igc_init_hw_i225(struct igc_hw *hw)
 
 	DEBUGFUNC("igc_init_hw_i225");
 
+	hw->phy.ops.get_cfg_done = igc_get_cfg_done_i225;
 	ret_val = igc_init_hw_base(hw);
 	return ret_val;
 }

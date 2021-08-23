@@ -165,7 +165,7 @@
 				 (0x054E0 + ((_i - 16) * 8)))
 #define IGC_RAH(_i)		(((_i) <= 15) ? (0x05404 + ((_i) * 8)) : \
 				 (0x054E4 + ((_i - 16) * 8)))
-#define IGC_VLANPQF		0x055B0  /* VLAN Priority Queue Filter VLAPQF */
+#define IGC_VLAPQF		0x055B0  /* VLAN Priority Queue Filter VLAPQF */
 
 #define IGC_SHRAL(_i)		(0x05438 + ((_i) * 8))
 #define IGC_SHRAH(_i)		(0x0543C + ((_i) * 8))
@@ -176,21 +176,28 @@
 #define IGC_FFVT_REG(_i)	(0x09800 + ((_i) * 8))
 #define IGC_FFLT_REG(_i)	(0x05F00 + ((_i) * 8))
 #define IGC_TXPBS		0x03404  /* Tx Packet Buffer Size - RW */
+#define IGC_TDFH		0x03410  /* Tx Data FIFO Head - RW */
+#define IGC_TDFT		0x03418  /* Tx Data FIFO Tail - RW */
+#define IGC_TDFHS		0x03420  /* Tx Data FIFO Head Saved - RW */
+#define IGC_TDFTS		0x03428  /* Tx Data FIFO Tail Saved - RW */
+#define IGC_TDFPC		0x03430  /* Tx Data FIFO Packet Count - RW */
 #define IGC_TIDV	0x03820  /* Tx Interrupt Delay Value - RW */
 #define IGC_TADV	0x0382C  /* Tx Interrupt Absolute Delay Val - RW */
 /* Statistics Register Descriptions */
 #define IGC_CRCERRS	0x04000  /* CRC Error Count - R/clr */
 #define IGC_ALGNERRC	0x04004  /* Alignment Error Count - R/clr */
+#define IGC_SYMERRS	0x04008  /* Symbol Error Count - R/clr */
+#define IGC_RXERRC	0x0400C  /* Receive Error Count - R/clr */
 #define IGC_MPC	0x04010  /* Missed Packet Count - R/clr */
 #define IGC_SCC	0x04014  /* Single Collision Count - R/clr */
 #define IGC_ECOL	0x04018  /* Excessive Collision Count - R/clr */
 #define IGC_MCC	0x0401C  /* Multiple Collision Count - R/clr */
 #define IGC_LATECOL	0x04020  /* Late Collision Count - R/clr */
 #define IGC_COLC	0x04028  /* Collision Count - R/clr */
-#define IGC_RERC	0x0402C  /* Receive Error Count - R/clr */
 #define IGC_DC	0x04030  /* Defer Count - R/clr */
 #define IGC_TNCRS	0x04034  /* Tx-No CRS - R/clr */
-#define IGC_HTDPMC	0x0403C  /* Host Transmit Discarded by MAC - R/clr */
+#define IGC_SEC	0x04038  /* Sequence Error Count - R/clr */
+#define IGC_CEXTERR	0x0403C  /* Carrier Extension Error Count - R/clr */
 #define IGC_RLEC	0x04040  /* Receive Length Error Count - R/clr */
 #define IGC_XONRXC	0x04048  /* XON Rx Count - R/clr */
 #define IGC_XONTXC	0x0404C  /* XON Tx Count - R/clr */
@@ -234,8 +241,17 @@
 #define IGC_MPTC	0x040F0  /* Multicast Packets Tx Count - R/clr */
 #define IGC_BPTC	0x040F4  /* Broadcast Packets Tx Count - R/clr */
 #define IGC_TSCTC	0x040F8  /* TCP Segmentation Context Tx - R/clr */
+#define IGC_TSCTFC	0x040FC  /* TCP Segmentation Context Tx Fail - R/clr */
 #define IGC_IAC	0x04100  /* Interrupt Assertion Count */
-#define IGC_RXDMTC	0x04120  /* Rx Descriptor Minimum Threshold Count */
+/* Interrupt Cause */
+#define IGC_ICRXPTC	0x04104  /* Interrupt Cause Rx Pkt Timer Expire Count */
+#define IGC_ICRXATC	0x04108  /* Interrupt Cause Rx Abs Timer Expire Count */
+#define IGC_ICTXPTC	0x0410C  /* Interrupt Cause Tx Pkt Timer Expire Count */
+#define IGC_ICTXATC	0x04110  /* Interrupt Cause Tx Abs Timer Expire Count */
+#define IGC_ICTXQEC	0x04118  /* Interrupt Cause Tx Queue Empty Count */
+#define IGC_ICTXQMTC	0x0411C  /* Interrupt Cause Tx Queue Min Thresh Count */
+#define IGC_ICRXDMTC	0x04120  /* Interrupt Cause Rx Desc Min Thresh Count */
+#define IGC_ICRXOC	0x04124  /* Interrupt Cause Receiver Overrun Count */
 
 #define IGC_VFGPRC	0x00F10
 #define IGC_VFGORC	0x00F18
@@ -246,6 +262,13 @@
 #define IGC_VFGPTLBC	0x00F44
 #define IGC_VFGORLBC	0x00F48
 #define IGC_VFGPRLBC	0x00F40
+#define IGC_CBTMPC	0x0402C  /* Circuit Breaker Tx Packet Count */
+#define IGC_HTDPMC	0x0403C  /* Host Transmit Discarded Packets */
+#define IGC_CBRDPC	0x04044  /* Circuit Breaker Rx Dropped Count */
+#define IGC_CBRMPC	0x040FC  /* Circuit Breaker Rx Packet Count */
+#define IGC_RPTHC	0x04104  /* Rx Packets To Host */
+#define IGC_HGPTC	0x04118  /* Host Good Packets Tx Count */
+#define IGC_HTCBDPC	0x04124  /* Host Tx Circuit Breaker Dropped Count */
 #define IGC_HGORCL	0x04128  /* Host Good Octets Received Count Low */
 #define IGC_HGORCH	0x0412C  /* Host Good Octets Received Count High */
 #define IGC_HGOTCL	0x04130  /* Host Good Octets Transmit Count Low */
@@ -296,6 +319,13 @@
 #define IGC_MDEF(_n)		(0x05890 + (4 * (_n)))
 /* Semaphore registers */
 #define IGC_SW_FW_SYNC	0x05B5C /* SW-FW Synchronization - RW */
+/* PCIe Register Description */
+#define IGC_GCR	0x05B00 /* PCI-Ex Control */
+#define IGC_GCR2	0x05B64 /* PCI-Ex Control #2 */
+#define IGC_GSCL_1	0x05B10 /* PCI-Ex Statistic Control #1 */
+#define IGC_GSCL_2	0x05B14 /* PCI-Ex Statistic Control #2 */
+#define IGC_GSCL_3	0x05B18 /* PCI-Ex Statistic Control #3 */
+#define IGC_GSCL_4	0x05B1C /* PCI-Ex Statistic Control #4 */
 /* Function Active and Power State to MNG */
 #define IGC_FACTPS	0x05B30
 #define IGC_SWSM	0x05B50 /* SW Semaphore */

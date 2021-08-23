@@ -54,6 +54,7 @@ void igc_init_nvm_ops_generic(struct igc_hw *hw)
 	nvm->ops.release = igc_null_nvm_generic;
 	nvm->ops.reload = igc_reload_nvm_generic;
 	nvm->ops.update = igc_null_ops_generic;
+	nvm->ops.valid_led_default = igc_null_led_default;
 	nvm->ops.validate = igc_null_ops_generic;
 	nvm->ops.write = igc_null_write_nvm;
 }
@@ -81,6 +82,18 @@ void igc_null_nvm_generic(struct igc_hw IGC_UNUSEDARG *hw)
 {
 	DEBUGFUNC("igc_null_nvm_generic");
 	return;
+}
+
+/**
+ *  igc_null_led_default - No-op function, return 0
+ *  @hw: pointer to the HW structure
+ *  @data: dummy variable
+ **/
+s32 igc_null_led_default(struct igc_hw IGC_UNUSEDARG *hw,
+			   u16 IGC_UNUSEDARG *data)
+{
+	DEBUGFUNC("igc_null_led_default");
+	return IGC_SUCCESS;
 }
 
 /**
@@ -147,6 +160,9 @@ static void igc_shift_out_eec_bits(struct igc_hw *hw, u16 data, u16 count)
 	DEBUGFUNC("igc_shift_out_eec_bits");
 
 	mask = 0x01 << (count - 1);
+	if (nvm->type == igc_nvm_eeprom_microwire)
+		eecd &= ~IGC_EECD_DO;
+	else
 	if (nvm->type == igc_nvm_eeprom_spi)
 		eecd |= IGC_EECD_DO;
 
@@ -290,7 +306,22 @@ static void igc_standby_nvm(struct igc_hw *hw)
 
 	DEBUGFUNC("igc_standby_nvm");
 
-	if (nvm->type == igc_nvm_eeprom_spi) {
+	if (nvm->type == igc_nvm_eeprom_microwire) {
+		eecd &= ~(IGC_EECD_CS | IGC_EECD_SK);
+		IGC_WRITE_REG(hw, IGC_EECD, eecd);
+		IGC_WRITE_FLUSH(hw);
+		usec_delay(nvm->delay_usec);
+
+		igc_raise_eec_clk(hw, &eecd);
+
+		/* Select EEPROM */
+		eecd |= IGC_EECD_CS;
+		IGC_WRITE_REG(hw, IGC_EECD, eecd);
+		IGC_WRITE_FLUSH(hw);
+		usec_delay(nvm->delay_usec);
+
+		igc_lower_eec_clk(hw, &eecd);
+	} else if (nvm->type == igc_nvm_eeprom_spi) {
 		/* Toggle CS to flush commands */
 		eecd |= IGC_EECD_CS;
 		IGC_WRITE_REG(hw, IGC_EECD, eecd);
@@ -319,6 +350,12 @@ static void igc_stop_nvm(struct igc_hw *hw)
 	if (hw->nvm.type == igc_nvm_eeprom_spi) {
 		/* Pull CS high */
 		eecd |= IGC_EECD_CS;
+		igc_lower_eec_clk(hw, &eecd);
+	} else if (hw->nvm.type == igc_nvm_eeprom_microwire) {
+		/* CS on Microwire is active-high */
+		eecd &= ~(IGC_EECD_CS | IGC_EECD_DI);
+		IGC_WRITE_REG(hw, IGC_EECD, eecd);
+		igc_raise_eec_clk(hw, &eecd);
 		igc_lower_eec_clk(hw, &eecd);
 	}
 }
@@ -356,7 +393,14 @@ static s32 igc_ready_nvm_eeprom(struct igc_hw *hw)
 
 	DEBUGFUNC("igc_ready_nvm_eeprom");
 
-	if (nvm->type == igc_nvm_eeprom_spi) {
+	if (nvm->type == igc_nvm_eeprom_microwire) {
+		/* Clear SK and DI */
+		eecd &= ~(IGC_EECD_DI | IGC_EECD_SK);
+		IGC_WRITE_REG(hw, IGC_EECD, eecd);
+		/* Set CS */
+		eecd |= IGC_EECD_CS;
+		IGC_WRITE_REG(hw, IGC_EECD, eecd);
+	} else if (nvm->type == igc_nvm_eeprom_spi) {
 		u16 timeout = NVM_MAX_RETRY_SPI;
 
 		/* Clear SK and CS */
@@ -389,6 +433,61 @@ static s32 igc_ready_nvm_eeprom(struct igc_hw *hw)
 	}
 
 	return IGC_SUCCESS;
+}
+
+/**
+ *  igc_read_nvm_microwire - Reads EEPROM's using microwire
+ *  @hw: pointer to the HW structure
+ *  @offset: offset of word in the EEPROM to read
+ *  @words: number of words to read
+ *  @data: word read from the EEPROM
+ *
+ *  Reads a 16 bit word from the EEPROM.
+ **/
+s32 igc_read_nvm_microwire(struct igc_hw *hw, u16 offset, u16 words,
+			     u16 *data)
+{
+	struct igc_nvm_info *nvm = &hw->nvm;
+	u32 i = 0;
+	s32 ret_val;
+	u8 read_opcode = NVM_READ_OPCODE_MICROWIRE;
+
+	DEBUGFUNC("igc_read_nvm_microwire");
+
+	/* A check for invalid values:  offset too large, too many words,
+	 * and not enough words.
+	 */
+	if ((offset >= nvm->word_size) || (words > (nvm->word_size - offset)) ||
+	    (words == 0)) {
+		DEBUGOUT("nvm parameter(s) out of bounds\n");
+		return -IGC_ERR_NVM;
+	}
+
+	ret_val = nvm->ops.acquire(hw);
+	if (ret_val)
+		return ret_val;
+
+	ret_val = igc_ready_nvm_eeprom(hw);
+	if (ret_val)
+		goto release;
+
+	for (i = 0; i < words; i++) {
+		/* Send the READ command (opcode + addr) */
+		igc_shift_out_eec_bits(hw, read_opcode, nvm->opcode_bits);
+		igc_shift_out_eec_bits(hw, (u16)(offset + i),
+					nvm->address_bits);
+
+		/* Read the data.  For microwire, each word requires the
+		 * overhead of setup and tear-down.
+		 */
+		data[i] = igc_shift_in_eec_bits(hw, 16);
+		igc_standby_nvm(hw);
+	}
+
+release:
+	nvm->ops.release(hw);
+
+	return ret_val;
 }
 
 /**
@@ -512,6 +611,93 @@ s32 igc_write_nvm_spi(struct igc_hw *hw, u16 offset, u16 words, u16 *data)
 		msec_delay(10);
 		nvm->ops.release(hw);
 	}
+
+	return ret_val;
+}
+
+/**
+ *  igc_write_nvm_microwire - Writes EEPROM using microwire
+ *  @hw: pointer to the HW structure
+ *  @offset: offset within the EEPROM to be written to
+ *  @words: number of words to write
+ *  @data: 16 bit word(s) to be written to the EEPROM
+ *
+ *  Writes data to EEPROM at offset using microwire interface.
+ *
+ *  If igc_update_nvm_checksum is not called after this function , the
+ *  EEPROM will most likely contain an invalid checksum.
+ **/
+s32 igc_write_nvm_microwire(struct igc_hw *hw, u16 offset, u16 words,
+			      u16 *data)
+{
+	struct igc_nvm_info *nvm = &hw->nvm;
+	s32  ret_val;
+	u32 eecd;
+	u16 words_written = 0;
+	u16 widx = 0;
+
+	DEBUGFUNC("igc_write_nvm_microwire");
+
+	/* A check for invalid values:  offset too large, too many words,
+	 * and not enough words.
+	 */
+	if ((offset >= nvm->word_size) || (words > (nvm->word_size - offset)) ||
+	    (words == 0)) {
+		DEBUGOUT("nvm parameter(s) out of bounds\n");
+		return -IGC_ERR_NVM;
+	}
+
+	ret_val = nvm->ops.acquire(hw);
+	if (ret_val)
+		return ret_val;
+
+	ret_val = igc_ready_nvm_eeprom(hw);
+	if (ret_val)
+		goto release;
+
+	igc_shift_out_eec_bits(hw, NVM_EWEN_OPCODE_MICROWIRE,
+				 (u16)(nvm->opcode_bits + 2));
+
+	igc_shift_out_eec_bits(hw, 0, (u16)(nvm->address_bits - 2));
+
+	igc_standby_nvm(hw);
+
+	while (words_written < words) {
+		igc_shift_out_eec_bits(hw, NVM_WRITE_OPCODE_MICROWIRE,
+					 nvm->opcode_bits);
+
+		igc_shift_out_eec_bits(hw, (u16)(offset + words_written),
+					 nvm->address_bits);
+
+		igc_shift_out_eec_bits(hw, data[words_written], 16);
+
+		igc_standby_nvm(hw);
+
+		for (widx = 0; widx < 200; widx++) {
+			eecd = IGC_READ_REG(hw, IGC_EECD);
+			if (eecd & IGC_EECD_DO)
+				break;
+			usec_delay(50);
+		}
+
+		if (widx == 200) {
+			DEBUGOUT("NVM Write did not complete\n");
+			ret_val = -IGC_ERR_NVM;
+			goto release;
+		}
+
+		igc_standby_nvm(hw);
+
+		words_written++;
+	}
+
+	igc_shift_out_eec_bits(hw, NVM_EWDS_OPCODE_MICROWIRE,
+				 (u16)(nvm->opcode_bits + 2));
+
+	igc_shift_out_eec_bits(hw, 0, (u16)(nvm->address_bits - 2));
+
+release:
+	nvm->ops.release(hw);
 
 	return ret_val;
 }

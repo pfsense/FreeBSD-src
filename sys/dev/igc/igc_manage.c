@@ -82,7 +82,7 @@ bool igc_enable_mng_pass_thru(struct igc_hw *hw)
 	if (!(manc & IGC_MANC_RCV_TCO_EN))
 		return FALSE;
 
-	if (hw->mac.arc_subsystem_valid) {
+	if (hw->mac.has_fwsm) {
 		fwsm = IGC_READ_REG(hw, IGC_FWSM);
 		factps = IGC_READ_REG(hw, IGC_FACTPS);
 

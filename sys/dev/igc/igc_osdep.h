@@ -61,6 +61,9 @@
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
 
+
+#define ASSERT(x) if(!(x)) panic("EM: x")
+
 #define usec_delay(x) DELAY(x)
 #define usec_delay_irq(x) usec_delay(x)
 #define msec_delay(x) DELAY(1000*(x))
@@ -77,8 +80,21 @@
 #define DEBUGOUT7(...)			DEBUGOUT(__VA_ARGS__)
 #define DEBUGFUNC(F)			DEBUGOUT(F "\n")
 
+#define STATIC			static
 #define FALSE			0
 #define TRUE			1
+#define CMD_MEM_WRT_INVALIDATE	0x0010  /* BIT_4 */
+#define PCI_COMMAND_REGISTER	PCIR_COMMAND
+
+/* Mutex used in the shared code */
+#define IGC_MUTEX			struct mtx
+#define IGC_MUTEX_INIT(mutex)		mtx_init((mutex), #mutex, \
+                                            MTX_NETWORK_LOCK, \
+                                            MTX_DEF | MTX_DUPOK)
+#define IGC_MUTEX_DESTROY(mutex)	mtx_destroy(mutex)
+#define IGC_MUTEX_LOCK(mutex)		mtx_lock(mutex)
+#define IGC_MUTEX_TRYLOCK(mutex)	mtx_trylock(mutex)
+#define IGC_MUTEX_UNLOCK(mutex)	mtx_unlock(mutex)
 
 typedef uint64_t	u64;
 typedef uint32_t	u32;
@@ -92,6 +108,28 @@ typedef int8_t		s8;
 #define __le16		u16
 #define __le32		u32
 #define __le64		u64
+
+#if __FreeBSD_version < 800000
+#if defined(__i386__) || defined(__amd64__)
+#define mb()	__asm volatile("mfence" ::: "memory")
+#define wmb()	__asm volatile("sfence" ::: "memory")
+#define rmb()	__asm volatile("lfence" ::: "memory")
+#else
+#define mb()
+#define rmb()
+#define wmb()
+#endif
+#endif /*__FreeBSD_version < 800000 */
+
+#if defined(__i386__) || defined(__amd64__)
+static __inline
+void prefetch(void *x)
+{
+	__asm volatile("prefetcht0 %0" :: "m" (*(unsigned long *)x));
+}
+#else
+#define prefetch(x)
+#endif
 
 struct igc_osdep
 {
@@ -158,6 +196,30 @@ struct igc_osdep
     bus_space_write_2(((struct igc_osdep *)(hw)->back)->mem_bus_space_tag, \
         ((struct igc_osdep *)(hw)->back)->mem_bus_space_handle, \
         IGC_REGISTER(hw, reg) + (index << 1), value)
-  
+
+#define IGC_WRITE_REG_IO(hw, reg, value) do {\
+    bus_space_write_4(((struct igc_osdep *)(hw)->back)->io_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->io_bus_space_handle, \
+        (hw)->io_base, reg); \
+    bus_space_write_4(((struct igc_osdep *)(hw)->back)->io_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->io_bus_space_handle, \
+        (hw)->io_base + 4, value); } while (0)
+
+#define IGC_READ_FLASH_REG(hw, reg) \
+    bus_space_read_4(((struct igc_osdep *)(hw)->back)->flash_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->flash_bus_space_handle, reg)
+
+#define IGC_READ_FLASH_REG16(hw, reg) \
+    bus_space_read_2(((struct igc_osdep *)(hw)->back)->flash_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->flash_bus_space_handle, reg)
+
+#define IGC_WRITE_FLASH_REG(hw, reg, value) \
+    bus_space_write_4(((struct igc_osdep *)(hw)->back)->flash_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->flash_bus_space_handle, reg, value)
+
+#define IGC_WRITE_FLASH_REG16(hw, reg, value) \
+    bus_space_write_2(((struct igc_osdep *)(hw)->back)->flash_bus_space_tag, \
+        ((struct igc_osdep *)(hw)->back)->flash_bus_space_handle, reg, value)
+
 #endif  /* _FREEBSD_OS_H_ */
 

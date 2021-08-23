@@ -42,7 +42,9 @@
 #include <sys/types.h>
 #include <ddb/ddb.h>
 #endif
+#if __FreeBSD_version >= 800000
 #include <sys/buf_ring.h>
+#endif
 #include <sys/bus.h>
 #include <sys/endian.h>
 #include <sys/kernel.h>
@@ -309,6 +311,11 @@
 #define IGC_BAR_MEM_TYPE_64BIT	0x00000004
 #define IGC_MSIX_BAR		3	/* On 82575 */
 
+/* More backward compatibility */
+#if __FreeBSD_version < 900000
+#define SYSCTL_ADD_UQUAD SYSCTL_ADD_QUAD
+#endif
+
 /* Defines for printing debug information */
 #define DEBUG_INIT  0
 #define DEBUG_IOCTL 0
@@ -348,10 +355,10 @@
 #define IGC_NVM_MSIX_N_MASK	(0x7 << IGC_NVM_MSIX_N_SHIFT)
 #define IGC_NVM_MSIX_N_SHIFT	7
 
-struct igc_adapter;
+struct adapter;
 
 struct igc_int_delay_info {
-	struct igc_adapter *adapter;	/* Back-pointer to the adapter struct */
+	struct adapter *adapter;	/* Back-pointer to the adapter struct */
 	int offset;			/* Register offset to read/write */
 	int value;			/* Current value in usecs */
 };
@@ -360,7 +367,7 @@ struct igc_int_delay_info {
  * The transmit ring, one per tx queue
  */
 struct tx_ring {
-        struct igc_adapter	*adapter;
+        struct adapter          *adapter;
 	struct igc_tx_desc	*tx_base;
 	uint64_t                tx_paddr; 
 	qidx_t			*tx_rsq;
@@ -391,8 +398,8 @@ struct tx_ring {
  * The Receive ring, one per rx queue
  */
 struct rx_ring {
-        struct igc_adapter      *adapter;
-        struct igc_rx_queue     *que;
+        struct adapter          *adapter;
+        struct igc_rx_queue      *que;
         u32                     me;
         u32                     payload;
         union igc_rx_desc_extended	*rx_base;
@@ -411,15 +418,15 @@ struct rx_ring {
 };
 
 struct igc_tx_queue {
-	struct igc_adapter      *adapter;
+	struct adapter         *adapter;
         u32                     msix;
 	u32			eims;		/* This queue's EIMS bit */
-	u32                     me;
-	struct tx_ring          txr;
+	u32                    me;
+	struct tx_ring         txr;
 };
 
 struct igc_rx_queue {
-	struct igc_adapter     *adapter;
+	struct adapter         *adapter;
 	u32                    me;
 	u32                    msix;
 	u32                    eims;
@@ -429,7 +436,7 @@ struct igc_rx_queue {
 };  
 
 /* Our adapter structure */
-struct igc_adapter {
+struct adapter {
 	struct ifnet 	*ifp;
 	struct igc_hw	hw;
 
@@ -532,7 +539,7 @@ typedef struct _igc_vendor_info_t {
 	unsigned int index;
 } igc_vendor_info_t;
 
-void igc_dump_rs(struct igc_adapter *);
+void igc_dump_rs(struct adapter *);
 
 #define IGC_RSSRK_SIZE	4
 #define IGC_RSSRK_VAL(key, i)		(key[(i) * IGC_RSSRK_SIZE] | \
