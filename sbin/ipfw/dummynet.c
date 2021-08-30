@@ -797,7 +797,7 @@ is_valid_number(const char *s)
 static void
 read_bandwidth(char *arg, uint32_t *bandwidth, char *if_name, int namelen)
 {
-	if (*bandwidth != 0)
+	if (*bandwidth != (uint32_t)-1)
 		warnx("duplicate token, override bandwidth value!");
 
 	if (arg[0] >= 'a' && arg[0] <= 'z') {
@@ -1738,6 +1738,8 @@ end_mask:
 	if (p) {
 		if (p->delay > 10000)
 			errx(EX_DATAERR, "delay must be < 10000");
+		if (p->bandwidth == (uint32_t)-1)
+			p->bandwidth = 0;
 	}
 	if (fs) {
 		/* XXX accept a 0 scheduler to keep the default */

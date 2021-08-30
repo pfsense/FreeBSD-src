@@ -8,7 +8,8 @@ FILESDIR=	${TESTSDIR}
 ATF_TESTS_SH=			\
 				exthdr \
 				mld \
-				scapyi386
+				scapyi386 \
+				ndp
 
 ${PACKAGE}FILES+=		exthdr.py
 ${PACKAGE}FILES+=		mld.py
