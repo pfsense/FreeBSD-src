@@ -6307,7 +6307,7 @@ iflib_softirq_alloc_generic(if_ctx_t ctx, if_irq_t irq, iflib_intr_type_t type, 
 	err = iflib_irq_set_affinity(ctx, irq, type, qid, gtask, tqg, q, name);
 	if (err) {
 		dev = ctx->ifc_dev;
-		taskqgroup_attach(tqg, gtask, q, irq ? rman_get_start(irq->ii_res) : -1,
+		taskqgroup_attach(tqg, gtask, q, rman_get_start(irq->ii_res),
 		    name);
 	}
 }
