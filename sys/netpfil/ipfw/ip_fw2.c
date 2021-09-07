@@ -1317,7 +1317,7 @@ jump_cached(struct ip_fw_chain *chain, struct ip_fw *f, int num,
  *
  *	args->m	(in/out) The packet; we set to NULL when/if we nuke it.
  *		Starts with the IP header.
- *	args->eh (in)	Mac header if present, NULL for layer3 packet.
+ *	args->eh (in)	Mac header if present. Test IPFW_ARGS_ETHER before use.
  *	args->L3offset	Number of bytes bypassed if we came from L2.
  *			e.g. often sizeof(eh)  ** NOTYET **
  *	args->oif	Outgoing interface, NULL if packet is incoming.
@@ -2127,7 +2127,7 @@ do {						\
 #endif /* !USERSPACE */
 					else
 						break;
-					if (args->eh != NULL)	/* have MAC header */
+					if (args->flags & IPFW_ARGS_ETHER)	/* have MAC header */
 						ea = (uint8_t *)args->eh->ether_dhost;
 					match = ipfw_lookup_table(chain,
 					    cmd->arg1, keylen, pkey, &vidx,
@@ -2162,7 +2162,7 @@ do {						\
 						pkey = &args->f_id.src_ip6;
 				} else
 					break;
-				if (args->eh != NULL)	/* have MAC header */
+				if (args->flags & IPFW_ARGS_ETHER)	/* have MAC header */
 					ea = (uint8_t *)args->eh->ether_shost;
 				match = ipfw_lookup_table(chain, cmd->arg1,
 				    keylen, pkey, &vidx, ea, &te);
