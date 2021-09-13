@@ -54,30 +54,32 @@ rm $BSDINSTALL_TMPBOOT/loader.conf.*
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "opensolaris_load=\"YES\"" >> $BSDINSTALL_TMPBOOT/loader.conf
 df -t zfs $BSDINSTALL_CHROOT > /dev/null && echo "zfs_load=\"YES\"" >> $BSDINSTALL_TMPBOOT/loader.conf
 
-cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
-
-if [ -f /tmp/loader.conf.pfSense ]; then
-	cat /tmp/loader.conf.pfSense >> $BSDINSTALL_CHROOT/boot/loader.conf
-fi
-
-if [ -f /tmp/loader.conf.local.pfSense ]; then
-	cat /tmp/loader.conf.local.pfSense >> $BSDINSTALL_CHROOT/boot/loader.conf.local
-fi
-
 # Detect MBT-* and populate loader.conf.local
 product=$(/bin/kenv -q smbios.system.product 2>/dev/null)
 
 if [ "${product}" = "Minnowboard Turbot D0 PLATFORM" ] || [ "${product}" = "Minnowboard Turbot D0/D1 PLATFORM" ]; then
-	echo "i915kms_load=YES" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
-	echo "drm.i915.enable_unsupported=1" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
-	echo "kern.vt.fb.modes.VGA-1=d" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
-	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_CHROOT/boot/loader.conf.local
+	echo "i915kms_load=YES" >> $BSDINSTALL_TMPBOOT/loader.conf.local
+	echo "drm.i915.enable_unsupported=1" >> $BSDINSTALL_TMPBOOT/loader.conf.local
+	echo "kern.vt.fb.modes.VGA-1=d" >> $BSDINSTALL_TMPBOOT/loader.conf.local
+	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_TMPBOOT/loader.conf.local
 fi
 
 # Add default values for hn devices to work with ALTQ
 # See https://redmine.pfsense.org/issues/8954
-echo 'hw.hn.vf_transparent="0"' >> $BSDINSTALL_CHROOT/boot/loader.conf
-echo 'hw.hn.use_if_start="1"' >> $BSDINSTALL_CHROOT/boot/loader.conf
+echo 'hw.hn.vf_transparent="0"' >> $BSDINSTALL_TMPBOOT/loader.conf
+echo 'hw.hn.use_if_start="1"' >> $BSDINSTALL_TMPBOOT/loader.conf
+
+if [ -f /tmp/loader.conf.pfSense ]; then
+	cat /tmp/loader.conf.pfSense $BSDINSTALL_TMPBOOT/loader.conf \
+	    | sort -u > $BSDINSTALL_TMPBOOT/loader.conf
+fi
+
+if [ -f /tmp/loader.conf.local.pfSense ]; then
+	cat /tmp/loader.conf.local.pfSense $BSDINSTALL_TMPBOOT/loader.conf.local \
+	    | sort -u > $BSDINSTALL_TMPBOOT/loader.conf.local
+fi
+
+cp $BSDINSTALL_TMPBOOT/* $BSDINSTALL_CHROOT/boot
 
 if [ -f /tmp/boot.config ]; then
 	cp /tmp/boot.conf $BSDINSTALL_CHROOT
