@@ -218,6 +218,15 @@ static	void crypto_remove(struct cryptocap *cap);
 static	void crypto_task_invoke(void *ctx, int pending);
 static void crypto_batch_enqueue(struct cryptop *crp);
 
+/*
+ * pfSense: disable cryprostats by default.
+ *
+ * The feature is virtually unused and the 64-bit counters use atomics on
+ * platforms like 3100.
+ */
+//#define CRYPTOSTATS
+
+#ifdef CRYPTOSTATS
 static counter_u64_t cryptostats[sizeof(struct cryptostats) / sizeof(uint64_t)];
 SYSCTL_COUNTER_U64_ARRAY(_kern_crypto, OID_AUTO, stats, CTLFLAG_RW,
     cryptostats, nitems(cryptostats),
@@ -243,6 +252,9 @@ cryptostats_fini(void *arg __unused)
 }
 SYSUNINIT(cryptostats_fini, SI_SUB_COUNTER, SI_ORDER_ANY, cryptostats_fini,
     NULL);
+#else
+#define CRYPTOSTAT_INC(stat) do { } while (0)
+#endif
 
 /* Try to avoid directly exposing the key buffer as a symbol */
 static struct keybuf *keybuf;
