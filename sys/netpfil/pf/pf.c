@@ -3793,6 +3793,22 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf *m)
 		mtag->qid = r->qid;
 	}
 
+	/* Dummynet */
+	if (r->dnpipe) {
+		/** While dummynet supports handling Ethernet packets directly
+		 * it still wants some L3/L4 information, and we're not set up
+		 * to provide that here. Instead we'll do what we do for ALTQ
+		 * and merely mark the packet with the dummynet queue/pipe number.
+		 **/
+		mtag = pf_get_mtag(m);
+		if (mtag == NULL) {
+			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
+			return (PF_DROP);
+		}
+		mtag->dnpipe = r->dnpipe;
+		mtag->dnflags = r->dnflags;
+	}
+
 	action = r->action;
 
 	return (action);
@@ -6687,7 +6703,6 @@ pf_check_proto_cksum(struct mbuf *m, int off, int len, u_int8_t p, sa_family_t a
 	return (0);
 }
 
-
 int
 pf_test_eth(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0,
     struct inpcb *inp)
@@ -6814,6 +6829,11 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		return (PF_PASS);
 
 	pd.pf_mtag = pf_find_mtag(m);
+
+	if (pd.pf_mtag && pd.pf_mtag->dnpipe) {
+		pd.act.dnpipe = pd.pf_mtag->dnpipe;
+		pd.act.flags = pd.pf_mtag->dnflags;
+	}
 
 	PF_RULES_RLOCK();
 
@@ -7356,6 +7376,11 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 
 	if (m->m_flags & M_SKIP_FIREWALL)
 		return (PF_PASS);
+
+	if (pd.pf_mtag && pd.pf_mtag->dnpipe) {
+		pd.act.dnpipe = pd.pf_mtag->dnpipe;
+		pd.act.flags = pd.pf_mtag->dnflags;
+	}
 
 	PF_RULES_RLOCK();
 

@@ -51,6 +51,8 @@ struct pf_mtag {
 	u_int16_t	 tag;		/* tag id */
 	u_int8_t	 flags;
 	u_int8_t	 routed;
+	u_int16_t	 dnpipe;
+	u_int32_t	 dnflags;
 };
 
 static __inline struct pf_mtag *
