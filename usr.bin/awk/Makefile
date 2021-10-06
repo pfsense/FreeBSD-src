@@ -27,7 +27,7 @@ proctab.c: maketab awkgram.tab.h
 
 DEPENDOBJS+= maketab
 build-tools: maketab
-maketab: awkgram.tab.h ${BUILD_TOOLS_META}
+maketab: ${BUILD_TOOLS_META}
 
 # awk needs some work before we can connect these tests to the build
 #HAS_TESTS=
