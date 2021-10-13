@@ -38,6 +38,7 @@ ATF_TESTS_SH+=	\
 	pfsense_match
 
 ${PACKAGE}FILES+=	utils.subr \
+			daytime_inetd.conf \
 			echo_inetd.conf \
 			CVE-2019-5597.py \
 			CVE-2019-5598.py \
