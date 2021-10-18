@@ -489,7 +489,12 @@ also menu-infrastructure definitions
 	if ( use default center alignement? )
 		menuX @ 19 + over 2 / - menuY @ 1-
 	then
-	at-xy type 
+	swap 1- swap
+	at-xy dup 0= if
+		2drop ( empty loader_menu_title )
+	else
+		space type space
+	then
 
 	\ If $menu_init is set, evaluate it (allowing for whole menus to be
 	\ constructed dynamically -- as this function could conceivably set

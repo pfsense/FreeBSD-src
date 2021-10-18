@@ -295,8 +295,8 @@ static	int vlan_setflags(struct ifnet *ifp, int status);
 static	int vlan_setmulti(struct ifnet *ifp);
 static	int vlan_transmit(struct ifnet *ifp, struct mbuf *m);
 #ifdef ALTQ
-static void vlan_altq_start(if_t ifp);
-static	int vlan_altq_transmit(if_t ifp, struct mbuf *m);
+static void vlan_altq_start(struct ifnet *ifp);
+static	int vlan_altq_transmit(struct ifnet *ifp, struct mbuf *m);
 #endif
 static	int vlan_output(struct ifnet *ifp, struct mbuf *m,
     const struct sockaddr *dst, struct route *ro);
@@ -1117,6 +1117,7 @@ vlan_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
 	struct ifvlan *ifv = ifp->if_softc;
 	int unit = ifp->if_dunit;
 
+
 #ifdef ALTQ
 	IFQ_PURGE(&ifp->if_snd);
 #endif
@@ -1199,6 +1200,25 @@ vlan_transmit(struct ifnet *ifp, struct mbuf *m)
 	return (error);
 }
 
+static int
+vlan_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
+    struct route *ro)
+{
+	struct ifvlan *ifv;
+	struct ifnet *p;
+
+	NET_EPOCH_ENTER();
+	ifv = ifp->if_softc;
+	if (TRUNK(ifv) == NULL) {
+		NET_EPOCH_EXIT();
+		m_freem(m);
+		return (ENETDOWN);
+	}
+	p = PARENT(ifv);
+	NET_EPOCH_EXIT();
+	return p->if_output(ifp, m, dst, ro);
+}
+
 #ifdef ALTQ
 static void
 vlan_altq_start(if_t ifp)
@@ -1230,25 +1250,6 @@ vlan_altq_transmit(if_t ifp, struct mbuf *m)
 	return (err);
 }
 #endif	/* ALTQ */
-
-static int
-vlan_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
-    struct route *ro)
-{
-	struct ifvlan *ifv;
-	struct ifnet *p;
-
-	NET_EPOCH_ENTER();
-	ifv = ifp->if_softc;
-	if (TRUNK(ifv) == NULL) {
-		NET_EPOCH_EXIT();
-		m_freem(m);
-		return (ENETDOWN);
-	}
-	p = PARENT(ifv);
-	NET_EPOCH_EXIT();
-	return p->if_output(ifp, m, dst, ro);
-}
 
 /*
  * The ifp->if_qflush entry point for vlan(4) is a no-op.

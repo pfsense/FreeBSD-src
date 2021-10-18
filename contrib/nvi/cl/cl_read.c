@@ -9,10 +9,6 @@
 
 #include "config.h"
 
-#ifndef lint
-static const char sccsid[] = "$Id: cl_read.c,v 10.30 2012/07/12 18:28:58 zy Exp $";
-#endif /* not lint */
-
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/select.h>
@@ -24,6 +20,7 @@ static const char sccsid[] = "$Id: cl_read.c,v 10.30 2012/07/12 18:28:58 zy Exp 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -320,10 +317,10 @@ cl_resize(SCR *sp, size_t lines, size_t columns)
 	argv[0] = &a;
 	argv[1] = &b;
 
-	a.len = SPRINTF(b1, sizeof(b1), L("lines=%lu"), (u_long)lines);
+	a.len = SPRINTF(b1, SIZE(b1), L("lines=%lu"), (u_long)lines);
 	if (opts_set(sp, argv, NULL))
 		return (1);
-	a.len = SPRINTF(b1, sizeof(b1), L("columns=%lu"), (u_long)columns);
+	a.len = SPRINTF(b1, SIZE(b1), L("columns=%lu"), (u_long)columns);
 	if (opts_set(sp, argv, NULL))
 		return (1);
 	return (0);

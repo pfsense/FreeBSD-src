@@ -31,7 +31,7 @@ CLEANFILES+= ${BOOT}.tmp
 
 ${BOOT}: ${LDR} ${LOADER}
 	cat ${LDR} ${LOADER} > ${.TARGET}.tmp
-	${DD} if=${.TARGET}.tmp of=${.TARGET} obs=2k conv=osync
+	${DD} if=${.TARGET}.tmp of=${.TARGET} bs=2048 conv=sync
 	rm ${.TARGET}.tmp
 
 LDFLAGS+=${LDFLAGS_BIN}
@@ -43,6 +43,3 @@ ${LOADER}: ${LOADERBIN} ${BTXLDR} ${BTXKERN}
 	    -b ${BTXKERN} ${LOADERBIN}
 
 .include <bsd.prog.mk>
-
-# XXX: clang integrated-as doesn't grok .codeNN directives yet
-CFLAGS.pxeldr.S=	${CLANG_NO_IAS}

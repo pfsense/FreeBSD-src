@@ -7,8 +7,6 @@
  *	Zhihao Yuan.  All rights reserved.
  *
  * See the LICENSE file for redistribution information.
- *
- *	$Id: conv.h,v 2.32 2013/03/11 01:20:53 zy Exp $
  */
 
 #ifdef USE_ICONV
@@ -30,7 +28,7 @@ typedef int	iconv_t;
 #define KEY_NEEDSWIDE(sp, ch)						\
 	(INTISWIDE(ch) && KEY_LEN(sp, ch) <= 4)
 #define KEY_COL(sp, ch)							\
-	(KEY_NEEDSWIDE(sp, ch) ? CHAR_WIDTH(sp, ch) : KEY_LEN(sp, ch))
+	(KEY_NEEDSWIDE(sp, ch) ? XCHAR_WIDTH(sp, ch) : KEY_LEN(sp, ch))
 
 enum { IC_FE_CHAR2INT, IC_FE_INT2CHAR, IC_IE_CHAR2INT, IC_IE_TO_UTF16 };
 

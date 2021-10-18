@@ -272,13 +272,11 @@ static struct if_shared_ctx iavf_sctx_init = {
 	.isc_ntxd_default = {IXL_DEFAULT_RING},
 };
 
-if_shared_ctx_t iavf_sctx = &iavf_sctx_init;
-
 /*** Functions ***/
 static void *
 iavf_register(device_t dev)
 {
-	return (iavf_sctx);
+	return (&iavf_sctx_init);
 }
 
 static int
@@ -900,7 +898,7 @@ iavf_if_msix_intr_assign(if_ctx_t ctx, int msix)
 
 		snprintf(buf, sizeof(buf), "rxq%d", i);
 		err = iflib_irq_alloc_generic(ctx, &rx_que->que_irq, rid,
-		    IFLIB_INTR_RX, iavf_msix_que, rx_que, rx_que->rxr.me, buf);
+		    IFLIB_INTR_RXTX, iavf_msix_que, rx_que, rx_que->rxr.me, buf);
 		/* XXX: Does the driver work as expected if there are fewer num_rx_queues than
 		 * what's expected in the iflib context? */
 		if (err) {

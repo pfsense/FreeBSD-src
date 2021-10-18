@@ -84,6 +84,9 @@ CWARNFLAGS.clang+=	-Wno-empty-body -Wno-string-plus-int
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 30400
 CWARNFLAGS.clang+=	-Wno-unused-const-variable
 .endif
+.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 130000
+CWARNFLAGS.clang+=	-Wno-error=unused-but-set-variable
+.endif
 .endif # WARNS <= 6
 .if ${WARNS} <= 3
 CWARNFLAGS.clang+=	-Wno-tautological-compare -Wno-unused-value\
@@ -93,6 +96,9 @@ CWARNFLAGS.clang+=	-Wno-unused-local-typedef
 .endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 40000
 CWARNFLAGS.clang+=	-Wno-address-of-packed-member
+.endif
+.if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 90100
+CWARNFLAGS.gcc+=	-Wno-address-of-packed-member
 .endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 70000 && \
     ${MACHINE_CPUARCH} == "arm" && !${MACHINE_ARCH:Marmv[67]*}
@@ -204,15 +210,10 @@ CWARNFLAGS+=	-Wno-unknown-pragmas
 # This warning is utter nonsense
 CFLAGS+=	-Wno-format-zero-length
 
-# We need this conditional because many places that use it
-# only enable it for some files with CLFAGS.$FILE+=${CLANG_NO_IAS}.
-# unconditionally, and can't easily use the CFLAGS.clang=
-# mechanism.
-.if ${COMPILER_TYPE} == "clang"
-CLANG_NO_IAS=	 -no-integrated-as
+CLANG_OPT_SMALL= -mstack-alignment=8 -mllvm -inline-threshold=3
+.if ${COMPILER_VERSION} < 130000
+CLANG_OPT_SMALL+= -mllvm -simplifycfg-dup-ret
 .endif
-CLANG_OPT_SMALL= -mstack-alignment=8 -mllvm -inline-threshold=3\
-		 -mllvm -simplifycfg-dup-ret
 .if ${COMPILER_VERSION} >= 30500 && ${COMPILER_VERSION} < 30700
 CLANG_OPT_SMALL+= -mllvm -enable-gvn=false
 .else

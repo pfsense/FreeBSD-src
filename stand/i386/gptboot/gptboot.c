@@ -574,10 +574,12 @@ parse_cmds(char *cmdstr, int *dskupdated)
 				if (arg[1] != 'p' || gdsk.dsk.unit > 9)
 					return (-1);
 				arg += 2;
-				gdsk.dsk.part = *arg - '0';
-				if (gdsk.dsk.part < 1 || gdsk.dsk.part > 9)
+				j = 0;
+				while (*arg >= '0' && *arg <= '9')
+					j = j * 10 + *arg++ - '0';
+				gdsk.dsk.part = j;
+				if (gdsk.dsk.part < 1 || gdsk.dsk.part > 128)
 					return (-1);
-				arg++;
 				if (arg[0] != ')')
 					return (-1);
 				arg++;
@@ -608,7 +610,7 @@ dskread(void *buf, daddr_t lba, unsigned nblk)
 #ifdef LOADER_GELI_SUPPORT
 	if (err == 0 && gdsk.gdev != NULL) {
 		/* Decrypt */
-		if (geli_read(gdsk.gdev, lba * DEV_BSIZE, buf,
+		if (geli_io(gdsk.gdev, GELI_DECRYPT, lba * DEV_BSIZE, buf,
 		    nblk * DEV_BSIZE))
 			return (err);
 	}

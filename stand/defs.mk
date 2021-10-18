@@ -10,6 +10,7 @@ __BOOT_DEFS_MK__=${MFILE}
 MK_CTF=		no
 MK_SSP=		no
 MK_PROFILE=	no
+MK_PIE=		no
 MAN=
 .if !defined(PIC)
 NO_PIC=
@@ -62,6 +63,11 @@ LIBSA32=	${BOOTOBJ}/libsa32/libsa32.a
 
 # Standard options:
 CFLAGS+=	-nostdinc
+# Allow CFLAGS_EARLY.file/target so that code that needs specific stack
+# of include paths can set them up before our include paths. Normally
+# the only thing that should be there are -I directives, and as few of
+# those as possible.
+CFLAGS+=	${CFLAGS_EARLY} ${CFLAGS_EARLY.${.IMPSRC:T}} ${CFLAGS_EARLY.${.TARGET:T}}
 .if ${MACHINE_ARCH} == "amd64" && ${DO32:U0} == 1
 CFLAGS+=	-I${BOOTOBJ}/libsa32
 .else
@@ -125,7 +131,7 @@ AFLAGS+=	--32
 # currently has no /boot/loader, but may soon.
 CFLAGS+=	-ffreestanding ${CFLAGS_NO_SIMD}
 .if ${MACHINE_CPUARCH} == "aarch64"
-CFLAGS+=	-mgeneral-regs-only -fPIC
+CFLAGS+=	-mgeneral-regs-only -ffixed-x18 -fPIC
 .elif ${MACHINE_CPUARCH} == "riscv"
 CFLAGS+=	-march=rv64imac -mabi=lp64
 .else
@@ -232,6 +238,6 @@ ${_ILINKS}: .NOMETA
 	esac ; \
 	path=`(cd $$path && /bin/pwd)` ; \
 	${ECHO} ${.TARGET} "->" $$path ; \
-	ln -fhs $$path ${.TARGET}
+	ln -fns $$path ${.TARGET}
 .endif # !NO_OBJ
 .endif # __BOOT_DEFS_MK__

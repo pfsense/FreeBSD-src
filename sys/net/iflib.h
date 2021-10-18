@@ -49,7 +49,7 @@ typedef uint16_t qidx_t;
 struct iflib_ctx;
 typedef struct iflib_ctx *if_ctx_t;
 struct if_shared_ctx;
-typedef struct if_shared_ctx *if_shared_ctx_t;
+typedef const struct if_shared_ctx *if_shared_ctx_t;
 struct if_int_delay_info;
 typedef struct if_int_delay_info  *if_int_delay_info_t;
 struct if_pseudo;
@@ -284,10 +284,27 @@ typedef struct iflib_dma_info {
 #define IFLIB_MAGIC 0xCAFEF00D
 
 typedef enum {
+	/* Interrupt or softirq handles only receive */
 	IFLIB_INTR_RX,
+
+	/* Interrupt or softirq handles only transmit */
 	IFLIB_INTR_TX,
+
+	/*
+	 * Interrupt will check for both pending receive
+	 * and available tx credits and dispatch a task
+	 * for one or both depending on the disposition
+	 * of the respective queues.
+	 */
 	IFLIB_INTR_RXTX,
+
+	/*
+	 * Other interrupt - typically link status and
+	 * or error conditions.
+	 */
 	IFLIB_INTR_ADMIN,
+
+	/* Softirq (task) for iov handling */
 	IFLIB_INTR_IOV,
 } iflib_intr_type_t;
 

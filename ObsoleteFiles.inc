@@ -38,6 +38,9 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20210923: rename boot(9) to kern_reboot(9)
+OLD_FILES+=usr/share/man/man9/boot.9.gz
+
 # 20201004: logo files renamed to type-agnostic gfx-*.lua
 OLD_FILES+=boot/lua/logo-beastie.lua
 OLD_FILES+=boot/lua/logo-beastiebw.lua
@@ -11052,8 +11055,6 @@ OLD_FILES+=usr/share/man/man3/isnanf.3.gz
 OLD_FILES+=usr/share/man/man3/libautofs.3.gz
 OLD_FILES+=usr/share/man/man3/pthread_attr_setsstack.3.gz
 OLD_FILES+=usr/share/man/man3/pthread_getcancelstate.3.gz
-OLD_FILES+=usr/share/man/man3/pthread_mutexattr_getpshared.3.gz
-OLD_FILES+=usr/share/man/man3/pthread_mutexattr_setpshared.3.gz
 OLD_FILES+=usr/share/man/man3/set_assertion_failure_callback.3.gz
 OLD_FILES+=usr/share/man/man3/setkey.3.gz
 OLD_FILES+=usr/share/man/man3/setvfsent.3.gz

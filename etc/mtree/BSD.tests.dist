@@ -805,6 +805,8 @@
     netmap
     ..
         netpfil
+            common
+            ..
             pf
                 ioctl
                 ..
@@ -1081,6 +1083,8 @@
     ..
     usr.sbin
         chown
+        ..
+        daemon
         ..
         etcupdate
         ..

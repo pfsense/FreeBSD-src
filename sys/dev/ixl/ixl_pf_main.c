@@ -60,6 +60,7 @@ static int	ixl_sysctl_pf_tx_itr(SYSCTL_HANDLER_ARGS);
 static int	ixl_sysctl_pf_rx_itr(SYSCTL_HANDLER_ARGS);
 
 static int	ixl_sysctl_eee_enable(SYSCTL_HANDLER_ARGS);
+static int	ixl_sysctl_set_link_active(SYSCTL_HANDLER_ARGS);
 
 /* Debug Sysctls */
 static int 	ixl_sysctl_link_status(SYSCTL_HANDLER_ARGS);
@@ -382,6 +383,9 @@ retry:
 		device_printf(dev, "Error setting I2C access functions\n");
 		break;
 	}
+
+	/* Keep link active by default */
+	atomic_set_32(&pf->state, IXL_PF_STATE_LINK_ACTIVE_ON_DOWN);
 
 	/* Print a subset of the capability information. */
 	device_printf(dev,
@@ -775,6 +779,11 @@ ixl_vsi_add_sysctls(struct ixl_vsi * vsi, const char * sysctl_name, bool queues_
 
 	vsi_list = SYSCTL_CHILDREN(vsi->vsi_node);
 	ixl_add_sysctls_eth_stats(&vsi->sysctl_ctx, vsi_list, &vsi->eth_stats);
+
+	/* Copy of netstat RX errors counter for validation purposes */
+	SYSCTL_ADD_UQUAD(&vsi->sysctl_ctx, vsi_list, OID_AUTO, "rx_errors",
+			CTLFLAG_RD, &vsi->ierrors,
+			"RX packet errors");
 
 	if (queues_sysctls)
 		ixl_vsi_add_queues_stats(vsi, &vsi->sysctl_ctx);
@@ -1994,7 +2003,7 @@ ixl_update_vsi_stats(struct ixl_vsi *vsi)
 	struct ixl_pf		*pf;
 	struct ifnet		*ifp;
 	struct i40e_eth_stats	*es;
-	u64			tx_discards;
+	u64			tx_discards, csum_errs;
 
 	struct i40e_hw_port_stats *nsd;
 
@@ -2006,6 +2015,11 @@ ixl_update_vsi_stats(struct ixl_vsi *vsi)
 	ixl_update_eth_stats(vsi);
 
 	tx_discards = es->tx_discards + nsd->tx_dropped_link_down;
+
+	csum_errs = 0;
+	for (int i = 0; i < vsi->num_rx_queues; i++)
+		csum_errs += vsi->rx_queues[i].rxr.csum_errs;
+	nsd->checksum_error = csum_errs;
 
 	/* Update ifnet stats */
 	IXL_SET_IPACKETS(vsi, es->rx_unicast +
@@ -2020,7 +2034,8 @@ ixl_update_vsi_stats(struct ixl_vsi *vsi)
 	IXL_SET_OMCASTS(vsi, es->tx_multicast);
 
 	IXL_SET_IERRORS(vsi, nsd->crc_errors + nsd->illegal_bytes +
-	    nsd->rx_undersize + nsd->rx_oversize + nsd->rx_fragments +
+	    nsd->checksum_error + nsd->rx_length_errors +
+	    nsd->rx_undersize + nsd->rx_fragments + nsd->rx_oversize +
 	    nsd->rx_jabber);
 	IXL_SET_OERRORS(vsi, es->tx_errors);
 	IXL_SET_IQDROPS(vsi, es->rx_discards + nsd->eth.rx_discards);
@@ -2283,6 +2298,12 @@ ixl_add_device_sysctls(struct ixl_pf *pf)
 	    CTLFLAG_RD | CTLFLAG_MPSAFE, &pf->stats.rx_lpi_count,
 	    "RX LPI count");
 
+	SYSCTL_ADD_PROC(ctx, ctx_list, OID_AUTO,
+	    "link_active_on_if_down",
+	    CTLTYPE_INT | CTLFLAG_RWTUN,
+	    pf, 0, ixl_sysctl_set_link_active, "I",
+	    IXL_SYSCTL_HELP_SET_LINK_ACTIVE);
+
 	/* Add sysctls meant to print debug information, but don't list them
 	 * in "sysctl -a" output. */
 	debug_node = SYSCTL_ADD_NODE(ctx, ctx_list,
@@ -2302,7 +2323,13 @@ ixl_add_device_sysctls(struct ixl_pf *pf)
 	    pf, 0, ixl_sysctl_link_status, "A", IXL_SYSCTL_HELP_LINK_STATUS);
 
 	SYSCTL_ADD_PROC(ctx, debug_list,
-	    OID_AUTO, "phy_abilities", CTLTYPE_STRING | CTLFLAG_RD,
+	    OID_AUTO, "phy_abilities_init",
+	    CTLTYPE_STRING | CTLFLAG_RD,
+	    pf, 1, ixl_sysctl_phy_abilities, "A", "Initial PHY Abilities");
+
+	SYSCTL_ADD_PROC(ctx, debug_list,
+	    OID_AUTO, "phy_abilities",
+	    CTLTYPE_STRING | CTLFLAG_RD,
 	    pf, 0, ixl_sysctl_phy_abilities, "A", "PHY Abilities");
 
 	SYSCTL_ADD_PROC(ctx, debug_list,
@@ -2872,6 +2899,96 @@ ixl_find_i2c_interface(struct ixl_pf *pf)
 	return (-1);
 }
 
+void
+ixl_set_link(struct ixl_pf *pf, bool enable)
+{
+	struct i40e_hw *hw = &pf->hw;
+	device_t dev = pf->dev;
+	struct i40e_aq_get_phy_abilities_resp abilities;
+	struct i40e_aq_set_phy_config config;
+	enum i40e_status_code aq_error = 0;
+	u32 phy_type, phy_type_ext;
+
+	/* Get initial capability information */
+	aq_error = i40e_aq_get_phy_capabilities(hw,
+	    FALSE, TRUE, &abilities, NULL);
+	if (aq_error) {
+		device_printf(dev,
+		    "%s: Error getting phy capabilities %d,"
+		    " aq error: %d\n", __func__, aq_error,
+		    hw->aq.asq_last_status);
+		return;
+	}
+
+	phy_type = abilities.phy_type;
+	phy_type_ext = abilities.phy_type_ext;
+
+	/* Get current capability information */
+	aq_error = i40e_aq_get_phy_capabilities(hw,
+	    FALSE, FALSE, &abilities, NULL);
+	if (aq_error) {
+		device_printf(dev,
+		    "%s: Error getting phy capabilities %d,"
+		    " aq error: %d\n", __func__, aq_error,
+		    hw->aq.asq_last_status);
+		return;
+	}
+
+	/* Prepare new config */
+	memset(&config, 0, sizeof(config));
+	config.link_speed = abilities.link_speed;
+	config.abilities = abilities.abilities;
+	config.eee_capability = abilities.eee_capability;
+	config.eeer = abilities.eeer_val;
+	config.low_power_ctrl = abilities.d3_lpan;
+	config.fec_config = abilities.fec_cfg_curr_mod_ext_info
+	    & I40E_AQ_PHY_FEC_CONFIG_MASK;
+	config.phy_type = 0;
+	config.phy_type_ext = 0;
+
+	config.abilities &= ~(I40E_AQ_PHY_FLAG_PAUSE_TX |
+			I40E_AQ_PHY_FLAG_PAUSE_RX);
+
+	switch (pf->fc) {
+	case I40E_FC_FULL:
+		config.abilities |= I40E_AQ_PHY_FLAG_PAUSE_TX |
+			I40E_AQ_PHY_FLAG_PAUSE_RX;
+		break;
+	case I40E_FC_RX_PAUSE:
+		config.abilities |= I40E_AQ_PHY_FLAG_PAUSE_RX;
+		break;
+	case I40E_FC_TX_PAUSE:
+		config.abilities |= I40E_AQ_PHY_FLAG_PAUSE_TX;
+		break;
+	default:
+		break;
+	}
+
+	if (enable) {
+		config.phy_type = phy_type;
+		config.phy_type_ext = phy_type_ext;
+
+	}
+
+	aq_error = i40e_aq_set_phy_config(hw, &config, NULL);
+	if (aq_error) {
+		device_printf(dev,
+		    "%s: Error setting new phy config %d,"
+		    " aq error: %d\n", __func__, aq_error,
+		    hw->aq.asq_last_status);
+		return;
+	}
+
+	aq_error = i40e_aq_set_link_restart_an(hw, enable, NULL);
+	if (aq_error) {
+		device_printf(dev,
+		    "%s: Error set link config %d,"
+		    " aq error: %d\n", __func__, aq_error,
+		    hw->aq.asq_last_status);
+		return;
+	}
+}
+
 static char *
 ixl_phy_type_string(u32 bit_pos, bool ext)
 {
@@ -3030,7 +3147,7 @@ ixl_sysctl_phy_abilities(SYSCTL_HANDLER_ARGS)
 	}
 
 	status = i40e_aq_get_phy_capabilities(hw,
-	    FALSE, FALSE, &abilities, NULL);
+	    FALSE, arg2 != 0, &abilities, NULL);
 	if (status) {
 		device_printf(dev,
 		    "%s: i40e_aq_get_phy_capabilities() status %s, aq error %s\n",
@@ -4215,6 +4332,28 @@ ixl_sysctl_eee_enable(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
+static int
+ixl_sysctl_set_link_active(SYSCTL_HANDLER_ARGS)
+{
+	struct ixl_pf *pf = (struct ixl_pf *)arg1;
+	int error, state;
+
+	state = !!(atomic_load_acq_32(&pf->state) &
+	    IXL_PF_STATE_LINK_ACTIVE_ON_DOWN);
+
+	error = sysctl_handle_int(oidp, &state, 0, req);
+	if ((error) || (req->newptr == NULL))
+		return (error);
+
+	if (state == 0)
+		atomic_clear_32(&pf->state, IXL_PF_STATE_LINK_ACTIVE_ON_DOWN);
+	else
+		atomic_set_32(&pf->state, IXL_PF_STATE_LINK_ACTIVE_ON_DOWN);
+
+	return (0);
+}
+
+
 int
 ixl_attach_get_link_status(struct ixl_pf *pf)
 {
@@ -4236,6 +4375,11 @@ ixl_attach_get_link_status(struct ixl_pf *pf)
 	/* Determine link state */
 	hw->phy.get_link_info = TRUE;
 	i40e_get_link_status(hw, &pf->link_up);
+
+	/* Flow Control mode not set by user, read current FW settings */
+	if (pf->fc == -1)
+		pf->fc = hw->fc.current_mode;
+
 	return (0);
 }
 

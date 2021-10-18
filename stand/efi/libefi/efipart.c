@@ -363,6 +363,8 @@ efipart_inithandles(void)
 	status = BS->LocateHandle(ByProtocol, &blkio_guid, 0, &sz, hin);
 	if (status == EFI_BUFFER_TOO_SMALL) {
 		hin = malloc(sz);
+		if (hin == NULL)
+			return (ENOMEM);
 		status = BS->LocateHandle(ByProtocol, &blkio_guid, 0, &sz,
 		    hin);
 		if (EFI_ERROR(status))
@@ -947,8 +949,10 @@ efipart_close(struct open_file *f)
 	pd->pd_open--;
 	if (pd->pd_open == 0) {
 		pd->pd_blkio = NULL;
-		bcache_free(pd->pd_bcache);
-		pd->pd_bcache = NULL;
+		if (dev->dd.d_dev->dv_type != DEVT_DISK) {
+			bcache_free(pd->pd_bcache);
+			pd->pd_bcache = NULL;
+		}
 	}
 	if (dev->dd.d_dev->dv_type == DEVT_DISK)
 		return (disk_close(dev));

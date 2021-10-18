@@ -24,7 +24,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd October 2, 2020
+.Dd October 8, 2021
 .Dt LOADER 8
 .Os
 .Sh NAME
@@ -76,7 +76,7 @@ is set to 24.
 Next,
 .Tn FICL
 is initialized, the builtin words are added to its vocabulary, and
-.Pa /boot/boot.4th
+.Pa /boot/loader.4th
 is processed if it exists.
 No disk switching is possible while that file is being read.
 The inner interpreter
@@ -354,35 +354,8 @@ Both types of builtin variables are described below.
 Number of seconds
 .Ic autoboot
 will wait before booting.
-If this variable is not defined,
-.Ic autoboot
-will default to 10 seconds.
-.Pp
-If set to
-.Dq Li NO ,
-no
-.Ic autoboot
-will be automatically attempted after processing
-.Pa /boot/loader.rc ,
-though explicit
-.Ic autoboot Ns 's
-will be processed normally, defaulting to 10 seconds delay.
-.Pp
-If set to
-.Dq Li 0 ,
-no delay will be inserted, but user still will be able to interrupt
-.Ic autoboot
-process and escape into the interactive mode by pressing some key
-on the console while kernel and
-modules are being loaded.
-.Pp
-If set to
-.Dq Li -1 ,
-no delay will be inserted and
-.Nm
-will engage interactive mode only if
-.Ic autoboot
-has failed for some reason.
+Configuration options are described in
+.Xr loader.conf 5 .
 .It Va boot_askname
 Instructs the kernel to prompt the user for the name of the root device
 when the kernel is booted.
@@ -479,8 +452,14 @@ In that case, the first listed console will become the default console for
 userland output (e.g.\& from
 .Xr init 8 ) .
 .It Va currdev
-Selects the default device.
-Syntax for devices is odd.
+Selects the default device to loader the kernel from.
+The syntax is:
+.Dl Ic loader_device:
+or
+.Dl Ic zfs:dataset:
+Examples:
+.Dl Ic disk0p2:
+.Dl Ic zfs:zroot/ROOT/default:
 .It Va dumpdev
 Sets the device for kernel dumps.
 This can be used to ensure that a device is configured before the corresponding
@@ -981,12 +960,29 @@ See
 for details.
 In order for this to be effective, one should also configure the firmware
 (BIOS or UEFI) to prevent booting from unauthorized devices.
+.Sh MD
+Memory disk (MD) can be used when the
+.Nm
+was compiled with
+.Va MD_IMAGE_SIZE .
+The size of the memory disk is determined by
+.Va MD_IMAGE_SIZE .
+If MD available, a file system can be embedded into the
+.Nm
+with
+.Pa /sys/tools/embed_mfs.sh .
+Then, MD will be probed and be set to
+.Va currdev
+during initialization.
+.Pp
+Currently, MD is only supported in
+.Xr loader.efi 8 .
 .Sh FILES
 .Bl -tag -width /usr/share/examples/bootforth/ -compact
 .It Pa /boot/loader
 .Nm
 itself.
-.It Pa /boot/boot.4th
+.It Pa /boot/loader.4th
 Additional
 .Tn FICL
 initialization.

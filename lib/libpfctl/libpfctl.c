@@ -50,6 +50,12 @@
 
 #include "libpfctl.h"
 
+const char* PFCTL_SYNCOOKIES_MODE_NAMES[] = {
+	"never",
+	"always",
+	"adaptive"
+};
+
 static int	_pfctl_clear_states(int , const struct pfctl_kill *,
 		    unsigned int *, uint64_t);
 
@@ -119,6 +125,121 @@ pf_nvuint_64_array(const nvlist_t *nvl, const char *name, size_t maxelems,
 
 	if (nelems)
 		*nelems = elems;
+}
+
+static void
+_pfctl_get_status_counters(const nvlist_t *nvl,
+    struct pfctl_status_counters *counters)
+{
+	const uint64_t		*ids, *counts;
+	const char *const	*names;
+	size_t id_len, counter_len, names_len;
+
+	ids = nvlist_get_number_array(nvl, "ids", &id_len);
+	counts = nvlist_get_number_array(nvl, "counters", &counter_len);
+	names = nvlist_get_string_array(nvl, "names", &names_len);
+	assert(id_len == counter_len);
+	assert(counter_len == names_len);
+
+	TAILQ_INIT(counters);
+
+	for (size_t i = 0; i < id_len; i++) {
+		struct pfctl_status_counter *c;
+
+		c = malloc(sizeof(*c));
+
+		c->id = ids[i];
+		c->counter = counts[i];
+		c->name = strdup(names[i]);
+
+		TAILQ_INSERT_TAIL(counters, c, entry);
+	}
+}
+
+struct pfctl_status *
+pfctl_get_status(int dev)
+{
+	struct pfioc_nv	 nv;
+	struct pfctl_status	*status;
+	nvlist_t	*nvl;
+	size_t		 len;
+	const void	*chksum;
+
+	status = calloc(1, sizeof(*status));
+	if (status == NULL)
+		return (NULL);
+
+	nv.data = malloc(4096);
+	nv.len = nv.size = 4096;
+
+	if (ioctl(dev, DIOCGETSTATUSNV, &nv)) {
+		free(nv.data);
+		free(status);
+		return (NULL);
+	}
+
+	nvl = nvlist_unpack(nv.data, nv.len, 0);
+	free(nv.data);
+	if (nvl == NULL) {
+		free(status);
+		return (NULL);
+	}
+
+	status->running = nvlist_get_bool(nvl, "running");
+	status->since = nvlist_get_number(nvl, "since");
+	status->debug = nvlist_get_number(nvl, "debug");
+	status->hostid = nvlist_get_number(nvl, "hostid");
+	status->states = nvlist_get_number(nvl, "states");
+	status->src_nodes = nvlist_get_number(nvl, "src_nodes");
+
+	strlcpy(status->ifname, nvlist_get_string(nvl, "ifname"),
+	    IFNAMSIZ);
+	chksum = nvlist_get_binary(nvl, "chksum", &len);
+	assert(len == PF_MD5_DIGEST_LENGTH);
+	memcpy(status->pf_chksum, chksum, len);
+
+	_pfctl_get_status_counters(nvlist_get_nvlist(nvl, "counters"),
+	    &status->counters);
+	_pfctl_get_status_counters(nvlist_get_nvlist(nvl, "lcounters"),
+	    &status->lcounters);
+	_pfctl_get_status_counters(nvlist_get_nvlist(nvl, "fcounters"),
+	    &status->fcounters);
+	_pfctl_get_status_counters(nvlist_get_nvlist(nvl, "scounters"),
+	    &status->scounters);
+
+	pf_nvuint_64_array(nvl, "pcounters", 2 * 2 * 3,
+	    (uint64_t *)status->pcounters, NULL);
+	pf_nvuint_64_array(nvl, "bcounters", 2 * 2,
+	    (uint64_t *)status->bcounters, NULL);
+
+	nvlist_destroy(nvl);
+
+	return (status);
+}
+
+void
+pfctl_free_status(struct pfctl_status *status)
+{
+	struct pfctl_status_counter *c, *tmp;
+
+	TAILQ_FOREACH_SAFE(c, &status->counters, entry, tmp) {
+		free(c->name);
+		free(c);
+	}
+	TAILQ_FOREACH_SAFE(c, &status->lcounters, entry, tmp) {
+		free(c->name);
+		free(c);
+	}
+	TAILQ_FOREACH_SAFE(c, &status->fcounters, entry, tmp) {
+		free(c->name);
+		free(c);
+	}
+	TAILQ_FOREACH_SAFE(c, &status->scounters, entry, tmp) {
+		free(c->name);
+		free(c);
+	}
+
+	free(status);
 }
 
 static void
@@ -823,17 +944,40 @@ pfctl_kill_states(int dev, const struct pfctl_kill *kill, unsigned int *killed)
 	return (_pfctl_clear_states(dev, kill, killed, DIOCKILLSTATESNV));
 }
 
+static int
+pfctl_get_limit(int dev, const int index, u_int *limit)
+{
+	struct pfioc_limit pl;
+
+	bzero(&pl, sizeof(pl));
+	pl.index = index;
+
+	if (ioctl(dev, DIOCGETLIMIT, &pl) == -1)
+		return (errno);
+
+	*limit = pl.limit;
+
+	return (0);
+}
+
 int
 pfctl_set_syncookies(int dev, const struct pfctl_syncookies *s)
 {
 	struct pfioc_nv	 nv;
 	nvlist_t	*nvl;
 	int		 ret;
+	u_int		 state_limit;
+
+	ret = pfctl_get_limit(dev, PF_LIMIT_STATES, &state_limit);
+	if (ret != 0)
+		return (ret);
 
 	nvl = nvlist_create(0);
 
 	nvlist_add_bool(nvl, "enabled", s->mode != PFCTL_SYNCOOKIES_NEVER);
-	nvlist_add_bool(nvl, "adaptive", false); /* XXX TODO */
+	nvlist_add_bool(nvl, "adaptive", s->mode == PFCTL_SYNCOOKIES_ADAPTIVE);
+	nvlist_add_number(nvl, "highwater", state_limit * s->highwater / 100);
+	nvlist_add_number(nvl, "lowwater", state_limit * s->lowwater / 100);
 
 	nv.data = nvlist_pack(nvl, &nv.len);
 	nv.size = nv.len;
@@ -851,12 +995,18 @@ pfctl_get_syncookies(int dev, struct pfctl_syncookies *s)
 {
 	struct pfioc_nv	 nv;
 	nvlist_t	*nvl;
-	bool		enabled, adaptive;
+	int		 ret;
+	u_int		 state_limit;
+	bool		 enabled, adaptive;
+
+	ret = pfctl_get_limit(dev, PF_LIMIT_STATES, &state_limit);
+	if (ret != 0)
+		return (ret);
 
 	bzero(s, sizeof(*s));
 
-	nv.data = malloc(128);
-	nv.len = nv.size = 128;
+	nv.data = malloc(256);
+	nv.len = nv.size = 256;
 
 	if (ioctl(dev, DIOCGETSYNCOOKIES, &nv)) {
 		free(nv.data);
@@ -866,14 +1016,23 @@ pfctl_get_syncookies(int dev, struct pfctl_syncookies *s)
 	nvl = nvlist_unpack(nv.data, nv.len, 0);
 	free(nv.data);
 	if (nvl == NULL) {
-		free(nv.data);
 		return (EIO);
 	}
 
 	enabled = nvlist_get_bool(nvl, "enabled");
 	adaptive = nvlist_get_bool(nvl, "adaptive");
 
-	s->mode = enabled ? PFCTL_SYNCOOKIES_ALWAYS : PFCTL_SYNCOOKIES_NEVER;
+	if (enabled) {
+		if (adaptive)
+			s->mode = PFCTL_SYNCOOKIES_ADAPTIVE;
+		else
+			s->mode = PFCTL_SYNCOOKIES_ALWAYS;
+	} else {
+		s->mode = PFCTL_SYNCOOKIES_NEVER;
+	}
+
+	s->highwater = nvlist_get_number(nvl, "highwater") * 100 / state_limit;
+	s->lowwater = nvlist_get_number(nvl, "lowwater") * 100 / state_limit;
 
 	nvlist_destroy(nvl);
 

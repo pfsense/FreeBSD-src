@@ -38,7 +38,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/queue.h>
-#include <disk.h>
 #include <part.h>
 #include <stddef.h>
 #include <stdarg.h>
@@ -92,7 +91,7 @@ static int	zfs_env_count;
 SLIST_HEAD(zfs_be_list, zfs_be_entry) zfs_be_head = SLIST_HEAD_INITIALIZER(zfs_be_head);
 struct zfs_be_list *zfs_be_headp;
 struct zfs_be_entry {
-	const char *name;
+	char *name;
 	SLIST_ENTRY(zfs_be_entry) entries;
 } *zfs_be, *zfs_be_tmp;
 
@@ -110,9 +109,10 @@ zfs_open(const char *upath, struct open_file *f)
 		return (EINVAL);
 
 	/* allocate file system specific data structure */
-	fp = malloc(sizeof(struct file));
-	bzero(fp, sizeof(struct file));
-	f->f_fsdata = (void *)fp;
+	fp = calloc(1, sizeof(struct file));
+	if (fp == NULL)
+		return (ENOMEM);
+	f->f_fsdata = fp;
 
 	rc = zfs_lookup(mount, upath, &fp->f_dnode);
 	fp->f_seekp = 0;
@@ -129,9 +129,7 @@ zfs_close(struct open_file *f)
 	struct file *fp = (struct file *)f->f_fsdata;
 
 	dnode_cache_obj = NULL;
-	f->f_fsdata = (void *)0;
-	if (fp == (struct file *)0)
-		return (0);
+	f->f_fsdata = NULL;
 
 	free(fp);
 	return (0);
@@ -250,7 +248,9 @@ zfs_readdir(struct open_file *f, struct dirent *d)
 				return (rc);
 
 			fp->f_seekp = bsize;
-			fp->f_zap_leaf = (zap_leaf_phys_t *)malloc(bsize);
+			fp->f_zap_leaf = malloc(bsize);
+			if (fp->f_zap_leaf == NULL)
+				return (ENOMEM);
 			rc = dnode_read(spa, &fp->f_dnode,
 					fp->f_seekp,
 					fp->f_zap_leaf,
@@ -418,7 +418,7 @@ vdev_read(vdev_t *vdev, void *priv, off_t offset, void *buf, size_t bytes)
 
 	/* Return of partial sector data requires a bounce buffer. */
 	if ((head > 0) || do_tail_read || bytes < secsz) {
-		bouncebuf = zfs_alloc(secsz);
+		bouncebuf = malloc(secsz);
 		if (bouncebuf == NULL) {
 			printf("vdev_read: out of memory\n");
 			return (ENOMEM);
@@ -477,9 +477,217 @@ vdev_read(vdev_t *vdev, void *priv, off_t offset, void *buf, size_t bytes)
 
 	ret = 0;
 error:
-	if (bouncebuf != NULL)
-		zfs_free(bouncebuf, secsz);
+	free(bouncebuf);
 	return (ret);
+}
+
+static int
+vdev_write(vdev_t *vdev __unused, void *priv, off_t offset, void *buf,
+    size_t bytes)
+{
+	int fd, ret;
+	size_t head, tail, total_size, full_sec_size;
+	unsigned secsz, do_tail_write;
+	off_t start_sec;
+	ssize_t res;
+	char *outbuf, *bouncebuf;
+
+	fd = (uintptr_t)priv;
+	outbuf = (char *) buf;
+	bouncebuf = NULL;
+
+	ret = ioctl(fd, DIOCGSECTORSIZE, &secsz);
+	if (ret != 0)
+		return (ret);
+
+	start_sec = offset / secsz;
+	head = offset % secsz;
+	total_size = roundup2(head + bytes, secsz);
+	tail = total_size - (head + bytes);
+	do_tail_write = ((tail > 0) && (head + bytes > secsz));
+	full_sec_size = total_size;
+	if (head > 0)
+		full_sec_size -= secsz;
+	if (do_tail_write)
+		full_sec_size -= secsz;
+
+	/* Partial sector write requires a bounce buffer. */
+	if ((head > 0) || do_tail_write || bytes < secsz) {
+		bouncebuf = malloc(secsz);
+		if (bouncebuf == NULL) {
+			printf("vdev_write: out of memory\n");
+			return (ENOMEM);
+		}
+	}
+
+	if (lseek(fd, start_sec * secsz, SEEK_SET) == -1) {
+		ret = errno;
+		goto error;
+	}
+
+	/* Partial data for first sector */
+	if (head > 0) {
+		res = read(fd, bouncebuf, secsz);
+		if (res != secsz) {
+			ret = EIO;
+			goto error;
+		}
+		memcpy(bouncebuf + head, outbuf, min(secsz - head, bytes));
+		(void) lseek(fd, -secsz, SEEK_CUR);
+		res = write(fd, bouncebuf, secsz);
+		if (res != secsz) {
+			ret = EIO;
+			goto error;
+		}
+		outbuf += min(secsz - head, bytes);
+	}
+
+	/*
+	 * Full data write to sectors.
+	 * Note, there is still corner case where we write
+	 * to sector boundary, but less than sector size, e.g. write 512B
+	 * to 4k sector.
+	 */
+	if (full_sec_size > 0) {
+		if (bytes < full_sec_size) {
+			res = read(fd, bouncebuf, secsz);
+			if (res != secsz) {
+				ret = EIO;
+				goto error;
+			}
+			memcpy(bouncebuf, outbuf, bytes);
+			(void) lseek(fd, -secsz, SEEK_CUR);
+			res = write(fd, bouncebuf, secsz);
+			if (res != secsz) {
+				ret = EIO;
+				goto error;
+			}
+		} else {
+			res = write(fd, outbuf, full_sec_size);
+			if (res != full_sec_size) {
+				ret = EIO;
+				goto error;
+			}
+			outbuf += full_sec_size;
+		}
+	}
+
+	/* Partial data write to last sector */
+	if (do_tail_write) {
+		res = read(fd, bouncebuf, secsz);
+		if (res != secsz) {
+			ret = EIO;
+			goto error;
+		}
+		memcpy(bouncebuf, outbuf, secsz - tail);
+		(void) lseek(fd, -secsz, SEEK_CUR);
+		res = write(fd, bouncebuf, secsz);
+		if (res != secsz) {
+			ret = EIO;
+			goto error;
+		}
+	}
+
+	ret = 0;
+error:
+	free(bouncebuf);
+	return (ret);
+}
+
+static void
+vdev_clear_pad2(vdev_t *vdev)
+{
+	vdev_t *kid;
+	vdev_boot_envblock_t *be;
+	off_t off = offsetof(vdev_label_t, vl_be);
+	zio_checksum_info_t *ci;
+	zio_cksum_t cksum;
+
+	STAILQ_FOREACH(kid, &vdev->v_children, v_childlink) {
+		if (kid->v_state != VDEV_STATE_HEALTHY)
+			continue;
+		vdev_clear_pad2(kid);
+	}
+
+	if (!STAILQ_EMPTY(&vdev->v_children))
+		return;
+
+	be = calloc(1, sizeof (*be));
+	if (be == NULL) {
+		printf("failed to clear be area: out of memory\n");
+		return;
+	}
+
+	ci = &zio_checksum_table[ZIO_CHECKSUM_LABEL];
+	be->vbe_zbt.zec_magic = ZEC_MAGIC;
+	zio_checksum_label_verifier(&be->vbe_zbt.zec_cksum, off);
+	ci->ci_func[0](be, sizeof (*be), NULL, &cksum);
+	be->vbe_zbt.zec_cksum = cksum;
+
+	if (vdev_write(vdev, vdev->v_read_priv, off, be, VDEV_PAD_SIZE)) {
+		printf("failed to clear be area of primary vdev: %d\n",
+		    errno);
+	}
+	free(be);
+}
+
+/*
+ * Read the next boot command from pad2.
+ * If any instance of pad2 is set to empty string, or the returned string
+ * values are not the same, we consider next boot not to be set.
+ */
+static char *
+vdev_read_pad2(vdev_t *vdev)
+{
+	vdev_t *kid;
+	char *tmp, *result = NULL;
+	vdev_boot_envblock_t *be;
+	off_t off = offsetof(vdev_label_t, vl_be);
+
+	STAILQ_FOREACH(kid, &vdev->v_children, v_childlink) {
+		if (kid->v_state != VDEV_STATE_HEALTHY)
+			continue;
+		tmp = vdev_read_pad2(kid);
+		if (tmp == NULL)
+			continue;
+
+		/* The next boot is not set, we are done. */
+		if (*tmp == '\0') {
+			free(result);
+			return (tmp);
+		}
+		if (result == NULL) {
+			result = tmp;
+			continue;
+		}
+		/* Are the next boot strings different? */
+		if (strcmp(result, tmp) != 0) {
+			free(tmp);
+			*result = '\0';
+			break;
+		}
+		free(tmp);
+	}
+	if (result != NULL)
+		return (result);
+
+	be = malloc(sizeof (*be));
+	if (be == NULL)
+		return (NULL);
+
+	if (vdev_read(vdev, vdev->v_read_priv, off, be, sizeof (*be))) {
+		return (NULL);
+	}
+
+	switch (be->vbe_version) {
+	case VB_RAW:
+	case VB_NVLIST:
+		result = strdup(be->vbe_bootenv);
+	default:
+		/* Backward compatibility with initial nextboot feaure. */
+		result = strdup((char *)be);
+	}
+	return (result);
 }
 
 static int
@@ -536,7 +744,8 @@ zfs_probe(int fd, uint64_t *pool_guid)
 	spa = NULL;
 	ret = vdev_probe(vdev_read, (void *)(uintptr_t)fd, &spa);
 	if (ret == 0 && pool_guid != NULL)
-		*pool_guid = spa->spa_guid;
+		if (*pool_guid == 0)
+			*pool_guid = spa->spa_guid;
 	return (ret);
 }
 
@@ -558,7 +767,7 @@ zfs_probe_partition(void *arg, const char *partname,
 	strncpy(devname, ppa->devname, strlen(ppa->devname) - 1);
 	devname[strlen(ppa->devname) - 1] = '\0';
 	sprintf(devname, "%s%s:", devname, partname);
-	pa.fd = open(devname, O_RDONLY);
+	pa.fd = open(devname, O_RDWR);
 	if (pa.fd == -1)
 		return (0);
 	ret = zfs_probe(pa.fd, ppa->pool_guid);
@@ -581,9 +790,59 @@ zfs_probe_partition(void *arg, const char *partname,
 }
 
 int
+zfs_nextboot(void *vdev, char *buf, size_t size)
+{
+	struct zfs_devdesc *dev = (struct zfs_devdesc *)vdev;
+	spa_t *spa;
+	vdev_t *vd;
+	char *result = NULL;
+
+	if (dev->dd.d_dev->dv_type != DEVT_ZFS)
+		return (1);
+
+	if (dev->pool_guid == 0)
+		spa = STAILQ_FIRST(&zfs_pools);
+	else
+		spa = spa_find_by_guid(dev->pool_guid);
+
+	if (spa == NULL) {
+		printf("ZFS: can't find pool by guid\n");
+	return (1);
+	}
+
+	STAILQ_FOREACH(vd, &spa->spa_root_vdev->v_children, v_childlink) {
+		char *tmp = vdev_read_pad2(vd);
+
+		/* Continue on error. */
+		if (tmp == NULL)
+			continue;
+		/* Nextboot is not set. */
+		if (*tmp == '\0') {
+			free(result);
+			free(tmp);
+			return (1);
+		}
+		if (result == NULL) {
+			result = tmp;
+			continue;
+		}
+		free(tmp);
+	}
+	if (result == NULL)
+		return (1);
+
+	STAILQ_FOREACH(vd, &spa->spa_root_vdev->v_children, v_childlink) {
+		vdev_clear_pad2(vd);
+	}
+
+	strlcpy(buf, result, size);
+	free(result);
+	return (0);
+}
+
+int
 zfs_probe_dev(const char *devname, uint64_t *pool_guid)
 {
-	struct disk_devdesc *dev;
 	struct ptable *table;
 	struct zfs_probe_args pa;
 	uint64_t mediasz;
@@ -591,25 +850,13 @@ zfs_probe_dev(const char *devname, uint64_t *pool_guid)
 
 	if (pool_guid)
 		*pool_guid = 0;
-	pa.fd = open(devname, O_RDONLY);
+	pa.fd = open(devname, O_RDWR);
 	if (pa.fd == -1)
 		return (ENXIO);
-	/*
-	 * We will not probe the whole disk, we can not boot from such
-	 * disks and some systems will misreport the disk sizes and will
-	 * hang while accessing the disk.
-	 */
-	if (archsw.arch_getdev((void **)&dev, devname, NULL) == 0) {
-		int partition = dev->d_partition;
-		int slice = dev->d_slice;
-
-		free(dev);
-		if (partition != D_PARTNONE && slice != D_SLICENONE) {
-			ret = zfs_probe(pa.fd, pool_guid);
-			if (ret == 0)
-				return (0);
-		}
-	}
+	/* Probe the whole disk */
+	ret = zfs_probe(pa.fd, pool_guid);
+	if (ret == 0)
+		return (0);
 
 	/* Probe each partition */
 	ret = ioctl(pa.fd, DIOCGMEDIASIZE, &mediasz);
@@ -683,7 +930,10 @@ zfs_dev_open(struct open_file *f, ...)
 	if (!spa)
 		return (ENXIO);
 	mount = malloc(sizeof(*mount));
-	rv = zfs_mount(spa, dev->root_guid, mount);
+	if (mount == NULL)
+		rv = ENOMEM;
+	else
+		rv = zfs_mount(spa, dev->root_guid, mount);
 	if (rv != 0) {
 		free(mount);
 		return (rv);
@@ -917,6 +1167,7 @@ zfs_bootenv_initial(const char *name)
 	while (!SLIST_EMPTY(&zfs_be_head)) {
 		zfs_be = SLIST_FIRST(&zfs_be_head);
 		SLIST_REMOVE_HEAD(&zfs_be_head, entries);
+		free(zfs_be->name);
 		free(zfs_be);
 	}
 
@@ -984,6 +1235,7 @@ zfs_bootenv(const char *name)
 	while (!SLIST_EMPTY(&zfs_be_head)) {
 		zfs_be = SLIST_FIRST(&zfs_be_head);
 		SLIST_REMOVE_HEAD(&zfs_be_head, entries);
+		free(zfs_be->name);
 		free(zfs_be);
 	}
 
@@ -1003,7 +1255,11 @@ zfs_belist_add(const char *name, uint64_t value __unused)
 	if (zfs_be == NULL) {
 		return (ENOMEM);
 	}
-	zfs_be->name = name;
+	zfs_be->name = strdup(name);
+	if (zfs_be->name == NULL) {
+		free(zfs_be);
+		return (ENOMEM);
+	}
 	SLIST_INSERT_HEAD(&zfs_be_head, zfs_be, entries);
 	zfs_env_count++;
 

@@ -5,8 +5,6 @@
  *	Keith Bostic.  All rights reserved.
  *
  * See the LICENSE file for redistribution information.
- *
- *	$Id: options.h,v 10.21 2012/02/10 20:24:58 zy Exp $
  */
 
 /*
@@ -98,5 +96,9 @@ enum optdisp { NO_DISPLAY, ALL_DISPLAY, CHANGED_DISPLAY, SELECT_DISPLAY };
 
 /* Options array. */
 extern OPTLIST const optlist[];
+
+#ifdef O_PATH
+#undef O_PATH	/* bits/fcntl-linux.h may have defined O_PATH. */
+#endif
 
 #include "options_def.h"

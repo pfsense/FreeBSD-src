@@ -55,12 +55,12 @@ __FBSDID("$FreeBSD$");
 #define	MAXBUFSIZ	(32 * 1024)
 #define	LNBUFBUMP	80
 
-static unsigned char *buffer;
-static unsigned char *bufpos;
+static char *buffer;
+static char *bufpos;
 static size_t bufrem;
 static size_t fsiz;
 
-static unsigned char *lnbuf;
+static char *lnbuf;
 static size_t lnbuflen;
 
 static inline int
@@ -97,8 +97,7 @@ grep_lnbufgrow(size_t newlen)
 char *
 grep_fgetln(struct file *f, struct parsec *pc)
 {
-	unsigned char *p;
-	char *ret;
+	char *p;
 	size_t len;
 	size_t off;
 	ptrdiff_t diff;
@@ -116,12 +115,15 @@ grep_fgetln(struct file *f, struct parsec *pc)
 	/* Look for a newline in the remaining part of the buffer */
 	if ((p = memchr(bufpos, fileeol, bufrem)) != NULL) {
 		++p; /* advance over newline */
-		ret = bufpos;
 		len = p - bufpos;
+		if (grep_lnbufgrow(len + 1))
+			goto error;
+		memcpy(lnbuf, bufpos, len);
 		bufrem -= len;
 		bufpos = p;
 		pc->ln.len = len;
-		return (ret);
+		lnbuf[len] = '\0';
+		return (lnbuf);
 	}
 
 	/* We have to copy the current buffered data to the line buffer */
@@ -148,7 +150,7 @@ grep_fgetln(struct file *f, struct parsec *pc)
 		++p;
 		diff = p - bufpos;
 		len += diff;
-		if (grep_lnbufgrow(len))
+		if (grep_lnbufgrow(len + 1))
 		    goto error;
 		memcpy(lnbuf + off, bufpos, diff);
 		bufrem -= diff;
@@ -156,6 +158,7 @@ grep_fgetln(struct file *f, struct parsec *pc)
 		break;
 	}
 	pc->ln.len = len;
+	lnbuf[len] = '\0';
 	return (lnbuf);
 
 error:

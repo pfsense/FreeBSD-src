@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2016 Anish Gupta (anish@freebsd.org)
- * All rights reserved.
+ * Copyright (c) 2021 The FreeBSD Foundation
+ *
+ * Portions of this software were developed by Ka Ho Ng
+ * under sponsorship from the FreeBSD Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -375,17 +378,14 @@ enum IvrsType
 struct amdvi_softc {
 	struct amdvi_ctrl *ctrl;	/* Control area. */
 	device_t 	dev;		/* IOMMU device. */
+	device_t 	pci_dev;	/* IOMMU PCI function device. */
 	enum IvrsType   ivhd_type;	/* IOMMU IVHD type. */
 	bool		iotlb;		/* IOTLB supported by IOMMU */
 	struct amdvi_cmd *cmd;		/* Command descriptor area. */
 	int 		cmd_max;	/* Max number of commands. */
 	uint64_t	cmp_data;	/* Command completion write back. */
 	struct amdvi_event *event;	/* Event descriptor area. */
-	struct resource *event_res;	/* Event interrupt resource. */
-	void   		*event_tag;	/* Event interrupt tag. */
 	int		event_max;	/* Max number of events. */
-	int		event_irq;
-	int		event_rid;
 	/* ACPI various flags. */
 	uint32_t 	ivhd_flag;	/* ACPI IVHD flag. */
 	uint32_t 	ivhd_feature;	/* ACPI v1 Reserved or v2 attribute. */
@@ -395,13 +395,11 @@ struct amdvi_softc {
 	uint8_t		pci_cap;	/* PCI capability. */
 	uint16_t 	pci_seg;	/* IOMMU PCI domain/segment. */
 	uint16_t 	pci_rid;	/* PCI BDF of IOMMU */
-	/* Device range under this IOMMU. */
-	uint16_t 	start_dev_rid;	/* First device under this IOMMU. */
-	uint16_t 	end_dev_rid;	/* Last device under this IOMMU. */
 
-	/* BIOS provided device configuration for end points. */
-	struct 		ivhd_dev_cfg dev_cfg[10];
+	/* ACPI device configuration for end points. */
+	struct 		ivhd_dev_cfg *dev_cfg;
 	int		dev_cfg_cnt;
+	int		dev_cfg_cap;
 
 	/* Software statistics. */
 	uint64_t 	event_intr_cnt;	/* Total event INTR count. */
