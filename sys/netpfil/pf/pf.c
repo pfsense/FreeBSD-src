@@ -6142,11 +6142,6 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 	if (dir == PF_IN) {
 		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
 			return;
-		if (s && r->rt == PF_ROUTETO && pd->nat_rule != NULL &&
-		    r->direction == PF_OUT && r->direction == dir &&
-		    pd->pf_mtag->routed < 2) {
-			PACKET_UNDO_NAT(m0, pd, ntohs(ip->ip_off), s, dir);
-		}
 		if (pf_test(PF_OUT, 0, ifp, &m0, inp) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
@@ -6372,12 +6367,6 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		return;
 
 	if (dir == PF_IN) {
-		if (s && r->rt == PF_ROUTETO && pd->nat_rule != NULL &&
-		    r->direction == PF_OUT && r->direction == dir &&
-		    pd->pf_mtag->routed < 2) {
-			int ip_off = ((caddr_t)ip6 - m0->m_data) + sizeof(struct ip6_hdr);
-			PACKET_UNDO_NAT(m0, pd, ip_off, s, dir);
-		}
 		if (pf_test6(PF_OUT, PFIL_FWD, ifp, &m0, inp) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
