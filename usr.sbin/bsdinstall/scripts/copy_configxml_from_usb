@@ -64,7 +64,7 @@ look_for_config_xml_config_msdos() {
 if look_for_config_xml_config_msdos; then
 	/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
 	# Remove rrddata/xmldata if it is present, see https://redmine.pfsense.org/issues/11050
-	REMOVE_DATA="rrddata captiveportaldata dhcpddata dhcpdv6data voucherdata"
+	REMOVE_DATA="rrddata captiveportaldata dhcpddata dhcpdv6data voucherdata sshdata"
 	for remdata in $REMOVE_DATA; do
 		sed -i '' -e "/<$remdata>/,/<\/$remdata>/ d" ${recovery_dir}/config.xml
 	done
