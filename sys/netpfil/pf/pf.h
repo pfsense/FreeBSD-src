@@ -522,11 +522,7 @@ struct pf_rule {
 	u_int32_t		 rt_listid;
 	u_int32_t		 nr;
 	u_int32_t		 prob;
-#ifdef PF_USER_INFO
 	uid_t			 cuid;
-#else
-	u_int32_t		 cuid;
-#endif
 	pid_t			 cpid;
 
 	counter_u64_t		 states_cur;

@@ -614,11 +614,7 @@ struct pf_krule {
 	u_int32_t                free_flags;
 	u_int32_t		 nr;
 	u_int32_t		 prob;
-#ifdef PF_USER_INFO
 	uid_t			 cuid;
-#else
-	u_int32_t		 cuid;
-#endif
 	pid_t			 cpid;
 
 	counter_u64_t		 states_cur;
@@ -1295,13 +1291,11 @@ struct pfi_kkif {
 
 #ifdef _KERNEL
 struct pf_pdesc {
-#ifdef PF_USER_INFO
 	struct {
 		int	 done;
 		uid_t	 uid;
 		gid_t	 gid;
 	}		 lookup;
-#endif
 	u_int64_t	 tot_len;	/* Make Mickey money */
 	union pf_headers {
 		struct tcphdr		tcp;

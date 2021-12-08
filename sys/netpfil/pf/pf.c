@@ -3221,7 +3221,6 @@ pf_match_port(u_int8_t op, u_int16_t a1, u_int16_t a2, u_int16_t p)
 	return (pf_match(op, a1, a2, p));
 }
 
-#ifdef PF_USER_INFO
 static int
 pf_match_uid(u_int8_t op, uid_t a1, uid_t a2, uid_t u)
 {
@@ -3237,7 +3236,6 @@ pf_match_gid(u_int8_t op, gid_t a1, gid_t a2, gid_t g)
 		return (0);
 	return (pf_match(op, a1, a2, g));
 }
-#endif
 
 int
 pf_match_tag(struct mbuf *m, struct pf_krule *r, int *tag, int mtag)
@@ -3446,7 +3444,6 @@ pf_rule_to_actions(struct pf_krule *r, struct pf_rule_actions *a)
 		a->flags |= PFRULE_DN_IS_PIPE;
 }
 
-#ifdef PF_USER_INFO
 int
 pf_socket_lookup(int direction, struct pf_pdesc *pd, struct mbuf *m)
 {
@@ -3522,7 +3519,6 @@ pf_socket_lookup(int direction, struct pf_pdesc *pd, struct mbuf *m)
 
 	return (1);
 }
-#endif
 
 u_int8_t
 pf_get_wscale(struct mbuf *m, int off, u_int16_t th_off, sa_family_t af)
@@ -3700,14 +3696,12 @@ pf_test_rule(struct pf_krule **rm, struct pf_kstate **sm, int direction,
 
 	PF_RULES_RASSERT();
 
-#ifdef PF_USER_INFO
 	if (inp != NULL) {
 		INP_LOCK_ASSERT(inp);
 		pd->lookup.uid = inp->inp_cred->cr_uid;
 		pd->lookup.gid = inp->inp_cred->cr_groups[0];
 		pd->lookup.done = 1;
 	}
-#endif
 
 	switch (pd->proto) {
 	case IPPROTO_TCP:
@@ -3926,7 +3920,6 @@ pf_test_rule(struct pf_krule **rm, struct pf_kstate **sm, int direction,
 		    (r->flagset & th->th_flags) != r->flags)
 			r = TAILQ_NEXT(r, entries);
 		/* tcp/udp only. uid.op always 0 in other cases */
-#ifdef PF_USER_INFO
 		else if (r->uid.op && (pd->lookup.done || (pd->lookup.done =
 		    pf_socket_lookup(direction, pd, m), 1)) &&
 		    !pf_match_uid(r->uid.op, r->uid.uid[0], r->uid.uid[1],
@@ -3938,7 +3931,6 @@ pf_test_rule(struct pf_krule **rm, struct pf_kstate **sm, int direction,
 		    !pf_match_gid(r->gid.op, r->gid.gid[0], r->gid.gid[1],
 		    pd->lookup.gid))
 			r = TAILQ_NEXT(r, entries);
-#endif
 		else if (r->prio &&
 		    !pf_match_ieee8021q_pcp(r->prio, m))
 			r = TAILQ_NEXT(r, entries);
