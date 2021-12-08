@@ -482,16 +482,16 @@ pf_packet_rework_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 		struct tcphdr *th = &pd->hdr.tcp;
 
 		if (PF_ANEQ(pd->src, &nk->addr[pd->sidx], pd->af))
-                        pf_change_ap(m, pd->src, &th->th_sport, pd->ip_sum,
-                            &th->th_sum, &nk->addr[pd->sidx],
-                            nk->port[pd->sidx], 0, pd->af);
+			pf_change_ap(m, pd->src, &th->th_sport, pd->ip_sum,
+			    &th->th_sum, &nk->addr[pd->sidx],
+			    nk->port[pd->sidx], 0, pd->af);
 		if (PF_ANEQ(pd->dst, &nk->addr[pd->didx], pd->af))
 			pf_change_ap(m, pd->dst, &th->th_dport, pd->ip_sum,
 			    &th->th_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 0, pd->af);
 		m_copyback(m, off, sizeof(*th), (caddr_t)th);
-	}
 		break;
+	}
 	case IPPROTO_UDP: {
 		struct udphdr *uh = &pd->hdr.udp;
 
@@ -504,11 +504,22 @@ pf_packet_rework_nat(struct mbuf *m, struct pf_pdesc *pd, int off,
 			    &uh->uh_sum, &nk->addr[pd->didx],
 			    nk->port[pd->didx], 1, pd->af);
 		m_copyback(m, off, sizeof(*uh), (caddr_t)uh);
-	}
 		break;
-	/* case IPPROTO_ICMP: */
-		/* XXX: If we want to do this for icmp is probably wrong!?! */
-		/* break; */
+	}
+	case IPPROTO_ICMP: {
+		struct icmp *ih = &pd->hdr.icmp;
+
+		if (nk->port[pd->sidx] != ih->icmp_id) {
+			pd->hdr.icmp.icmp_cksum = pf_cksum_fixup(
+			    ih->icmp_cksum, ih->icmp_id,
+			    nk->port[pd->sidx], 0);
+			ih->icmp_id = nk->port[pd->sidx];
+			pd->sport = &ih->icmp_id;
+
+			m_copyback(m, off, ICMP_MINLEN, (caddr_t)ih);
+		}
+		/* FALLTHROUGH */
+	}
 	default:
 		if (PF_ANEQ(pd->src, &nk->addr[pd->sidx], pd->af)) {
 			switch (pd->af) {
@@ -4953,7 +4964,6 @@ pf_test_state_tcp(struct pf_kstate **state, int direction, struct pfi_kkif *kif,
 	int			 copyback = 0;
 	int			 action;
 	struct pf_state_peer	*src, *dst;
-	struct pf_state_key	*sk;
 
 	bzero(&key, sizeof(key));
 	key.af = pd->af;
@@ -4979,8 +4989,6 @@ pf_test_state_tcp(struct pf_kstate **state, int direction, struct pfi_kkif *kif,
 		src = &(*state)->dst;
 		dst = &(*state)->src;
 	}
-
-	sk = (*state)->key[pd->didx];
 
 	if ((action = pf_synproxy(pd, state, reason)) != PF_PASS)
 		return (action);
@@ -6200,7 +6208,9 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		KMOD_IPSTAT_INC(ips_cantfrag);
 		if (r->rt != PF_DUPTO) {
 			if (s && pd->nat_rule != NULL)
-				PACKET_UNDO_NAT(m0, pd, ntohs(ip->ip_off), s, dir);
+				PACKET_UNDO_NAT(m0, pd,
+				    (ip->ip_hl << 2) + (ip_off & IP_OFFMASK),
+				    s, dir);
 
 			icmp_error(m0, ICMP_UNREACH, ICMP_UNREACH_NEEDFRAG, 0,
 			    ifp->if_mtu);
@@ -6411,7 +6421,9 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		in6_ifstat_inc(ifp, ifs6_in_toobig);
 		if (r->rt != PF_DUPTO) {
 			if (s && pd->nat_rule != NULL)
-				PACKET_UNDO_NAT(m0, pd, ((caddr_t)ip6 - m0->m_data) + sizeof(struct ip6_hdr), s, dir);
+				PACKET_UNDO_NAT(m0, pd,
+				    ((caddr_t)ip6 - m0->m_data) +
+				    sizeof(struct ip6_hdr), s, dir);
 
 			icmp6_error(m0, ICMP6_PACKET_TOO_BIG, 0, ifp->if_mtu);
 		} else

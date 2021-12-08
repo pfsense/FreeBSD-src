@@ -236,7 +236,7 @@ static struct filter_opts {
 	struct node_icmp	*icmpspec;
 	u_int32_t		 tos;
 	u_int32_t		 prob;
-	u_int32_t		 tracker;
+	u_int32_t		 ridentifier;
 	struct {
 		int			 action;
 		struct node_state_opt	*options;
@@ -264,7 +264,7 @@ static struct filter_opts {
 static struct antispoof_opts {
 	char			*label[PF_RULE_MAX_LABEL_COUNT];
 	int			 labelcount;
-	u_int32_t		 tracker;
+	u_int32_t		 ridentifier;
 	u_int			 rtableid;
 } antispoof_opts;
 
@@ -335,14 +335,12 @@ int		 process_tabledef(char *, struct table_opts *);
 void		 expand_label_str(char *, size_t, const char *, const char *);
 void		 expand_label_if(const char *, char *, size_t, const char *);
 void		 expand_label_addr(const char *, char *, size_t, u_int8_t,
-		    struct node_host *);
+		    struct pf_rule_addr *);
 void		 expand_label_port(const char *, char *, size_t,
-		    struct node_port *);
+		    struct pf_rule_addr *);
 void		 expand_label_proto(const char *, char *, size_t, u_int8_t);
-void		 expand_label_nr(const char *, char *, size_t);
-void		 expand_label(char *, size_t, const char *, u_int8_t,
-		    struct node_host *, struct node_port *, struct node_host *,
-		    struct node_port *, u_int8_t);
+void		 expand_label_nr(const char *, char *, size_t,
+		    struct pfctl_rule *);
 void		 expand_rule(struct pfctl_rule *, struct node_if *,
 		    struct node_host *, struct node_proto *, struct node_os *,
 		    struct node_host *, struct node_port *, struct node_host *,
@@ -467,7 +465,7 @@ int	parseport(char *, struct range *r, int);
 %token	RETURNRST RETURNICMP RETURNICMP6 PROTO INET INET6 ALL ANY ICMPTYPE
 %token	ICMP6TYPE CODE KEEP MODULATE STATE PORT RDR NAT BINAT ARROW NODF
 %token	MINTTL ERROR ALLOWOPTS FASTROUTE FILENAME ROUTETO DUPTO REPLYTO NO LABEL
-%token	NOROUTE URPFFAILED FRAGMENT USER GROUP MAXMSS MAXIMUM TTL TOS DROP TABLE TRACKER
+%token	NOROUTE URPFFAILED FRAGMENT USER GROUP MAXMSS MAXIMUM TTL TOS DROP TABLE
 %token	REASSEMBLE FRAGDROP FRAGCROP ANCHOR NATANCHOR RDRANCHOR BINATANCHOR
 %token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE BLOCKPOLICY FAILPOLICY
 %token	RANDOMID REQUIREORDER SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
@@ -475,7 +473,7 @@ int	parseport(char *, struct range *r, int);
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN STATICPORT PROBABILITY MAPEPORTSET
 %token	ALTQ CBQ CODEL PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME
 %token	UPPERLIMIT QUEUE PRIORITY QLIMIT HOGS BUCKETS RTABLE TARGET INTERVAL
-%token	DNPIPE DNQUEUE
+%token	DNPIPE DNQUEUE RIDENTIFIER
 %token	LOAD RULESET_OPTIMIZATION PRIO
 %token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
 %token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY
@@ -852,7 +850,6 @@ pfa_anchor	: '{'
 			/* steping into a brace anchor */
 			pf->asd++;
 			pf->bn++;
-			pf->brace = 1;
 
 			/* create a holding ruleset in the root */
 			snprintf(ta, PF_ANCHOR_NAME_SIZE, "_%d", pf->bn);
@@ -924,6 +921,7 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 			r.af = $6;
 			r.prob = $9.prob;
 			r.rtableid = $9.rtableid;
+			r.ridentifier = $9.ridentifier;
 
 			if ($9.tag)
 				if (strlcpy(r.tagname, $9.tag,
@@ -1323,10 +1321,10 @@ antispoof	: ANTISPOOF logquick antispoof_ifspc af antispoof_opts {
 				r.logif = $2.logif;
 				r.quick = $2.quick;
 				r.af = $4;
+				r.ridentifier = $5.ridentifier;
 				if (rule_label(&r, $5.label))
 					YYERROR;
 				r.rtableid = $5.rtableid;
-				r.cuid = $5.tracker;
 				j = calloc(1, sizeof(struct node_if));
 				if (j == NULL)
 					err(1, "antispoof: calloc");
@@ -1376,7 +1374,7 @@ antispoof	: ANTISPOOF logquick antispoof_ifspc af antispoof_opts {
 					r.logif = $2.logif;
 					r.quick = $2.quick;
 					r.af = $4;
-					r.cuid = $5.tracker;
+					r.ridentifier = $5.ridentifier;
 					if (rule_label(&r, $5.label))
 						YYERROR;
 					r.rtableid = $5.rtableid;
@@ -1439,8 +1437,8 @@ antispoof_opt	: label	{
 			}
 			antispoof_opts.label[antispoof_opts.labelcount++] = $1;
 		}
-		| TRACKER number {
-			antispoof_opts.tracker = $2;
+		| RIDENTIFIER number {
+			antispoof_opts.ridentifier = $2;
 		}
 		| RTABLE NUMBER				{
 			if ($2 < 0 || $2 > rt_tableid_max()) {
@@ -2157,8 +2155,7 @@ pfrule		: action dir logquick interface route af proto fromto
 				YYERROR;
 			for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++)
 				free($9.label[i]);
-			if ($9.tracker)
-				r.cuid = $9.tracker;
+			r.ridentifier = $9.ridentifier;
 			r.flags = $9.flags.b1;
 			r.flagset = $9.flags.b2;
 			if (($9.flags.b1 & $9.flags.b2) != $9.flags.b1) {
@@ -2598,8 +2595,8 @@ filter_opt	: USER uids {
 			filter_opts.keep.action = $1.action;
 			filter_opts.keep.options = $1.options;
 		}
-		| TRACKER number {
-			filter_opts.tracker = $2;
+		| RIDENTIFIER number {
+			filter_opts.ridentifier = $2;
 		}
 		| FRAGMENT {
 			filter_opts.fragment = 1;
@@ -5032,17 +5029,17 @@ expand_label_if(const char *name, char *label, size_t len, const char *ifname)
 
 void
 expand_label_addr(const char *name, char *label, size_t len, sa_family_t af,
-    struct node_host *h)
+    struct pf_rule_addr *addr)
 {
 	char tmp[64], tmp_not[66];
 
 	if (strstr(label, name) != NULL) {
-		switch (h->addr.type) {
+		switch (addr->addr.type) {
 		case PF_ADDR_DYNIFTL:
-			snprintf(tmp, sizeof(tmp), "(%s)", h->addr.v.ifname);
+			snprintf(tmp, sizeof(tmp), "(%s)", addr->addr.v.ifname);
 			break;
 		case PF_ADDR_TABLE:
-			snprintf(tmp, sizeof(tmp), "<%s>", h->addr.v.tblname);
+			snprintf(tmp, sizeof(tmp), "<%s>", addr->addr.v.tblname);
 			break;
 		case PF_ADDR_NOROUTE:
 			snprintf(tmp, sizeof(tmp), "no-route");
@@ -5051,18 +5048,18 @@ expand_label_addr(const char *name, char *label, size_t len, sa_family_t af,
 			snprintf(tmp, sizeof(tmp), "urpf-failed");
 			break;
 		case PF_ADDR_ADDRMASK:
-			if (!af || (PF_AZERO(&h->addr.v.a.addr, af) &&
-			    PF_AZERO(&h->addr.v.a.mask, af)))
+			if (!af || (PF_AZERO(&addr->addr.v.a.addr, af) &&
+			    PF_AZERO(&addr->addr.v.a.mask, af)))
 				snprintf(tmp, sizeof(tmp), "any");
 			else {
 				char	a[48];
 				int	bits;
 
-				if (inet_ntop(af, &h->addr.v.a.addr, a,
+				if (inet_ntop(af, &addr->addr.v.a.addr, a,
 				    sizeof(a)) == NULL)
 					snprintf(tmp, sizeof(tmp), "?");
 				else {
-					bits = unmask(&h->addr.v.a.mask, af);
+					bits = unmask(&addr->addr.v.a.mask, af);
 					if ((af == AF_INET && bits < 32) ||
 					    (af == AF_INET6 && bits < 128))
 						snprintf(tmp, sizeof(tmp),
@@ -5078,7 +5075,7 @@ expand_label_addr(const char *name, char *label, size_t len, sa_family_t af,
 			break;
 		}
 
-		if (h->not) {
+		if (addr->neg) {
 			snprintf(tmp_not, sizeof(tmp_not), "! %s", tmp);
 			expand_label_str(label, len, name, tmp_not);
 		} else
@@ -5088,30 +5085,30 @@ expand_label_addr(const char *name, char *label, size_t len, sa_family_t af,
 
 void
 expand_label_port(const char *name, char *label, size_t len,
-    struct node_port *port)
+    struct pf_rule_addr *addr)
 {
 	char	 a1[6], a2[6], op[13] = "";
 
 	if (strstr(label, name) != NULL) {
-		snprintf(a1, sizeof(a1), "%u", ntohs(port->port[0]));
-		snprintf(a2, sizeof(a2), "%u", ntohs(port->port[1]));
-		if (!port->op)
+		snprintf(a1, sizeof(a1), "%u", ntohs(addr->port[0]));
+		snprintf(a2, sizeof(a2), "%u", ntohs(addr->port[1]));
+		if (!addr->port_op)
 			;
-		else if (port->op == PF_OP_IRG)
+		else if (addr->port_op == PF_OP_IRG)
 			snprintf(op, sizeof(op), "%s><%s", a1, a2);
-		else if (port->op == PF_OP_XRG)
+		else if (addr->port_op == PF_OP_XRG)
 			snprintf(op, sizeof(op), "%s<>%s", a1, a2);
-		else if (port->op == PF_OP_EQ)
+		else if (addr->port_op == PF_OP_EQ)
 			snprintf(op, sizeof(op), "%s", a1);
-		else if (port->op == PF_OP_NE)
+		else if (addr->port_op == PF_OP_NE)
 			snprintf(op, sizeof(op), "!=%s", a1);
-		else if (port->op == PF_OP_LT)
+		else if (addr->port_op == PF_OP_LT)
 			snprintf(op, sizeof(op), "<%s", a1);
-		else if (port->op == PF_OP_LE)
+		else if (addr->port_op == PF_OP_LE)
 			snprintf(op, sizeof(op), "<=%s", a1);
-		else if (port->op == PF_OP_GT)
+		else if (addr->port_op == PF_OP_GT)
 			snprintf(op, sizeof(op), ">%s", a1);
-		else if (port->op == PF_OP_GE)
+		else if (addr->port_op == PF_OP_GE)
 			snprintf(op, sizeof(op), ">=%s", a1);
 		expand_label_str(label, len, name, op);
 	}
@@ -5135,29 +5132,27 @@ expand_label_proto(const char *name, char *label, size_t len, u_int8_t proto)
 }
 
 void
-expand_label_nr(const char *name, char *label, size_t len)
+expand_label_nr(const char *name, char *label, size_t len,
+    struct pfctl_rule *r)
 {
 	char n[11];
 
 	if (strstr(label, name) != NULL) {
-		snprintf(n, sizeof(n), "%u", pf->anchor->match);
+		snprintf(n, sizeof(n), "%u", r->nr);
 		expand_label_str(label, len, name, n);
 	}
 }
 
 void
-expand_label(char *label, size_t len, const char *ifname, sa_family_t af,
-    struct node_host *src_host, struct node_port *src_port,
-    struct node_host *dst_host, struct node_port *dst_port,
-    u_int8_t proto)
+expand_label(char *label, size_t len, struct pfctl_rule *r)
 {
-	expand_label_if("$if", label, len, ifname);
-	expand_label_addr("$srcaddr", label, len, af, src_host);
-	expand_label_addr("$dstaddr", label, len, af, dst_host);
-	expand_label_port("$srcport", label, len, src_port);
-	expand_label_port("$dstport", label, len, dst_port);
-	expand_label_proto("$proto", label, len, proto);
-	expand_label_nr("$nr", label, len);
+	expand_label_if("$if", label, len, r->ifname);
+	expand_label_addr("$srcaddr", label, len, r->af, &r->src);
+	expand_label_addr("$dstaddr", label, len, r->af, &r->dst);
+	expand_label_port("$srcport", label, len, &r->src);
+	expand_label_port("$dstport", label, len, &r->dst);
+	expand_label_proto("$proto", label, len, r->proto);
+	expand_label_nr("$nr", label, len, r);
 }
 
 int
@@ -5491,15 +5486,6 @@ expand_rule(struct pfctl_rule *r,
 		if (strlcpy(r->match_tagname, match_tagname,
 		    sizeof(r->match_tagname)) >= sizeof(r->match_tagname))
 			errx(1, "expand_rule: strlcpy");
-		for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++)
-			expand_label(r->label[i], PF_RULE_LABEL_SIZE,
-			    r->ifname, r->af, src_host, src_port, dst_host,
-			    dst_port, proto->proto);
-		expand_label(r->tagname, PF_TAG_NAME_SIZE, r->ifname, r->af,
-		    src_host, src_port, dst_host, dst_port, proto->proto);
-		expand_label(r->match_tagname, PF_TAG_NAME_SIZE, r->ifname,
-		    r->af, src_host, src_port, dst_host, dst_port,
-		    proto->proto);
 
 		error += check_netmask(src_host, r->af);
 		error += check_netmask(dst_host, r->af);
@@ -5759,6 +5745,7 @@ lookup(char *s)
 		{ "return-icmp",	RETURNICMP},
 		{ "return-icmp6",	RETURNICMP6},
 		{ "return-rst",		RETURNRST},
+		{ "ridentifier",	RIDENTIFIER},
 		{ "round-robin",	ROUNDROBIN},
 		{ "route",		ROUTE},
 		{ "route-to",		ROUTETO},
@@ -5787,7 +5774,6 @@ lookup(char *s)
 		{ "timeout",		TIMEOUT},
 		{ "to",			TO},
 		{ "tos",		TOS},
-		{ "tracker",		TRACKER},
 		{ "ttl",		TTL},
 		{ "upperlimit",		UPPERLIMIT},
 		{ "urpf-failed",	URPFFAILED},

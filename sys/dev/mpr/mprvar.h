@@ -760,6 +760,10 @@ do {							\
 	mpr_printf((sc), tag "\n")
 #define MPR_PRINTFIELD(sc, facts, attr, fmt)	\
 	mpr_print_field((sc), #attr ": " #fmt "\n", (facts)->attr)
+#define MPR_PRINTFIELD_16(sc, facts, attr, fmt)	\
+	mpr_print_field((sc), #attr ": " #fmt "\n", le16toh((facts)->attr))
+#define MPR_PRINTFIELD_32(sc, facts, attr, fmt)	\
+	mpr_print_field((sc), #attr ": " #fmt "\n", le32toh((facts)->attr))
 
 static __inline void
 mpr_from_u64(uint64_t data, U64 *mpr)
@@ -905,16 +909,6 @@ int mprsas_send_reset(struct mpr_softc *sc, struct mpr_command *tm,
 SYSCTL_DECL(_hw_mpr);
 
 /* Compatibility shims for different OS versions */
-#if __FreeBSD_version >= 800001
-#define mpr_kproc_create(func, farg, proc_ptr, flags, stackpgs, fmtstr, arg) \
-    kproc_create(func, farg, proc_ptr, flags, stackpgs, fmtstr, arg)
-#define mpr_kproc_exit(arg)	kproc_exit(arg)
-#else
-#define mpr_kproc_create(func, farg, proc_ptr, flags, stackpgs, fmtstr, arg) \
-    kthread_create(func, farg, proc_ptr, flags, stackpgs, fmtstr, arg)
-#define mpr_kproc_exit(arg)	kthread_exit(arg)
-#endif
-
 #if defined(CAM_PRIORITY_XPT)
 #define MPR_PRIORITY_XPT	CAM_PRIORITY_XPT
 #else

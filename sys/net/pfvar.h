@@ -575,6 +575,7 @@ struct pf_krule {
 	struct pf_rule_addr	 dst;
 	union pf_krule_ptr	 skip[PF_SKIP_COUNT];
 	char			 label[PF_RULE_MAX_LABEL_COUNT][PF_RULE_LABEL_SIZE];
+	uint32_t		 ridentifier;
 	char			 ifname[IFNAMSIZ];
 	char			 qname[PF_QNAME_SIZE];
 	char			 pqname[PF_QNAME_SIZE];
@@ -1060,7 +1061,6 @@ struct pf_kanchor {
 	char			 path[MAXPATHLEN];
 	struct pf_kruleset	 ruleset;
 	int			 refcnt;	/* anchor rules */
-	int			 match;	/* XXX: used for pfctl black magic */
 };
 RB_PROTOTYPE(pf_kanchor_global, pf_kanchor, entry_global, pf_anchor_compare);
 RB_PROTOTYPE(pf_kanchor_node, pf_kanchor, entry_node, pf_kanchor_compare);

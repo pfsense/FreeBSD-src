@@ -11,8 +11,8 @@
 
 PROG=	wpa_supplicant
 
-SRCS=	blacklist.c \
-	bss.c \
+SRCS=	bss.c \
+	bssid_ignore.c \
 	config.c \
 	config_file.c \
 	ctrl_iface.c \
@@ -22,14 +22,22 @@ SRCS=	blacklist.c \
 	events.c \
 	gas_query.c \
 	main.c \
+	mbo.c \
 	notify.c \
 	op_classes.c \
 	offchannel.c \
+	robust_av.c \
 	rrm.c \
 	scan.c \
+	twt.c \
 	wmm_ac.c \
+	wnm_sta.c \
 	wpa_supplicant.c \
 	wpas_glue.c
+
+.if ${MK_OPENSSL} != "no"
+SRCS+=	pasn_supplicant.c
+.endif
 
 MAN=	wpa_supplicant.8 wpa_supplicant.conf.5
 

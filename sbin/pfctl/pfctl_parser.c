@@ -1031,6 +1031,8 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 		printf(" %s %d",
 		    r->free_flags & PFRULE_DN_IS_PIPE ? "dnpipe" : "dnqueue",
 		    r->dnpipe);
+	if (r->ridentifier)
+		printf(" ridentifier %u", r->ridentifier);
 	if (r->qname[0] && r->pqname[0])
 		printf(" queue(%s, %s)", r->qname, r->pqname);
 	else if (r->qname[0])

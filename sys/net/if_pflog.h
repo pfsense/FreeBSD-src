@@ -44,18 +44,13 @@ struct pfloghdr {
 	char		ruleset[PFLOG_RULESET_NAME_SIZE];
 	u_int32_t	rulenr;
 	u_int32_t	subrulenr;
-#ifdef PF_USER_INFO
 	uid_t		uid;
 	pid_t		pid;
 	uid_t		rule_uid;
 	pid_t		rule_pid;
 	u_int8_t	dir;
-	u_int8_t	pad[3];
-#else
 	u_int32_t	ridentifier;
-	u_int8_t	dir;
 	u_int8_t	pad[sizeof(long) - 1];
-#endif
 };
 
 #define	PFLOG_HDRLEN		sizeof(struct pfloghdr)
