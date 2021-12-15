@@ -502,9 +502,15 @@ pmcstat_cgnode_topprint(struct pmcstat_cgnode *cg,
 			    (void *)(cg->pcg_image->pi_vaddr + cg->pcg_func));
 			break;
 		case FLAG_SHOW_OFFSET:
+#ifdef __aarch64__
+			snprintf(ns, sizeof(ns), "%s+%#0llx",
+			    pmcstat_string_unintern(sym->ps_name),
+			    cg->pcg_func - sym->ps_start);
+#else
 			snprintf(ns, sizeof(ns), "%s+%#0" PRIx64,
 			    pmcstat_string_unintern(sym->ps_name),
 			    cg->pcg_func - sym->ps_start);
+#endif
 			break;
 		default:
 			snprintf(ns, sizeof(ns), "%s",
