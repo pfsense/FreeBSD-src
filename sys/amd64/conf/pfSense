@@ -21,6 +21,9 @@ options 	UNIONFS
 options 	NULLFS
 options 	PPS_SYNC
 
+options 	RSS
+options 	PCBGROUP
+
 # Wireless
 nooptions	IEEE80211_DEBUG	# enable debug msgs
 device		wlan_rssadapt
