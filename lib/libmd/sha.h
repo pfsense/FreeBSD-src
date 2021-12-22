@@ -168,9 +168,9 @@ char   *SHA_File(const char *, char *);
 char   *SHA_FileChunk(const char *, char *, off_t, off_t);
 char   *SHA_Data(const void *, unsigned int, char *);
 
-void	SHA1_Init(SHA_CTX *c);
-void	SHA1_Update(SHA_CTX *c, const void *data, size_t len);
-void	SHA1_Final(unsigned char *md, SHA_CTX *c);
+int	SHA1_Init(SHA_CTX *c);
+int	SHA1_Update(SHA_CTX *c, const void *data, size_t len);
+int	SHA1_Final(unsigned char *md, SHA_CTX *c);
 char   *SHA1_End(SHA_CTX *, char *);
 char   *SHA1_Fd(int, char *);
 char   *SHA1_FdChunk(int, char *, off_t, off_t);
