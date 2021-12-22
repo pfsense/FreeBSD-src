@@ -129,7 +129,7 @@ char *SHA1_version="SHA1 part of SSLeay 0.9.0b 11-Oct-1998";
 #  define	M_nl2c		nl2c
 #endif
 
-void SHA1_Init(c)
+int SHA1_Init(c)
 SHA_CTX *c;
 	{
 	c->h0=INIT_DATA_h0;
@@ -140,9 +140,10 @@ SHA_CTX *c;
 	c->Nl=0;
 	c->Nh=0;
 	c->num=0;
+	return 1;
 	}
 
-void
+int
 SHA1_Update(c, in, len)
 	SHA_CTX *c;
 	const void *in;
@@ -153,7 +154,7 @@ SHA1_Update(c, in, len)
 	u_int32_t l;
 	const unsigned char *data = in;
 
-	if (len == 0) return;
+	if (len == 0) return 1;
 
 	l=(c->Nl+(len<<3))&0xffffffffL;
 	if (l < c->Nl) /* overflow */
@@ -207,7 +208,7 @@ SHA1_Update(c, in, len)
 					p[sw]=l;
 					}
 				}
-			return;
+			return 1;
 			}
 		}
 	/* We can only do the following code for assember, the reason
@@ -275,6 +276,7 @@ SHA1_Update(c, in, len)
 		{ M_c2nl(data,l); p[sw]=l; }
 	M_c2nl_p(data,l,ec);
 	p[sw]=l;
+	return 1;
 	}
 
 void SHA1_Transform(c,b)
@@ -437,7 +439,7 @@ sha1_block(c, W, num)
 	}
 #endif
 
-void SHA1_Final(md, c)
+int SHA1_Final(md, c)
 unsigned char *md;
 SHA_CTX *c;
 	{
@@ -484,6 +486,7 @@ SHA_CTX *c;
 
 	/* Clear the context state */
 	explicit_bzero(&c, sizeof(c));
+	return 1;
 	}
 
 #ifdef WEAK_REFS
