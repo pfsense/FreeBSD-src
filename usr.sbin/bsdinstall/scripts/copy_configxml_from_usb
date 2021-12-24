@@ -63,7 +63,6 @@ look_for_config_xml_config_msdos() {
 # Try to locate an existing config.xml file
 if look_for_config_xml_config_msdos; then
 	/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
-	/usr/bin/touch ${recovery_dir}/trigger_restore_config_after_bsdinstall
 	/sbin/umount ${recovery_mount} 2>&1
 	echo -n "[Copied config.xml file to recovery area] "
 else
