@@ -2106,12 +2106,14 @@ icmp6_reflect(struct mbuf *m, size_t off)
 		ia = in6ifa_ifwithaddr(&ip6->ip6_dst, 0 /* XXX */);
 		if (ia != NULL && !(ia->ia6_flags &
 		    (IN6_IFF_ANYCAST|IN6_IFF_NOTREADY))) {
+			struct nd_ifinfo *ndi = nd6_ifinfo(m->m_pkthdr.rcvif);
+
 			src6 = ia->ia_addr.sin6_addr;
 			srcp = &src6;
 
-			if (m->m_pkthdr.rcvif != NULL) {
+			if (ndi != NULL) {
 				/* XXX: This may not be the outgoing interface */
-				hlim = ND_IFINFO(m->m_pkthdr.rcvif)->chlim;
+				hlim = ndi->chlim;
 			} else
 				hlim = V_ip6_defhlim;
 		}

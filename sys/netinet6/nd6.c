@@ -766,8 +766,9 @@ nd6_llinfo_timer(void *arg)
 		CURVNET_RESTORE();
 		return;
 	}
-	ndi = ND_IFINFO(ifp);
 	send_ns = 0;
+	if ((ndi = nd6_ifinfo(ifp)) == NULL)
+		goto done;
 	dst = &ln->r_l3addr.addr6;
 	pdst = dst;
 

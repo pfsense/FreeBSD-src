@@ -99,6 +99,15 @@ struct nd_ifinfo {
 	    ? ND_IFINFO(ifp)->linkmtu \
 	    : ((ND_IFINFO(ifp)->maxmtu && ND_IFINFO(ifp)->maxmtu < (ifp)->if_mtu) \
 		? ND_IFINFO(ifp)->maxmtu : (ifp)->if_mtu))
+
+static inline struct nd_ifinfo *
+nd6_ifinfo(struct ifnet *ifp)
+{
+	if (ifp != NULL && (ifp->if_flags & IFF_DYING) == 0 &&
+	    ifp->if_afdata[AF_INET6] != NULL)
+		return (ND_IFINFO(ifp));
+	return (NULL);
+}
 #endif
 
 struct in6_nbrinfo {

@@ -683,8 +683,9 @@ void
 in6_ifattach(struct ifnet *ifp, struct ifnet *altifp)
 {
 	struct in6_ifaddr *ia;
+	struct nd_ifinfo *ndi;
 
-	if (ifp->if_afdata[AF_INET6] == NULL)
+	if ((ndi = nd6_ifinfo(ifp)) == NULL)
 		return;
 	/*
 	 * quirks based on interface type
@@ -697,8 +698,8 @@ in6_ifattach(struct ifnet *ifp, struct ifnet *altifp)
 		 * linklocals for 6to4 interface, but there's no use and
 		 * it is rather harmful to have one.
 		 */
-		ND_IFINFO(ifp)->flags &= ~ND6_IFF_AUTO_LINKLOCAL;
-		ND_IFINFO(ifp)->flags |= ND6_IFF_NO_DAD;
+		ndi->flags &= ~ND6_IFF_AUTO_LINKLOCAL;
+		ndi->flags |= ND6_IFF_NO_DAD;
 		break;
 	default:
 		break;
@@ -731,8 +732,8 @@ in6_ifattach(struct ifnet *ifp, struct ifnet *altifp)
 	/*
 	 * assign a link-local address, if there's none.
 	 */
-	if (!(ND_IFINFO(ifp)->flags & ND6_IFF_IFDISABLED) &&
-	    ND_IFINFO(ifp)->flags & ND6_IFF_AUTO_LINKLOCAL) {
+	if ((ndi->flags & ND6_IFF_IFDISABLED) == 0 &&
+	    (ndi->flags & ND6_IFF_AUTO_LINKLOCAL) != 0) {
 		ia = in6ifa_ifpforlinklocal(ifp, 0);
 		if (ia == NULL)
 			in6_ifattach_linklocal(ifp, altifp);
@@ -809,8 +810,11 @@ int
 in6_get_tmpifid(struct ifnet *ifp, u_int8_t *retbuf,
     const u_int8_t *baseid, int generate)
 {
+	struct nd_ifinfo *ndi = nd6_ifinfo(ifp);
 	u_int8_t nullbuf[8];
-	struct nd_ifinfo *ndi = ND_IFINFO(ifp);
+
+	if (ndi == NULL)
+		return (ENXIO);
 
 	bzero(nullbuf, sizeof(nullbuf));
 	if (bcmp(ndi->randomid, nullbuf, sizeof(nullbuf)) == 0) {
@@ -844,9 +848,8 @@ in6_tmpaddrtimer(void *arg)
 
 	bzero(nullbuf, sizeof(nullbuf));
 	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
-		if (ifp->if_afdata[AF_INET6] == NULL)
+		if ((ndi = nd6_ifinfo(ifp)) == NULL)
 			continue;
-		ndi = ND_IFINFO(ifp);
 		if (bcmp(ndi->randomid, nullbuf, sizeof(nullbuf)) != 0) {
 			/*
 			 * We've been generating a random ID on this interface.

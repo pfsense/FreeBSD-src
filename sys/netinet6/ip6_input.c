@@ -535,6 +535,7 @@ ip6_input(struct mbuf *m)
 	struct ip6_hdr *ip6;
 	struct in6_ifaddr *ia;
 	struct ifnet *rcvif;
+	struct nd_ifinfo *ndi;
 	u_int32_t plen;
 	u_int32_t rtalert = ~0;
 	int off = sizeof(struct ip6_hdr), nest;
@@ -545,7 +546,8 @@ ip6_input(struct mbuf *m)
 	 * Drop the packet if IPv6 operation is disabled on the interface.
 	 */
 	rcvif = m->m_pkthdr.rcvif;
-	if ((ND_IFINFO(rcvif)->flags & ND6_IFF_IFDISABLED))
+	if ((ndi = nd6_ifinfo(rcvif)) == NULL ||
+	    (ndi->flags & ND6_IFF_IFDISABLED) != 0)
 		goto bad;
 
 #if defined(IPSEC) || defined(IPSEC_SUPPORT)

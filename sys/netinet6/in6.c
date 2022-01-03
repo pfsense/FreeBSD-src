@@ -1547,9 +1547,11 @@ struct in6_ifaddr *
 in6ifa_llaonifp(struct ifnet *ifp)
 {
 	struct sockaddr_in6 *sin6;
+	struct nd_ifinfo *ndi;
 	struct ifaddr *ifa;
 
-	if (ND_IFINFO(ifp)->flags & ND6_IFF_IFDISABLED)
+	if ((ndi = nd6_ifinfo(ifp)) != NULL &&
+	    (ndi->flags & ND6_IFF_IFDISABLED) != 0)
 		return (NULL);
 	IF_ADDR_RLOCK(ifp);
 	CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
@@ -1944,13 +1946,14 @@ in6_if_up(struct ifnet *ifp)
 int
 in6if_do_dad(struct ifnet *ifp)
 {
+	struct nd_ifinfo *ndi;
 
 	if ((ifp->if_flags & IFF_LOOPBACK) != 0)
 		return (0);
 	if ((ifp->if_flags & IFF_MULTICAST) == 0)
 		return (0);
-	if ((ND_IFINFO(ifp)->flags &
-	    (ND6_IFF_IFDISABLED | ND6_IFF_NO_DAD)) != 0)
+	if ((ndi = nd6_ifinfo(ifp)) == NULL ||
+	    (ndi->flags & (ND6_IFF_IFDISABLED | ND6_IFF_NO_DAD)) != 0)
 		return (0);
 	return (1);
 }

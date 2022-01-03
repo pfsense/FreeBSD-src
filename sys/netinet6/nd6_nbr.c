@@ -1337,11 +1337,13 @@ nd6_dad_timer(struct dadq *dp)
 	struct ifaddr *ifa = dp->dad_ifa;
 	struct ifnet *ifp = dp->dad_ifa->ifa_ifp;
 	struct in6_ifaddr *ia = (struct in6_ifaddr *)ifa;
+	struct nd_ifinfo *ndi;
 	char ip6buf[INET6_ADDRSTRLEN];
 
 	KASSERT(ia != NULL, ("DAD entry %p with no address", dp));
 
-	if (ND_IFINFO(ifp)->flags & ND6_IFF_IFDISABLED) {
+	if ((ndi = nd6_ifinfo(ifp)) == NULL ||
+	    (ndi->flags & ND6_IFF_IFDISABLED) != 0) {
 		/* Do not need DAD for ifdisabled interface. */
 		log(LOG_ERR, "nd6_dad_timer: cancel DAD on %s because of "
 		    "ND6_IFF_IFDISABLED.\n", ifp->if_xname);
@@ -1419,7 +1421,7 @@ nd6_dad_timer(struct dadq *dp)
 			 * again in case that it is changed between the
 			 * beginning of this function and here.
 			 */
-			if ((ND_IFINFO(ifp)->flags & ND6_IFF_IFDISABLED) == 0)
+			if ((ndi->flags & ND6_IFF_IFDISABLED) == 0)
 				ia->ia6_flags &= ~IN6_IFF_TENTATIVE;
 
 			nd6log((LOG_DEBUG,
