@@ -1708,7 +1708,7 @@ i915_sysctl_init(struct drm_device *dev, struct sysctl_ctx_list *ctx,
 {
 	struct sysctl_oid *oid, *info;
 	struct i915_info_sysctl_thunk *thunks;
-	int i, error;
+	int i, error, ctlflags;
 
 	thunks = malloc(sizeof(*thunks) * ARRAY_SIZE(i915_info_sysctl_list),
 	    DRM_MEM_DRIVER, M_WAITOK | M_ZERO);
@@ -1723,10 +1723,16 @@ i915_sysctl_init(struct drm_device *dev, struct sysctl_ctx_list *ctx,
 	if (info == NULL)
 		return (-ENOMEM);
 	for (i = 0; i < ARRAY_SIZE(i915_info_sysctl_list); i++) {
+		ctlflags = CTLTYPE_STRING;
+		if (i915_info_sysctl_list[i].ptr_w != NULL)
+			ctlflags |= CTLFLAG_RW;
+		else
+			ctlflags |= CTLFLAG_RD;
+		if (!strcmp(i915_info_sysctl_list[i].name, "i915_drpc_info") ||
+		    !strcmp(i915_info_sysctl_list[i].name, "i915_cur_delayinfo"))
+			ctlflags |= CTLFLAG_SKIP;
 		oid = SYSCTL_ADD_OID(ctx, SYSCTL_CHILDREN(info), OID_AUTO,
-		    i915_info_sysctl_list[i].name, CTLTYPE_STRING |
-		    (i915_info_sysctl_list[i].ptr_w != NULL ? CTLFLAG_RW :
-		    CTLFLAG_RD),
+		    i915_info_sysctl_list[i].name, ctlflags,
 		    &thunks[i], 0, i915_info_sysctl_handler, "A", NULL);
 		if (oid == NULL)
 			return (-ENOMEM);
