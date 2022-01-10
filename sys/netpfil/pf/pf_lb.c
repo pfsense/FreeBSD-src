@@ -370,36 +370,45 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 		return (0);
 	}
 
+	mtx_lock(&rpool->mtx);
 	/* Find the route using chosen algorithm. Store the found route
 	   in src_node if it was given or found. */
-	if (rpool->cur->addr.type == PF_ADDR_NOROUTE)
+	if (rpool->cur->addr.type == PF_ADDR_NOROUTE) {
+		mtx_unlock(&rpool->mtx);
 		return (1);
+	}
 	if (rpool->cur->addr.type == PF_ADDR_DYNIFTL) {
 		switch (af) {
 #ifdef INET
 		case AF_INET:
 			if (rpool->cur->addr.p.dyn->pfid_acnt4 < 1 &&
 			    (rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN)
+			    PF_POOL_ROUNDROBIN) {
+				mtx_unlock(&rpool->mtx);
 				return (1);
-			 raddr = &rpool->cur->addr.p.dyn->pfid_addr4;
-			 rmask = &rpool->cur->addr.p.dyn->pfid_mask4;
+			}
+			raddr = &rpool->cur->addr.p.dyn->pfid_addr4;
+			rmask = &rpool->cur->addr.p.dyn->pfid_mask4;
 			break;
 #endif /* INET */
 #ifdef INET6
 		case AF_INET6:
 			if (rpool->cur->addr.p.dyn->pfid_acnt6 < 1 &&
 			    (rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN)
+			    PF_POOL_ROUNDROBIN) {
+				mtx_unlock(&rpool->mtx);
 				return (1);
+			}
 			raddr = &rpool->cur->addr.p.dyn->pfid_addr6;
 			rmask = &rpool->cur->addr.p.dyn->pfid_mask6;
 			break;
 #endif /* INET6 */
 		}
 	} else if (rpool->cur->addr.type == PF_ADDR_TABLE) {
-		if ((rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_ROUNDROBIN)
+		if ((rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_ROUNDROBIN) {
+			mtx_unlock(&rpool->mtx);
 			return (1); /* unsupported */
+		}
 	} else {
 		raddr = &rpool->cur->addr.v.a.addr;
 		rmask = &rpool->cur->addr.v.a.mask;
@@ -507,6 +516,7 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 				/* table contains no address of type 'af' */
 				if (rpool->cur != acur)
 					goto try_next;
+				mtx_unlock(&rpool->mtx);
 				return (1);
 			}
 		} else if (rpool->cur->addr.type == PF_ADDR_DYNIFTL) {
@@ -516,6 +526,7 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 				/* table contains no address of type 'af' */
 				if (rpool->cur != acur)
 					goto try_next;
+				mtx_unlock(&rpool->mtx);
 				return (1);
 			}
 		} else {
@@ -534,6 +545,8 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 	}
 	if (*sn != NULL)
 		PF_ACPY(&(*sn)->raddr, naddr, af);
+
+	mtx_unlock(&rpool->mtx);
 
 	if (V_pf_status.debug >= PF_DEBUG_MISC &&
 	    (rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_NONE) {
