@@ -1549,7 +1549,6 @@ pf_krule_free(struct pf_krule *rule)
 	counter_u64_free(rule->states_tot);
 	counter_u64_free(rule->src_nodes);
 
-
 	mtx_destroy(&rule->rpool.mtx);
 	free(rule, M_PFRULE);
 }
