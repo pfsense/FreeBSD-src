@@ -115,6 +115,9 @@ struct fq_pie_flow {
 	int active;		/* 1: flow is active (in a list) */
 	struct pie_status pst;	/* pie status variables */
 	struct fq_pie_si_extra *psi_extra;
+#ifdef VIMAGE
+	struct vnet *vnet;
+#endif
 	STAILQ_ENTRY(fq_pie_flow) flowchain;
 };
 
@@ -581,6 +584,7 @@ fqpie_callout_cleanup(void *x)
 	mtx_destroy(&pst->lock_mtx);
 	psi_extra = q->psi_extra;
 	
+	CURVNET_SET(q->vnet);
 	DN_BH_WLOCK();
 	psi_extra->nr_active_q--;
 
@@ -591,6 +595,7 @@ fqpie_callout_cleanup(void *x)
 		fq_pie_desc.ref_count--;
 	}
 	DN_BH_WUNLOCK();
+	CURVNET_RESTORE();
 }
 
 /* 
@@ -1059,6 +1064,9 @@ fq_pie_new_sched(struct dn_sch_inst *_si)
 	for (i = 0; i < schk->cfg.flows_cnt; i++) {
 		flows[i].pst.parms = &schk->cfg.pcfg;
 		flows[i].psi_extra = si->si_extra;
+#ifdef VIMAGE
+		flows[i].vnet = curvnet;
+#endif
 		pie_init(&flows[i], schk);
 	}
 
