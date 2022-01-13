@@ -532,6 +532,14 @@ if [ -r /tmp/recovered_config/config.xml ] ; then
 	if [ -r ${BSDINSTALL_CHROOT}/cf/conf/trigger_initial_wizard ]; then
 		rm -f ${BSDINSTALL_CHROOT}/cf/conf/trigger_initial_wizard
 	fi
+	# create a trigger file if extra data is found
+	EXTRA_DATA="rrddata captiveportaldata dhcpddata dhcpdv6data voucherdata sshdata"
+	for extradata in $EXTRA_DATA; do
+		if [ `/usr/bin/grep -c "<$extradata>" ${BSDINSTALL_CHROOT}/cf/conf/config.xml` -gt 0 ]; then
+			/usr/bin/touch ${BSDINSTALL_CHROOT}/cf/conf/restore_config_data
+			break
+		fi
+	done
 fi
 
 if [ -n "$DISTDIR_IS_UNIONFS" ]; then
