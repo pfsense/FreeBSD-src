@@ -88,7 +88,7 @@ msg=$(cat <<EOD
 Copyright(c) 2004-2016. Electric Sheep Fencing, LLC ("ESF").
 All Rights Reserved.
 
-Copyright(c) 2014-2021. Rubicon Communications, LLC d/b/a Netgate ("Netgate").
+Copyright(c) 2014-2022. Rubicon Communications, LLC d/b/a Netgate ("Netgate").
 All Rights Reserved.
 
 All logos, text, and content of ESF and/or Netgate, including underlying
