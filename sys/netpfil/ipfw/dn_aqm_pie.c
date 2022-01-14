@@ -595,7 +595,7 @@ aqm_pie_init(struct dn_queue *q)
 
 		pst = q->aqm_status;
 		/* increase reference count for PIE module */
-		pie_desc.ref_count++;
+		atomic_add_int(&pie_desc.ref_count, 1);
 		
 		pst->pq = q;
 		pst->parms = pprms;
@@ -629,9 +629,7 @@ pie_callout_cleanup(void *x)
 	mtx_unlock(&pst->lock_mtx);
 	mtx_destroy(&pst->lock_mtx);
 	free(x, M_DUMMYNET);
-	DN_BH_WLOCK();
-	pie_desc.ref_count--;
-	DN_BH_WUNLOCK();
+	atomic_subtract_int(&pie_desc.ref_count, 1);
 }
 
 /* 
