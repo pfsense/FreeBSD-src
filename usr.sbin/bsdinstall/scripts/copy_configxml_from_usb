@@ -1,6 +1,6 @@
 #!/bin/sh
 #-
-# Copyright (c) 2017 Rubicon Communications, LLC
+# Copyright (c) 2017-2022 Rubicon Communications, LLC
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,6 +27,8 @@
 # $FreeBSD$
 recovery_mount=/tmp/mnt_recovery
 recovery_dir=/tmp/recovered_config
+encrypted_xml=/tmp/config_enc.xml
+decrypted_xml=/tmp/config_dec.xml
 mkdir -p ${recovery_mount}
 mkdir -p ${recovery_dir}
 
@@ -62,9 +64,37 @@ look_for_config_xml_config_msdos() {
 
 # Try to locate an existing config.xml file
 if look_for_config_xml_config_msdos; then
-	/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
+	if [ `/usr/bin/grep -c "BEGIN config.xml" ${CONFIG_XML_PATH} -gt 0 ]; then
+		echo "config.xml is encrypted."
+		/usr/bin/grep -v "config.xml" ${CONFIG_XML_PATH} > ${encrypted_xml}
+		while true ; do
+			read -p "Enter the password to decrypt config.xml, or press <ENTER> to cancel: " confpass
+			if [ -z ${confpass} ]; then
+				echo -p "[Cancelling config.xml recover]"
+				break
+			else 
+				/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md sha256 -pbkdf2 -base64 2>/dev/null
+				if [ $? -eq 0 ]; then
+					/bin/cp ${decrypted_xml} ${recovery_dir}/config.xml
+					echo -n "[Copied decrypted config.xml file to recovery area] "
+					break
+				else
+					# Operation failed without new options, try old.
+					/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md md5 -base64 2>/dev/null
+					if [ $? -eq 0 ]; then
+						/bin/cp ${decrypted_xml} ${recovery_dir}/config.xml
+						echo -n "[Copied decrypted config.xml file to recovery area] "
+						break
+					fi
+				fi
+			fi
+		done
+		/bin/rm ${encrypted_xml}
+	else
+		/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
+		echo -n "[Copied config.xml file to recovery area] "
+	fi
 	/sbin/umount ${recovery_mount} 2>&1
-	echo -n "[Copied config.xml file to recovery area] "
 else
 	echo -n "[Could not locate an existing config.xml file!] "
 fi
