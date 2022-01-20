@@ -62,6 +62,8 @@ if [ "${product}" = "Minnowboard Turbot D0 PLATFORM" ] || [ "${product}" = "Minn
 	echo "drm.i915.enable_unsupported=1" >> $BSDINSTALL_TMPBOOT/loader.conf.local
 	echo "kern.vt.fb.modes.VGA-1=d" >> $BSDINSTALL_TMPBOOT/loader.conf.local
 	echo "kern.vt.fb.default_mode=\"1024x768\"" >> $BSDINSTALL_TMPBOOT/loader.conf.local
+	echo "opensolaris_load=NO" >> $BSDINSTALL_TMPBOOT/loader.conf.local
+	echo "zfs_load=NO" >> $BSDINSTALL_TMPBOOT/loader.conf.local
 fi
 
 # Add default values for hn devices to work with ALTQ
