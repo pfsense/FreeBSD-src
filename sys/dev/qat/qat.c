@@ -548,6 +548,7 @@ qat_start(device_t dev)
 static int
 qat_detach(device_t dev)
 {
+#if 0
 	struct qat_softc *sc;
 	int bar, i;
 
@@ -591,6 +592,12 @@ qat_detach(device_t dev)
 	}
 
 	return 0;
+#else
+	/*
+	 * See https://redmine.netgate.com/issues/7539
+	 */
+	return (EOPNOTSUPP);
+#endif
 }
 
 void *

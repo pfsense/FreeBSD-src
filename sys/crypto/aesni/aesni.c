@@ -141,6 +141,7 @@ aesni_probe(device_t dev)
 	return (0);
 }
 
+#if 0
 static void
 aesni_cleanctx(void)
 {
@@ -159,6 +160,7 @@ aesni_cleanctx(void)
 	free(ctx_fpu, M_AESNI);
 	ctx_fpu = NULL;
 }
+#endif
 
 static int
 aesni_attach(device_t dev)
@@ -211,6 +213,7 @@ aesni_attach(device_t dev)
 static int
 aesni_detach(device_t dev)
 {
+#if 0
 	struct aesni_softc *sc;
 
 	sc = device_get_softc(dev);
@@ -220,6 +223,12 @@ aesni_detach(device_t dev)
 	aesni_cleanctx();
 
 	return (0);
+#else
+	/*
+	 * See https://redmine.netgate.com/issues/7539
+	 */
+	return (EOPNOTSUPP);
+#endif
 }
 
 static int
