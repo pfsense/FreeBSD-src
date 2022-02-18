@@ -652,7 +652,6 @@ esp_input_cb(struct cryptop *crp)
 	CURVNET_RESTORE();
 	return error;
 bad:
-	CURVNET_RESTORE();
 	if (sav != NULL)
 		key_freesav(&sav);
 	if (m != NULL)
@@ -661,6 +660,7 @@ bad:
 		free(xd, M_XDATA);
 	if (crp != NULL)
 		crypto_freereq(crp);
+	CURVNET_RESTORE();
 	return error;
 }
 /*
@@ -995,11 +995,11 @@ esp_output_cb(struct cryptop *crp)
 	CURVNET_RESTORE();
 	return (error);
 bad:
-	CURVNET_RESTORE();
 	free(xd, M_XDATA);
 	crypto_freereq(crp);
 	key_freesav(&sav);
 	key_freesp(&sp);
+	CURVNET_RESTORE();
 	return (error);
 }
 
