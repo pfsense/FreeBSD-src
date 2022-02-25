@@ -2203,6 +2203,7 @@ pf_ioctl_addrule(struct pf_krule *rule, uint32_t ticket,
 	rule->cpid = td->td_proc ? td->td_proc->p_pid : 0;
 	TAILQ_INIT(&rule->rpool.list);
 
+	PF_CONFIG_LOCK();
 	PF_RULES_WLOCK();
 #ifdef PF_WANT_32_TO_64_COUNTER
 	LIST_INSERT_HEAD(&V_pf_allrulelist, rule, allrulelist);
@@ -2318,12 +2319,14 @@ pf_ioctl_addrule(struct pf_krule *rule, uint32_t ticket,
 	ruleset->rules[rs_num].inactive.rcount++;
 
 	PF_RULES_WUNLOCK();
+	PF_CONFIG_UNLOCK();
 
 	return (0);
 
 #undef ERROUT
 errout:
 	PF_RULES_WUNLOCK();
+	PF_CONFIG_UNLOCK();
 errout_unlocked:
 	pf_kkif_free(kif);
 	pf_krule_free(rule);
