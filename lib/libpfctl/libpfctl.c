@@ -1241,6 +1241,7 @@ pfctl_clear_nat(int dev, const char *anchorname)
 		return (ret);
 	return ioctl(dev, DIOCXCOMMIT, &trans);
 }
+
 int
 pfctl_clear_eth_rules(int dev, const char *anchorname)
 {
