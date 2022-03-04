@@ -136,6 +136,11 @@ struct pfctl_pool {
 	uint8_t			 opts;
 };
 
+struct pfctl_rules_info {
+	uint32_t	nr;
+	uint32_t	ticket;
+};
+
 struct pfctl_rule {
 	struct pf_rule_addr	 src;
 	struct pf_rule_addr	 dst;
@@ -351,6 +356,8 @@ struct pfctl_syncookies {
 struct pfctl_status* pfctl_get_status(int dev);
 void	pfctl_free_status(struct pfctl_status *status);
 
+int	pfctl_get_rules_info(int dev, struct pfctl_rules_info *rules,
+	    uint32_t ruleset, const char *path);
 int	pfctl_get_eth_rules_info(int dev, struct pfctl_eth_rules_info *rules,
 	    const char *path);
 int	pfctl_get_eth_rule(int dev, uint32_t nr, uint32_t ticket,
