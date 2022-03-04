@@ -191,6 +191,7 @@ SYSCTL_PROC(_net_inet6_ip6, IPV6CTL_INTRDQMAXLEN, intr_direct_queue_maxlen,
 
 #endif
 
+SYSCTL_DECL(_net_inet6_ip6);
 VNET_DEFINE(struct pfil_head, inet6_pfil_hook);
 
 VNET_PCPUSTAT_DEFINE(struct ip6stat, ip6stat);
@@ -229,6 +230,9 @@ ip6_init(void)
 	if ((i = pfil_head_register(&V_inet6_pfil_hook)) != 0)
 		printf("%s: WARNING: unable to register pfil hook, "
 			"error %d\n", __func__, i);
+	else
+		pfil_head_export_sysctl(&V_inet6_pfil_hook,
+			SYSCTL_STATIC_CHILDREN(_net_inet6_ip6));
 
 	if (hhook_head_register(HHOOK_TYPE_IPSEC_IN, AF_INET6,
 	    &V_ipsec_hhh_in[HHOOK_IPSEC_INET6],
