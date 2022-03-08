@@ -3048,7 +3048,7 @@ option         = "set" ( [ "timeout" ( timeout | "{" timeout-list "}" ) ] |
 
 ether-rule     = "ether" etheraction [ ( "in" | "out" ) ]
                  [ "quick" ] [ "on" ifspec ] [ etherprotospec ]
-                 etherhosts [ etherfilteropt-list ]
+                 etherhosts [ "l3" hosts ] [ etherfilteropt-list ]
 
 pf-rule        = action [ ( "in" | "out" ) ]
                  [ "log" [ "(" logopts ")"] ] [ "quick" ]
