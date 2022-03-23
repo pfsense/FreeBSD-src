@@ -895,6 +895,7 @@ ATF_TC_CLEANUP(rpool_mtx2, tc)
 	COMMON_CLEANUP();
 }
 
+
 ATF_TP_ADD_TCS(tp)
 {
 	ATF_TP_ADD_TC(tp, addtables);

@@ -1069,9 +1069,9 @@ int
 pfctl_show_eth_rules(int dev, char *path, int opts, enum pfctl_show format,
     char *anchorname, int depth)
 {
-	char anchor_call[MAXPATHLEN];
 	struct pfctl_eth_rules_info info;
 	struct pfctl_eth_rule rule;
+	char anchor_call[MAXPATHLEN];
 	int dotitle = opts & PF_OPT_SHOWALL;
 	int len = strlen(path);
 	int brace;
