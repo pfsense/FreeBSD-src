@@ -66,6 +66,10 @@ struct pfctl_status {
 	uint64_t	bcounters[2][2];
 };
 
+struct pfctl_eth_rulesets_info {
+	uint32_t	nr;
+};
+
 struct pfctl_eth_rules_info {
 	uint32_t	nr;
 	uint32_t	ticket;
@@ -110,6 +114,12 @@ struct pfctl_eth_rule {
 	TAILQ_ENTRY(pfctl_eth_rule)	 entries;
 };
 TAILQ_HEAD(pfctl_eth_rules, pfctl_eth_rule);
+
+struct pfctl_eth_ruleset_info {
+	uint32_t	nr;
+	char		name[PF_ANCHOR_NAME_SIZE];
+	char		path[MAXPATHLEN];
+};
 
 struct pfctl_eth_ruleset {
 	struct pfctl_eth_rules	 rules;
@@ -358,6 +368,10 @@ void	pfctl_free_status(struct pfctl_status *status);
 
 int	pfctl_get_rules_info(int dev, struct pfctl_rules_info *rules,
 	    uint32_t ruleset, const char *path);
+int	pfctl_get_eth_rulesets_info(int dev,
+	    struct pfctl_eth_rulesets_info *ri, const char *path);
+int	pfctl_get_eth_ruleset(int dev, const char *path, int nr,
+	    struct pfctl_eth_ruleset_info *ri);
 int	pfctl_get_eth_rules_info(int dev, struct pfctl_eth_rules_info *rules,
 	    const char *path);
 int	pfctl_get_eth_rule(int dev, uint32_t nr, uint32_t ticket,
