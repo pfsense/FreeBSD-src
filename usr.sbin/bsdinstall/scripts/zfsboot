@@ -143,9 +143,9 @@ f_isset ZFSBOOT_DATASETS || ZFSBOOT_DATASETS="
 
 	# Boot Environment [BE] root and default boot dataset
 	/$ZFSBOOT_BEROOT_NAME				mountpoint=none
-	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/,canmount=noauto
-	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg	mountpoint=/var/db/pkg,setuid=off,exec=off,canmount=noauto
-	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/cf	mountpoint=/cf,setuid=off,exec=off,canmount=noauto
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg	mountpoint=/var/db/pkg,setuid=off,exec=off
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/cf	mountpoint=/cf,setuid=off,exec=off
 
 	# Compress /tmp, allow exec but not setuid
 	/tmp		mountpoint=/tmp,exec=on,setuid=off
