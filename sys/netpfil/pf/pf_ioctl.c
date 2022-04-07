@@ -2696,8 +2696,6 @@ DIOCGETETHRULES_error:
 		free(nvlpacked, M_TEMP);
 		nvlpacked = NULL;
 
-		nvl = nvlist_create(0);
-
 		rule = TAILQ_FIRST(rs->active.rules);
 		while ((rule != NULL) && (rule->nr != nr))
 			rule = TAILQ_NEXT(rule, entries);
