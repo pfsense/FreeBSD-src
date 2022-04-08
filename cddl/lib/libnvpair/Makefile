@@ -5,6 +5,9 @@
 
 LIB=	nvpair
 
+VERSION_DEF=	${.CURDIR}/Versions.def
+SYMBOL_MAPS=	${.CURDIR}/Symbol.map
+
 INCS=	libnvpair.h
 SRCS=	libnvpair.c \
 	nvpair_alloc_system.c \
