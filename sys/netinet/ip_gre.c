@@ -219,7 +219,7 @@ in_gre_srcaddr(void *arg __unused, const struct sockaddr *sa,
 	}
 }
 
-static void
+static bool
 in_gre_udp_input(struct mbuf *m, int off, struct inpcb *inp,
     const struct sockaddr *sa, void *ctx)
 {
@@ -240,7 +240,7 @@ in_gre_udp_input(struct mbuf *m, int off, struct inpcb *inp,
 	if (__predict_false(inp->inp_flags2 & INP_FREED)) {
 		NET_EPOCH_EXIT_ET(et);
 		m_freem(m);
-		return;
+		return (true);
 	}
 
 	gs = (struct gre_socket *)ctx;
@@ -252,10 +252,12 @@ in_gre_udp_input(struct mbuf *m, int off, struct inpcb *inp,
 	if (sc != NULL && (GRE2IFP(sc)->if_flags & IFF_UP) != 0){
 		gre_input(m, off + sizeof(struct udphdr), IPPROTO_UDP, sc);
 		NET_EPOCH_EXIT_ET(et);
-		return;
+		return (true);
 	}
 	m_freem(m);
 	NET_EPOCH_EXIT_ET(et);
+
+	return (true);
 }
 
 static int

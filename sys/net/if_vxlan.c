@@ -333,7 +333,7 @@ static int	vxlan_encap6(struct vxlan_softc *,
 		    const union vxlan_sockaddr *, struct mbuf *);
 static int	vxlan_transmit(struct ifnet *, struct mbuf *);
 static void	vxlan_qflush(struct ifnet *);
-static void	vxlan_rcv_udp_packet(struct mbuf *, int, struct inpcb *,
+static bool	vxlan_rcv_udp_packet(struct mbuf *, int, struct inpcb *,
 		    const struct sockaddr *, void *);
 static int	vxlan_input(struct vxlan_socket *, uint32_t, struct mbuf **,
 		    const struct sockaddr *);
@@ -2498,7 +2498,7 @@ vxlan_qflush(struct ifnet *ifp __unused)
 {
 }
 
-static void
+static bool
 vxlan_rcv_udp_packet(struct mbuf *m, int offset, struct inpcb *inpcb,
     const struct sockaddr *srcsa, void *xvso)
 {
@@ -2542,6 +2542,8 @@ vxlan_rcv_udp_packet(struct mbuf *m, int offset, struct inpcb *inpcb,
 out:
 	if (m != NULL)
 		m_freem(m);
+
+	return (true);
 }
 
 static int
