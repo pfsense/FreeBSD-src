@@ -143,23 +143,23 @@ f_isset ZFSBOOT_DATASETS || ZFSBOOT_DATASETS="
 
 	# Boot Environment [BE] root and default boot dataset
 	/$ZFSBOOT_BEROOT_NAME				mountpoint=none
-	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/,canmount=noauto
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/cf	mountpoint=/cf,setuid=off,exec=off,canmount=noauto
 
 	# Compress /tmp, allow exec but not setuid
 	/tmp		mountpoint=/tmp,exec=on,setuid=off
 
+	/home		mountpoint=/home
 	# Create /var and friends
 	/var		mountpoint=/var
-
-	# pfSense default datasets
-	/cf		mountpoint=/cf,setuid=off,exec=off
-	/cf/conf	mountpoint=/cf/conf,setuid=off,exec=off
-	/home		mountpoint=/home
 	/var/cache	mountpoint=/var/cache,setuid=off,exec=off,compression=off
 	/var/db		mountpoint=/var/db,setuid=off,exec=off
 	/var/empty	mountpoint=/var/empty
 	/var/log	mountpoint=/var/log,setuid=off,exec=off
 	/var/tmp	mountpoint=/var/tmp,setuid=off
+
+	# Needs to be below var/db so it does not get covered up when the var/db dataset is created
+	/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg	mountpoint=/var/db/pkg,setuid=off,exec=off,canmount=noauto
 " # END-QUOTE
 
 #
@@ -1345,6 +1345,8 @@ zfs_create_boot()
 			oldoptions="$options"
 			f_replaceall "$options" "  " " " options
 		done
+		# Remove 'canmount=noauto' here so it can be set later
+		f_replaceall "$options" ",canmount=noauto" "" options
 		# Replace both commas and spaces with ` -o '
 		f_replaceall "$options" "[ ,]" " -o " options
 		# Create the dataset with desired options
@@ -1441,6 +1443,19 @@ zfs_create_boot()
 	f_dprintf "$funcname: Set canmount=noauto for the root of the pool..."
 	f_eval_catch $funcname zfs "$ZFS_SET" "canmount=noauto" \
 		"$zroot_name/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME"
+
+	f_dprintf "$funcname: Set canmount=noauto for other datasets..."
+	echo "$ZFSBOOT_DATASETS" | while read dataset options; do
+		# Skip blank lines and comments
+		case "$dataset" in "#"*|"") continue; esac
+		options="${options%%#*}"
+		# Set canmount=noauto
+		case "$options" in *"canmount=noauto"*)
+			f_eval_catch $funcname zfs "$ZFS_SET" "canmount=noauto" \
+				"$zroot_name$dataset" || return $FAILURE ;;
+		*) continue ;;
+		esac
+	done
 
 	# Last, but not least... required lines for rc.conf(5)/loader.conf(5)
 	# NOTE: We later concatenate these into their destination
