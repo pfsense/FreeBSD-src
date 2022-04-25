@@ -68,7 +68,10 @@ if look_for_config_xml_config_msdos; then
 		echo "config.xml is encrypted."
 		/usr/bin/grep -v "config.xml" ${CONFIG_XML_PATH} > ${encrypted_xml}
 		while true ; do
-			read -p "Enter the password to decrypt config.xml, or press <ENTER> to cancel: " confpass
+			echo -n "Enter the password to decrypt config.xml, or press <ENTER> to cancel: "
+			/bin/stty -echo
+			read confpass
+			/bin/stty echo
 			if [ -z ${confpass} ]; then
 				echo -p "[Cancelling config.xml recover]"
 				break
