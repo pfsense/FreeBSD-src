@@ -6975,6 +6975,22 @@ pf_pdesc_to_dnflow(int dir, const struct pf_pdesc *pd,
 	return (true);
 }
 
+static int
+pf_dir_to_dn(int dir, int af)
+{
+	int dndir = 0;
+
+	if (dir == PF_IN)
+		dndir |= DIR_IN;
+	if (dir == PF_OUT)
+		dndir |= DIR_OUT;
+
+	if (af == AF_INET6)
+		dndir |= PROTO_IPV6;
+
+	return (dndir);
+}
+
 #ifdef INET
 int
 pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
@@ -7349,7 +7365,8 @@ done:
 			}
 
 			if (pf_pdesc_to_dnflow(dir, &pd, r, s, &dnflow)) {
-				ip_dn_io_ptr(m0, dir, &dnflow);
+				ip_dn_io_ptr(m0, pf_dir_to_dn(dir, AF_INET),
+				    &dnflow);
 
 				if (*m0 == NULL) {
 					if (s)
@@ -7896,7 +7913,8 @@ done:
 			}
 
 			if (pf_pdesc_to_dnflow(dir, &pd, r, s, &dnflow)) {
-				ip_dn_io_ptr(m0, dir | PROTO_IPV6, &dnflow);
+				ip_dn_io_ptr(m0, pf_dir_to_dn(dir, AF_INET6),
+				    &dnflow);
 
 				if (*m0 == NULL) {
 					if (s)

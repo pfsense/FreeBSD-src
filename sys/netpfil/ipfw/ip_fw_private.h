@@ -138,17 +138,14 @@ MALLOC_DECLARE(M_IPFW);
  * indicating the protocol (if necessary)
  */
 enum {
-	DIR_MASK =	0x3,
 	DIR_OUT =	0,
 	DIR_IN =	1,
 	DIR_FWD =	2,
 	DIR_DROP =	3,
 	PROTO_LAYER2 =	0x4, /* set for layer 2 */
-	/* PROTO_DEFAULT = 0, */
 	PROTO_IPV4 =	0x08,
 	PROTO_IPV6 =	0x10,
 	PROTO_IFB =	0x0c, /* layer2 + ifbridge */
-   /*	PROTO_OLDBDG =	0x14, unused, old bridge */
 };
 
 /* wrapper for freeing a packet, in case we need to do more work */
