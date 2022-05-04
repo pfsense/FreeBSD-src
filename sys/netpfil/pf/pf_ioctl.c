@@ -3407,6 +3407,7 @@ DIOCGETRULENV_error:
 
 #define	ERROUT(x)	ERROUT_IOCTL(DIOCCHANGERULE_error, x)
 
+		PF_CONFIG_LOCK();
 		PF_RULES_WLOCK();
 #ifdef PF_WANT_32_TO_64_COUNTER
 		if (newrule != NULL) {
@@ -3515,6 +3516,7 @@ DIOCGETRULENV_error:
 			if (error) {
 				pf_free_rule(newrule);
 				PF_RULES_WUNLOCK();
+				PF_CONFIG_UNLOCK();
 				break;
 			}
 
@@ -3537,6 +3539,7 @@ DIOCGETRULENV_error:
 				if (newrule != NULL)
 					pf_free_rule(newrule);
 				PF_RULES_WUNLOCK();
+				PF_CONFIG_UNLOCK();
 				error = EINVAL;
 				break;
 			}
@@ -3545,8 +3548,20 @@ DIOCGETRULENV_error:
 		if (pcr->action == PF_CHANGE_REMOVE) {
 			pf_unlink_rule(ruleset->rules[rs_num].active.ptr,
 			    oldrule);
+			RB_REMOVE(pf_krule_global,
+			    ruleset->rules[rs_num].active.tree, oldrule);
 			ruleset->rules[rs_num].active.rcount--;
 		} else {
+			pf_hash_rule(newrule);
+			if (RB_INSERT(pf_krule_global,
+			    ruleset->rules[rs_num].active.tree, newrule) != NULL) {
+				pf_free_rule(newrule);
+				PF_RULES_WUNLOCK();
+				PF_CONFIG_UNLOCK();
+				error = EEXIST;
+				break;
+			}
+
 			if (oldrule == NULL)
 				TAILQ_INSERT_TAIL(
 				    ruleset->rules[rs_num].active.ptr,
@@ -3572,6 +3587,7 @@ DIOCGETRULENV_error:
 		pf_remove_if_empty_kruleset(ruleset);
 
 		PF_RULES_WUNLOCK();
+		PF_CONFIG_UNLOCK();
 		break;
 
 #undef ERROUT
