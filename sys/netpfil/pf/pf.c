@@ -7523,6 +7523,8 @@ done:
 				ip_dn_io_ptr(m0, pf_dir_to_dn(dir, AF_INET), &dnflow);
 				if (*m0 == NULL)
 					action = PF_DROP;
+				else
+					pd.pf_mtag->flags &= ~PF_TAG_DUMMYNET;
 			}
 		}
 		break;
@@ -8009,6 +8011,8 @@ done:
 				ip_dn_io_ptr(m0, pf_dir_to_dn(dir, AF_INET6), &dnflow);
 				if (*m0 == NULL)
 					action = PF_DROP;
+				else
+					pd.pf_mtag->flags &= ~PF_TAG_DUMMYNET;
 			}
 		}
 		break;
