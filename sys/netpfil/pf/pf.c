@@ -7005,7 +7005,6 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	struct pf_kruleset	*ruleset = NULL;
 	struct pf_pdesc		 pd;
 	int			 off = 0, dirndx, pqid = 0;
-	struct ip_fw_args        dnflow;
 
 	PF_RULES_RLOCK_TRACKER;
 	KASSERT(dir == PF_IN || dir == PF_OUT, ("%s: bad direction %d\n", __func__, dir));
@@ -7112,9 +7111,6 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 			log = action != PF_PASS;
 			goto done;
 		}
-		dnflow.f_id._flags = pd.hdr.tcp.th_flags;
-		dnflow.f_id.dst_port = ntohs(pd.hdr.tcp.th_dport);
-		dnflow.f_id.src_port = ntohs(pd.hdr.tcp.th_sport);
 		pd.p_len = pd.tot_len - off - (pd.hdr.tcp.th_off << 2);
 
 		pd.sport = &pd.hdr.tcp.th_sport;
@@ -7136,20 +7132,6 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		action = pf_test_state_tcp(&s, dir, kif, m, off, h, &pd,
 		    &reason);
 		if (action == PF_PASS) {
-			if (dir == PF_IN && s != NULL &&
-			    s->nat_rule.ptr != NULL &&
-			    s->nat_rule.ptr->action == PF_NAT) {
-				dnflow.f_id.dst_port =
-				    ntohs(s->key[(s->direction == PF_IN)]->
-				    port[(s->direction == PF_OUT)]);
-			}
-			if (dir == PF_OUT && s != NULL &&
-			    s->nat_rule.ptr != NULL &&
-			    s->nat_rule.ptr->action != PF_NAT) {
-				dnflow.f_id.src_port =
-				    ntohs(s->key[(s->direction == PF_OUT)]->
-				    port[(s->direction == PF_IN)]);
-			}
 			if (V_pfsync_update_state_ptr != NULL)
 				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
@@ -7219,20 +7201,6 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		}
 		action = pf_test_state_udp(&s, dir, kif, m, off, h, &pd);
 		if (action == PF_PASS) {
-			if (dir == PF_IN && s != NULL &&
-			    s->nat_rule.ptr != NULL &&
-			    s->nat_rule.ptr->action == PF_NAT) {
-				dnflow.f_id.dst_port =
-				    ntohs(s->key[(s->direction == PF_IN)]->
-				    port[(s->direction == PF_OUT)]);
-			}
-			if (dir == PF_OUT && s != NULL &&
-			    s->nat_rule.ptr != NULL &&
-			    s->nat_rule.ptr->action != PF_NAT) {
-				dnflow.f_id.src_port =
-				    ntohs(s->key[(s->direction == PF_OUT)]->
-				    port[(s->direction == PF_IN)]);
-			}
 			if (V_pfsync_update_state_ptr != NULL)
 				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
@@ -7553,8 +7521,6 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 	struct pf_kruleset	*ruleset = NULL;
 	struct pf_pdesc		 pd;
 	int			 off, terminal = 0, dirndx, rh_cnt = 0, pqid = 0;
-	struct m_tag		*dn_tag;
-	struct ip_fw_args        dnflow;
 
 	PF_RULES_RLOCK_TRACKER;
 	KASSERT(dir == PF_IN || dir == PF_OUT, ("%s: bad direction %d\n", __func__, dir));
@@ -7597,20 +7563,6 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 
 	PF_RULES_RLOCK();
 
-	if (ip_dn_io_ptr != NULL &&
-	    ((dn_tag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
-		if (pd.pf_mtag == NULL &&
-		    ((pd.pf_mtag = pf_get_mtag(m)) == NULL)) {
-			action = PF_DROP;
-			goto done;
-		}
-		pd.pf_mtag->flags |= PF_PACKET_LOOPED;
-		if (pd.pf_mtag->flags & PF_FASTFWD_OURS_PRESENT) {
-			m->m_flags |= M_FASTFWD_OURS;
-			pd.pf_mtag->flags &= ~PF_FASTFWD_OURS_PRESENT;
-		}
-		m_tag_delete(m, dn_tag);
-	}
 	/* We do IP header normalization and packet reassembly here */
 	if (pf_normalize_ip6(m0, dir, kif, &reason, &pd) != PF_PASS) {
 		action = PF_DROP;
@@ -7723,9 +7675,6 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 			log = action != PF_PASS;
 			goto done;
 		}
-		dnflow.f_id._flags = pd.hdr.tcp.th_flags;
-		dnflow.f_id.dst_port = pd.hdr.tcp.th_dport;
-		dnflow.f_id.src_port = pd.hdr.tcp.th_sport;
 		pd.p_len = pd.tot_len - off - (pd.hdr.tcp.th_off << 2);
 		pd.sport = &pd.hdr.tcp.th_sport;
 		pd.dport = &pd.hdr.tcp.th_dport;
