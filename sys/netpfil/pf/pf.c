@@ -282,6 +282,9 @@ void			 pf_rule_to_actions(struct pf_krule *,
 			    struct pf_rule_actions *);
 static bool		 pf_dummynet(struct pf_pdesc *, int, int, struct pf_kstate *,
 			    struct pf_krule *, struct mbuf **);
+static bool		 pf_dummynet_route(struct pf_pdesc *, int, int, struct pf_kstate *,
+			    struct pf_krule *, struct ifnet *, struct sockaddr *,
+			    struct mbuf **);
 static int		 pf_test_eth_rule(int, struct pfi_kkif *,
 			    struct mbuf **);
 static int		 pf_test_rule(struct pf_krule **, struct pf_kstate **,
@@ -6520,7 +6523,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		m_clrprotoflags(m0);	/* Avoid confusing lower layers. */
 
 		md = m0;
-		pf_dummynet(pd, AF_INET, dir, s, r, &md);
+		pf_dummynet_route(pd, AF_INET, dir, s, r, ifp, sintosa(&dst), &md);
 		if (md != NULL)
 			error = (*ifp->if_output)(ifp, md, sintosa(&dst), NULL);
 		goto done;
@@ -6553,7 +6556,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		if (error == 0) {
 			m_clrprotoflags(m0);
 			md = m0;
-			pf_dummynet(pd, AF_INET, dir, s, r, &md);
+			pf_dummynet_route(pd, AF_INET, dir, s, r, ifp, sintosa(&dst), &md);
 			if (md != NULL)
 				error = (*ifp->if_output)(ifp, md,
 				    sintosa(&dst), NULL);
@@ -6740,7 +6743,7 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		dst.sin6_addr.s6_addr16[1] = htons(ifp->if_index);
 	if ((u_long)m0->m_pkthdr.len <= ifp->if_mtu) {
 		md = m0;
-		pf_dummynet(pd, AF_INET6, dir, s, r, &md);
+		pf_dummynet_route(pd, AF_INET6, dir, s, r, ifp, sintosa(&dst), &md);
 		if (md != NULL)
 			nd6_output_ifp(ifp, ifp, md, &dst, NULL);
 	}
@@ -7011,6 +7014,14 @@ static bool
 pf_dummynet(struct pf_pdesc *pd, int af, int dir, struct pf_kstate *s,
     struct pf_krule *r, struct mbuf **m0)
 {
+	return (pf_dummynet_route(pd, af, dir, s, r, NULL, NULL, m0));
+}
+
+static bool
+pf_dummynet_route(struct pf_pdesc *pd, int af, int dir, struct pf_kstate *s,
+    struct pf_krule *r, struct ifnet *ifp, struct sockaddr *sa, struct mbuf **m0)
+{
+
 	if (s && (s->dnpipe || s->dnrpipe)) {
 		pd->act.dnpipe = s->dnpipe;
 		pd->act.dnrpipe = s->dnrpipe;
@@ -7033,6 +7044,18 @@ pf_dummynet(struct pf_pdesc *pd, int af, int dir, struct pf_kstate *s,
 			m_freem(*m0);
 			*m0 = NULL;
 			return (false);
+		}
+
+		if (ifp != NULL) {
+			pd->pf_mtag->flags |= PF_TAG_ROUTE_TO;
+			pd->pf_mtag->ifp = ifp;
+
+			MPASS(sa != NULL);
+
+			if (af == AF_INET)
+				memcpy(&pd->pf_mtag->dst, sa, sizeof(struct sockaddr_in));
+			else
+				memcpy(&pd->pf_mtag->dst, sa, sizeof(struct sockaddr_in6));
 		}
 
 		if (pf_pdesc_to_dnflow(dir, pd, r, s, &dnflow)) {
@@ -7088,6 +7111,13 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	if (pd.pf_mtag && pd.pf_mtag->dnpipe) {
 		pd.act.dnpipe = pd.pf_mtag->dnpipe;
 		pd.act.flags = pd.pf_mtag->dnflags;
+	}
+
+	if (pd.pf_mtag != NULL && (pd.pf_mtag->flags & PF_TAG_ROUTE_TO)) {
+		(pd.pf_mtag->ifp->if_output)(pd.pf_mtag->ifp, m,
+		    sintosa(&pd.pf_mtag->dst), NULL);
+		*m0 = NULL;
+		return (PF_PASS);
 	}
 
 	if (ip_dn_io_ptr != NULL && pd.pf_mtag != NULL &&
@@ -7573,12 +7603,21 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 		pd.act.flags = pd.pf_mtag->dnflags;
 	}
 
+	if (pd.pf_mtag != NULL && pd.pf_mtag->flags & PF_TAG_ROUTE_TO) {
+		pd.pf_mtag->flags &= ~PF_TAG_ROUTE_TO;
+		nd6_output_ifp(pd.pf_mtag->ifp, pd.pf_mtag->ifp, m,
+		    (struct sockaddr_in6 *)&pd.pf_mtag->dst, NULL);
+		*m0 = NULL;
+		return (PF_PASS);
+	}
+
 	if (ip_dn_io_ptr != NULL && pd.pf_mtag != NULL &&
 	    pd.pf_mtag->flags & PF_TAG_DUMMYNET) {
 		pd.pf_mtag->flags &= ~PF_TAG_DUMMYNET;
 		/* Dummynet re-injects packets after they've
 		 * completed their delay. We've already
 		 * processed them, so pass unconditionally. */
+
 		return (PF_PASS);
 	}
 
