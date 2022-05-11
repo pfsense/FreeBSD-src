@@ -3564,8 +3564,12 @@ pf_rule_to_actions(struct pf_krule *r, struct pf_rule_actions *a)
 		a->dnpipe = r->dnpipe;
 	if (r->dnrpipe)
 		a->dnrpipe = r->dnrpipe;
-	if (r->free_flags & PFRULE_DN_IS_PIPE)
-		a->flags |= PFRULE_DN_IS_PIPE;
+	if (r->dnpipe || r->dnrpipe) {
+		if (r->free_flags & PFRULE_DN_IS_PIPE)
+			a->flags |= PFRULE_DN_IS_PIPE;
+		else
+			a->flags &= ~PFRULE_DN_IS_PIPE;
+	}
 }
 
 int
