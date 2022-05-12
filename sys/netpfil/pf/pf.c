@@ -7118,6 +7118,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	}
 
 	if (pd.pf_mtag != NULL && (pd.pf_mtag->flags & PF_TAG_ROUTE_TO)) {
+		pd.pf_mtag->flags &= ~PF_TAG_ROUTE_TO;
+
 		(pd.pf_mtag->ifp->if_output)(pd.pf_mtag->ifp, m,
 		    sintosa(&pd.pf_mtag->dst), NULL);
 		*m0 = NULL;
