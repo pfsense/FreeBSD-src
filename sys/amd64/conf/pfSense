@@ -44,6 +44,7 @@ device		axe
 device		axge
 device		aue
 device		cue
+device		igc			# Intel i225 2.5G ethernet
 device		kue
 device		mos
 device		rsu
