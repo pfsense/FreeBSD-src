@@ -280,6 +280,7 @@ static int		 pf_state_key_ctor(void *, int, void *, int);
 static u_int32_t	 pf_tcp_iss(struct pf_pdesc *);
 void			 pf_rule_to_actions(struct pf_krule *,
 			    struct pf_rule_actions *);
+static int		 pf_dir_to_dn(int, int);
 static bool		 pf_dummynet(struct pf_pdesc *, int, int, struct pf_kstate *,
 			    struct pf_krule *, struct mbuf **);
 static bool		 pf_dummynet_route(struct pf_pdesc *, int, int, struct pf_kstate *,
@@ -3838,6 +3839,19 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf **m0)
 
 	SDT_PROBE3(pf, eth, test_rule, entry, dir, kif->pfik_ifp, m);
 
+	mtag = pf_find_mtag(m);
+	if (mtag != NULL && mtag->flags & PF_TAG_DUMMYNET) {
+		/* Dummynet re-injects packets after they've
+		 * completed their delay. We've already
+		 * processed them, so pass unconditionally. */
+
+		/* But only once. We may see the packet multiple times (e.g.
+		 * PFIL_IN/PFIL_OUT). */
+		mtag->flags &= ~PF_TAG_DUMMYNET;
+
+		return (PF_PASS);
+	}
+
 	ruleset = V_pf_keth;
 	rules = ck_pr_load_ptr(&ruleset->active.rules);
 	r = TAILQ_FIRST(rules);
@@ -3965,7 +3979,8 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf **m0)
 	}
 
 	if (r->tag > 0) {
-		mtag = pf_get_mtag(m);
+		if (mtag == NULL)
+			mtag = pf_get_mtag(m);
 		if (mtag == NULL) {
 			PF_RULES_RUNLOCK();
 			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
@@ -3975,7 +3990,8 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf **m0)
 	}
 
 	if (r->qid != 0) {
-		mtag = pf_get_mtag(m);
+		if (mtag == NULL)
+			mtag = pf_get_mtag(m);
 		if (mtag == NULL) {
 			PF_RULES_RUNLOCK();
 			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
@@ -3986,19 +4002,59 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf **m0)
 
 	/* Dummynet */
 	if (r->dnpipe) {
-		/** While dummynet supports handling Ethernet packets directly
-		 * it still wants some L3/L4 information, and we're not set up
-		 * to provide that here. Instead we'll do what we do for ALTQ
-		 * and merely mark the packet with the dummynet queue/pipe number.
-		 **/
-		mtag = pf_get_mtag(m);
+		struct ip_fw_args dnflow;
+
+		/* Drop packet if dummynet is not loaded. */
+		if (ip_dn_io_ptr == NULL) {
+			PF_RULES_RUNLOCK();
+			m_freem(m);
+			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
+			return (PF_DROP);
+		}
+		if (mtag == NULL)
+			mtag = pf_get_mtag(m);
 		if (mtag == NULL) {
 			PF_RULES_RUNLOCK();
 			counter_u64_add(V_pf_status.counters[PFRES_MEMORY], 1);
 			return (PF_DROP);
 		}
-		mtag->dnpipe = r->dnpipe;
-		mtag->dnflags = r->dnflags;
+
+		bzero(&dnflow, sizeof(dnflow));
+
+		/* We don't have port numbers here. */
+		dnflow.f_id.dst_port = 0;
+		dnflow.f_id.src_port = 0;
+		dnflow.f_id.proto = 0;
+
+		dnflow.rule.info = r->dnpipe;
+		dnflow.rule.info |= IPFW_IS_DUMMYNET;
+		if (r->dnflags & PFRULE_DN_IS_PIPE)
+			dnflow.rule.info |= IPFW_IS_PIPE;
+
+		dnflow.f_id.extra = dnflow.rule.info;
+		dnflow.oif = kif->pfik_ifp;
+
+		dnflow.flags = IPFW_ARGS_ETHER;
+
+		switch (af) {
+		case AF_INET:
+			dnflow.f_id.addr_type = 4;
+			dnflow.f_id.src_ip = src->v4.s_addr;
+			dnflow.f_id.dst_ip = dst->v4.s_addr;
+			break;
+		case AF_INET6:
+			dnflow.f_id.addr_type = 6;
+			dnflow.f_id.src_ip6 = src->v6;
+			dnflow.f_id.dst_ip6 = dst->v6;
+			break;
+		default:
+			panic("Unknown address family");
+		}
+
+		mtag->flags |= PF_TAG_DUMMYNET;
+		ip_dn_io_ptr(m0, pf_dir_to_dn(dir, af) | PROTO_LAYER2, &dnflow);
+		if (*m0 != NULL)
+			mtag->flags &= ~PF_TAG_DUMMYNET;
 	}
 
 	action = r->action;
