@@ -540,14 +540,15 @@ if [ -r /tmp/recovered_config/config.xml ] ; then
 			break
 		fi
 	done
-	# If the user recovered SSH keys from an existing disk, copy them to /etc/ssh in the chroot
-	for keytype in rsa ed25519; do
-		if [ -s /tmp/recovered_config/ssh_host_${keytype}_key -a -s /tmp/recovered_config/ssh_host_${keytype}_key.pub ]; then
-			/bin/cp /recovered_config/ssh_host_${keytype}_key ${BSDINSTALL_CHROOT}/etc/ssh/ssh_host_${keytype}_key
-			/bin/cp /recovered_config/ssh_host_${keytype}_key.pub ${BSDINSTALL_CHROOT}/etc/ssh/ssh_host_${keytype}_key.pub
-		fi
-	done
 fi
+
+# If the user recovered SSH keys from an existing disk, copy them to /etc/ssh in the chroot
+for keytype in rsa ed25519; do
+	if [ -s /tmp/recovered_config/ssh_host_${keytype}_key -a -s /tmp/recovered_config/ssh_host_${keytype}_key.pub ]; then
+		/bin/cp /tmp/recovered_config/ssh_host_${keytype}_key ${BSDINSTALL_CHROOT}/etc/ssh/ssh_host_${keytype}_key
+		/bin/cp /tmp/recovered_config/ssh_host_${keytype}_key.pub ${BSDINSTALL_CHROOT}/etc/ssh/ssh_host_${keytype}_key.pub
+	fi
+done
 
 if [ -n "$DISTDIR_IS_UNIONFS" ]; then
 	umount -f $BSDINSTALL_DISTDIR
