@@ -4048,7 +4048,9 @@ pf_test_eth_rule(int dir, struct pfi_kkif *kif, struct mbuf **m0)
 			dnflow.f_id.dst_ip6 = dst->v6;
 			break;
 		default:
-			panic("Unknown address family");
+			if (af > AF_MAX) {
+				panic("Unknown address family %d", af);
+			} 
 		}
 
 		mtag->flags |= PF_TAG_DUMMYNET;
