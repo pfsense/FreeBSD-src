@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/imgact_aout.h>
 #endif
 #include <sys/jail.h>
+#include <sys/imgact.h>
 #include <sys/kernel.h>
 #include <sys/limits.h>
 #include <sys/lock.h>
@@ -74,6 +75,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/cpuset.h>
 #include <sys/uio.h>
 
+#include <security/audit/audit.h>
 #include <security/mac/mac_framework.h>
 
 #include <vm/vm.h>
@@ -2239,6 +2241,11 @@ linux_sched_getparam(struct thread *td,
 	return (error);
 }
 
+static const struct cpuset_copy_cb copy_set = {
+	.cpuset_copyin = copyin,
+	.cpuset_copyout = copyout
+};
+
 /*
  * Get affinity of a process.
  */
@@ -2257,7 +2264,7 @@ linux_sched_getaffinity(struct thread *td,
 	PROC_UNLOCK(tdt->td_proc);
 
 	error = kern_cpuset_getaffinity(td, CPU_LEVEL_WHICH, CPU_WHICH_TID,
-	    tid, args->len, (cpuset_t *)args->user_mask_ptr);
+	    tid, args->len, (cpuset_t *)args->user_mask_ptr, &copy_set);
 	if (error == ERANGE)
 		error = EINVAL;
 	if (error == 0)
@@ -2901,3 +2908,29 @@ linux_seccomp(struct thread *td, struct linux_seccomp_args *args)
 		return (EINVAL);
 	}
 }
+
+#ifndef COMPAT_LINUX32
+int
+linux_execve(struct thread *td, struct linux_execve_args *args)
+{
+	struct image_args eargs;
+	char *path;
+	int error;
+
+	LINUX_CTR(execve);
+
+	if (!LUSECONVPATH(td)) {
+		error = exec_copyin_args(&eargs, args->path, UIO_USERSPACE,
+		    args->argp, args->envp);
+	} else {
+		LCONVPATHEXIST(args->path, &path);
+		error = exec_copyin_args(&eargs, path, UIO_SYSSPACE, args->argp,
+		    args->envp);
+		LFREEPATH(path);
+	}
+	if (error == 0)
+		error = linux_common_execve(td, &eargs);
+	AUDIT_SYSCALL_EXIT(error == EJUSTRETURN ? 0 : error, td);
+	return (error);
+}
+#endif

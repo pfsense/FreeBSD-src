@@ -134,45 +134,6 @@ static void	linux_vdso_reloc(char *mapping, Elf_Addr offset);
 static void	linux32_set_fork_retval(struct thread *td);
 static void	linux32_set_syscall_retval(struct thread *td, int error);
 
-#define LINUX_T_UNKNOWN  255
-static int _bsd_to_linux_trapcode[] = {
-	LINUX_T_UNKNOWN,	/* 0 */
-	6,			/* 1  T_PRIVINFLT */
-	LINUX_T_UNKNOWN,	/* 2 */
-	3,			/* 3  T_BPTFLT */
-	LINUX_T_UNKNOWN,	/* 4 */
-	LINUX_T_UNKNOWN,	/* 5 */
-	16,			/* 6  T_ARITHTRAP */
-	254,			/* 7  T_ASTFLT */
-	LINUX_T_UNKNOWN,	/* 8 */
-	13,			/* 9  T_PROTFLT */
-	1,			/* 10 T_TRCTRAP */
-	LINUX_T_UNKNOWN,	/* 11 */
-	14,			/* 12 T_PAGEFLT */
-	LINUX_T_UNKNOWN,	/* 13 */
-	17,			/* 14 T_ALIGNFLT */
-	LINUX_T_UNKNOWN,	/* 15 */
-	LINUX_T_UNKNOWN,	/* 16 */
-	LINUX_T_UNKNOWN,	/* 17 */
-	0,			/* 18 T_DIVIDE */
-	2,			/* 19 T_NMI */
-	4,			/* 20 T_OFLOW */
-	5,			/* 21 T_BOUND */
-	7,			/* 22 T_DNA */
-	8,			/* 23 T_DOUBLEFLT */
-	9,			/* 24 T_FPOPFLT */
-	10,			/* 25 T_TSSFLT */
-	11,			/* 26 T_SEGNPFLT */
-	12,			/* 27 T_STKFLT */
-	18,			/* 28 T_MCHK */
-	19,			/* 29 T_XMMFLT */
-	15			/* 30 T_RESERVED */
-};
-#define bsd_to_linux_trapcode(code) \
-    ((code)<nitems(_bsd_to_linux_trapcode)? \
-     _bsd_to_linux_trapcode[(code)]: \
-     LINUX_T_UNKNOWN)
-
 struct linux32_ps_strings {
 	u_int32_t ps_argvstr;	/* first of 0 or more argument strings */
 	u_int ps_nargvstr;	/* the number of argument strings */
@@ -189,28 +150,6 @@ LINUX_VDSO_SYM_INTPTR(kern_timekeep_base);
 LINUX_VDSO_SYM_INTPTR(kern_tsc_selector);
 LINUX_VDSO_SYM_INTPTR(kern_cpu_selector);
 LINUX_VDSO_SYM_CHAR(linux_platform);
-
-/*
- * If FreeBSD & Linux have a difference of opinion about what a trap
- * means, deal with it here.
- *
- * MPSAFE
- */
-static int
-linux_translate_traps(int signal, int trap_code)
-{
-	if (signal != SIGBUS)
-		return (signal);
-	switch (trap_code) {
-	case T_PROTFLT:
-	case T_TSSFLT:
-	case T_DOUBLEFLT:
-	case T_PAGEFLT:
-		return (SIGSEGV);
-	default:
-		return (signal);
-	}
-}
 
 static int
 linux_copyout_auxargs(struct image_params *imgp, uintptr_t base)
@@ -294,7 +233,7 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	int sig;
 	int code;
 
-	sig = ksi->ksi_signo;
+	sig = linux_translate_traps(ksi->ksi_signo, ksi->ksi_trapno);
 	code = ksi->ksi_code;
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	psp = p->p_sigacts;
@@ -404,7 +343,7 @@ linux_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	int oonstack;
 	int sig, code;
 
-	sig = ksi->ksi_signo;
+	sig = linux_translate_traps(ksi->ksi_signo, ksi->ksi_trapno);
 	code = ksi->ksi_code;
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	psp = p->p_sigacts;
@@ -924,7 +863,6 @@ linux32_fixlimit(struct rlimit *rl, int which)
 struct sysentvec elf_linux_sysvec = {
 	.sv_size	= LINUX32_SYS_MAXSYSCALL,
 	.sv_table	= linux32_sysent,
-	.sv_transtrap	= linux_translate_traps,
 	.sv_fixup	= linux_fixup_elf,
 	.sv_sendsig	= linux_sendsig,
 	.sv_sigcode	= &_binary_linux32_vdso_so_o_start,
