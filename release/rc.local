@@ -192,6 +192,7 @@ case "$IMODE" in
 
 	trap true SIGINT	# Ignore cntrl-C here
 	env \
+		OSNAME=pfSense \
 		ZFSBOOT_POOL_NAME=pfSense \
 		ZFSBOOT_SWAP_SIZE=1g \
 		bsdinstall
