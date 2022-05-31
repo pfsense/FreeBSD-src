@@ -7151,18 +7151,25 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 
 	memset(&pd, 0, sizeof(pd));
 
+	PF_RULES_RLOCK();
+
 	kif = (struct pfi_kkif *)ifp->if_pf_kif;
 
-	if (kif == NULL) {
+	if (__predict_false(kif == NULL)) {
 		DPFPRINTF(PF_DEBUG_URGENT,
 		    ("pf_test: kif == NULL, if_xname %s\n", ifp->if_xname));
+		PF_RULES_RUNLOCK();
 		return (PF_DROP);
 	}
-	if (kif->pfik_flags & PFI_IFLAG_SKIP)
+	if (kif->pfik_flags & PFI_IFLAG_SKIP) {
+		PF_RULES_RUNLOCK();
 		return (PF_PASS);
+	}
 
-	if (m->m_flags & M_SKIP_FIREWALL)
+	if (m->m_flags & M_SKIP_FIREWALL) {
+		PF_RULES_RUNLOCK();
 		return (PF_PASS);
+	}
 
 	pd.pf_mtag = pf_find_mtag(m);
 
@@ -7173,7 +7180,7 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 
 	if (pd.pf_mtag != NULL && (pd.pf_mtag->flags & PF_TAG_ROUTE_TO)) {
 		pd.pf_mtag->flags &= ~PF_TAG_ROUTE_TO;
-
+		PF_RULES_RUNLOCK();
 		(pd.pf_mtag->ifp->if_output)(pd.pf_mtag->ifp, m,
 		    sintosa(&pd.pf_mtag->dst), NULL);
 		*m0 = NULL;
@@ -7189,11 +7196,10 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		/* But only once. We may see the packet multiple times (e.g.
 		 * PFIL_IN/PFIL_OUT). */
 		pd.pf_mtag->flags &= ~PF_TAG_DUMMYNET;
+		PF_RULES_RUNLOCK();
 
 		return (PF_PASS);
 	}
-
-	PF_RULES_RLOCK();
 
 	if (__predict_false(ip_divert_ptr != NULL) &&
 	    ((ipfwtag = m_tag_locate(m, MTAG_IPFW_RULE, 0, NULL)) != NULL)) {
@@ -7646,17 +7652,24 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 	if (pd.pf_mtag && pd.pf_mtag->flags & PF_TAG_GENERATED)
 		return (PF_PASS);
 
+	PF_RULES_RLOCK();
+
 	kif = (struct pfi_kkif *)ifp->if_pf_kif;
-	if (kif == NULL) {
+	if (__predict_false(kif == NULL)) {
 		DPFPRINTF(PF_DEBUG_URGENT,
 		    ("pf_test6: kif == NULL, if_xname %s\n", ifp->if_xname));
+		PF_RULES_RUNLOCK();
 		return (PF_DROP);
 	}
-	if (kif->pfik_flags & PFI_IFLAG_SKIP)
+	if (kif->pfik_flags & PFI_IFLAG_SKIP) {
+		PF_RULES_RUNLOCK();
 		return (PF_PASS);
+	}
 
-	if (m->m_flags & M_SKIP_FIREWALL)
+	if (m->m_flags & M_SKIP_FIREWALL) {
+		PF_RULES_RUNLOCK();
 		return (PF_PASS);
+	}
 
 	if (pd.pf_mtag && pd.pf_mtag->dnpipe) {
 		pd.act.dnpipe = pd.pf_mtag->dnpipe;
@@ -7665,6 +7678,7 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 
 	if (pd.pf_mtag != NULL && pd.pf_mtag->flags & PF_TAG_ROUTE_TO) {
 		pd.pf_mtag->flags &= ~PF_TAG_ROUTE_TO;
+		PF_RULES_RUNLOCK();
 		nd6_output_ifp(pd.pf_mtag->ifp, pd.pf_mtag->ifp, m,
 		    (struct sockaddr_in6 *)&pd.pf_mtag->dst, NULL);
 		*m0 = NULL;
@@ -7677,11 +7691,10 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 		/* Dummynet re-injects packets after they've
 		 * completed their delay. We've already
 		 * processed them, so pass unconditionally. */
+		PF_RULES_RUNLOCK();
 
 		return (PF_PASS);
 	}
-
-	PF_RULES_RLOCK();
 
 	/* We do IP header normalization and packet reassembly here */
 	if (pf_normalize_ip6(m0, dir, kif, &reason, &pd) != PF_PASS) {
