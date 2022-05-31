@@ -67,31 +67,37 @@ if look_for_config_xml_config_msdos; then
 	if [ `/usr/bin/grep -c "BEGIN config.xml" ${CONFIG_XML_PATH}` -gt 0 ]; then
 		echo "config.xml is encrypted."
 		/usr/bin/grep -v "config.xml" ${CONFIG_XML_PATH} > ${encrypted_xml}
-		while true ; do
-			echo -n "Enter the password to decrypt config.xml, or press <ENTER> to cancel: "
-			/bin/stty -echo
-			read confpass
-			/bin/stty echo
-			if [ -z ${confpass} ]; then
-				echo -p "[Cancelling config.xml recover]"
-				break
-			else 
-				/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md sha256 -pbkdf2 -base64 2>/dev/null
+
+		exec 3>&1
+		confpass=`/usr/bin/dialog --stdout --passwordbox \
+			"Enter the password to decrypt config.xml" 0 0`
+		exec 3>&-
+
+		if [ -z ${confpass} ]; then
+			echo -p "[Empty password given. Cancelling config.xml recover]"
+		else
+			/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md sha256 -pbkdf2 -base64 -iter 500000 2>/dev/null
+			if [ $? -eq 0 ]; then
+				/bin/cp ${decrypted_xml} ${recovery_dir}/config.xml
+				echo -n "[Copied decrypted config.xml file to recovery area] "
+			else
+				# Operation failed, try with old lower iteration default
+				/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md sha256 -pbkdf2 -base64 -iter 10000 2>/dev/null
 				if [ $? -eq 0 ]; then
 					/bin/cp ${decrypted_xml} ${recovery_dir}/config.xml
 					echo -n "[Copied decrypted config.xml file to recovery area] "
-					break
 				else
 					# Operation failed without new options, try old.
 					/usr/bin/openssl enc -d -aes-256-cbc -in ${encrypted_xml} -out ${decrypted_xml} -pass pass:${confpass} -salt -md md5 -base64 2>/dev/null
 					if [ $? -eq 0 ]; then
 						/bin/cp ${decrypted_xml} ${recovery_dir}/config.xml
 						echo -n "[Copied decrypted config.xml file to recovery area] "
-						break
+					else
+						echo -n "[Failed to decrypt config.xml. Cannot recover.] "
 					fi
 				fi
 			fi
-		done
+		fi
 		/bin/rm ${encrypted_xml}
 	else
 		/bin/cp -r ${CONFIG_XML_PATH} ${recovery_dir}
