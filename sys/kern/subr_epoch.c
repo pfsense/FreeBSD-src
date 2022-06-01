@@ -377,9 +377,10 @@ epoch_exit_preempt(epoch_t epoch, epoch_tracker_t et)
 	td = curthread;
 	critical_enter();
 	sched_unpin();
-	MPASS(td->td_net_epoch);
-	if (epoch == net_epoch_preempt)
+	if (epoch == net_epoch_preempt) {
+		MPASS(td->td_net_epoch);
 		td->td_net_epoch--;
+	}
 	MPASS(td->td_epochnest);
 	td->td_epochnest--;
 	er = epoch_currecord(epoch);
