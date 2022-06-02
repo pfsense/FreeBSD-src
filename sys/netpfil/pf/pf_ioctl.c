@@ -2698,7 +2698,7 @@ DIOCGETETHRULES_error:
 		if (nv->len > pf_ioctl_maxcount)
 			ERROUT(ENOMEM);
 
-		nvlpacked = malloc(nv->len, M_TEMP, M_WAITOK);
+		nvlpacked = malloc(nv->len, M_NVLIST, M_WAITOK);
 		if (nvlpacked == NULL)
 			ERROUT(ENOMEM);
 
@@ -2739,7 +2739,7 @@ DIOCGETETHRULES_error:
 
 		nvlist_destroy(nvl);
 		nvl = NULL;
-		free(nvlpacked, M_TEMP);
+		free(nvlpacked, M_NVLIST);
 		nvlpacked = NULL;
 
 		rule = TAILQ_FIRST(rs->active.rules);
@@ -2781,7 +2781,7 @@ DIOCGETETHRULES_error:
 
 #undef ERROUT
 DIOCGETETHRULE_error:
-		free(nvlpacked, M_TEMP);
+		free(nvlpacked, M_NVLIST);
 		nvlist_destroy(nvl);
 		break;
 	}
@@ -2797,7 +2797,7 @@ DIOCGETETHRULE_error:
 
 #define ERROUT(x)	ERROUT_IOCTL(DIOCADDETHRULE_error, x)
 
-		nvlpacked = malloc(nv->len, M_TEMP, M_WAITOK);
+		nvlpacked = malloc(nv->len, M_NVLIST, M_WAITOK);
 		if (nvlpacked == NULL)
 			ERROUT(ENOMEM);
 
@@ -2900,7 +2900,7 @@ DIOCGETETHRULE_error:
 #undef ERROUT
 DIOCADDETHRULE_error:
 		nvlist_destroy(nvl);
-		free(nvlpacked, M_TEMP);
+		free(nvlpacked, M_NVLIST);
 		break;
 	}
 
@@ -3095,7 +3095,7 @@ DIOCGETETHRULESET_error:
 		if (nv->len > pf_ioctl_maxcount)
 			ERROUT(ENOMEM);
 
-		nvlpacked = malloc(nv->len, M_TEMP, M_WAITOK);
+		nvlpacked = malloc(nv->len, M_NVLIST, M_WAITOK);
 		error = copyin(nv->data, nvlpacked, nv->len);
 		if (error)
 			ERROUT(error);
@@ -3134,13 +3134,13 @@ DIOCGETETHRULESET_error:
 		    anchor_call, td);
 
 		nvlist_destroy(nvl);
-		free(nvlpacked, M_TEMP);
+		free(nvlpacked, M_NVLIST);
 		break;
 #undef ERROUT
 DIOCADDRULENV_error:
 		pf_krule_free(rule);
 		nvlist_destroy(nvl);
-		free(nvlpacked, M_TEMP);
+		free(nvlpacked, M_NVLIST);
 
 		break;
 	}
@@ -6025,7 +6025,7 @@ pf_keepcounters(struct pfioc_nv *nv)
 	if (nv->len > pf_ioctl_maxcount)
 		ERROUT(ENOMEM);
 
-	nvlpacked = malloc(nv->len, M_TEMP, M_WAITOK);
+	nvlpacked = malloc(nv->len, M_NVLIST, M_WAITOK);
 	if (nvlpacked == NULL)
 		ERROUT(ENOMEM);
 
@@ -6044,7 +6044,7 @@ pf_keepcounters(struct pfioc_nv *nv)
 
 on_error:
 	nvlist_destroy(nvl);
-	free(nvlpacked, M_TEMP);
+	free(nvlpacked, M_NVLIST);
 	return (error);
 }
 
