@@ -156,7 +156,7 @@ static struct task	unp_defer_task;
 #endif
 static u_long	unpst_sendspace = PIPSIZ;
 static u_long	unpst_recvspace = PIPSIZ;
-static u_long	unpdg_sendspace = 2*1024;	/* really max datagram size */
+static u_long	unpdg_maxdgram = 2*1024;
 static u_long	unpdg_recvspace = 16*1024;	/* support 8KB syslog msgs */
 static u_long	unpsp_sendspace = PIPSIZ;	/* really max datagram size */
 static u_long	unpsp_recvspace = PIPSIZ;
@@ -178,7 +178,7 @@ SYSCTL_ULONG(_net_local_stream, OID_AUTO, sendspace, CTLFLAG_RW,
 SYSCTL_ULONG(_net_local_stream, OID_AUTO, recvspace, CTLFLAG_RW,
 	   &unpst_recvspace, 0, "Default stream receive space.");
 SYSCTL_ULONG(_net_local_dgram, OID_AUTO, maxdgram, CTLFLAG_RW,
-	   &unpdg_sendspace, 0, "Default datagram send space.");
+	   &unpdg_maxdgram, 0, "Maximum datagram size.");
 SYSCTL_ULONG(_net_local_dgram, OID_AUTO, recvspace, CTLFLAG_RW,
 	   &unpdg_recvspace, 0, "Default datagram receive space.");
 SYSCTL_ULONG(_net_local_seqpacket, OID_AUTO, maxseqpacket, CTLFLAG_RW,
@@ -528,7 +528,7 @@ uipc_attach(struct socket *so, int proto, struct thread *td)
 			break;
 
 		case SOCK_DGRAM:
-			sendspace = unpdg_sendspace;
+			sendspace = unpdg_maxdgram;
 			recvspace = unpdg_recvspace;
 			break;
 
@@ -2015,10 +2015,8 @@ unp_externalize(struct mbuf *control, struct mbuf **controlp, int flags)
 	if (controlp != NULL) /* controlp == NULL => free control messages */
 		*controlp = NULL;
 	while (cm != NULL) {
-		if (sizeof(*cm) > clen || cm->cmsg_len > clen) {
-			error = EINVAL;
-			break;
-		}
+		MPASS(clen >= sizeof(*cm) && clen >= cm->cmsg_len);
+
 		data = CMSG_DATA(cm);
 		datalen = (caddr_t)cm + cm->cmsg_len - (caddr_t)data;
 		if (cm->cmsg_level == SOL_SOCKET
@@ -2043,13 +2041,7 @@ unp_externalize(struct mbuf *control, struct mbuf **controlp, int flags)
 			 */
 			newlen = newfds * sizeof(int);
 			*controlp = sbcreatecontrol(NULL, newlen,
-			    SCM_RIGHTS, SOL_SOCKET, M_NOWAIT);
-			if (*controlp == NULL) {
-				FILEDESC_XUNLOCK(fdesc);
-				error = E2BIG;
-				unp_freerights(fdep, newfds);
-				goto next;
-			}
+			    SCM_RIGHTS, SOL_SOCKET, M_WAITOK);
 
 			fdp = (int *)
 			    CMSG_DATA(mtod(*controlp, struct cmsghdr *));
@@ -2081,11 +2073,7 @@ unp_externalize(struct mbuf *control, struct mbuf **controlp, int flags)
 			if (error || controlp == NULL)
 				goto next;
 			*controlp = sbcreatecontrol(NULL, datalen,
-			    cm->cmsg_type, cm->cmsg_level, M_NOWAIT);
-			if (*controlp == NULL) {
-				error = ENOBUFS;
-				goto next;
-			}
+			    cm->cmsg_type, cm->cmsg_level, M_WAITOK);
 			bcopy(data,
 			    CMSG_DATA(mtod(*controlp, struct cmsghdr *)),
 			    datalen);
@@ -2241,6 +2229,19 @@ unp_internalize(struct mbuf **controlp, struct thread *td)
 			oldfds = datalen / sizeof (int);
 			if (oldfds == 0)
 				break;
+			/* On some machines sizeof pointer is bigger than
+			 * sizeof int, so we need to check if data fits into
+			 * single mbuf.  We could allocate several mbufs, and
+			 * unp_externalize() should even properly handle that.
+			 * But it is not worth to complicate the code for an
+			 * insane scenario of passing over 200 file descriptors
+			 * at once.
+			 */
+			newlen = oldfds * sizeof(fdep[0]);
+			if (CMSG_SPACE(newlen) > MCLBYTES) {
+				error = EMSGSIZE;
+				goto out;
+			}
 			/*
 			 * Check that all the FDs passed in refer to legal
 			 * files.  If not, reject the entire operation.
@@ -2265,7 +2266,6 @@ unp_internalize(struct mbuf **controlp, struct thread *td)
 			 * Now replace the integer FDs with pointers to the
 			 * file structure and capability rights.
 			 */
-			newlen = oldfds * sizeof(fdep[0]);
 			*controlp = sbcreatecontrol(NULL, newlen,
 			    SCM_RIGHTS, SOL_SOCKET, M_WAITOK);
 			fdp = data;

@@ -466,6 +466,7 @@ linux_rt_sigreturn(struct thread *td, struct linux_rt_sigreturn_args *args)
 	struct l_sigcontext *context;
 	struct trapframe *regs;
 	unsigned long rflags;
+	sigset_t bmask;
 	int error;
 	ksiginfo_t ksi;
 
@@ -514,11 +515,8 @@ linux_rt_sigreturn(struct thread *td, struct linux_rt_sigreturn_args *args)
 		return (EINVAL);
 	}
 
-	PROC_LOCK(p);
-	linux_to_bsd_sigset(&uc.uc_sigmask, &td->td_sigmask);
-	SIG_CANTMASK(td->td_sigmask);
-	signotify(td);
-	PROC_UNLOCK(p);
+	linux_to_bsd_sigset(&uc.uc_sigmask, &bmask);
+	kern_sigprocmask(td, SIG_SETMASK, &bmask, NULL, 0);
 
 	regs->tf_rdi    = context->sc_rdi;
 	regs->tf_rsi    = context->sc_rsi;
@@ -560,13 +558,14 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	caddr_t sp;
 	struct trapframe *regs;
 	int sig, code;
-	int oonstack;
+	int oonstack, issiginfo;
 
 	td = curthread;
 	p = td->td_proc;
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	sig = linux_translate_traps(ksi->ksi_signo, ksi->ksi_trapno);
 	psp = p->p_sigacts;
+	issiginfo = SIGISMEMBER(psp->ps_siginfo, sig);
 	code = ksi->ksi_code;
 	mtx_assert(&psp->ps_mtx, MA_OWNED);
 	regs = td->td_frame;
@@ -578,7 +577,7 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	/* Save user context. */
 	bzero(&sf, sizeof(sf));
 	bsd_to_linux_sigset(mask, &sf.sf_uc.uc_sigmask);
-	bsd_to_linux_sigset(mask, &sf.sf_uc.uc_mcontext.sc_mask);
+	sf.sf_uc.uc_mcontext.sc_mask = sf.sf_uc.uc_sigmask;
 
 	sf.sf_uc.uc_stack.ss_sp = PTROUT(td->td_sigstk.ss_sp);
 	sf.sf_uc.uc_stack.ss_size = td->td_sigstk.ss_size;
@@ -618,21 +617,13 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	/* Align to 16 bytes. */
 	sfp = (struct l_rt_sigframe *)((unsigned long)sp & ~0xFul);
 
-	/* Translate the signal. */
-	sig = bsd_to_linux_signal(sig);
-
-	/* Build the argument list for the signal handler. */
-	regs->tf_rdi = sig;			/* arg 1 in %rdi */
-	regs->tf_rax = 0;
-	regs->tf_rsi = (register_t)&sfp->sf_si;	/* arg 2 in %rsi */
-	regs->tf_rdx = (register_t)&sfp->sf_uc;	/* arg 3 in %rdx */
-	regs->tf_rcx = (register_t)catcher;
-
-	/* Fill in POSIX parts. */
-	siginfo_to_lsiginfo(&ksi->ksi_info, &sf.sf_si, sig);
-
 	mtx_unlock(&psp->ps_mtx);
 	PROC_UNLOCK(p);
+
+	/* Translate the signal. */
+	sig = bsd_to_linux_signal(sig);
+	/* Fill in POSIX parts. */
+	siginfo_to_lsiginfo(&ksi->ksi_info, &sf.sf_si, sig);
 
 	/* Copy the sigframe out to the user's stack. */
 	if (copyout(&sf, sfp, sizeof(*sfp)) != 0) {
@@ -642,6 +633,17 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 		sigexit(td, SIGILL);
 	}
 
+	/* Build the argument list for the signal handler. */
+	regs->tf_rdi = sig;			/* arg 1 in %rdi */
+	regs->tf_rax = 0;
+	if (issiginfo) {
+		regs->tf_rsi = (register_t)&sfp->sf_si;	/* arg 2 in %rsi */
+		regs->tf_rdx = (register_t)&sfp->sf_uc;	/* arg 3 in %rdx */
+	} else {
+		regs->tf_rsi = 0;
+		regs->tf_rdx = 0;
+	}
+	regs->tf_rcx = (register_t)catcher;
 	regs->tf_rsp = (long)sfp;
 	regs->tf_rip = linux_rt_sigcode;
 	regs->tf_rflags &= ~(PSL_T | PSL_D);

@@ -499,9 +499,9 @@ irdma_probe(struct ice_rdma_peer *peer)
 	struct irdma_handler *hdl;
 	int err = 0;
 
-	irdma_pr_info("probe: irdma-%s peer=%p, peer->pf_id=%d, peer->ifp=%p, peer->ifp->if_dunit=%d, peer->pci_mem->r_bustag=%lx\n",
+	irdma_pr_info("probe: irdma-%s peer=%p, peer->pf_id=%d, peer->ifp=%p, peer->ifp->if_dunit=%d, peer->pci_mem->r_bustag=%p\n",
 		      irdma_driver_version, peer, peer->pf_id, peer->ifp,
-		      pf_if_d(peer), peer->pci_mem->r_bustag);
+		      pf_if_d(peer), (void *)(uintptr_t)peer->pci_mem->r_bustag);
 
 	hdl = irdma_find_handler(peer);
 	if (hdl)

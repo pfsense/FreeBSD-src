@@ -1468,6 +1468,12 @@ nfscl_checkwritelocked(vnode_t vp, struct flock *fl,
 	 */
 	dp = nfscl_finddeleg(clp, np->n_fhp->nfh_fh, np->n_fhp->nfh_len);
 	if (dp != NULL) {
+		/* No need to flush if it is a write delegation. */
+		if ((dp->nfsdl_flags & NFSCLDL_WRITE) != 0) {
+			nfscl_clrelease(clp);
+			NFSUNLOCKCLSTATE();
+			return (0);
+		}
 		LIST_FOREACH(lp, &dp->nfsdl_lock, nfsl_list) {
 			if (!NFSBCMP(lp->nfsl_owner, own,
 			    NFSV4CL_LOCKNAMELEN))
@@ -2765,8 +2771,7 @@ nfscl_renewthread(struct nfsclclient *clp, NFSPROC_T *p)
 			error = nfsrpc_renew(clp, NULL, cred, p);
 			if (error == NFSERR_CBPATHDOWN)
 			    cbpathdown = 1;
-			else if (error == NFSERR_STALECLIENTID ||
-			    error == NFSERR_BADSESSION) {
+			else if (error == NFSERR_STALECLIENTID) {
 			    NFSLOCKCLSTATE();
 			    clp->nfsc_flags |= NFSCLFLAGS_RECOVER;
 			    NFSUNLOCKCLSTATE();
