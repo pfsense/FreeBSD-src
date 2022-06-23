@@ -3452,7 +3452,7 @@ sctp_source_address_selection(struct sctp_inpcb *inp,
 	return (answer);
 }
 
-static int
+static bool
 sctp_find_cmsg(int c_type, void *data, struct mbuf *control, size_t cpsize)
 {
 	struct cmsghdr cmh;
@@ -3460,13 +3460,13 @@ sctp_find_cmsg(int c_type, void *data, struct mbuf *control, size_t cpsize)
 	struct sctp_prinfo prinfo;
 	struct sctp_authinfo authinfo;
 	int tot_len, rem_len, cmsg_data_len, cmsg_data_off, off;
-	int found;
+	bool found;
 
 	/*
 	 * Independent of how many mbufs, find the c_type inside the control
 	 * structure and copy out the data.
 	 */
-	found = 0;
+	found = false;
 	tot_len = SCTP_BUF_LEN(control);
 	for (off = 0; off < tot_len; off += CMSG_ALIGN(cmh.cmsg_len)) {
 		rem_len = tot_len - off;
@@ -3505,7 +3505,7 @@ sctp_find_cmsg(int c_type, void *data, struct mbuf *control, size_t cpsize)
 				struct sctp_sndrcvinfo *sndrcvinfo;
 
 				sndrcvinfo = (struct sctp_sndrcvinfo *)data;
-				if (found == 0) {
+				if (!found) {
 					if (cpsize < sizeof(struct sctp_sndrcvinfo)) {
 						return (found);
 					}
@@ -3546,7 +3546,7 @@ sctp_find_cmsg(int c_type, void *data, struct mbuf *control, size_t cpsize)
 				default:
 					return (found);
 				}
-				found = 1;
+				found = true;
 			}
 		}
 	}
@@ -6136,7 +6136,7 @@ do_a_abort:
 static void
 sctp_prune_prsctp(struct sctp_tcb *stcb,
     struct sctp_association *asoc,
-    struct sctp_sndrcvinfo *srcv,
+    struct sctp_nonpad_sndrcvinfo *srcv,
     int dataout)
 {
 	int freed_spc = 0;
@@ -6317,7 +6317,7 @@ static int
 sctp_msg_append(struct sctp_tcb *stcb,
     struct sctp_nets *net,
     struct mbuf *m,
-    struct sctp_sndrcvinfo *srcv)
+    struct sctp_nonpad_sndrcvinfo *srcv)
 {
 	int error = 0;
 	struct mbuf *at;
@@ -6825,7 +6825,7 @@ sctp_copy_out_all(struct uio *uio, ssize_t len)
 
 static int
 sctp_sendall(struct sctp_inpcb *inp, struct uio *uio, struct mbuf *m,
-    struct sctp_sndrcvinfo *srcv)
+    struct sctp_nonpad_sndrcvinfo *srcv)
 {
 	int ret;
 	struct sctp_copy_all *ca;
@@ -6844,7 +6844,7 @@ sctp_sendall(struct sctp_inpcb *inp, struct uio *uio, struct mbuf *m,
 	memset(ca, 0, sizeof(struct sctp_copy_all));
 
 	ca->inp = inp;
-	if (srcv) {
+	if (srcv != NULL) {
 		memcpy(&ca->sndrcv, srcv, sizeof(struct sctp_nonpad_sndrcvinfo));
 	}
 
@@ -12278,7 +12278,7 @@ sctp_copy_one(struct sctp_stream_queue_pending *sp,
 static struct sctp_stream_queue_pending *
 sctp_copy_it_in(struct sctp_tcb *stcb,
     struct sctp_association *asoc,
-    struct sctp_sndrcvinfo *srcv,
+    struct sctp_nonpad_sndrcvinfo *srcv,
     struct uio *uio,
     struct sctp_nets *net,
     ssize_t max_send_len,
@@ -12363,25 +12363,22 @@ sctp_sosend(struct socket *so,
     struct mbuf *top,
     struct mbuf *control,
     int flags,
-    struct thread *p
-)
+    struct thread *p)
 {
-	int error, use_sndinfo = 0;
 	struct sctp_sndrcvinfo sndrcvninfo;
-	struct sockaddr *addr_to_use;
 #if defined(INET) && defined(INET6)
 	struct sockaddr_in sin;
 #endif
+	struct sockaddr *addr_to_use;
+	int error;
+	bool use_sndinfo;
 
-	if (control) {
+	if (control != NULL) {
 		/* process cmsg snd/rcv info (maybe a assoc-id) */
-		if (sctp_find_cmsg(SCTP_SNDRCV, (void *)&sndrcvninfo, control,
-		    sizeof(sndrcvninfo))) {
-			/* got one */
-			use_sndinfo = 1;
-		}
+		use_sndinfo = sctp_find_cmsg(SCTP_SNDRCV, (void *)&sndrcvninfo, control, sizeof(sndrcvninfo));
+	} else {
+		use_sndinfo = false;
 	}
-	addr_to_use = addr;
 #if defined(INET) && defined(INET6)
 	if ((addr != NULL) && (addr->sa_family == AF_INET6)) {
 		struct sockaddr_in6 *sin6;
@@ -12394,15 +12391,17 @@ sctp_sosend(struct socket *so,
 		if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) {
 			in6_sin6_2_sin(&sin, sin6);
 			addr_to_use = (struct sockaddr *)&sin;
+		} else {
+			addr_to_use = addr;
 		}
+	} else {
+		addr_to_use = addr;
 	}
+#else
+	addr_to_use = addr;
 #endif
-	error = sctp_lower_sosend(so, addr_to_use, uio, top,
-	    control,
-	    flags,
-	    use_sndinfo ? &sndrcvninfo : NULL
-	    ,p
-	    );
+	error = sctp_lower_sosend(so, addr_to_use, uio, top, control, flags,
+	    use_sndinfo ? &sndrcvninfo : NULL, p);
 	return (error);
 }
 
@@ -12413,38 +12412,37 @@ sctp_lower_sosend(struct socket *so,
     struct mbuf *top,
     struct mbuf *control,
     int flags,
-    struct sctp_sndrcvinfo *srcv
-    ,
-    struct thread *p
-)
+    struct sctp_sndrcvinfo *srcv,
+    struct thread *p)
 {
-	struct sctp_nonpad_sndrcvinfo sndrcvninfo;
+	struct sctp_nonpad_sndrcvinfo sndrcvninfo_buf;
 	struct epoch_tracker et;
-	ssize_t sndlen = 0, max_len, local_add_more;
-	int error;
-	int queue_only = 0, queue_only_for_init = 0;
-	bool free_cnt_applied = false;
-	int un_sent;
-	int now_filled = 0;
-	unsigned int inqueue_bytes = 0;
+	struct timeval now;
 	struct sctp_block_entry be;
 	struct sctp_inpcb *inp;
 	struct sctp_tcb *stcb = NULL;
-	struct timeval now;
 	struct sctp_nets *net;
 	struct sctp_association *asoc;
 	struct sctp_inpcb *t_inp;
-	int user_marks_eor;
-	bool create_lock_applied = false;
-	int nagle_applies = 0;
-	bool some_on_control;
-	bool got_all_of_the_send = false;
-	bool hold_tcblock = false;
-	bool non_blocking = false;
+	struct sctp_nonpad_sndrcvinfo *sndrcvninfo;
+	ssize_t sndlen = 0, max_len, local_add_more;
 	ssize_t local_soresv = 0;
+	sctp_assoc_t sinfo_assoc_id;
+	int user_marks_eor;
+	int nagle_applies = 0;
+	int error;
+	int queue_only = 0, queue_only_for_init = 0;
+	int un_sent;
+	int now_filled = 0;
+	unsigned int inqueue_bytes = 0;
 	uint16_t port;
 	uint16_t sinfo_flags;
-	sctp_assoc_t sinfo_assoc_id;
+	uint16_t sinfo_stream;
+	bool create_lock_applied = false;
+	bool free_cnt_applied = false;
+	bool some_on_control;
+	bool got_all_of_the_send = false;
+	bool non_blocking = false;
 
 	error = 0;
 	net = NULL;
@@ -12518,17 +12516,19 @@ sctp_lower_sosend(struct socket *so,
 	atomic_add_int(&inp->total_sends, 1);
 
 	if (srcv != NULL) {
-		sinfo_flags = srcv->sinfo_flags;
-		sinfo_assoc_id = srcv->sinfo_assoc_id;
+		sndrcvninfo = (struct sctp_nonpad_sndrcvinfo *)srcv;
+		sinfo_assoc_id = sndrcvninfo->sinfo_assoc_id;
+		sinfo_flags = sndrcvninfo->sinfo_flags;
 		if (INVALID_SINFO_FLAG(sinfo_flags) ||
 		    PR_SCTP_INVALID_POLICY(sinfo_flags)) {
 			error = EINVAL;
 			goto out_unlocked;
 		}
-		if (srcv->sinfo_flags != 0) {
+		if (sinfo_flags != 0) {
 			SCTP_STAT_INCR(sctps_sends_with_flags);
 		}
 	} else {
+		sndrcvninfo = NULL;
 		sinfo_flags = inp->def_send.sinfo_flags;
 		sinfo_assoc_id = inp->def_send.sinfo_assoc_id;
 	}
@@ -12546,7 +12546,7 @@ sctp_lower_sosend(struct socket *so,
 	if ((sinfo_flags & SCTP_SENDALL) &&
 	    (inp->sctp_flags & SCTP_PCB_FLAGS_UDPTYPE)) {
 		SCTP_INP_RUNLOCK(inp);
-		error = sctp_sendall(inp, uio, top, srcv);
+		error = sctp_sendall(inp, uio, top, sndrcvninfo);
 		top = NULL;
 		goto out_unlocked;
 	}
@@ -12556,7 +12556,6 @@ sctp_lower_sosend(struct socket *so,
 		stcb = LIST_FIRST(&inp->sctp_asoc_list);
 		if (stcb != NULL) {
 			SCTP_TCB_LOCK(stcb);
-			hold_tcblock = true;
 		}
 		SCTP_INP_RUNLOCK(inp);
 	} else if (sinfo_assoc_id > SCTP_ALL_ASSOC) {
@@ -12564,7 +12563,6 @@ sctp_lower_sosend(struct socket *so,
 		SCTP_INP_RUNLOCK(inp);
 		if (stcb != NULL) {
 			SCTP_TCB_LOCK_ASSERT(stcb);
-			hold_tcblock = true;
 		}
 	} else if (addr != NULL) {
 		/*-
@@ -12581,7 +12579,6 @@ sctp_lower_sosend(struct socket *so,
 			SCTP_INP_WUNLOCK(inp);
 		} else {
 			SCTP_TCB_LOCK_ASSERT(stcb);
-			hold_tcblock = true;
 		}
 	} else {
 		SCTP_INP_RUNLOCK(inp);
@@ -12590,11 +12587,9 @@ sctp_lower_sosend(struct socket *so,
 #ifdef INVARIANTS
 	if (stcb != NULL) {
 		SCTP_TCB_LOCK_ASSERT(stcb);
-		KASSERT(hold_tcblock, ("tcb lock hold, hold_tcblock is false"));
-	} else {
-		KASSERT(!hold_tcblock, ("hold_tcblock is true, but stcb is NULL"));
 	}
 #endif
+
 	if ((stcb == NULL) && (addr != NULL)) {
 		/* Possible implicit send? */
 		SCTP_ASOC_CREATE_LOCK(inp);
@@ -12625,7 +12620,6 @@ sctp_lower_sosend(struct socket *so,
 			SCTP_INP_WUNLOCK(inp);
 		} else {
 			SCTP_TCB_LOCK_ASSERT(stcb);
-			hold_tcblock = true;
 			SCTP_ASOC_CREATE_UNLOCK(inp);
 			create_lock_applied = false;
 		}
@@ -12668,7 +12662,6 @@ sctp_lower_sosend(struct socket *so,
 				goto out_unlocked;
 			}
 			SCTP_TCB_LOCK_ASSERT(stcb);
-			hold_tcblock = true;
 			SCTP_ASOC_CREATE_UNLOCK(inp);
 			create_lock_applied = false;
 			/*
@@ -12682,7 +12675,6 @@ sctp_lower_sosend(struct socket *so,
 				if (sctp_process_cmsgs_for_init(stcb, control, &error)) {
 					sctp_free_assoc(inp, stcb, SCTP_NORMAL_PROC,
 					    SCTP_FROM_SCTP_OUTPUT + SCTP_LOC_6);
-					hold_tcblock = false;
 					stcb = NULL;
 					KASSERT(error != 0,
 					    ("error is 0 although sctp_process_cmsgs_for_init() indicated an error"));
@@ -12702,7 +12694,6 @@ sctp_lower_sosend(struct socket *so,
 
 	KASSERT(!create_lock_applied, ("create_lock_applied is true"));
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 
 	asoc = &stcb->asoc;
@@ -12723,11 +12714,11 @@ sctp_lower_sosend(struct socket *so,
 	/* Keep the stcb from being freed under our feet. */
 	atomic_add_int(&asoc->refcnt, 1);
 	free_cnt_applied = true;
-	if (srcv == NULL) {
+	if (sndrcvninfo == NULL) {
 		/* Use a local copy to have a consistent view. */
-		sndrcvninfo = asoc->def_send;
-		srcv = (struct sctp_sndrcvinfo *)&sndrcvninfo;
-		sinfo_flags = srcv->sinfo_flags;
+		sndrcvninfo_buf = asoc->def_send;
+		sndrcvninfo = &sndrcvninfo_buf;
+		sinfo_flags = sndrcvninfo->sinfo_flags;
 		if (flags & MSG_EOR) {
 			sinfo_flags |= SCTP_EOR;
 		}
@@ -12753,18 +12744,19 @@ sctp_lower_sosend(struct socket *so,
 			net = asoc->primary_destination;
 		}
 	}
+	sinfo_stream = sndrcvninfo->sinfo_stream;
 	/* Is the stream no. valid? */
-	if (srcv->sinfo_stream >= asoc->streamoutcnt) {
+	if (sinfo_stream >= asoc->streamoutcnt) {
 		/* Invalid stream number */
 		error = EINVAL;
 		goto out_unlocked;
 	}
-	if ((asoc->strmout[srcv->sinfo_stream].state != SCTP_STREAM_OPEN) &&
-	    (asoc->strmout[srcv->sinfo_stream].state != SCTP_STREAM_OPENING)) {
+	if ((asoc->strmout[sinfo_stream].state != SCTP_STREAM_OPEN) &&
+	    (asoc->strmout[sinfo_stream].state != SCTP_STREAM_OPENING)) {
 		/*
 		 * Can't queue any data while stream reset is underway.
 		 */
-		if (asoc->strmout[srcv->sinfo_stream].state > SCTP_STREAM_OPEN) {
+		if (asoc->strmout[sinfo_stream].state > SCTP_STREAM_OPEN) {
 			error = EAGAIN;
 		} else {
 			error = EINVAL;
@@ -12805,7 +12797,6 @@ sctp_lower_sosend(struct socket *so,
 	local_soresv = sndlen;
 
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -12861,10 +12852,8 @@ sctp_lower_sosend(struct socket *so,
 		SCTP_BUF_LEN(mm) = (int)(tot_out + sizeof(struct sctp_paramhdr));
 		if (top == NULL) {
 			SCTP_TCB_UNLOCK(stcb);
-			hold_tcblock = false;
 			error = uiomove((caddr_t)ph, (int)tot_out, uio);
 			SCTP_TCB_LOCK(stcb);
-			hold_tcblock = true;
 			if ((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) ||
 			    (asoc->state & SCTP_STATE_WAS_ABORTED)) {
 				sctp_m_freem(mm);
@@ -12913,7 +12902,6 @@ sctp_lower_sosend(struct socket *so,
 	}
 
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -12972,7 +12960,6 @@ sctp_lower_sosend(struct socket *so,
 			be.error = 0;
 			stcb->block_entry = &be;
 			SCTP_TCB_UNLOCK(stcb);
-			hold_tcblock = false;
 			error = sbwait(so, SO_SND);
 			if (error == 0) {
 				if (so->so_error != 0) {
@@ -12984,7 +12971,6 @@ sctp_lower_sosend(struct socket *so,
 			}
 			SOCKBUF_UNLOCK(&so->so_snd);
 			SCTP_TCB_LOCK(stcb);
-			hold_tcblock = true;
 			stcb->block_entry = NULL;
 			if (error != 0) {
 				goto out_unlocked;
@@ -13019,7 +13005,6 @@ sctp_lower_sosend(struct socket *so,
 
 skip_preblock:
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13046,18 +13031,16 @@ skip_preblock:
 		uint32_t sndout;
 
 		if ((asoc->stream_locked) &&
-		    (asoc->stream_locked_on != srcv->sinfo_stream)) {
+		    (asoc->stream_locked_on != sinfo_stream)) {
 			error = EINVAL;
 			goto out;
 		}
-		strm = &asoc->strmout[srcv->sinfo_stream];
+		strm = &asoc->strmout[sinfo_stream];
 		if (strm->last_msg_incomplete == 0) {
 	do_a_copy_in:
 			SCTP_TCB_UNLOCK(stcb);
-			hold_tcblock = false;
-			sp = sctp_copy_it_in(stcb, asoc, srcv, uio, net, max_len, user_marks_eor, &error);
+			sp = sctp_copy_it_in(stcb, asoc, sndrcvninfo, uio, net, max_len, user_marks_eor, &error);
 			SCTP_TCB_LOCK(stcb);
-			hold_tcblock = true;
 			if ((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) ||
 			    (asoc->state & SCTP_STATE_WAS_ABORTED)) {
 				if (asoc->state & SCTP_STATE_WAS_ABORTED) {
@@ -13097,7 +13080,7 @@ skip_preblock:
 				goto out_unlocked;
 			}
 			/* The out streams might be reallocated. */
-			strm = &asoc->strmout[srcv->sinfo_stream];
+			strm = &asoc->strmout[sinfo_stream];
 			if (sp->msg_is_complete) {
 				strm->last_msg_incomplete = 0;
 				asoc->stream_locked = 0;
@@ -13109,7 +13092,7 @@ skip_preblock:
 				strm->last_msg_incomplete = 1;
 				if (asoc->idata_supported == 0) {
 					asoc->stream_locked = 1;
-					asoc->stream_locked_on = srcv->sinfo_stream;
+					asoc->stream_locked_on = sinfo_stream;
 				}
 				sp->sender_all_done = 0;
 			}
@@ -13142,7 +13125,6 @@ skip_preblock:
 		}
 
 		KASSERT(stcb != NULL, ("stcb is NULL"));
-		KASSERT(hold_tcblock, ("hold_tcblock is false"));
 		SCTP_TCB_LOCK_ASSERT(stcb);
 		KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 		    ("Association about to be freed"));
@@ -13163,12 +13145,10 @@ skip_preblock:
 			    ((max_len > 0) && (SCTP_SB_LIMIT_SND(so) < SCTP_BASE_SYSCTL(sctp_add_more_threshold))) ||
 			    (uio->uio_resid <= max_len)) {
 				SCTP_TCB_UNLOCK(stcb);
-				hold_tcblock = false;
 				sndout = 0;
 				new_tail = NULL;
 				mm = sctp_copy_resume(uio, (int)max_len, user_marks_eor, &error, &sndout, &new_tail);
 				SCTP_TCB_LOCK(stcb);
-				hold_tcblock = true;
 				if ((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) ||
 				    (asoc->state & SCTP_STATE_WAS_ABORTED)) {
 					/*
@@ -13224,7 +13204,6 @@ skip_preblock:
 			}
 
 			KASSERT(stcb != NULL, ("stcb is NULL"));
-			KASSERT(hold_tcblock, ("hold_tcblock is false"));
 			SCTP_TCB_LOCK_ASSERT(stcb);
 			KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 			    ("Association about to be freed"));
@@ -13241,7 +13220,7 @@ skip_preblock:
 				 * This is ugly but we must assure locking
 				 * order
 				 */
-				sctp_prune_prsctp(stcb, asoc, srcv, (int)sndlen);
+				sctp_prune_prsctp(stcb, asoc, sndrcvninfo, (int)sndlen);
 				inqueue_bytes = asoc->total_output_queue_size - (asoc->chunks_on_out_queue * SCTP_DATA_CHUNK_OVERHEAD(stcb));
 				if (SCTP_SB_LIMIT_SND(so) > inqueue_bytes)
 					max_len = SCTP_SB_LIMIT_SND(so) - inqueue_bytes;
@@ -13354,7 +13333,6 @@ skip_preblock:
 				be.error = 0;
 				stcb->block_entry = &be;
 				SCTP_TCB_UNLOCK(stcb);
-				hold_tcblock = false;
 				error = sbwait(so, SO_SND);
 				if (error == 0) {
 					if (so->so_error != 0)
@@ -13365,7 +13343,6 @@ skip_preblock:
 				}
 				SOCKBUF_UNLOCK(&so->so_snd);
 				SCTP_TCB_LOCK(stcb);
-				hold_tcblock = true;
 				stcb->block_entry = NULL;
 				if ((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) ||
 				    (asoc->state & SCTP_STATE_WAS_ABORTED)) {
@@ -13397,7 +13374,6 @@ skip_preblock:
 		}
 
 		KASSERT(stcb != NULL, ("stcb is NULL"));
-		KASSERT(hold_tcblock, ("hold_tcblock is false"));
 		SCTP_TCB_LOCK_ASSERT(stcb);
 		KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 		    ("Association about to be freed"));
@@ -13405,13 +13381,13 @@ skip_preblock:
 		    ("Association was aborted"));
 
 		/* The out streams might be reallocated. */
-		strm = &asoc->strmout[srcv->sinfo_stream];
+		strm = &asoc->strmout[sinfo_stream];
 		if (sp != NULL) {
 			if (sp->msg_is_complete == 0) {
 				strm->last_msg_incomplete = 1;
 				if (asoc->idata_supported == 0) {
 					asoc->stream_locked = 1;
-					asoc->stream_locked_on = srcv->sinfo_stream;
+					asoc->stream_locked_on = sinfo_stream;
 				}
 			} else {
 				sp->sender_all_done = 1;
@@ -13428,7 +13404,7 @@ skip_preblock:
 			got_all_of_the_send = true;
 		}
 	} else {
-		error = sctp_msg_append(stcb, net, top, srcv);
+		error = sctp_msg_append(stcb, net, top, sndrcvninfo);
 		top = NULL;
 		if ((sinfo_flags & SCTP_EOF) != 0) {
 			got_all_of_the_send = true;
@@ -13440,7 +13416,6 @@ skip_preblock:
 
 dataless_eof:
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13517,7 +13492,6 @@ dataless_eof:
 					sctp_abort_an_association(stcb->sctp_ep, stcb,
 					    op_err, false, SCTP_SO_LOCKED);
 					NET_EPOCH_EXIT(et);
-					hold_tcblock = false;
 					stcb = NULL;
 					error = ECONNABORTED;
 					goto out;
@@ -13531,7 +13505,6 @@ dataless_eof:
 
 skip_out_eof:
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13553,7 +13526,6 @@ skip_out_eof:
 	}
 
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13603,7 +13575,6 @@ skip_out_eof:
 	}
 
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13634,7 +13605,6 @@ skip_out_eof:
 	    asoc->total_output_queue_size, error);
 
 	KASSERT(stcb != NULL, ("stcb is NULL"));
-	KASSERT(hold_tcblock, ("hold_tcblock is false"));
 	SCTP_TCB_LOCK_ASSERT(stcb);
 	KASSERT((asoc->state & SCTP_STATE_ABOUT_TO_BE_FREED) == 0,
 	    ("Association about to be freed"));
@@ -13650,12 +13620,10 @@ out_unlocked:
 		if (local_soresv) {
 			atomic_subtract_int(&asoc->sb_send_resv, (int)sndlen);
 		}
-		if (hold_tcblock) {
-			SCTP_TCB_UNLOCK(stcb);
-		}
 		if (free_cnt_applied) {
 			atomic_subtract_int(&asoc->refcnt, 1);
 		}
+		SCTP_TCB_UNLOCK(stcb);
 	}
 	if (top != NULL) {
 		sctp_m_freem(top);

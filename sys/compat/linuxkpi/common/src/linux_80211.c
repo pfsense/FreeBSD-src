@@ -219,27 +219,27 @@ lkpi_lsta_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN],
 	for (tid = 0; tid < nitems(sta->txq); tid++) {
 		struct lkpi_txq *ltxq;
 
-		/*
-		 * We are neither limiting ourselves to hw.queues here,
-		 * nor do we check if driver wants IEEE80211_NUM_TIDS queue.
-		 */
-
+		/* We are not limiting ourselves to hw.queues here. */
 		ltxq = malloc(sizeof(*ltxq) + hw->txq_data_size,
 		    M_LKPI80211, M_NOWAIT | M_ZERO);
 		if (ltxq == NULL)
 			goto cleanup;
-		ltxq->seen_dequeue = false;
-		skb_queue_head_init(&ltxq->skbq);
 		/* iwlwifi//mvm/sta.c::tid_to_mac80211_ac[] */
 		if (tid == IEEE80211_NUM_TIDS) {
-			IMPROVE();
+			if (!ieee80211_hw_check(hw, STA_MMPDU_TXQ)) {
+				free(ltxq, M_LKPI80211);
+				continue;
+			}
+			IMPROVE("AP/if we support non-STA here too");
 			ltxq->txq.ac = IEEE80211_AC_VO;
 		} else {
 			ltxq->txq.ac = tid_to_mac80211_ac[tid & 7];
 		}
+		ltxq->seen_dequeue = false;
+		ltxq->txq.vif = vif;
 		ltxq->txq.tid = tid;
 		ltxq->txq.sta = sta;
-		ltxq->txq.vif = vif;
+		skb_queue_head_init(&ltxq->skbq);
 		sta->txq[tid] = &ltxq->txq;
 	}
 
@@ -1509,23 +1509,14 @@ lkpi_sta_assoc_to_run(struct ieee80211vap *vap, enum ieee80211_state nstate, int
 	vif = LVIF_TO_VIF(lvif);
 
 	IEEE80211_UNLOCK(vap->iv_ic);
-	ni = NULL;
 
 	IMPROVE("ponder some of this moved to ic_newassoc, scan_assoc_success, "
 	    "and to lesser extend ieee80211_notify_node_join");
 
-	/* Finish assoc. */
-	/* Update sta_state (AUTH to ASSOC) and set aid. */
 	ni = ieee80211_ref_node(vap->iv_bss);
 	lsta = ni->ni_drv_data;
 	KASSERT(lsta != NULL, ("%s: ni %p lsta is NULL\n", __func__, ni));
-	KASSERT(lsta->state == IEEE80211_STA_AUTH, ("%s: lsta %p state not "
-	    "AUTH: %#x\n", __func__, lsta, lsta->state));
 	sta = LSTA_TO_STA(lsta);
-	sta->aid = IEEE80211_NODE_AID(ni);
-	error = lkpi_80211_mo_sta_state(hw, vif, sta, IEEE80211_STA_ASSOC);
-	if (error != 0)
-		goto out;
 
 	IMPROVE("wme / conf_tx [all]");
 
@@ -1558,6 +1549,16 @@ lkpi_sta_assoc_to_run(struct ieee80211vap *vap, enum ieee80211_state nstate, int
 	bss_changed |= lkpi_update_dtim_tsf(vif, ni, vap, __func__, __LINE__);
 
 	lkpi_80211_mo_bss_info_changed(hw, vif, &vif->bss_conf, bss_changed);
+
+	/* This MUST come after the bss_info_changed. */
+	/* Finish assoc. */
+	/* Update sta_state (AUTH to ASSOC) and set aid. */
+	KASSERT(lsta->state == IEEE80211_STA_AUTH, ("%s: lsta %p state not "
+	    "AUTH: %#x\n", __func__, lsta, lsta->state));
+	sta->aid = IEEE80211_NODE_AID(ni);
+	error = lkpi_80211_mo_sta_state(hw, vif, sta, IEEE80211_STA_ASSOC);
+	if (error != 0)
+		goto out;
 
 	/* - change_chanctx (if needed)
 	 * - event_callback
@@ -3043,8 +3044,22 @@ lkpi_80211_txq_tx_one(struct lkpi_sta *lsta, struct mbuf *m)
 
 	if (sta != NULL) {
 		struct lkpi_txq *ltxq;
+		struct ieee80211_hdr *hdr;
 
-		ltxq = TXQ_TO_LTXQ(sta->txq[ac]);	/* XXX-BZ re-check */
+		hdr = (void *)skb->data;
+		if (lsta->added_to_drv &&
+		    !ieee80211_is_data_present(hdr->frame_control)) {
+			if (sta->txq[IEEE80211_NUM_TIDS] != NULL)
+				ltxq = TXQ_TO_LTXQ(sta->txq[IEEE80211_NUM_TIDS]);
+			else
+				goto ops_tx;
+		} else if (lsta->added_to_drv) {
+			ltxq = TXQ_TO_LTXQ(sta->txq[ac]);	/* XXX-BZ re-check */
+		} else
+			goto ops_tx;
+		KASSERT(ltxq != NULL, ("%s: lsta %p sta %p m %p skb %p "
+		    "ltxq %p != NULL\n", __func__, lsta, sta, m, skb, ltxq));
+
 		/*
 		 * We currently do not use queues but do direct TX.
 		 * The exception to the rule is initial packets, as we cannot
@@ -3053,6 +3068,7 @@ lkpi_80211_txq_tx_one(struct lkpi_sta *lsta, struct mbuf *m)
 		 * calls.  In the time until then we queue packets and
 		 * let the driver deal with them.
 		 */
+#if 0
 		if (!ltxq->seen_dequeue) {
 
 			/* Prevent an ordering problem, likely other issues. */
@@ -3070,25 +3086,29 @@ lkpi_80211_txq_tx_one(struct lkpi_sta *lsta, struct mbuf *m)
 		}
 		if (0 && ltxq->seen_dequeue && skb_queue_empty(&ltxq->skbq))
 			goto ops_tx;
+#endif
 
 		skb_queue_tail(&ltxq->skbq, skb);
 #ifdef LINUXKPI_DEBUG_80211
 		if (linuxkpi_debug_80211 & D80211_TRACE_TX)
-			printf("%s:%d lsta %p sta %p ni %p %6D skb %p lxtq %p "
-			    "qlen %u WAKE_TX_Q ac %d prio %u qmap %u\n",
-			    __func__, __LINE__, lsta, sta, ni,
-			    ni->ni_macaddr, ":", skb, ltxq,
-			    skb_queue_len(&ltxq->skbq), ac,
-			    skb->priority, skb->qmap);
+			printf("%s:%d mo_wake_tx_queue :: %d %u lsta %p sta %p "
+			    "ni %p %6D skb %p lxtq %p { qlen %u, ac %d tid %u } "
+			    "WAKE_TX_Q ac %d prio %u qmap %u\n",
+			    __func__, __LINE__,
+			    curthread->td_tid, (unsigned int)ticks,
+			    lsta, sta, ni, ni->ni_macaddr, ":", skb, ltxq,
+			    skb_queue_len(&ltxq->skbq), ltxq->txq.ac,
+			    ltxq->txq.tid, ac, skb->priority, skb->qmap);
 #endif
-		lkpi_80211_mo_wake_tx_queue(hw, sta->txq[ac]);	/* XXX-BZ */
+		lkpi_80211_mo_wake_tx_queue(hw, &ltxq->txq);
 		return;
 	}
 
 ops_tx:
 #ifdef LINUXKPI_DEBUG_80211
 	if (linuxkpi_debug_80211 & D80211_TRACE_TX)
-		printf("%s:%d lsta %p sta %p ni %p %6D skb %p TX ac %d prio %u qmap %u\n",
+		printf("%s:%d mo_tx :: lsta %p sta %p ni %p %6D skb %p "
+		    "TX ac %d prio %u qmap %u\n",
 		    __func__, __LINE__, lsta, sta, ni, ni->ni_macaddr, ":",
 		    skb, ac, skb->priority, skb->qmap);
 #endif

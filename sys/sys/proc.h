@@ -468,7 +468,7 @@ do {									\
 #define	TDF_THRWAKEUP	0x00100000 /* Libthr thread must not suspend itself. */
 #define	TDF_SEINTR	0x00200000 /* EINTR on stop attempts. */
 #define	TDF_SWAPINREQ	0x00400000 /* Swapin request due to wakeup. */
-#define	TDF_UNUSED23	0x00800000 /* --available-- */
+#define	TDF_DOING_SA	0x00800000 /* Doing SINGLE_ALLPROC, do not unsuspend me */
 #define	TDF_SCHED0	0x01000000 /* Reserved for scheduler private use */
 #define	TDF_SCHED1	0x02000000 /* Reserved for scheduler private use */
 #define	TDF_SCHED2	0x04000000 /* Reserved for scheduler private use */
@@ -691,6 +691,8 @@ struct proc {
 	int		p_pendingexits; /* (c) Count of pending thread exits. */
 	struct filemon	*p_filemon;	/* (c) filemon-specific data. */
 	int		p_pdeathsig;	/* (c) Signal from parent on exit. */
+	int		p_singlethr;	/* (c) Count of threads doing
+					   external thread_single() */
 /* End area that is zeroed on creation. */
 #define	p_endzero	p_magic
 
@@ -847,6 +849,9 @@ struct proc {
 #define	P2_NO_NEW_PRIVS		0x00008000	/* Ignore setuid */
 #define	P2_WXORX_DISABLE	0x00010000	/* WX mappings enabled */
 #define	P2_WXORX_ENABLE_EXEC	0x00020000	/* WXORX enabled after exec */
+#define	P2_WEXIT		0x00040000	/* exit just started, no
+						   external thread_single() is
+						   permitted */
 
 /* Flags protected by proctree_lock, kept in p_treeflags. */
 #define	P_TREE_ORPHANED		0x00000001	/* Reparented, on orphan list */
@@ -1155,6 +1160,7 @@ void	proc_linkup(struct proc *p, struct thread *td);
 struct proc *proc_realparent(struct proc *child);
 void	proc_reap(struct thread *td, struct proc *p, int *status, int options);
 void	proc_reparent(struct proc *child, struct proc *newparent, bool set_oppid);
+void	proc_set_p2_wexit(struct proc *p);
 void	proc_set_traced(struct proc *p, bool stop);
 void	proc_wkilled(struct proc *p);
 struct	pstats *pstats_alloc(void);
@@ -1232,7 +1238,7 @@ void	thread_unlink(struct thread *td);
 void	thread_unsuspend(struct proc *p);
 void	thread_wait(struct proc *p);
 
-void	stop_all_proc_block(void);
+bool	stop_all_proc_block(void);
 void	stop_all_proc_unblock(void);
 void	stop_all_proc(void);
 void	resume_all_proc(void);
