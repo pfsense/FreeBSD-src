@@ -791,6 +791,7 @@ dummynet_send(struct mbuf *m)
 
 			break;
 
+		case DIR_IN | PROTO_LAYER2 | PROTO_IPV6:
 		case DIR_IN | PROTO_LAYER2: /* DN_TO_ETH_DEMUX: */
 			/*
 			 * The Ethernet code assumes the Ethernet header is
@@ -806,6 +807,7 @@ dummynet_send(struct mbuf *m)
 			ether_demux(m->m_pkthdr.rcvif, m);
 			break;
 
+		case DIR_OUT | PROTO_LAYER2 | PROTO_IPV6:
 		case DIR_OUT | PROTO_LAYER2: /* DN_TO_ETH_OUT: */
 			ether_output_frame(ifp, m);
 			break;
