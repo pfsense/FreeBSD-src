@@ -158,6 +158,7 @@ SUBDIR=	\
 	${_if_me} \
 	if_infiniband \
 	if_lagg \
+	if_ovpn \
 	${_if_stf} \
 	if_tuntap \
 	if_vlan \
@@ -410,7 +411,7 @@ SUBDIR=	\
 _autofs=	autofs
 .endif
 
-.if ${MK_CDDL} != "no" || defined(ALL_MODULES)
+.if ${MK_DTRACE} != "no" || defined(ALL_MODULES)
 .if ${MACHINE_CPUARCH} != "arm" || ${MACHINE_ARCH:Marmv[67]*} != ""
 .if ${KERN_OPTS:MKDTRACE_HOOKS}
 SUBDIR+=	dtrace

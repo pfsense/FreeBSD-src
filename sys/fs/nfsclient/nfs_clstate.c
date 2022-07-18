@@ -543,7 +543,7 @@ nfscl_getstateid(vnode_t vp, u_int8_t *nfhp, int fhlen, u_int32_t mode,
 		stateidp->other[1] = 0;
 		stateidp->other[2] = 0;
 	}
-	if (vnode_vtype(vp) != VREG)
+	if (vp->v_type != VREG)
 		return (EISDIR);
 	np = VTONFS(vp);
 	nmp = VFSTONFS(vp->v_mount);
@@ -2093,10 +2093,10 @@ nfscl_umount(struct nfsmount *nmp, NFSPROC_T *p, struct nfscldeleghead *dhp)
 		nfscl_delegreturnall(clp, p, dhp);
 		cred = newnfs_getcred();
 		if (NFSHASNFSV4N(nmp)) {
-			(void)nfsrpc_destroysession(nmp, clp, cred, p);
-			(void)nfsrpc_destroyclient(nmp, clp, cred, p);
+			nfsrpc_destroysession(nmp, NULL, cred, p);
+			nfsrpc_destroyclient(nmp, clp, cred, p);
 		} else
-			(void)nfsrpc_setclient(nmp, clp, 0, NULL, cred, p);
+			nfsrpc_setclient(nmp, clp, 0, NULL, cred, p);
 		nfscl_cleanclient(clp);
 		nmp->nm_clp = NULL;
 		NFSFREECRED(cred);

@@ -205,7 +205,7 @@ ithread_update(struct intr_thread *ithd)
 	sched_clear_tdname(td);
 #endif
 	thread_lock(td);
-	sched_prio(td, pri);
+	sched_ithread_prio(td, pri);
 	thread_unlock(td);
 }
 
@@ -589,7 +589,7 @@ ithread_destroy(struct intr_thread *ithread)
 	ithread->it_flags |= IT_DEAD;
 	if (TD_AWAITING_INTR(td)) {
 		TD_CLR_IWAIT(td);
-		sched_add(td, SRQ_INTR);
+		sched_wakeup(td, SRQ_INTR);
 	} else
 		thread_unlock(td);
 }
@@ -1020,7 +1020,7 @@ intr_event_schedule_thread(struct intr_event *ie, struct trapframe *frame)
 		CTR3(KTR_INTR, "%s: schedule pid %d (%s)", __func__, td->td_proc->p_pid,
 		    td->td_name);
 		TD_CLR_IWAIT(td);
-		sched_add(td, SRQ_INTR);
+		sched_wakeup(td, SRQ_INTR);
 	} else {
 #ifdef HWPMC_HOOKS
 		it->it_waiting++;
@@ -1491,20 +1491,8 @@ db_dump_intrhand(struct intr_handler *ih)
 	case PI_REALTIME:
 		db_printf("CLK ");
 		break;
-	case PI_AV:
-		db_printf("AV  ");
-		break;
-	case PI_TTY:
-		db_printf("TTY ");
-		break;
-	case PI_NET:
-		db_printf("NET ");
-		break;
-	case PI_DISK:
-		db_printf("DISK");
-		break;
-	case PI_DULL:
-		db_printf("DULL");
+	case PI_INTR:
+		db_printf("INTR");
 		break;
 	default:
 		if (ih->ih_pri >= PI_SOFT)
