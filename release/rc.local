@@ -191,8 +191,31 @@ case "$IMODE" in
 	fi
 
 	trap true SIGINT	# Ignore cntrl-C here
+	ZFSBOOT_BEROOT_NAME=ROOT
+	ZFSBOOT_BOOTFS_NAME=default
 	env \
+		DISTRIBUTIONS="base.txz" \
+		NETCONFIG_DONE=yes \
 		OSNAME=pfSense \
+		ZFSBOOT_DATASETS="
+/$ZFSBOOT_BEROOT_NAME	mountpoint=none
+/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/
+/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/cf	mountpoint=/cf,setuid=off,exec=off
+
+# /tmp, allow exec but not setuid
+/tmp		mountpoint=/tmp,exec=on,setuid=off
+/home		mountpoint=/home
+# Create /var and friends
+/var		mountpoint=/var
+/var/cache	mountpoint=/var/cache,setuid=off,exec=off,compression=off
+/var/db		mountpoint=/var/db,setuid=off,exec=off
+/var/empty	mountpoint=/var/empty
+/var/log	mountpoint=/var/log,setuid=off,exec=off
+/var/tmp	mountpoint=/var/tmp,setuid=off
+
+# Needs to be below var/db so it does not get covered up when the var/db dataset is created
+/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg	mountpoint=/var/db/pkg,setuid=off,exec=off
+" \
 		ZFSBOOT_POOL_NAME=pfSense \
 		ZFSBOOT_SWAP_SIZE=1g \
 		bsdinstall
