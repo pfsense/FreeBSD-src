@@ -162,7 +162,7 @@ if [ ! -f /tmp/buildroom ]; then
 	bsddialog --backtitle "pfSense Installer" \
 		--title "Copyright and distribution notice" \
 		--ok-label "Accept" \
-		--scrollbar --colors \
+		--colors \
 		--msgbox "${msg}" 0 0 2>&1 1>&3
 	exec 3>&-
 fi
