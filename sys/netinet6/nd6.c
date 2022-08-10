@@ -276,8 +276,9 @@ nd6_ifattach(struct ifnet *ifp)
 	nd->flags = ND6_IFF_PERFORMNUD;
 
 	/* Set IPv6 disabled on all interfaces but loopback by default. */
+	/* Netgate: retain the stable/12 default behaviour of having IPv6 be enabled on interfaces.
 	if ((ifp->if_flags & IFF_LOOPBACK) == 0)
-		nd->flags |= ND6_IFF_IFDISABLED;
+		nd->flags |= ND6_IFF_IFDISABLED;*/
 
 	/* A loopback interface always has ND6_IFF_AUTO_LINKLOCAL.
 	 * XXXHRS: Clear ND6_IFF_AUTO_LINKLOCAL on an IFT_BRIDGE interface by
