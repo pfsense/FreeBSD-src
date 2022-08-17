@@ -24,13 +24,15 @@ CFLAGS.${i}+=	-DNDEBUG
 SRCS+=		${i}
 .endfor
 
+
 # local GELI Implementation
 .PATH: ${SYSDIR}/geom/eli
-SRCS+=		\
-		geliboot.c \
+.for i in gelidev.c geli_metadata.c
+CFLAGS.${i}+= -I${LDRSRC}
+SRCS+=		${i}
+.endfor
+SRCS+=		geliboot.c \
 		geliboot_crypto.c \
-		gelidev.c \
-		geli_metadata.c \
 		g_eli_hmac.c \
 		g_eli_key.c \
 		g_eli_key_cache.c \

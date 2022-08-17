@@ -1393,7 +1393,6 @@ vn_io_fault1(struct vnode *vp, struct uio *uio, struct vn_io_fault_args *args,
 			error = EFAULT;
 			break;
 		}
-		cnt = atop(end - trunc_page(addr));
 		/*
 		 * A perfectly misaligned address and length could cause
 		 * both the start and the end of the chunk to use partial
@@ -3607,11 +3606,13 @@ vn_fspacectl(struct file *fp, int cmd, off_t *offset, off_t *length, int flags,
 	struct vnode *vp;
 	int ioflag;
 
+	KASSERT(cmd == SPACECTL_DEALLOC, ("vn_fspacectl: Invalid cmd"));
+	KASSERT((flags & ~SPACECTL_F_SUPPORTED) == 0,
+	    ("vn_fspacectl: non-zero flags"));
+	KASSERT(*offset >= 0 && *length > 0 && *length <= OFF_MAX - *offset,
+	    ("vn_fspacectl: offset/length overflow or underflow"));
 	vp = fp->f_vnode;
 
-	if (cmd != SPACECTL_DEALLOC || *offset < 0 || *length <= 0 ||
-	    *length > OFF_MAX - *offset || flags != 0)
-		return (EINVAL);
 	if (vp->v_type != VREG)
 		return (ENODEV);
 

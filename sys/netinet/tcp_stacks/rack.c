@@ -12610,14 +12610,11 @@ rack_init(struct tcpcb *tp)
 		rsm->r_rtr_bytes = 0;
 		if (tp->t_flags & TF_SENTFIN)
 			rsm->r_flags |= RACK_HAS_FIN;
-		rsm->r_end = tp->snd_max;
-		if (tp->snd_una == tp->iss) {
-			/* The data space is one beyond snd_una */
+		if ((tp->snd_una == tp->iss) &&
+		    !TCPS_HAVEESTABLISHED(tp->t_state))
 			rsm->r_flags |= RACK_HAS_SYN;
-			rsm->r_start = tp->iss;
-			rsm->r_end = rsm->r_start + (tp->snd_max - tp->snd_una);
-		} else
-			rsm->r_start = tp->snd_una;
+		rsm->r_start = tp->snd_una;
+		rsm->r_end = tp->snd_max;
 		rsm->r_dupack = 0;
 		if (rack->rc_inp->inp_socket->so_snd.sb_mb != NULL) {
 			rsm->m = sbsndmbuf(&rack->rc_inp->inp_socket->so_snd, 0, &rsm->soff);
@@ -16148,7 +16145,9 @@ rack_fast_output(struct tcpcb *tp, struct tcp_rack *rack, uint64_t ts_val,
 	struct tcpopt to;
 	u_char opt[TCP_MAXOLEN];
 	uint32_t hdrlen, optlen;
+#ifdef TCP_ACCOUNTING
 	int cnt_thru = 1;
+#endif
 	int32_t slot, segsiz, len, max_val, tso = 0, sb_offset, error, ulen = 0;
 	uint16_t flags;
 	uint32_t s_soff;
@@ -16506,7 +16505,9 @@ again:
 		max_val -= len;
 		len = segsiz;
 		th = rack->r_ctl.fsb.th;
+#ifdef TCP_ACCOUNTING
 		cnt_thru++;
+#endif
 		goto again;
 	}
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
@@ -17405,7 +17406,7 @@ again:
 	    ipoptlen == 0)
 		tso = 1;
 	{
-		uint32_t outstanding;
+		uint32_t outstanding __unused;
 
 		outstanding = tp->snd_max - tp->snd_una;
 		if (tp->t_flags & TF_SENTFIN) {

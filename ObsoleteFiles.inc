@@ -52,17 +52,52 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20220813: minigzip(1) removed in favor of gzip(1)
+OLD_FILES+=usr/bin/minigzip
+OLD_FILES+=usr/share/man/man1/minigzip.1.gz
+
+# 20220811: new iconv encoder trait added
+OLD_LIBS+=usr/lib/i18n/libBIG5.so.4
+OLD_LIBS+=usr/lib/i18n/libDECHanyu.so.4
+OLD_LIBS+=usr/lib/i18n/libEUC.so.4
+OLD_LIBS+=usr/lib/i18n/libEUCTW.so.4
+OLD_LIBS+=usr/lib/i18n/libGBK2K.so.4
+OLD_LIBS+=usr/lib/i18n/libHZ.so.4
+OLD_LIBS+=usr/lib/i18n/libISO2022.so.4
+OLD_LIBS+=usr/lib/i18n/libJOHAB.so.4
+OLD_LIBS+=usr/lib/i18n/libMSKanji.so.4
+OLD_LIBS+=usr/lib/i18n/libUES.so.4
+OLD_LIBS+=usr/lib/i18n/libUTF1632.so.4
+OLD_LIBS+=usr/lib/i18n/libUTF7.so.4
+OLD_LIBS+=usr/lib/i18n/libUTF8.so.4
+OLD_LIBS+=usr/lib/i18n/libVIQR.so.4
+OLD_LIBS+=usr/lib/i18n/libZW.so.4
+OLD_LIBS+=usr/lib/i18n/libiconv_none.so.4
+OLD_LIBS+=usr/lib/i18n/libiconv_std.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_646.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_none.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_parallel.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_serial.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_std.so.4
+OLD_LIBS+=usr/lib/i18n/libmapper_zone.so.4
+
+# 202208XX: raw socket layer removed
+OLD_FILES+=usr/include/net/raw_cb.h
+
+# 20220721: libnv version bumps
+OLD_LIBS+=lib/libnv.so.0
+
 # 20220624: unix_passfd_test -> unix_passfd_stream/unix_passfd_dgram
 OLD_FILES+=usr/tests/sys/kern/unix_passfd_test
 
 # 20220621: ISA sound card drivers removed
-OLD_FILES+=usr/share/man/man4/snd_ad1816.4
-OLD_FILES+=usr/share/man/man4/snd_ess.4
-OLD_FILES+=usr/share/man/man4/snd_gusc.4
-OLD_FILES+=usr/share/man/man4/snd_mss.4
-OLD_FILES+=usr/share/man/man4/snd_sb16.4
-OLD_FILES+=usr/share/man/man4/snd_sb8.4
-OLD_FILES+=usr/share/man/man4/snd_sbc.4
+OLD_FILES+=usr/share/man/man4/snd_ad1816.4.gz
+OLD_FILES+=usr/share/man/man4/snd_ess.4.gz
+OLD_FILES+=usr/share/man/man4/snd_gusc.4.gz
+OLD_FILES+=usr/share/man/man4/snd_mss.4.gz
+OLD_FILES+=usr/share/man/man4/snd_sb16.4.gz
+OLD_FILES+=usr/share/man/man4/snd_sb8.4.gz
+OLD_FILES+=usr/share/man/man4/snd_sbc.4.gz
 
 # 20220612: new clang import which bumps version from 14.0.4 to 14.0.5
 OLD_FILES+=usr/lib/clang/14.0.4/include/cuda_wrappers/algorithm
@@ -13575,8 +13610,6 @@ OLD_FILES+=etc/rc.firewall6
 OLD_FILES+=usr/share/examples/etc/rc.firewall6
 # 20091117: removal of rc.early(8) link
 OLD_FILES+=usr/share/man/man8/rc.early.8.gz
-# 20091117: usr/share/zoneinfo/GMT link removed
-OLD_FILES+=usr/share/zoneinfo/GMT
 # 20091027: pselect.3 implemented as syscall
 OLD_FILES+=usr/share/man/man3/pselect.3.gz
 # 20091005: fusword.9 and susword.9 removed
