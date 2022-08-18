@@ -205,6 +205,7 @@ case "$IMODE" in
 		DISTRIBUTIONS="base.txz" \
 		NETCONFIG_DONE=yes \
 		OSNAME=pfSense \
+		ROOTPASS_PLAIN=pfsense \
 		ZFSBOOT_DATASETS="
 /$ZFSBOOT_BEROOT_NAME	mountpoint=none
 /$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME	mountpoint=/
