@@ -194,3 +194,5 @@ options 	RATELIMIT		# TX rate limiting support
 
 # Enable virtio_console
 device		virtio_console	# VirtIO Console device
+
+options 	RSS

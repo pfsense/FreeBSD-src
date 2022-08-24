@@ -181,3 +181,5 @@ options 	MROUTING
 
 # Enable virtio_console
 device		virtio_console	# VirtIO Console device
+
+options 	RSS
