@@ -465,7 +465,7 @@ flush(int fd, struct bufarea *bp)
 			struct ufs2_dinode *dp = bp->b_un.b_dinode2;
 			int i;
 
-			for (i = 0; i < INOPB(&sblock); dp++, i++) {
+			for (i = 0; i < bp->b_size; dp++, i += sizeof(*dp)) {
 				if (ffs_verify_dinode_ckhash(&sblock, dp) == 0)
 					continue;
 				pwarn("flush: INODE CHECK-HASH FAILED");
@@ -682,14 +682,17 @@ ckfini(int markclean)
 	if (debug)
 		printf("Flush the superblock\n");
 	flush(fswritefd, &sblk);
-	if (havesb && cursnapshot == 0 && sblock.fs_magic == FS_UFS2_MAGIC &&
-	    sblk.b_bno != sblock.fs_sblockloc / dev_bsize &&
-	    !preen && reply("UPDATE STANDARD SUPERBLOCK")) {
-		/* Change the write destination to standard superblock */
-		sblock.fs_sblockactualloc = sblock.fs_sblockloc;
-		sblk.b_bno = sblock.fs_sblockloc / dev_bsize;
-		sbdirty();
-		flush(fswritefd, &sblk);
+	if (havesb && cursnapshot == 0 &&
+	    sblk.b_bno != sblock.fs_sblockloc / dev_bsize) {
+		if (preen || reply("UPDATE STANDARD SUPERBLOCK")) {
+			/* Change write destination to standard superblock */
+			sblock.fs_sblockactualloc = sblock.fs_sblockloc;
+			sblk.b_bno = sblock.fs_sblockloc / dev_bsize;
+			sbdirty();
+			flush(fswritefd, &sblk);
+		} else {
+			markclean = 0;
+		}
 	}
 	if (cursnapshot == 0 && sblock.fs_clean != markclean) {
 		if ((sblock.fs_clean = markclean) != 0) {
@@ -946,12 +949,22 @@ blzero(int fd, ufs2_daddr_t blk, long size)
  * Verify cylinder group's magic number and other parameters.  If the
  * test fails, offer an option to rebuild the whole cylinder group.
  */
+#undef CHK
+#define CHK(lhs, op, rhs, fmt)						\
+	if (lhs op rhs) {						\
+		pwarn("UFS%d cylinder group %d failed: "		\
+		    "%s (" #fmt ") %s %s (" #fmt ")\n",			\
+		    sblock.fs_magic == FS_UFS1_MAGIC ? 1 : 2, cg,	\
+		    #lhs, (intmax_t)lhs, #op, #rhs, (intmax_t)rhs);	\
+		error = 1;						\
+	}
 int
 check_cgmagic(int cg, struct bufarea *cgbp, int request_rebuild)
 {
 	struct cg *cgp = cgbp->b_un.b_cg;
 	uint32_t cghash, calchash;
 	static int prevfailcg = -1;
+	int error;
 
 	/*
 	 * Extended cylinder group checks.
@@ -964,19 +977,20 @@ check_cgmagic(int cg, struct bufarea *cgbp, int request_rebuild)
 		calchash = calculate_crc32c(~0L, (void *)cgp, sblock.fs_cgsize);
 		cgp->cg_ckhash = cghash;
 	}
-	if (cgp->cg_ckhash == calchash &&
-	    cg_chkmagic(cgp) &&
-	    cgp->cg_cgx == cg &&
-	    ((sblock.fs_magic == FS_UFS1_MAGIC &&
-	      cgp->cg_old_niblk == sblock.fs_ipg &&
-	      cgp->cg_ndblk <= sblock.fs_fpg &&
-	      cgp->cg_old_ncyl <= sblock.fs_old_cpg) ||
-	     (sblock.fs_magic == FS_UFS2_MAGIC &&
-	      cgp->cg_niblk == sblock.fs_ipg &&
-	      cgp->cg_ndblk <= sblock.fs_fpg &&
-	      cgp->cg_initediblk <= sblock.fs_ipg))) {
-		return (1);
+	error = 0;
+	CHK(cgp->cg_ckhash, !=, calchash, "%jd");
+	CHK(cg_chkmagic(cgp), ==, 0, "%jd");
+	CHK(cgp->cg_cgx, !=, cg, "%jd");
+	CHK(cgp->cg_ndblk, >, sblock.fs_fpg, "%jd");
+	if (sblock.fs_magic == FS_UFS1_MAGIC) {
+		CHK(cgp->cg_old_niblk, !=, sblock.fs_ipg, "%jd");
+		CHK(cgp->cg_old_ncyl, >, sblock.fs_old_cpg, "%jd");
+	} else if (sblock.fs_magic == FS_UFS2_MAGIC) {
+		CHK(cgp->cg_niblk, !=, sblock.fs_ipg, "%jd");
+		CHK(cgp->cg_initediblk, >, sblock.fs_ipg, "%jd");
 	}
+	if (error == 0)
+		return (1);
 	if (prevfailcg == cg)
 		return (0);
 	prevfailcg = cg;
@@ -1027,6 +1041,7 @@ check_cgmagic(int cg, struct bufarea *cgbp, int request_rebuild)
 		cgp->cg_nextfreeoff = cgp->cg_clusteroff +
 		    howmany(fragstoblks(&sblock, sblock.fs_fpg), CHAR_BIT);
 	}
+	cgp->cg_ckhash = calculate_crc32c(~0L, (void *)cgp, sblock.fs_cgsize);
 	cgdirty(cgbp);
 	return (0);
 }

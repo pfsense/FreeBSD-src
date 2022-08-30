@@ -935,7 +935,7 @@ update_rtm_from_rc(struct rt_addrinfo *info, struct rt_msghdr **prtm,
 
 #ifdef ROUTE_MPATH
 static void
-save_del_notification(struct rib_cmd_info *rc, void *_cbdata)
+save_del_notification(const struct rib_cmd_info *rc, void *_cbdata)
 {
 	struct rib_cmd_info *rc_new = (struct rib_cmd_info *)_cbdata;
 
@@ -944,7 +944,7 @@ save_del_notification(struct rib_cmd_info *rc, void *_cbdata)
 }
 
 static void
-save_add_notification(struct rib_cmd_info *rc, void *_cbdata)
+save_add_notification(const struct rib_cmd_info *rc, void *_cbdata)
 {
 	struct rib_cmd_info *rc_new = (struct rib_cmd_info *)_cbdata;
 
@@ -2648,29 +2648,22 @@ static SYSCTL_NODE(_net, PF_ROUTE, routetable, CTLFLAG_RD | CTLFLAG_MPSAFE,
 
 static struct domain routedomain;		/* or at least forward */
 
-static struct pr_usrreqs route_usrreqs = {
-	.pru_abort =		rts_close,
-	.pru_attach =		rts_attach,
-	.pru_detach =		rts_detach,
-	.pru_send =		rts_send,
-	.pru_shutdown =		rts_shutdown,
-	.pru_close =		rts_close,
-};
-
-static struct protosw routesw[] = {
-{
+static struct protosw routesw = {
 	.pr_type =		SOCK_RAW,
-	.pr_domain =		&routedomain,
 	.pr_flags =		PR_ATOMIC|PR_ADDR,
-	.pr_usrreqs =		&route_usrreqs
-}
+	.pr_abort =		rts_close,
+	.pr_attach =		rts_attach,
+	.pr_detach =		rts_detach,
+	.pr_send =		rts_send,
+	.pr_shutdown =		rts_shutdown,
+	.pr_close =		rts_close,
 };
 
 static struct domain routedomain = {
 	.dom_family =		PF_ROUTE,
 	.dom_name =		"route",
-	.dom_protosw =		routesw,
-	.dom_protoswNPROTOSW =	&routesw[nitems(routesw)]
+	.dom_nprotosw =		1,
+	.dom_protosw =		{ &routesw },
 };
 
 DOMAIN_SET(route);
