@@ -249,8 +249,8 @@ struct tcpcb {
 	int	t_dupacks;		/* consecutive dup acks recd */
 	int	t_lognum;		/* Number of log entries */
 	int	t_loglimit;		/* Maximum number of log entries */
-	uint32_t r_cep;			/* Number of received CE marked packets */
-	uint32_t s_cep;			/* Synced number of delivered CE packets */
+	uint32_t t_rcep;			/* Number of received CE marked packets */
+	uint32_t t_scep;			/* Synced number of delivered CE packets */
 	int64_t	t_pacing_rate;		/* bytes / sec, -1 => unlimited */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
 	struct tcp_log_id_node *t_lin;
@@ -515,7 +515,7 @@ tcp_unlock_or_drop(struct tcpcb *tp, int tcp_output_retval)
 #define	TF_WAKESOR	0x00004000	/* wake up receive socket */
 #define	TF_GPUTINPROG	0x00008000	/* Goodput measurement in progress */
 #define	TF_MORETOCOME	0x00010000	/* More data to be appended to sock */
-#define	TF_LQ_OVERFLOW	0x00020000	/* listen queue overflow */
+#define	TF_INCQUEUE	0x00020000	/* on incomplete queue of listener */
 #define	TF_LASTIDLE	0x00040000	/* connection was previously idle */
 #define	TF_RXWIN0SENT	0x00080000	/* sent a receiver win 0 in response */
 #define	TF_FASTRECOVERY	0x00100000	/* in NewReno Fast Recovery */

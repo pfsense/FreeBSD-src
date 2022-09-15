@@ -74,6 +74,12 @@ __FBSDID("$FreeBSD$");
 #define	NAMEI_DIAGNOSTIC 1
 #undef NAMEI_DIAGNOSTIC
 
+#ifdef INVARIANTS
+static void NDVALIDATE(struct nameidata *);
+#else
+#define NDVALIDATE(ndp) do { } while (0)
+#endif
+
 SDT_PROVIDER_DEFINE(vfs);
 SDT_PROBE_DEFINE4(vfs, namei, lookup, entry, "struct vnode *", "char *",
     "unsigned long", "bool");
@@ -683,16 +689,15 @@ namei(struct nameidata *ndp)
 		 */
 		if ((cnp->cn_flags & ISSYMLINK) == 0) {
 			SDT_PROBE4(vfs, namei, lookup, return, error,
-			    (error == 0 ? ndp->ni_vp : NULL), false, ndp);
+			    ndp->ni_vp, false, ndp);
 			if ((cnp->cn_flags & (SAVENAME | SAVESTART)) == 0) {
 				namei_cleanup_cnp(cnp);
 			} else
 				cnp->cn_flags |= HASBUF;
 			nameicap_cleanup(ndp);
 			pwd_drop(pwd);
-			if (error == 0)
-				NDVALIDATE(ndp);
-			return (error);
+			NDVALIDATE(ndp);
+			return (0);
 		}
 		error = namei_follow_link(ndp);
 		if (error != 0)
@@ -1643,7 +1648,7 @@ void
  * stricter over time.
  */
 #define NDMODIFYINGFLAGS (LOCKLEAF | LOCKPARENT | WANTPARENT | SAVENAME | SAVESTART | HASBUF)
-void
+static void
 NDVALIDATE(struct nameidata *ndp)
 {
 	struct componentname *cnp;

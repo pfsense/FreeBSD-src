@@ -29,7 +29,7 @@
 #define _NETINET_TCP_RACK_H_
 
 #define RACK_ACKED	    0x000001/* The remote endpoint acked this */
-#define RACK_TO_REXT	    0x000002/* A timeout occured on this sendmap entry */
+#define RACK_TO_REXT	    0x000002/* A timeout occurred on this sendmap entry */
 #define RACK_DEFERRED	    0x000004/* We can't use this for RTT calc - not used */
 #define RACK_OVERMAX	    0x000008/* We have more retran's then we can fit */
 #define RACK_SACK_PASSED    0x000010/* A sack was done above this block */
@@ -490,7 +490,7 @@ struct rack_control {
 	uint32_t retran_during_recovery;
 	uint32_t rc_gp_lowrtt;			/* Lowest rtt seen during GPUT measurement */
 	uint32_t rc_gp_high_rwnd;		/* Highest rwnd seen during GPUT measurement */
-	uint32_t rc_snd_max_at_rto;	/* For non-sack when the RTO occured what was snd-max */
+	uint32_t rc_snd_max_at_rto;	/* For non-sack when the RTO occurred what was snd-max */
 	uint32_t rc_out_at_rto;
 	int32_t rc_scw_index;
 	uint32_t rc_tlp_threshold;	/* Socket option value Lock(a) */
@@ -549,7 +549,7 @@ struct tcp_rack {
 	struct inpcb *rc_inp;	/* The inpcb Lock(a) */
 	uint8_t rc_free_cnt;	/* Number of free entries on the rc_free list
 				 * Lock(a) */
-	uint8_t client_bufferlvl : 4, /* Expected range [0,5]: 0=unset, 1=low/empty */
+	uint8_t client_bufferlvl : 3, /* Expected range [0,5]: 0=unset, 1=low/empty */
 		rack_deferred_inited : 1,
 	        /* ******************************************************************** */
 	        /* Note for details of next two fields see rack_init_retransmit_rate()  */
@@ -557,6 +557,7 @@ struct tcp_rack {
 		full_size_rxt: 1,
 		shape_rxt_to_pacing_min : 1,
 	        /* ******************************************************************** */
+		rc_ack_required: 1,
 		spare : 1;
 	uint8_t no_prr_addback : 1,
 		gp_ready : 1,

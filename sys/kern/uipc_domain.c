@@ -290,7 +290,7 @@ pffinddomain(int family)
 }
 
 struct protosw *
-pffindtype(int family, int type)
+pffindproto(int family, int type, int proto)
 {
 	struct domain *dp;
 	struct protosw *pr;
@@ -300,36 +300,12 @@ pffindtype(int family, int type)
 		return (NULL);
 
 	for (int i = 0; i < dp->dom_nprotosw; i++)
-		if ((pr = dp->dom_protosw[i]) != NULL && pr->pr_type == type)
+		if ((pr = dp->dom_protosw[i]) != NULL && pr->pr_type == type &&
+		    (pr->pr_protocol == 0 || proto == 0 ||
+		     pr->pr_protocol == proto))
 			return (pr);
 
 	return (NULL);
-}
-
-struct protosw *
-pffindproto(int family, int protocol, int type)
-{
-	struct domain *dp;
-	struct protosw *pr;
-	struct protosw *maybe;
-
-	dp = pffinddomain(family);
-	if (dp == NULL)
-		return (NULL);
-
-	maybe = NULL;
-	for (int i = 0; i < dp->dom_nprotosw; i++) {
-		if ((pr = dp->dom_protosw[i]) == NULL)
-			continue;
-		if ((pr->pr_protocol == protocol) && (pr->pr_type == type))
-			return (pr);
-
-		/* XXX: raw catches all. Why? */
-		if (type == SOCK_RAW && pr->pr_type == SOCK_RAW &&
-		    pr->pr_protocol == 0 && maybe == NULL)
-			maybe = pr;
-	}
-	return (maybe);
 }
 
 /*

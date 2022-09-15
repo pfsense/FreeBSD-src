@@ -300,7 +300,8 @@ cpu_pcpu_init(struct pcpu *pcpu, int cpuid, size_t size)
 {
 
 	pcpu->pc_acpi_id = 0xffffffff;
-	pcpu->pc_mpidr = 0xffffffff;
+	pcpu->pc_mpidr_low = 0xffffffff;
+	pcpu->pc_mpidr_high = 0xffffffff;
 }
 
 void
@@ -819,7 +820,7 @@ initarm(struct arm64_bootparams *abp)
 	/* Bootstrap enough of pmap  to enter the kernel proper */
 	pmap_bootstrap(abp->kern_l0pt, abp->kern_l1pt,
 	    KERNBASE - abp->kern_delta, lastaddr - KERNBASE);
-	/* Exclude entries neexed in teh DMAP region, but not phys_avail */
+	/* Exclude entries needed in the DMAP region, but not phys_avail */
 	if (efihdr != NULL)
 		exclude_efi_map_entries(efihdr);
 	physmem_init_kernel_globals();

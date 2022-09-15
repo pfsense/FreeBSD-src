@@ -6685,6 +6685,7 @@ rack_timeout_rxt(struct tcpcb *tp, struct tcp_rack *rack, uint32_t cts)
 	}
 	rack->r_ctl.rc_hpts_flags &= ~PACE_TMR_RXT;
 	rack->r_ctl.retran_during_recovery = 0;
+	rack->rc_ack_required = 1;
 	rack->r_ctl.dsack_byte_cnt = 0;
 	if (IN_FASTRECOVERY(tp->t_flags))
 		tp->t_flags |= TF_WASFRECOVERY;
@@ -14068,6 +14069,11 @@ rack_do_segment_nounlock(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	rack = (struct tcp_rack *)tp->t_fb_ptr;
 	if (m->m_flags & M_ACKCMP) {
+		/*
+		 * All compressed ack's are ack's by definition so
+		 * remove any ack required flag and then do the processing.
+		 */
+		rack->rc_ack_required = 0;
 		return (rack_do_compressed_ack_processing(tp, so, m, nxt_pkt, tv));
 	}
 	if (m->m_flags & M_ACKCMP) {
@@ -14238,6 +14244,9 @@ rack_do_segment_nounlock(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		TCP_LOG_EVENTP(tp, th, &so->so_rcv, &so->so_snd, TCP_LOG_IN, 0,
 		    tlen, &log, true, &ltv);
 	}
+	/* Remove ack required flag if set, we have one  */
+	if (thflags & TH_ACK)
+		rack->rc_ack_required = 0;
 	if ((thflags & TH_SYN) && (thflags & TH_FIN) && V_drop_synfin) {
 		way_out = 4;
 		retval = 0;
@@ -15883,7 +15892,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 	}
 	m->m_pkthdr.rcvif = (struct ifnet *)0;
 	if (TCPS_HAVERCVDSYN(tp->t_state) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
+	    (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT))) {
 		int ect = tcp_ecn_output_established(tp, &flags, len, true);
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
@@ -16100,7 +16109,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 		/*
 		 * We have no pacing set or we
 		 * are using old-style rack or
-		 * we are overriden to use the old 1ms pacing.
+		 * we are overridden to use the old 1ms pacing.
 		 */
 		slot = rack->r_ctl.rc_min_to;
 	}
@@ -16362,7 +16371,7 @@ again:
 	}
 	m->m_pkthdr.rcvif = (struct ifnet *)0;
 	if (TCPS_HAVERCVDSYN(tp->t_state) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
+	    (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT))) {
 		int ect = tcp_ecn_output_established(tp, &flags, len, false);
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
@@ -16792,6 +16801,18 @@ rack_output(struct tcpcb *tp)
 		}
 	}
 	if (rack->rc_in_persist) {
+		if (tcp_in_hpts(rack->rc_inp) == 0) {
+			/* Timer is not running */
+			rack_start_hpts_timer(rack, tp, cts, 0, 0, 0);
+		}
+#ifdef TCP_ACCOUNTING
+		sched_unpin();
+#endif
+		return (0);
+	}
+	if ((rack->rc_ack_required == 1) &&
+	    (rack->r_timer_override == 0)){
+		/* A timeout occurred and no ack has arrived */
 		if (tcp_in_hpts(rack->rc_inp) == 0) {
 			/* Timer is not running */
 			rack_start_hpts_timer(rack, tp, cts, 0, 0, 0);
@@ -18487,7 +18508,7 @@ send:
 	}
 	/* Also handle parallel SYN for ECN */
 	if (TCPS_HAVERCVDSYN(tp->t_state) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
+	    (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT))) {
 		int ect = tcp_ecn_output_established(tp, &flags, len, sack_rxmit);
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
@@ -19172,7 +19193,7 @@ enobufs:
 			/*
 			 * We have no pacing set or we
 			 * are using old-style rack or
-			 * we are overriden to use the old 1ms pacing.
+			 * we are overridden to use the old 1ms pacing.
 			 */
 			slot = rack->r_ctl.rc_min_to;
 		}
@@ -20489,7 +20510,7 @@ rack_fill_info(struct tcpcb *tp, struct tcp_info *ti)
 		ti->tcpi_snd_wscale = tp->snd_scale;
 		ti->tcpi_rcv_wscale = tp->rcv_scale;
 	}
-	if (tp->t_flags2 & TF2_ECN_PERMIT)
+	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT))
 		ti->tcpi_options |= TCPI_OPT_ECN;
 	if (tp->t_flags & TF_FASTOPEN)
 		ti->tcpi_options |= TCPI_OPT_TFO;

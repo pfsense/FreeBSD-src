@@ -178,6 +178,15 @@ OLD_FILES+=usr/share/man/man8/autounmountd.8.gz
 OLD_DIRS+=etc/autofs
 .endif
 
+.if ${MK_BEARSSL} == no
+OLD_FILES+=usr/lib/libbearssl.a
+OLD_FILES+=usr/lib/libbearssl.so
+OLD_LIBS+=usr/lib/libbearssl.so.5
+OLD_FILES+=usr/lib/libsecureboot.a
+OLD_FILES+=usr/lib/libsecureboot.so
+OLD_LIBS+=usr/lib/libsecureboot.so.5
+.endif
+
 .if ${MK_BHYVE} == no
 OLD_FILES+=usr/lib/libvmmapi.a
 OLD_FILES+=usr/lib/libvmmapi.so
@@ -7805,12 +7814,14 @@ OLD_FILES+=usr/share/sendmail/cf/feature/access_db.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/allmasquerade.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/always_add_domain.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/authinfo.m4
+OLD_FILES+=usr/share/sendmail/cf/feature/blocklist_recipients.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/badmx.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/bcc.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/bestmx_is_local.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/bitdomain.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/blacklist_recipients.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/block_bad_helo.m4
+OLD_FILES+=usr/share/sendmail/cf/feature/check_cert_altnames.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/compat_check.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/conncontrol.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/delay_checks.m4
@@ -7853,6 +7864,7 @@ OLD_FILES+=usr/share/sendmail/cf/feature/relay_mail_from.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/require_rdns.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/smrsh.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/stickyhost.m4
+OLD_FILES+=usr/share/sendmail/cf/feature/tls_failures.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/tls_session_features.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/use_client_ptr.m4
 OLD_FILES+=usr/share/sendmail/cf/feature/use_ct_file.m4
@@ -9654,6 +9666,14 @@ OLD_FILES+=usr/share/man/man1/who.1.gz
 OLD_FILES+=usr/share/man/man8/ac.8.gz
 OLD_FILES+=usr/share/man/man8/lastlogin.8.gz
 OLD_FILES+=usr/share/man/man8/utx.8.gz
+.endif
+
+.if ${MK_VERIEXEC} == no
+OLD_FILES+=sbin/veriexec
+OLD_FILES+=usr/share/man/man8/veriexec.8.gz
+OLD_FILES+=usr/lib/libveriexec.a
+OLD_FILES+=usr/lib/libveriexec.so
+OLD_LIBS+=usr/lib/libveriexec.so.5
 .endif
 
 .if ${MK_VI} == no
