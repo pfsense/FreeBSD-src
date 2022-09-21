@@ -138,6 +138,7 @@ options 	NETGRAPH_PRED1
 
 # IPSEC
 options 	TCP_SIGNATURE
+options		IPSEC
 device		enc
 
 # ALTQ
