@@ -790,7 +790,7 @@ pmap_init(void)
 	 */
 	s = (vm_size_t)(pv_npg * sizeof(struct md_page));
 	s = round_page(s);
-	pv_table = (struct md_page *)kmem_malloc(s, M_WAITOK | M_ZERO);
+	pv_table = kmem_malloc(s, M_WAITOK | M_ZERO);
 	for (i = 0; i < pv_npg; i++)
 		TAILQ_INIT(&pv_table[i].pv_list);
 	TAILQ_INIT(&pv_dummy.pv_list);
@@ -903,27 +903,25 @@ vm_paddr_t
 pmap_extract(pmap_t pmap, vm_offset_t va)
 {
 	pd_entry_t *l2p, l2;
-	pt_entry_t *l3p, l3;
+	pt_entry_t *l3p;
 	vm_paddr_t pa;
 
 	pa = 0;
-	PMAP_LOCK(pmap);
+
 	/*
-	 * Start with the l2 tabel. We are unable to allocate
-	 * pages in the l1 table.
+	 * Start with an L2 lookup, L1 superpages are currently not implemented.
 	 */
+	PMAP_LOCK(pmap);
 	l2p = pmap_l2(pmap, va);
-	if (l2p != NULL) {
-		l2 = pmap_load(l2p);
-		if ((l2 & PTE_RX) == 0) {
+	if (l2p != NULL && ((l2 = pmap_load(l2p)) & PTE_V) != 0) {
+		if ((l2 & PTE_RWX) == 0) {
 			l3p = pmap_l2_to_l3(l2p, va);
 			if (l3p != NULL) {
-				l3 = pmap_load(l3p);
-				pa = PTE_TO_PHYS(l3);
+				pa = PTE_TO_PHYS(pmap_load(l3p));
 				pa |= (va & L3_OFFSET);
 			}
 		} else {
-			/* L2 is superpages */
+			/* L2 is a superpage mapping. */
 			pa = L2PTE_TO_PHYS(l2);
 			pa |= (va & L2_OFFSET);
 		}
@@ -4455,7 +4453,7 @@ pmap_mapbios(vm_paddr_t pa, vm_size_t size)
 }
 
 void
-pmap_unmapbios(vm_paddr_t pa, vm_size_t size)
+pmap_unmapbios(void *p, vm_size_t size)
 {
 }
 

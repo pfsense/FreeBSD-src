@@ -646,6 +646,8 @@ bus_probe(void)
 				break;
 			}
 			order = strchr(order, ',');
+			if (order != NULL)
+				order++;	/* Skip comma */
 		}
 		freeenv(env);
 
@@ -766,7 +768,9 @@ initarm(struct arm64_bootparams *abp)
 	update_special_regs(0);
 
 	link_elf_ireloc(kmdp);
+#ifdef FDT
 	try_load_dtb(kmdp);
+#endif
 
 	efi_systbl_phys = MD_FETCH(kmdp, MODINFOMD_FW_HANDLE, vm_paddr_t);
 
@@ -818,8 +822,7 @@ initarm(struct arm64_bootparams *abp)
 	pan_setup();
 
 	/* Bootstrap enough of pmap  to enter the kernel proper */
-	pmap_bootstrap(abp->kern_l0pt, abp->kern_l1pt,
-	    KERNBASE - abp->kern_delta, lastaddr - KERNBASE);
+	pmap_bootstrap(KERNBASE - abp->kern_delta, lastaddr - KERNBASE);
 	/* Exclude entries needed in the DMAP region, but not phys_avail */
 	if (efihdr != NULL)
 		exclude_efi_map_entries(efihdr);

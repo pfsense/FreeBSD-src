@@ -249,8 +249,8 @@ struct tcpcb {
 	int	t_dupacks;		/* consecutive dup acks recd */
 	int	t_lognum;		/* Number of log entries */
 	int	t_loglimit;		/* Maximum number of log entries */
-	uint32_t t_rcep;			/* Number of received CE marked packets */
-	uint32_t t_scep;			/* Synced number of delivered CE packets */
+	uint32_t t_rcep;		/* Number of received CE marked pkts */
+	uint32_t t_scep;		/* Synced number of delivered CE pkts */
 	int64_t	t_pacing_rate;		/* bytes / sec, -1 => unlimited */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
 	struct tcp_log_id_node *t_lin;
@@ -375,6 +375,7 @@ struct tcp_function_block {
 	void	(*tfb_tcp_mtu_chg)(struct tcpcb *);
 	int	(*tfb_pru_options)(struct tcpcb *, int);
 	void	(*tfb_hwtls_change)(struct tcpcb *, int);
+	int     (*tfb_compute_pipe)(struct tcpcb *tp);
 	volatile uint32_t tfb_refcnt;
 	uint32_t  tfb_flags;
 	uint8_t	tfb_id;
@@ -515,7 +516,7 @@ tcp_unlock_or_drop(struct tcpcb *tp, int tcp_output_retval)
 #define	TF_WAKESOR	0x00004000	/* wake up receive socket */
 #define	TF_GPUTINPROG	0x00008000	/* Goodput measurement in progress */
 #define	TF_MORETOCOME	0x00010000	/* More data to be appended to sock */
-#define	TF_INCQUEUE	0x00020000	/* on incomplete queue of listener */
+#define	TF_SONOTCONN	0x00020000	/* needs soisconnected() on ESTAB */
 #define	TF_LASTIDLE	0x00040000	/* connection was previously idle */
 #define	TF_RXWIN0SENT	0x00080000	/* sent a receiver win 0 in response */
 #define	TF_FASTRECOVERY	0x00100000	/* in NewReno Fast Recovery */
@@ -707,6 +708,7 @@ struct	tcpstat {
 	uint64_t tcps_keeptimeo;	/* keepalive timeouts */
 	uint64_t tcps_keepprobe;	/* keepalive probes sent */
 	uint64_t tcps_keepdrops;	/* connections dropped in keepalive */
+	uint64_t tcps_progdrops;	/* drops due to no progress */
 
 	uint64_t tcps_sndtotal;		/* total packets sent */
 	uint64_t tcps_sndpack;		/* data packets sent */

@@ -755,6 +755,9 @@ ufs_setattr(
 			 */
 			return (0);
 		}
+		error = vn_rlimit_trunc(vap->va_size, td);
+		if (error != 0)
+			return (error);
 		if ((error = UFS_TRUNCATE(vp, vap->va_size, IO_NORMAL |
 		    ((vap->va_vaflags & VA_SYNC) != 0 ? IO_SYNC : 0),
 		    cred)) != 0)
@@ -1099,11 +1102,6 @@ ufs_link(
 	struct direct newdir;
 	int error;
 
-#ifdef INVARIANTS
-	if ((cnp->cn_flags & HASBUF) == 0)
-		panic("ufs_link: no name");
-#endif
-
 	if (DOINGSUJ(tdvp)) {
 		error = softdep_prelink(tdvp, vp, cnp);
 		if (error != 0) {
@@ -1194,8 +1192,6 @@ ufs_whiteout(
 	case CREATE:
 		/* create a new directory whiteout */
 #ifdef INVARIANTS
-		if ((cnp->cn_flags & SAVENAME) == 0)
-			panic("ufs_whiteout: missing name");
 		if (OFSFMT(dvp))
 			panic("ufs_whiteout: old format filesystem");
 #endif
@@ -1283,11 +1279,6 @@ ufs_rename(
 
 	checkpath_locked = want_seqc_end = false;
 
-#ifdef INVARIANTS
-	if ((tcnp->cn_flags & HASBUF) == 0 ||
-	    (fcnp->cn_flags & HASBUF) == 0)
-		panic("ufs_rename: no name");
-#endif
 	endoff = 0;
 	mp = tdvp->v_mount;
 	VOP_UNLOCK(tdvp);
@@ -2020,10 +2011,6 @@ ufs_mkdir(
 	int error, dmode;
 	long blkoff;
 
-#ifdef INVARIANTS
-	if ((cnp->cn_flags & HASBUF) == 0)
-		panic("ufs_mkdir: no name");
-#endif
 	dp = VTOI(dvp);
 	error = ufs_sync_nlink(dvp, NULL);
 	if (error != 0)
@@ -2789,10 +2776,6 @@ ufs_makeinode(int mode, struct vnode *dvp, struct vnode **vpp,
 	int error;
 
 	pdir = VTOI(dvp);
-#ifdef INVARIANTS
-	if ((cnp->cn_flags & HASBUF) == 0)
-		panic("%s: no name", callfunc);
-#endif
 	*vpp = NULL;
 	if ((mode & IFMT) == 0)
 		mode |= IFREG;

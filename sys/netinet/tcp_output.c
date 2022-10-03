@@ -338,10 +338,10 @@ again:
 			len = ((int32_t)ulmin(cwin,
 			    SEQ_SUB(p->end, p->rxmit)));
 		}
-		off = SEQ_SUB(p->rxmit, tp->snd_una);
-		KASSERT(off >= 0,("%s: sack block to the left of una : %d",
-		    __func__, off));
 		if (len > 0) {
+			off = SEQ_SUB(p->rxmit, tp->snd_una);
+			KASSERT(off >= 0,("%s: sack block to the left of una : %d",
+			    __func__, off));
 			sack_rxmit = 1;
 			sendalot = 1;
 			TCPSTAT_INC(tcps_sack_rexmits);
@@ -415,7 +415,7 @@ after_sack_rexmit:
 		else {
 			int32_t cwin;
 
-                        /*
+			/*
 			 * We are inside of a SACK recovery episode and are
 			 * sending new data, having retransmitted all the
 			 * data possible in the scoreboard.
@@ -431,8 +431,8 @@ after_sack_rexmit:
 			 * of len is bungled by the optimizer.
 			 */
 			if (len > 0) {
-				cwin = tp->snd_cwnd -
-					(tp->snd_nxt - tp->snd_recover) -
+				cwin = tp->snd_cwnd - imax(0, (int32_t)
+					(tp->snd_nxt - tp->snd_recover)) -
 					sack_bytes_rxmt;
 				if (cwin < 0)
 					cwin = 0;
@@ -506,7 +506,8 @@ after_sack_rexmit:
 		 */
 		len = 0;
 		if ((sendwin == 0) && (TCPS_HAVEESTABLISHED(tp->t_state)) &&
-			(off < (int) sbavail(&so->so_snd))) {
+		    (off < (int) sbavail(&so->so_snd)) &&
+		    !tcp_timer_active(tp, TT_PERSIST)) {
 			tcp_timer_activate(tp, TT_REXMT, 0);
 			tp->t_rxtshift = 0;
 			tp->snd_nxt = tp->snd_una;
@@ -734,7 +735,7 @@ dontupdate:
 	    SEQ_GT(tp->snd_max, tp->snd_una) &&
 	    !tcp_timer_active(tp, TT_REXMT) &&
 	    !tcp_timer_active(tp, TT_PERSIST)) {
-		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+		tcp_timer_activate(tp, TT_REXMT, TP_RXTCUR(tp));
 		goto just_return;
 	}
 	/*
@@ -1578,6 +1579,12 @@ out:
 			goto timer;
 		tp->snd_nxt += len;
 		if (SEQ_GT(tp->snd_nxt, tp->snd_max)) {
+			/*
+			 * Update "made progress" indication if we just
+			 * added new data to an empty socket buffer.
+			 */
+			if (tp->snd_una == tp->snd_max)
+				tp->t_acktime = ticks;
 			tp->snd_max = tp->snd_nxt;
 			/*
 			 * Time this transmission if not a retransmission and
@@ -1616,7 +1623,7 @@ timer:
 				tcp_timer_activate(tp, TT_PERSIST, 0);
 				tp->t_rxtshift = 0;
 			}
-			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+			tcp_timer_activate(tp, TT_REXMT, TP_RXTCUR(tp));
 		} else if (len == 0 && sbavail(&so->so_snd) &&
 		    !tcp_timer_active(tp, TT_REXMT) &&
 		    !tcp_timer_active(tp, TT_PERSIST)) {
@@ -1769,15 +1776,29 @@ tcp_setpersist(struct tcpcb *tp)
 {
 	int t = ((tp->t_srtt >> 2) + tp->t_rttvar) >> 1;
 	int tt;
+	int maxunacktime;
 
 	tp->t_flags &= ~TF_PREVVALID;
 	if (tcp_timer_active(tp, TT_REXMT))
 		panic("tcp_setpersist: retransmit pending");
 	/*
+	 * If the state is already closed, don't bother.
+	 */
+	if (tp->t_state == TCPS_CLOSED)
+		return;
+
+	/*
 	 * Start/restart persistence timer.
 	 */
 	TCPT_RANGESET(tt, t * tcp_backoff[tp->t_rxtshift],
 		      tcp_persmin, tcp_persmax);
+	if (TP_MAXUNACKTIME(tp) && tp->t_acktime) {
+		maxunacktime = tp->t_acktime + TP_MAXUNACKTIME(tp) - ticks;
+		if (maxunacktime < 1)
+			maxunacktime = 1;
+		if (maxunacktime < tt)
+			tt = maxunacktime;
+	}
 	tcp_timer_activate(tp, TT_PERSIST, tt);
 	if (tp->t_rxtshift < TCP_MAXRXTSHIFT)
 		tp->t_rxtshift++;

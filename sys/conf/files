@@ -200,6 +200,7 @@ contrib/openzfs/module/os/freebsd/zfs/abd_os.c		optional zfs compile-with "${ZFS
 contrib/openzfs/module/os/freebsd/zfs/arc_os.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/crypto_os.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/dmu_os.c		optional zfs compile-with "${ZFS_C}"
+contrib/openzfs/module/os/freebsd/zfs/event_os.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/hkdf.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/kmod_core.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/spa_os.c		optional zfs compile-with "${ZFS_C}"
@@ -306,7 +307,6 @@ contrib/openzfs/module/zfs/sa.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/sha256.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/skein_zfs.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/spa.c		optional zfs compile-with "${ZFS_C}"
-contrib/openzfs/module/zfs/spa_boot.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/spa_checkpoint.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/spa_config.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/spa_errlog.c		optional zfs compile-with "${ZFS_C}"
@@ -1878,8 +1878,7 @@ dev/iicbus/rtc/rx8803.c		optional rx8803 iicbus fdt
 dev/iicbus/s35390a.c		optional s35390a
 dev/iicbus/sy8106a.c		optional sy8106a fdt
 dev/iicbus/syr827.c		optional syr827 fdt
-dev/iicbus/gpio/tca6408.c	optional tca6408 fdt gpio
-dev/iicbus/gpio/tca6416.c	optional tca6416 fdt
+dev/iicbus/gpio/tca64xx.c	optional tca64xx fdt gpio
 dev/iicbus/pmic/fan53555.c	optional fan53555 fdt
 dev/igc/if_igc.c		optional igc iflib pci
 dev/igc/igc_api.c		optional igc iflib pci
@@ -4609,9 +4608,10 @@ compat/linuxkpi/common/src/linux_xarray.c	optional compat_linuxkpi \
 	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/lkpi_iic_if.m	optional compat_linuxkpi
 
-compat/linuxkpi/common/src/linux_seq_file.c		optional compat_linuxkpi | lindebugfs \
+compat/linuxkpi/common/src/linux_seq_file.c	optional compat_linuxkpi | lindebugfs \
 	compile-with "${LINUXKPI_C}"
-
+compat/linuxkpi/common/src/linux_simple_attr.c	optional compat_linuxkpi | lindebugfs \
+	compile-with "${LINUXKPI_C}"
 compat/lindebugfs/lindebugfs.c			optional lindebugfs \
 	compile-with "${LINUXKPI_C}"
 

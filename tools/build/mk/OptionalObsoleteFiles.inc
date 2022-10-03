@@ -2097,6 +2097,11 @@ OLD_FILES+=usr/share/man/man8/strfile.8.gz
 OLD_FILES+=usr/share/man/man8/unstr.8.gz
 .endif
 
+.if ${MK_LLVM_BINUTILS} == no
+OLD_FILES+=usr/bin/objdump
+OLD_FILES+=usr/share/man/man1/objdump.1.gz
+.endif
+
 .if ${MK_LLVM_COV} == no && !defined(WITH_PORT_BASE_GCC)
 OLD_FILES+=usr/bin/gcov
 OLD_FILES+=usr/share/man/man1/gcov.1.gz
@@ -8237,11 +8242,8 @@ OLD_FILES+=usr/share/nls/uk_UA.UTF-8/tcsh.cat
 .endif
 
 .if ${MK_TELNET} == no
-OLD_FILES+=etc/pam.d/telnetd
 OLD_FILES+=usr/bin/telnet
-OLD_FILES+=usr/libexec/telnetd
 OLD_FILES+=usr/share/man/man1/telnet.1.gz
-OLD_FILES+=usr/share/man/man8/telnetd.8.gz
 .endif
 
 .if ${MK_TESTS} == yes

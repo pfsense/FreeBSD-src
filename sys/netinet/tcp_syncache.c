@@ -1030,6 +1030,7 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 	/*
 	 * Copy and activate timers.
 	 */
+	tp->t_maxunacktime = sototcpcb(lso)->t_maxunacktime;
 	tp->t_keepinit = sototcpcb(lso)->t_keepinit;
 	tp->t_keepidle = sototcpcb(lso)->t_keepidle;
 	tp->t_keepintvl = sototcpcb(lso)->t_keepintvl;
@@ -1040,7 +1041,7 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 	TCP_PROBE6(state__change, NULL, tp, NULL, tp, NULL, TCPS_LISTEN);
 
 	if (!solisten_enqueue(so, SS_ISCONNECTED))
-		tp->t_flags |= TF_INCQUEUE;
+		tp->t_flags |= TF_SONOTCONN;
 
 	return (so);
 

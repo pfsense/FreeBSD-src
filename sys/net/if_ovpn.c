@@ -1557,8 +1557,6 @@ ovpn_decrypt_rx_cb(struct cryptop *crp)
 	return (0);
 }
 
-static uint8_t EMPTY_BUFFER[AES_BLOCK_LEN];
-
 static int
 ovpn_get_af(struct mbuf *m)
 {
@@ -1574,7 +1572,7 @@ ovpn_get_af(struct mbuf *m)
 		return (AF_INET);
 
 	ip6 = mtod(m, struct ip6_hdr *);
-	if (ip6->ip6_vfc == IPV6_VERSION)
+	if ((ip6->ip6_vfc & IPV6_VERSION_MASK) == IPV6_VERSION)
 		return (AF_INET6);
 
 	return (0);
@@ -1729,7 +1727,7 @@ ovpn_transmit_to_peer(struct ifnet *ifp, struct mbuf *m,
 	struct ovpn_softc *sc;
 	struct cryptop *crp;
 	uint32_t af, seq;
-	size_t len, real_len, ovpn_hdr_len;
+	size_t len, ovpn_hdr_len;
 	int tunnel_len;
 	int ret;
 
@@ -1752,19 +1750,12 @@ ovpn_transmit_to_peer(struct ifnet *ifp, struct mbuf *m,
 	if (af != 0)
 		BPF_MTAP2(ifp, &af, sizeof(af), m);
 
-	real_len = len = m->m_pkthdr.len;
-	MPASS(real_len <= ifp->if_mtu);
+	len = m->m_pkthdr.len;
+	MPASS(len <= ifp->if_mtu);
 
 	ovpn_hdr_len = sizeof(struct ovpn_wire_header);
 	if (key->encrypt->cipher == OVPN_CIPHER_ALG_NONE)
 		ovpn_hdr_len -= 16; /* No auth tag. */
-	else {
-		/* Round up the len to a multiple of our block size. */
-		len = roundup2(real_len, AES_BLOCK_LEN);
-
-		/* Now extend the mbuf. */
-		m_append(m, len - real_len, EMPTY_BUFFER);
-	}
 
 	M_PREPEND(m, ovpn_hdr_len, M_NOWAIT);
 	if (m == NULL) {
@@ -2300,7 +2291,8 @@ ovpn_clone_match(struct if_clone *ifc, const char *name)
 }
 
 static int
-ovpn_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
+ovpn_clone_create(struct if_clone *ifc, char *name, size_t len,
+    struct ifc_data *ifd, struct ifnet **ifpp)
 {
 	struct ovpn_softc *sc;
 	struct ifnet *ifp;
@@ -2366,6 +2358,7 @@ ovpn_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 
 	if_attach(ifp);
 	bpfattach(ifp, DLT_NULL, sizeof(uint32_t));
+	*ifpp = ifp;
 
 	return (0);
 }
@@ -2389,7 +2382,7 @@ ovpn_clone_destroy_cb(struct epoch_context *ctx)
 }
 
 static int
-ovpn_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
+ovpn_clone_destroy(struct if_clone *ifc, struct ifnet *ifp, uint32_t flags)
 {
 	struct ovpn_softc *sc;
 	int unit;
@@ -2430,14 +2423,20 @@ ovpn_clone_destroy(struct if_clone *ifc, struct ifnet *ifp)
 	if (unit != IF_DUNIT_NONE)
 		ifc_free_unit(ifc, unit);
 
+	NET_EPOCH_DRAIN_CALLBACKS();
+
 	return (0);
 }
 
 static void
 vnet_ovpn_init(const void *unused __unused)
 {
-	V_ovpn_cloner = if_clone_advanced(ovpngroupname, 0, ovpn_clone_match,
-	    ovpn_clone_create, ovpn_clone_destroy);
+	struct if_clone_addreq req = {
+		.match_f = ovpn_clone_match,
+		.create_f = ovpn_clone_create,
+		.destroy_f = ovpn_clone_destroy,
+	};
+	V_ovpn_cloner = ifc_attach_cloner(ovpngroupname, &req);
 }
 VNET_SYSINIT(vnet_ovpn_init, SI_SUB_PSEUDO, SI_ORDER_ANY,
     vnet_ovpn_init, NULL);
