@@ -42,6 +42,16 @@ fi
 
 cp $BSDINSTALL_TMPETC/* $BSDINSTALL_CHROOT/etc
 
+# Copy pfSense loader.conf
+if [ -f $BSDINSTALL_CHROOT/boot/loader.conf ]; then
+	if [ ! -f "$BSDINSTALL_TMPBOOT/loader.conf" ]; then
+		touch $BSDINSTALL_TMPBOOT/loader.conf
+	fi
+	cat $BSDINSTALL_CHROOT/boot/loader.conf $BSDINSTALL_TMPBOOT/loader.conf \
+	    | sort -u > $BSDINSTALL_TMPBOOT/loader.conf.tmp
+	mv $BSDINSTALL_TMPBOOT/loader.conf.tmp $BSDINSTALL_TMPBOOT/loader.conf
+fi
+
 cat $BSDINSTALL_TMPBOOT/loader.conf.* >> $BSDINSTALL_TMPBOOT/loader.conf
 rm $BSDINSTALL_TMPBOOT/loader.conf.*
 # The 'cryptodev_load' line is a workaround for arm64, which does not
