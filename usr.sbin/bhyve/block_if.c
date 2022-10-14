@@ -97,7 +97,7 @@ struct blockif_elem {
 };
 
 struct blockif_ctxt {
-	int			bc_magic;
+	unsigned int		bc_magic;
 	int			bc_fd;
 	int			bc_ischr;
 	int			bc_isgeom;
@@ -409,7 +409,8 @@ blockif_thr(void *arg)
 }
 
 static void
-blockif_sigcont_handler(int signal, enum ev_type type, void *arg)
+blockif_sigcont_handler(int signal __unused, enum ev_type type __unused,
+    void *arg __unused)
 {
 	struct blockif_sig_elem *bse;
 
@@ -656,7 +657,7 @@ err:
 }
 
 static void
-blockif_resized(int fd, enum ev_type type, void *arg)
+blockif_resized(int fd, enum ev_type type __unused, void *arg)
 {
 	struct blockif_ctxt *bc;
 	struct stat sb;
@@ -692,6 +693,8 @@ blockif_register_resize_callback(struct blockif_ctxt *bc, blockif_resize_cb *cb,
 
 	if (cb == NULL)
 		return (EINVAL);
+
+	err = 0;
 
 	pthread_mutex_lock(&bc->bc_mtx);
 	if (bc->bc_resize_cb != NULL) {

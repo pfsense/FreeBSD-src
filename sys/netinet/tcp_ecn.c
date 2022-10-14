@@ -98,7 +98,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_var.h>
 #include <netinet/tcp_syncache.h>
 #include <netinet/tcp_timer.h>
-#include <netinet6/tcp6_var.h>
 #include <netinet/tcpip.h>
 #include <netinet/tcp_ecn.h>
 
@@ -315,7 +314,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 			}
 		} else {
 			/* RFC3168 ECN handling */
-			if (thflags & TH_ECE)
+			if ((thflags & (TH_SYN | TH_ECE)) == TH_ECE)
 				delta_ace = 1;
 			if (thflags & TH_CWR) {
 				tp->t_flags2 &= ~TF2_ECN_SND_ECE;

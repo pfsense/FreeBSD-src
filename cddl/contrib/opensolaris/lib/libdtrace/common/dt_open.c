@@ -416,6 +416,8 @@ static const dt_ident_t _dtrace_globals[] = {
 	&dt_idops_func, "void(int)" },
 { "rand", DT_IDENT_FUNC, 0, DIF_SUBR_RAND, DT_ATTR_STABCMN, DT_VERS_1_0,
 	&dt_idops_func, "int()" },
+{ "regs", DT_IDENT_ARRAY, 0, DIF_VAR_REGS, DT_ATTR_STABCMN, DT_VERS_1_13,
+	&dt_idops_regs, NULL },
 { "rindex", DT_IDENT_FUNC, 0, DIF_SUBR_RINDEX, DT_ATTR_STABCMN, DT_VERS_1_1,
 	&dt_idops_func, "int(const char *, const char *, [int])" },
 #ifdef illumos
@@ -1171,6 +1173,7 @@ alloc:
 	dtp->dt_version = version;
 	dtp->dt_fd = dtfd;
 	dtp->dt_ftfd = ftfd;
+	dtp->dt_kinstfd = -1;
 	dtp->dt_fterr = fterr;
 	dtp->dt_cdefs_fd = -1;
 	dtp->dt_ddefs_fd = -1;
@@ -1679,6 +1682,8 @@ dtrace_close(dtrace_hdl_t *dtp)
 		(void) close(dtp->dt_fd);
 	if (dtp->dt_ftfd != -1)
 		(void) close(dtp->dt_ftfd);
+	if (dtp->dt_kinstfd != -1)
+		(void) close(dtp->dt_kinstfd);
 	if (dtp->dt_cdefs_fd != -1)
 		(void) close(dtp->dt_cdefs_fd);
 	if (dtp->dt_ddefs_fd != -1)

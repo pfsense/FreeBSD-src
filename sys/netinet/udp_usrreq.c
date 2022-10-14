@@ -740,78 +740,52 @@ udp_notify(struct inpcb *inp, int errno)
 
 #ifdef INET
 static void
-udp_common_ctlinput(int cmd, struct sockaddr *sa, void *vip,
-    struct inpcbinfo *pcbinfo)
+udp_common_ctlinput(struct icmp *icmp, struct inpcbinfo *pcbinfo)
 {
-	struct ip *ip = vip;
+	struct ip *ip = &icmp->icmp_ip;
 	struct udphdr *uh;
-	struct in_addr faddr;
 	struct inpcb *inp;
 
-	faddr = ((struct sockaddr_in *)sa)->sin_addr;
-	if (sa->sa_family != AF_INET || faddr.s_addr == INADDR_ANY)
+	if (icmp_errmap(icmp) == 0)
 		return;
 
-	if (PRC_IS_REDIRECT(cmd)) {
-		/* signal EHOSTDOWN, as it flushes the cached route */
-		in_pcbnotifyall(pcbinfo, faddr, EHOSTDOWN, udp_notify);
-		return;
-	}
-
-	/*
-	 * Hostdead is ugly because it goes linearly through all PCBs.
-	 *
-	 * XXX: We never get this from ICMP, otherwise it makes an excellent
-	 * DoS attack on machines with many connections.
-	 */
-	if (cmd == PRC_HOSTDEAD)
-		ip = NULL;
-	else if ((unsigned)cmd >= PRC_NCMDS || inetctlerrmap[cmd] == 0)
-		return;
-	if (ip != NULL) {
-		uh = (struct udphdr *)((caddr_t)ip + (ip->ip_hl << 2));
-		inp = in_pcblookup(pcbinfo, faddr, uh->uh_dport,
-		    ip->ip_src, uh->uh_sport, INPLOOKUP_WLOCKPCB, NULL);
+	uh = (struct udphdr *)((caddr_t)ip + (ip->ip_hl << 2));
+	inp = in_pcblookup(pcbinfo, ip->ip_dst, uh->uh_dport, ip->ip_src,
+	    uh->uh_sport, INPLOOKUP_WLOCKPCB, NULL);
+	if (inp != NULL) {
+		INP_WLOCK_ASSERT(inp);
+		if (inp->inp_socket != NULL)
+			udp_notify(inp, icmp_errmap(icmp));
+		INP_WUNLOCK(inp);
+	} else {
+		inp = in_pcblookup(pcbinfo, ip->ip_dst, uh->uh_dport,
+		    ip->ip_src, uh->uh_sport,
+		    INPLOOKUP_WILDCARD | INPLOOKUP_RLOCKPCB, NULL);
 		if (inp != NULL) {
-			INP_WLOCK_ASSERT(inp);
-			if (inp->inp_socket != NULL) {
-				udp_notify(inp, inetctlerrmap[cmd]);
-			}
-			INP_WUNLOCK(inp);
-		} else {
-			inp = in_pcblookup(pcbinfo, faddr, uh->uh_dport,
-					   ip->ip_src, uh->uh_sport,
-					   INPLOOKUP_WILDCARD | INPLOOKUP_RLOCKPCB, NULL);
-			if (inp != NULL) {
-				struct udpcb *up;
-				void *ctx;
-				udp_tun_icmp_t func;
+			struct udpcb *up;
+			udp_tun_icmp_t *func;
 
-				up = intoudpcb(inp);
-				ctx = up->u_tun_ctx;
-				func = up->u_icmp_func;
-				INP_RUNLOCK(inp);
-				if (func != NULL)
-					(*func)(cmd, sa, vip, ctx);
-			}
+			up = intoudpcb(inp);
+			func = up->u_icmp_func;
+			INP_RUNLOCK(inp);
+			if (func != NULL)
+				func(icmp);
 		}
-	} else
-		in_pcbnotifyall(pcbinfo, faddr, inetctlerrmap[cmd],
-		    udp_notify);
+	}
 }
 
 static void
-udp_ctlinput(int cmd, struct sockaddr *sa, void *vip)
+udp_ctlinput(struct icmp *icmp)
 {
 
-	return (udp_common_ctlinput(cmd, sa, vip, &V_udbinfo));
+	return (udp_common_ctlinput(icmp, &V_udbinfo));
 }
 
 static void
-udplite_ctlinput(int cmd, struct sockaddr *sa, void *vip)
+udplite_ctlinput(struct icmp *icmp)
 {
 
-	return (udp_common_ctlinput(cmd, sa, vip, &V_ulitecbinfo));
+	return (udp_common_ctlinput(icmp, &V_ulitecbinfo));
 }
 #endif /* INET */
 

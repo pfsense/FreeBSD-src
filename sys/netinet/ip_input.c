@@ -873,15 +873,6 @@ ipproto_unregister(uint8_t proto)
 		return (ENOENT);
 }
 
-u_char inetctlerrmap[PRC_NCMDS] = {
-	0,		0,		0,		0,
-	0,		EMSGSIZE,	EHOSTDOWN,	EHOSTUNREACH,
-	EHOSTUNREACH,	EHOSTUNREACH,	ECONNREFUSED,	ECONNREFUSED,
-	EMSGSIZE,	EHOSTUNREACH,	0,		0,
-	0,		0,		EHOSTUNREACH,	0,
-	ENOPROTOOPT,	ECONNREFUSED
-};
-
 /*
  * Forward a packet.  If some error occurs return the sender
  * an icmp packet.  Note we can't always generate a meaningful

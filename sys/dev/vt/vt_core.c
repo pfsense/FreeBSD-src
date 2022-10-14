@@ -2153,7 +2153,6 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 	vd = main_vd;
 	vw = vd->vd_curwindow;
 	vf = vw->vw_font;
-	mark = 0;
 
 	if (vw->vw_flags & (VWF_MOUSE_HIDE | VWF_GRAPHICS))
 		/*
@@ -2191,7 +2190,7 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 
 		vd->vd_mx = x;
 		vd->vd_my = y;
-		if (vd->vd_mstate & MOUSE_BUTTON1DOWN)
+		if (vd->vd_mstate & (MOUSE_BUTTON1DOWN | VT_MOUSE_EXTENDBUTTON))
 			vtbuf_set_mark(&vw->vw_buf, VTB_MARK_MOVE,
 			    vd->vd_mx / vf->vf_width,
 			    vd->vd_my / vf->vf_height);
@@ -2217,7 +2216,7 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 		case 2:	/* double click: cut a word */
 			mark = VTB_MARK_WORD;
 			break;
-		case 3:	/* triple click: cut a line */
+		default:	/* triple click: cut a line */
 			mark = VTB_MARK_ROW;
 			break;
 		}
@@ -2228,6 +2227,10 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 			break;
 		default:
 			vt_mouse_paste();
+			/* clear paste buffer selection after paste */
+			vtbuf_set_mark(&vw->vw_buf, VTB_MARK_START,
+			    vd->vd_mx / vf->vf_width,
+			    vd->vd_my / vf->vf_height);
 			break;
 		}
 		return; /* Done */
@@ -2237,7 +2240,7 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 			if (!(vd->vd_mstate & MOUSE_BUTTON1DOWN))
 				mark = VTB_MARK_EXTEND;
 			else
-				mark = 0;
+				mark = VTB_MARK_NONE;
 			break;
 		default:
 			mark = VTB_MARK_EXTEND;
@@ -2286,7 +2289,7 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 			VD_PASTEBUFSZ(vd) = len;
 		}
 		/* Request copy/paste buffer data, no more than `len' */
-		vtbuf_extract_marked(&vw->vw_buf, VD_PASTEBUF(vd), len);
+		vtbuf_extract_marked(&vw->vw_buf, VD_PASTEBUF(vd), len, mark);
 
 		VD_PASTEBUFLEN(vd) = len;
 
