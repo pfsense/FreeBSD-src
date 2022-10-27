@@ -423,30 +423,12 @@ qat_ocf_session_init(device_t dev,
 
 	switch (csp->csp_mode) {
 	case CSP_MODE_AEAD:
-		sessionSetupData.symOperation =
-		    CPA_CY_SYM_OP_ALGORITHM_CHAINING;
-		/* Place the digest result in a buffer unrelated to srcBuffer */
-		sessionSetupData.digestIsAppended = CPA_TRUE;
-		/* For GCM and CCM driver forces to verify digest on HW */
-		sessionSetupData.verifyDigest = CPA_TRUE;
-		if (CRYPTO_OP_IS_ENCRYPT(crp->crp_op)) {
-			sessionSetupData.cipherSetupData.cipherDirection =
-			    CPA_CY_SYM_CIPHER_DIRECTION_ENCRYPT;
-			sessionSetupData.algChainOrder =
-			    CPA_CY_SYM_ALG_CHAIN_ORDER_CIPHER_THEN_HASH;
-		} else {
-			sessionSetupData.cipherSetupData.cipherDirection =
-			    CPA_CY_SYM_CIPHER_DIRECTION_DECRYPT;
-			sessionSetupData.algChainOrder =
-			    CPA_CY_SYM_ALG_CHAIN_ORDER_HASH_THEN_CIPHER;
-		}
-		break;
 	case CSP_MODE_ETA:
 		sessionSetupData.symOperation =
 		    CPA_CY_SYM_OP_ALGORITHM_CHAINING;
 		/* Place the digest result in a buffer unrelated to srcBuffer */
 		sessionSetupData.digestIsAppended = CPA_FALSE;
-		/* Due to FW limitation to verify only appended MACs */
+		/* Due to FW limitation it's done by SW */
 		sessionSetupData.verifyDigest = CPA_FALSE;
 		if (CRYPTO_OP_IS_ENCRYPT(crp->crp_op)) {
 			sessionSetupData.cipherSetupData.cipherDirection =

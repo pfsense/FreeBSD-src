@@ -645,7 +645,6 @@ LacAlgChain_SessionInit(const CpaInstanceHandle instanceHandle,
 				} else {
 					chainOrder =
 					    CPA_CY_SYM_ALG_CHAIN_ORDER_CIPHER_THEN_HASH;
-					pSessionDesc->digestVerify = CPA_TRUE;
 				}
 			} else if (LAC_CIPHER_IS_GCM(cipherAlgorithm)) {
 				pSessionDesc->isAuthEncryptOp = CPA_TRUE;
@@ -668,7 +667,6 @@ LacAlgChain_SessionInit(const CpaInstanceHandle instanceHandle,
 				} else {
 					chainOrder =
 					    CPA_CY_SYM_ALG_CHAIN_ORDER_HASH_THEN_CIPHER;
-					pSessionDesc->digestVerify = CPA_TRUE;
 				}
 			} else if (LAC_CIPHER_IS_CHACHA(cipherAlgorithm)) {
 				pSessionDesc->isAuthEncryptOp = CPA_TRUE;
