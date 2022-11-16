@@ -196,4 +196,7 @@ options 	RATELIMIT		# TX rate limiting support
 # Enable virtio_console
 device		virtio_console	# VirtIO Console device
 
+# Use AESNI as a module
+nodevice	aesni
+
 options 	RSS
