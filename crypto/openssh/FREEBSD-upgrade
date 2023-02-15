@@ -66,17 +66,14 @@
     (leaving them deleted).
 
 10) Resolve conflicts.  Remember to bump the version addendum in
-    version.h, and update the default value in ssh{,d}_config and
-    ssh{,d}_config.5.
+    version.h, and update the default value in sshd_config and
+    sshd_config.5.
 
 11) Diff against the vendor branch:
 
     $ git diff --diff-filter=M vendor/openssh/X.YpZ HEAD:crypto/openssh
 
-    Files that have modifications relative to the vendor code, and
-    only those files, must have the svn:keywords property set to
-    FreeBSD=%H and be listed in the 'keywords' file created by the
-    pre-merge script.
+    Review the diff for any unexpected changes.
 
 12) Run the configure script:
 
@@ -116,10 +113,8 @@
 
       - UsePAM defaults to "yes".
       - PermitRootLogin defaults to "no".
-      - X11Forwarding defaults to "yes".
       - PasswordAuthentication defaults to "no".
       - VersionAddendum defaults to "FreeBSD-YYYYMMDD".
-      - PrivilegeSeparation defaults to "sandbox".
       - UseDNS defaults to "yes".
 
 2) Modified client-side defaults
@@ -128,13 +123,16 @@
 
       - CheckHostIP defaults to "no".
       - VerifyHostKeyDNS defaults to "yes" if built with LDNS.
-      - VersionAddendum defaults to "FreeBSD-YYYYMMDD".
 
 3) Canonic host names
 
    We've added code to ssh.c to canonicize the target host name after
    reading options but before trying to connect.  This eliminates the
    usual problem with duplicate known_hosts entries.
+
+   We added this support in 2002 (r99054 / bf2e2524a2ce).  In 2014
+   upstream introduced CanonicalDomains and related options to serve a
+   similar purpose but they require environment-specific configuration.
 
 4) setusercontext() environment
 
@@ -162,7 +160,17 @@
    upstream submission from
    https://github.com/openssh/openssh-portable/pull/262.
 
-8) Retired patches
+8) Blocklist integration
+
+   We include blocklist (https://github.com/zoulasc/blocklist) in FreeBSD,
+   and ssh is patched to report login failures to it.
+
+9) Paths
+
+   A number of paths are changed to match FreeBSD's configuration (e.g.,
+   using /usr/local/ instead of /uxr/X11R6/).
+
+10) Retired patches
 
    We no longer have HPN patches (adaptive buffer size for increased
    throughput on high-BxD links) or client-side VersionAddendum, but we

@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/dirent.h>
+#include <sys/extattr.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filio.h>
@@ -78,6 +79,8 @@ static volatile int tmpfs_rename_restarts;
 SYSCTL_INT(_vfs_tmpfs, OID_AUTO, rename_restarts, CTLFLAG_RD,
     __DEVOLATILE(int *, &tmpfs_rename_restarts), 0,
     "Times rename had to restart due to lock contention");
+
+MALLOC_DEFINE(M_TMPFSEA, "tmpfs extattr", "tmpfs extattr structure");
 
 static int
 tmpfs_vn_get_ino_alloc(struct mount *mp, void *arg, int lkflags,
@@ -215,11 +218,18 @@ tmpfs_lookup1(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 		cache_enter(dvp, *vpp, cnp);
 
 out:
+#ifdef INVARIANTS
 	/*
 	 * If there were no errors, *vpp cannot be null and it must be
 	 * locked.
 	 */
-	MPASS(IFF(error == 0, *vpp != NULLVP && VOP_ISLOCKED(*vpp)));
+	if (error == 0) {
+		MPASS(*vpp != NULLVP);
+		ASSERT_VOP_LOCKED(*vpp, __func__);
+	} else {
+		MPASS(*vpp == NULL);
+	}
+#endif
 
 	return (error);
 }
@@ -372,24 +382,37 @@ tmpfs_fplookup_vexec(struct vop_fplookup_vexec_args *v)
 	return (vaccess_vexec_smr(mode, node->tn_uid, node->tn_gid, cred));
 }
 
+static int
+tmpfs_access_locked(struct vnode *vp, struct tmpfs_node *node,
+    accmode_t accmode, struct ucred *cred)
+{
+#ifdef DEBUG_VFS_LOCKS
+	if (!mtx_owned(TMPFS_NODE_MTX(node))) {
+		ASSERT_VOP_LOCKED(vp,
+		    "tmpfs_access_locked needs locked vnode or node");
+	}
+#endif
+
+	if ((accmode & VWRITE) != 0 && (node->tn_flags & IMMUTABLE) != 0)
+		return (EPERM);
+	return (vaccess(vp->v_type, node->tn_mode, node->tn_uid, node->tn_gid,
+	    accmode, cred));
+}
+
 int
 tmpfs_access(struct vop_access_args *v)
 {
 	struct vnode *vp = v->a_vp;
-	accmode_t accmode = v->a_accmode;
 	struct ucred *cred = v->a_cred;
+	struct tmpfs_node *node = VP_TO_TMPFS_NODE(vp);
 	mode_t all_x = S_IXUSR | S_IXGRP | S_IXOTH;
-	int error;
-	struct tmpfs_node *node;
-
-	MPASS(VOP_ISLOCKED(vp));
-
-	node = VP_TO_TMPFS_NODE(vp);
+	accmode_t accmode = v->a_accmode;
 
 	/*
 	 * Common case path lookup.
 	 */
-	if (__predict_true(accmode == VEXEC && (node->tn_mode & all_x) == all_x))
+	if (__predict_true(accmode == VEXEC &&
+	    (node->tn_mode & all_x) == all_x))
 		return (0);
 
 	switch (vp->v_type) {
@@ -398,10 +421,9 @@ tmpfs_access(struct vop_access_args *v)
 	case VLNK:
 		/* FALLTHROUGH */
 	case VREG:
-		if (accmode & VWRITE && vp->v_mount->mnt_flag & MNT_RDONLY) {
-			error = EROFS;
-			goto out;
-		}
+		if ((accmode & VWRITE) != 0 &&
+		    (vp->v_mount->mnt_flag & MNT_RDONLY) != 0)
+			return (EROFS);
 		break;
 
 	case VBLK:
@@ -414,22 +436,10 @@ tmpfs_access(struct vop_access_args *v)
 		break;
 
 	default:
-		error = EINVAL;
-		goto out;
+		return (EINVAL);
 	}
 
-	if (accmode & VWRITE && node->tn_flags & IMMUTABLE) {
-		error = EPERM;
-		goto out;
-	}
-
-	error = vaccess(vp->v_type, node->tn_mode, node->tn_uid, node->tn_gid,
-	    accmode, cred);
-
-out:
-	MPASS(VOP_ISLOCKED(vp));
-
-	return (error);
+	return (tmpfs_access_locked(vp, node, accmode, cred));
 }
 
 int
@@ -437,7 +447,6 @@ tmpfs_stat(struct vop_stat_args *v)
 {
 	struct vnode *vp = v->a_vp;
 	struct stat *sb = v->a_sb;
-	vm_object_t obj;
 	struct tmpfs_node *node;
 	int error;
 
@@ -470,10 +479,19 @@ tmpfs_stat(struct vop_stat_args *v)
 	sb->st_flags = node->tn_flags;
 	sb->st_gen = node->tn_gen;
 	if (vp->v_type == VREG) {
-		obj = node->tn_reg.tn_aobj;
-		sb->st_blocks = (u_quad_t)obj->resident_page_count * PAGE_SIZE;
-	} else
+#ifdef __ILP32__
+		vm_object_t obj = node->tn_reg.tn_aobj;
+
+		/* Handle torn read */
+		VM_OBJECT_RLOCK(obj);
+#endif
+		sb->st_blocks = ptoa(node->tn_reg.tn_pages);
+#ifdef __ILP32__
+		VM_OBJECT_RUNLOCK(obj);
+#endif
+	} else {
 		sb->st_blocks = node->tn_size;
+	}
 	sb->st_blocks /= S_BLKSIZE;
 	return (vop_stat_helper_post(v, error));
 }
@@ -483,7 +501,6 @@ tmpfs_getattr(struct vop_getattr_args *v)
 {
 	struct vnode *vp = v->a_vp;
 	struct vattr *vap = v->a_vap;
-	vm_object_t obj;
 	struct tmpfs_node *node;
 
 	node = VP_TO_TMPFS_NODE(vp);
@@ -506,12 +523,20 @@ tmpfs_getattr(struct vop_getattr_args *v)
 	vap->va_gen = node->tn_gen;
 	vap->va_flags = node->tn_flags;
 	vap->va_rdev = (vp->v_type == VBLK || vp->v_type == VCHR) ?
-		node->tn_rdev : NODEV;
+	    node->tn_rdev : NODEV;
 	if (vp->v_type == VREG) {
-		obj = node->tn_reg.tn_aobj;
-		vap->va_bytes = (u_quad_t)obj->resident_page_count * PAGE_SIZE;
-	} else
+#ifdef __ILP32__
+		vm_object_t obj = node->tn_reg.tn_aobj;
+
+		VM_OBJECT_RLOCK(obj);
+#endif
+		vap->va_bytes = ptoa(node->tn_reg.tn_pages);
+#ifdef __ILP32__
+		VM_OBJECT_RUNLOCK(obj);
+#endif
+	} else {
 		vap->va_bytes = node->tn_size;
+	}
 	vap->va_filerev = 0;
 
 	return (0);
@@ -527,7 +552,6 @@ tmpfs_setattr(struct vop_setattr_args *v)
 
 	int error;
 
-	MPASS(VOP_ISLOCKED(vp));
 	ASSERT_VOP_IN_SEQC(vp);
 
 	error = 0;
@@ -569,8 +593,6 @@ tmpfs_setattr(struct vop_setattr_args *v)
 	 * from tmpfs_update.
 	 */
 	tmpfs_update(vp);
-
-	MPASS(VOP_ISLOCKED(vp));
 
 	return (error);
 }
@@ -707,8 +729,6 @@ tmpfs_fsync(struct vop_fsync_args *v)
 {
 	struct vnode *vp = v->a_vp;
 
-	MPASS(VOP_ISLOCKED(vp));
-
 	tmpfs_check_mtime(vp);
 	tmpfs_update(vp);
 
@@ -726,9 +746,6 @@ tmpfs_remove(struct vop_remove_args *v)
 	struct tmpfs_mount *tmp;
 	struct tmpfs_node *dnode;
 	struct tmpfs_node *node;
-
-	MPASS(VOP_ISLOCKED(dvp));
-	MPASS(VOP_ISLOCKED(vp));
 
 	if (vp->v_type == VDIR) {
 		error = EISDIR;
@@ -778,7 +795,6 @@ tmpfs_link(struct vop_link_args *v)
 	struct tmpfs_dirent *de;
 	struct tmpfs_node *node;
 
-	MPASS(VOP_ISLOCKED(dvp));
 	MPASS(dvp != vp); /* XXX When can this be false? */
 	node = VP_TO_TMPFS_NODE(vp);
 
@@ -969,9 +985,6 @@ tmpfs_rename(struct vop_rename_args *v)
 	int error;
 	bool want_seqc_end;
 
-	MPASS(VOP_ISLOCKED(tdvp));
-	MPASS(IMPLIES(tvp != NULL, VOP_ISLOCKED(tvp)));
-
 	want_seqc_end = false;
 
 	/*
@@ -1014,6 +1027,15 @@ tmpfs_rename(struct vop_rename_args *v)
 		}
 	}
 
+	/*
+	 * Avoid manipulating '.' and '..' entries.
+	 */
+	if ((fcnp->cn_flags & ISDOTDOT) != 0 ||
+	    (fcnp->cn_namelen == 1 && fcnp->cn_nameptr[0] == '.')) {
+		error = EINVAL;
+		goto out_locked;
+	}
+
 	if (tvp != NULL)
 		vn_seqc_write_begin(tvp);
 	vn_seqc_write_begin(tdvp);
@@ -1029,8 +1051,7 @@ tmpfs_rename(struct vop_rename_args *v)
 	de = tmpfs_dir_lookup(fdnode, fnode, fcnp);
 
 	/*
-	 * Entry can disappear before we lock fdvp,
-	 * also avoid manipulating '.' and '..' entries.
+	 * Entry can disappear before we lock fdvp.
 	 */
 	if (de == NULL) {
 		if ((fcnp->cn_flags & ISDOTDOT) != 0 ||
@@ -1103,6 +1124,16 @@ tmpfs_rename(struct vop_rename_args *v)
 		if (de->td_node->tn_type == VDIR) {
 			struct tmpfs_node *n;
 
+			TMPFS_NODE_LOCK(fnode);
+			error = tmpfs_access_locked(fvp, fnode, VWRITE,
+			    tcnp->cn_cred);
+			TMPFS_NODE_UNLOCK(fnode);
+			if (error) {
+				if (newname != NULL)
+					free(newname, M_TMPFSNAME);
+				goto out_locked;
+			}
+
 			/*
 			 * Ensure the target directory is not a child of the
 			 * directory being moved.  Otherwise, we'd end up
@@ -1124,7 +1155,7 @@ tmpfs_rename(struct vop_rename_args *v)
 					TMPFS_UNLOCK(tmp);
 					error = EINVAL;
 					if (newname != NULL)
-						    free(newname, M_TMPFSNAME);
+						free(newname, M_TMPFSNAME);
 					goto out_locked;
 				}
 				parent = n->tn_dir.tn_parent;
@@ -1210,6 +1241,10 @@ tmpfs_rename(struct vop_rename_args *v)
 		tde = tmpfs_dir_lookup(tdnode, tnode, tcnp);
 		tmpfs_dir_detach(tdvp, tde);
 
+		/* Update node's ctime because of possible hardlinks. */
+		tnode->tn_status |= TMPFS_NODE_CHANGED;
+		tmpfs_update(tvp);
+
 		/*
 		 * Free the directory entry we just deleted.  Note that the
 		 * node referred by it will not be removed until the vnode is
@@ -1282,9 +1317,6 @@ tmpfs_rmdir(struct vop_rmdir_args *v)
 	struct tmpfs_mount *tmp;
 	struct tmpfs_node *dnode;
 	struct tmpfs_node *node;
-
-	MPASS(VOP_ISLOCKED(dvp));
-	MPASS(VOP_ISLOCKED(vp));
 
 	tmp = VFS_TO_TMPFS(dvp->v_mount);
 	dnode = VP_TO_TMPFS_DIR(dvp);
@@ -1828,6 +1860,215 @@ restart_locked:
 	return (ENOENT);
 }
 
+void
+tmpfs_extattr_free(struct tmpfs_extattr *ea)
+{
+	free(ea->ea_name, M_TMPFSEA);
+	free(ea->ea_value, M_TMPFSEA);
+	free(ea, M_TMPFSEA);
+}
+
+static bool
+tmpfs_extattr_update_mem(struct tmpfs_mount *tmp, ssize_t size)
+{
+	TMPFS_LOCK(tmp);
+	if (size > 0 &&
+	    !tmpfs_pages_check_avail(tmp, howmany(size, PAGE_SIZE))) {
+		TMPFS_UNLOCK(tmp);
+		return (false);
+	}
+	if (tmp->tm_ea_memory_inuse + size > tmp->tm_ea_memory_max) {
+		TMPFS_UNLOCK(tmp);
+		return (false);
+	}
+	tmp->tm_ea_memory_inuse += size;
+	TMPFS_UNLOCK(tmp);
+	return (true);
+}
+
+static int
+tmpfs_deleteextattr(struct vop_deleteextattr_args *ap)
+{
+	struct vnode *vp = ap->a_vp;
+	struct tmpfs_mount *tmp;
+	struct tmpfs_node *node;
+	struct tmpfs_extattr *ea;
+	size_t namelen;
+	ssize_t diff;
+	int error;
+
+	node = VP_TO_TMPFS_NODE(vp);
+	tmp = VFS_TO_TMPFS(vp->v_mount);
+	if (ap->a_vp->v_type == VCHR || ap->a_vp->v_type == VBLK)
+		return (EOPNOTSUPP);
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, ap->a_td, VWRITE);
+	if (error != 0)
+		return (error);
+	if (ap->a_name == NULL || ap->a_name[0] == '\0')
+		return (EINVAL);
+	namelen = strlen(ap->a_name);
+	if (namelen > EXTATTR_MAXNAMELEN)
+		return (EINVAL);
+
+	LIST_FOREACH(ea, &node->tn_extattrs, ea_extattrs) {
+		if (ea->ea_namespace == ap->a_attrnamespace &&
+		    namelen == ea->ea_namelen &&
+		    memcmp(ap->a_name, ea->ea_name, namelen) == 0)
+			break;
+	}
+
+	if (ea == NULL)
+		return (ENOATTR);
+	LIST_REMOVE(ea, ea_extattrs);
+	diff = -(sizeof(struct tmpfs_extattr) + namelen + ea->ea_size);
+	tmpfs_extattr_update_mem(tmp, diff);
+	tmpfs_extattr_free(ea);
+	return (0);
+}
+
+static int
+tmpfs_getextattr(struct vop_getextattr_args *ap)
+{
+	struct vnode *vp = ap->a_vp;
+	struct tmpfs_node *node;
+	struct tmpfs_extattr *ea;
+	size_t namelen;
+	int error;
+
+	node = VP_TO_TMPFS_NODE(vp);
+	if (ap->a_vp->v_type == VCHR || ap->a_vp->v_type == VBLK)
+		return (EOPNOTSUPP);
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, ap->a_td, VREAD);
+	if (error != 0)
+		return (error);
+	if (ap->a_name == NULL || ap->a_name[0] == '\0')
+		return (EINVAL);
+	namelen = strlen(ap->a_name);
+	if (namelen > EXTATTR_MAXNAMELEN)
+		return (EINVAL);
+
+	LIST_FOREACH(ea, &node->tn_extattrs, ea_extattrs) {
+		if (ea->ea_namespace == ap->a_attrnamespace &&
+		    namelen == ea->ea_namelen &&
+		    memcmp(ap->a_name, ea->ea_name, namelen) == 0)
+			break;
+	}
+
+	if (ea == NULL)
+		return (ENOATTR);
+	if (ap->a_size != NULL)
+		*ap->a_size = ea->ea_size;
+	if (ap->a_uio != NULL && ea->ea_size != 0)
+		error = uiomove(ea->ea_value, ea->ea_size, ap->a_uio);
+	return (error);
+}
+
+static int
+tmpfs_listextattr(struct vop_listextattr_args *ap)
+{
+	struct vnode *vp = ap->a_vp;
+	struct tmpfs_node *node;
+	struct tmpfs_extattr *ea;
+	int error;
+
+	node = VP_TO_TMPFS_NODE(vp);
+	if (ap->a_vp->v_type == VCHR || ap->a_vp->v_type == VBLK)
+		return (EOPNOTSUPP);
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, ap->a_td, VREAD);
+	if (error != 0)
+		return (error);
+	if (ap->a_size != NULL)
+		*ap->a_size = 0;
+
+	LIST_FOREACH(ea, &node->tn_extattrs, ea_extattrs) {
+		if (ea->ea_namespace != ap->a_attrnamespace)
+			continue;
+		if (ap->a_size != NULL)
+			*ap->a_size += ea->ea_namelen + 1;
+		if (ap->a_uio != NULL) {
+			error = uiomove(&ea->ea_namelen, 1, ap->a_uio);
+			if (error != 0)
+				break;
+			error = uiomove(ea->ea_name, ea->ea_namelen, ap->a_uio);
+			if (error != 0)
+				break;
+		}
+	}
+
+	return (error);
+}
+
+static int
+tmpfs_setextattr(struct vop_setextattr_args *ap)
+{
+	struct vnode *vp = ap->a_vp;
+	struct tmpfs_mount *tmp;
+	struct tmpfs_node *node;
+	struct tmpfs_extattr *ea;
+	struct tmpfs_extattr *new_ea;
+	size_t attr_size;
+	size_t namelen;
+	ssize_t diff;
+	int error;
+
+	node = VP_TO_TMPFS_NODE(vp);
+	tmp = VFS_TO_TMPFS(vp->v_mount);
+	attr_size = ap->a_uio->uio_resid;
+	diff = 0;
+	if (ap->a_vp->v_type == VCHR || ap->a_vp->v_type == VBLK)
+		return (EOPNOTSUPP);
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, ap->a_td, VWRITE);
+	if (error != 0)
+		return (error);
+	if (ap->a_name == NULL || ap->a_name[0] == '\0')
+		return (EINVAL);
+	namelen = strlen(ap->a_name);
+	if (namelen > EXTATTR_MAXNAMELEN)
+		return (EINVAL);
+
+	LIST_FOREACH(ea, &node->tn_extattrs, ea_extattrs) {
+		if (ea->ea_namespace == ap->a_attrnamespace &&
+		    namelen == ea->ea_namelen &&
+		    memcmp(ap->a_name, ea->ea_name, namelen) == 0) {
+			diff -= sizeof(struct tmpfs_extattr) + ea->ea_namelen +
+			    ea->ea_size;
+			break;
+		}
+	}
+
+	diff += sizeof(struct tmpfs_extattr) + namelen + attr_size;
+	if (!tmpfs_extattr_update_mem(tmp, diff))
+		return (ENOSPC);
+	new_ea = malloc(sizeof(struct tmpfs_extattr), M_TMPFSEA, M_WAITOK);
+	new_ea->ea_namespace = ap->a_attrnamespace;
+	new_ea->ea_name = malloc(namelen, M_TMPFSEA, M_WAITOK);
+	new_ea->ea_namelen = namelen;
+	memcpy(new_ea->ea_name, ap->a_name, namelen);
+	if (attr_size != 0) {
+		new_ea->ea_value = malloc(attr_size, M_TMPFSEA, M_WAITOK);
+		new_ea->ea_size = attr_size;
+		error = uiomove(new_ea->ea_value, attr_size, ap->a_uio);
+	} else {
+		new_ea->ea_value = NULL;
+		new_ea->ea_size = 0;
+	}
+	if (error != 0) {
+		tmpfs_extattr_update_mem(tmp, -diff);
+		tmpfs_extattr_free(new_ea);
+		return (error);
+	}
+	if (ea != NULL) {
+		LIST_REMOVE(ea, ea_extattrs);
+		tmpfs_extattr_free(ea);
+	}
+	LIST_INSERT_HEAD(&node->tn_extattrs, new_ea, ea_extattrs);
+	return (0);
+}
+
 static off_t
 tmpfs_seek_data_locked(vm_object_t obj, off_t noff)
 {
@@ -1995,6 +2236,10 @@ struct vop_vector tmpfs_vnodeop_entries = {
 	.vop_lock1 =			vop_lock,
 	.vop_unlock = 			vop_unlock,
 	.vop_islocked = 		vop_islocked,
+	.vop_deleteextattr =		tmpfs_deleteextattr,
+	.vop_getextattr =		tmpfs_getextattr,
+	.vop_listextattr =		tmpfs_listextattr,
+	.vop_setextattr =		tmpfs_setextattr,
 	.vop_add_writecount =		vop_stdadd_writecount_nomsync,
 	.vop_ioctl =			tmpfs_ioctl,
 };

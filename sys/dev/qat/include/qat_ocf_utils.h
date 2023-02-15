@@ -48,8 +48,7 @@ is_use_sep_digest(const struct crypto_session_params *csp)
 	 * including GMAC. ETA and AEAD use separated digest
 	 * due to FW limitation to specify offset to digest
 	 * appended to pay-load buffer. */
-	if (CSP_MODE_DIGEST == csp->csp_mode ||
-	    CSP_MODE_ETA == csp->csp_mode ||
+	if (CSP_MODE_DIGEST == csp->csp_mode || CSP_MODE_ETA == csp->csp_mode ||
 	    CSP_MODE_AEAD == csp->csp_mode)
 		return CPA_TRUE;
 

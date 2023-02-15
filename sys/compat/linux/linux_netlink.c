@@ -27,13 +27,17 @@
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
+
 #include "opt_inet.h"
 #include "opt_inet6.h"
+
 #include <sys/types.h>
+#include <sys/ck.h>
+#include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/rmlock.h>
 #include <sys/socket.h>
-#include <sys/ck.h>
+#include <sys/vnode.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -561,13 +565,13 @@ static struct linux_netlink_provider linux_netlink_v1 = {
 };
 
 void
-linux_netlink_register()
+linux_netlink_register(void)
 {
 	linux_netlink_p = &linux_netlink_v1;
 }
 
 void
-linux_netlink_deregister()
+linux_netlink_deregister(void)
 {
 	linux_netlink_p = NULL;
 }

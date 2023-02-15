@@ -67,7 +67,6 @@ static const char sccsid[] = "@(#)w.c	8.4 (Berkeley) 4/16/94";
 #include <arpa/nameser.h>
 
 #include <ctype.h>
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <kvm.h>
@@ -189,7 +188,7 @@ main(int argc, char *argv[])
 			nflag += 1;
 			break;
 		case 'f': case 'l': case 's': case 'u': case 'w':
-			warnx("-%c no longer supported", ch);
+			xo_warnx("-%c no longer supported", ch);
 			/* FALLTHROUGH */
 		case '?':
 		default:
@@ -204,7 +203,7 @@ main(int argc, char *argv[])
 	_res.retry = 1;		/* only try once.. */
 
 	if ((kd = kvm_openfiles(nlistf, memf, NULL, O_RDONLY, errbuf)) == NULL)
-		errx(1, "%s", errbuf);
+		xo_errx(1, "%s", errbuf);
 
 	(void)time(&now);
 
@@ -239,7 +238,7 @@ main(int argc, char *argv[])
 				continue;
 		}
 		if ((ep = calloc(1, sizeof(struct entry))) == NULL)
-			errx(1, "calloc");
+			xo_errx(1, "calloc");
 		*nextp = ep;
 		nextp = &ep->next;
 		memmove(&ep->utmp, utmp, sizeof *utmp);
@@ -338,7 +337,8 @@ main(int argc, char *argv[])
 		pr_header(&now, nusers);
 		if (wcmd == 0) {
 			xo_close_container("uptime-information");
-			xo_finish();
+			if (xo_finish() < 0)
+				xo_err(1, "stdout");
 			(void)kvm_close(kd);
 			exit(0);
 		}
@@ -351,7 +351,7 @@ main(int argc, char *argv[])
 	}
 
 	if ((kp = kvm_getprocs(kd, KERN_PROC_ALL, 0, &nentries)) == NULL)
-		err(1, "%s", kvm_geterr(kd));
+		xo_err(1, "%s", kvm_geterr(kd));
 	for (i = 0; i < nentries; i++, kp++) {
 		if (kp->ki_stat == SIDL || kp->ki_stat == SZOMB ||
 		    kp->ki_tdev == NODEV)
@@ -400,7 +400,7 @@ main(int argc, char *argv[])
 		ep->args = fmt_argv(kvm_getargv(kd, ep->kp, argwidth),
 		    ep->kp->ki_comm, NULL, MAXCOMLEN);
 		if (ep->args == NULL)
-			err(1, NULL);
+			xo_err(1, "fmt_argv");
 	}
 	/* sort by idle time */
 	if (sortidle && ehead != NULL) {
@@ -472,7 +472,8 @@ main(int argc, char *argv[])
 	xo_close_list("user-entry");
 	xo_close_container("user-table");
 	xo_close_container("uptime-information");
-	xo_finish();
+	if (xo_finish() < 0)
+		xo_err(1, "stdout");
 
 	(void)kvm_close(kd);
 	exit(0);
@@ -481,14 +482,13 @@ main(int argc, char *argv[])
 static void
 pr_header(time_t *nowp, int nusers)
 {
+	char buf[64];
+	struct sbuf upbuf;
 	double avenrun[3];
-	time_t uptime;
 	struct timespec tp;
-	int days, hrs, i, mins, secs;
-	char buf[256];
-	struct sbuf *upbuf;
+	unsigned long days, hrs, mins, secs;
+	unsigned int i;
 
-	upbuf = sbuf_new_auto();
 	/*
 	 * Print time of day.
 	 */
@@ -498,39 +498,49 @@ pr_header(time_t *nowp, int nusers)
 	/*
 	 * Print how long system has been up.
 	 */
+	(void)sbuf_new(&upbuf, buf, sizeof(buf), SBUF_FIXEDLEN);
 	if (clock_gettime(CLOCK_UPTIME, &tp) != -1) {
-		uptime = tp.tv_sec;
-		if (uptime > 60)
-			uptime += 30;
-		days = uptime / 86400;
-		uptime %= 86400;
-		hrs = uptime / 3600;
-		uptime %= 3600;
-		mins = uptime / 60;
-		secs = uptime % 60;
 		xo_emit(" up");
-		xo_emit("{e:uptime/%lu}", (unsigned long)tp.tv_sec);
-		xo_emit("{e:days/%d}{e:hours/%d}{e:minutes/%d}{e:seconds/%d}",
+		secs = tp.tv_sec;
+		xo_emit("{e:uptime/%lu}", secs);
+		mins = secs / 60;
+		secs %= 60;
+		hrs = mins / 60;
+		mins %= 60;
+		days = hrs / 24;
+		hrs %= 24;
+		xo_emit("{e:days/%ld}{e:hours/%ld}{e:minutes/%ld}{e:seconds/%ld}",
 		    days, hrs, mins, secs);
 
+		/* If we've been up longer than 60 s, round to nearest min */
+		if (tp.tv_sec > 60) {
+			secs = tp.tv_sec + 30;
+			mins = secs / 60;
+			secs = 0;
+			hrs = mins / 60;
+			mins %= 60;
+			days = hrs / 24;
+			hrs %= 24;
+		}
+
 		if (days > 0)
-			sbuf_printf(upbuf, " %d day%s,",
+			sbuf_printf(&upbuf, " %ld day%s,",
 				days, days > 1 ? "s" : "");
 		if (hrs > 0 && mins > 0)
-			sbuf_printf(upbuf, " %2d:%02d,", hrs, mins);
+			sbuf_printf(&upbuf, " %2ld:%02ld,", hrs, mins);
 		else if (hrs > 0)
-			sbuf_printf(upbuf, " %d hr%s,",
+			sbuf_printf(&upbuf, " %ld hr%s,",
 				hrs, hrs > 1 ? "s" : "");
 		else if (mins > 0)
-			sbuf_printf(upbuf, " %d min%s,",
+			sbuf_printf(&upbuf, " %ld min%s,",
 				mins, mins > 1 ? "s" : "");
 		else
-			sbuf_printf(upbuf, " %d sec%s,",
+			sbuf_printf(&upbuf, " %ld sec%s,",
 				secs, secs > 1 ? "s" : "");
-		if (sbuf_finish(upbuf) != 0)
+		if (sbuf_finish(&upbuf) != 0)
 			xo_err(1, "Could not generate output");
-		xo_emit("{:uptime-human/%s}", sbuf_data(upbuf));
-		sbuf_delete(upbuf);
+		xo_emit("{:uptime-human/%s}", sbuf_data(&upbuf));
+		sbuf_delete(&upbuf);
 	}
 
 	/* Print number of users logged in to system */
@@ -548,7 +558,7 @@ pr_header(time_t *nowp, int nusers)
 		    " {:load-average-15/%.2f}",
 		};
 		xo_emit(", load averages:");
-		for (i = 0; i < (int)(nitems(avenrun)); i++) {
+		for (i = 0; i < nitems(avenrun); i++) {
 			if (use_comma && i > 0)
 				xo_emit(",");
 			xo_emit(format[i], avenrun[i]);

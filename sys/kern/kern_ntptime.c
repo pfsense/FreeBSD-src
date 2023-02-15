@@ -653,8 +653,7 @@ ntp_update_second(int64_t *adjustment, time_t *newsec)
  * is selected by the STA_MODE status bit.
  */
 static void
-hardupdate(offset)
-	long offset;		/* clock offset (ns) */
+hardupdate(long offset /* clock offset (ns) */)
 {
 	long mtemp;
 	l_fp ftemp;
@@ -733,11 +732,11 @@ hardupdate(offset)
  * variables, except for the actual time and frequency variables, which
  * are determined by this routine and updated atomically.
  *
- * tsp  - time at PPS
- * nsec - hardware counter at PPS
+ * tsp  - time at current PPS event
+ * delta_nsec - time elapsed between the previous and current PPS event
  */
 void
-hardpps(struct timespec *tsp, long nsec)
+hardpps(struct timespec *tsp, long delta_nsec)
 {
 	long u_sec, u_nsec, v_nsec; /* temps */
 	l_fp ftemp;
@@ -774,12 +773,9 @@ hardpps(struct timespec *tsp, long nsec)
 	/*
 	 * Compute the difference between the current and previous
 	 * counter values. If the difference exceeds 0.5 s, assume it
-	 * has wrapped around, so correct 1.0 s. If the result exceeds
-	 * the tick interval, the sample point has crossed a tick
-	 * boundary during the last second, so correct the tick. Very
-	 * intricate.
+	 * has wrapped around, so correct 1.0 s.
 	 */
-	u_nsec = nsec;
+	u_nsec = delta_nsec;
 	if (u_nsec > (NANOSECOND >> 1))
 		u_nsec -= NANOSECOND;
 	else if (u_nsec < -(NANOSECOND >> 1))

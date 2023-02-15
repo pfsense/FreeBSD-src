@@ -62,6 +62,8 @@
         ..
         test
         ..
+        timeout
+        ..
     ..
     cddl
         lib
@@ -264,6 +266,8 @@
     etc
         rc.d
         ..
+    ..
+    examples
     ..
     games
     ..
@@ -755,6 +759,8 @@
         fs
             fusefs
             ..
+            tarfs
+            ..
             tmpfs
             ..
         ..
@@ -826,10 +832,14 @@
             tunnel
             ..
         ..
+        netlink
+        ..
         netmap
         ..
         netpfil
             common
+            ..
+            ipfw
             ..
             pf
                 ioctl
@@ -1060,6 +1070,8 @@
         ..
         mkimg
         ..
+        mktemp
+        ..
         ncal
         ..
         opensm
@@ -1096,8 +1108,6 @@
         ..
         tar
         ..
-        timeout
-        ..
         tr
         ..
         truncate
@@ -1109,6 +1119,8 @@
         uniq
         ..
         vmstat
+        ..
+        wc
         ..
         xargs
         ..

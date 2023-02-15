@@ -29,6 +29,9 @@
 #include "icp_adf_accel_mgr.h"
 #include "lac_sal_types.h"
 
+/* To disable AEAD HW MAC verification */
+#include "icp_sal_user.h"
+
 /* QAT OCF specific headers */
 #include "qat_ocf_mem_pool.h"
 #include "qat_ocf_utils.h"
@@ -1068,6 +1071,15 @@ qat_ocf_start_instances(struct qat_ocf_softc *qat_softc, device_t dev)
 			goto fail;
 		}
 
+		/* Disable forcing HW MAC validation for AEAD */
+		status = icp_sal_setForceAEADMACVerify(cyInstHandle, CPA_FALSE);
+		if (CPA_STATUS_SUCCESS != status) {
+			device_printf(
+			    qat_softc->sc_dev,
+			    "unable to disable AEAD HW MAC verification\n");
+			goto fail;
+		}
+
 		qat_ocf_instance->driver_id = qat_softc->cryptodev_id;
 
 		startedInstances++;
@@ -1204,6 +1216,7 @@ MODULE_DEPEND(qat, qat_200xx, 1, 1, 1);
 MODULE_DEPEND(qat, qat_c3xxx, 1, 1, 1);
 MODULE_DEPEND(qat, qat_c4xxx, 1, 1, 1);
 MODULE_DEPEND(qat, qat_dh895xcc, 1, 1, 1);
+MODULE_DEPEND(qat, qat_4xxx, 1, 1, 1);
 MODULE_DEPEND(qat, crypto, 1, 1, 1);
 MODULE_DEPEND(qat, qat_common, 1, 1, 1);
 MODULE_DEPEND(qat, qat_api, 1, 1, 1);

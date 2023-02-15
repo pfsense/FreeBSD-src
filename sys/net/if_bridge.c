@@ -110,6 +110,7 @@ __FBSDID("$FreeBSD$");
 #include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/if_var.h>
+#include <net/if_private.h>
 #include <net/pfil.h>
 #include <net/vnet.h>
 
@@ -477,7 +478,7 @@ struct bridge_control {
 #define	BC_F_COPYOUT		0x02	/* copy arguments out */
 #define	BC_F_SUSER		0x04	/* do super-user check */
 
-const struct bridge_control bridge_control_table[] = {
+static const struct bridge_control bridge_control_table[] = {
 	{ bridge_ioctl_add,		sizeof(struct ifbreq),
 	  BC_F_COPYIN|BC_F_SUSER },
 	{ bridge_ioctl_del,		sizeof(struct ifbreq),
@@ -562,7 +563,7 @@ const struct bridge_control bridge_control_table[] = {
 	  BC_F_COPYIN|BC_F_SUSER },
 
 };
-const int bridge_control_table_size = nitems(bridge_control_table);
+static const int bridge_control_table_size = nitems(bridge_control_table);
 
 VNET_DEFINE_STATIC(LIST_HEAD(, bridge_softc), bridge_list);
 #define	V_bridge_list	VNET(bridge_list)
@@ -2062,8 +2063,13 @@ bridge_enqueue(struct bridge_softc *sc, struct ifnet *dst_ifp, struct mbuf *m)
 
 		M_ASSERTPKTHDR(m); /* We shouldn't transmit mbuf without pkthdr */
 		if ((err = dst_ifp->if_transmit(dst_ifp, m))) {
-			m_freem(m0);
-			if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, 1);
+			int n;
+
+			for (m = m0, n = 1; m != NULL; m = m0, n++) {
+				m0 = m->m_nextpkt;
+				m_freem(m);
+			}
+			if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, n);
 			break;
 		}
 
@@ -3359,7 +3365,7 @@ bridge_pfil(struct mbuf **mp, struct ifnet *bifp, struct ifnet *ifp, int dir)
 	/* Run the packet through pfil before stripping link headers */
 	if (PFIL_HOOKED_OUT(V_link_pfil_head) && V_pfil_ipfw != 0 &&
 	    dir == PFIL_OUT && ifp != NULL) {
-		switch (pfil_run_hooks(V_link_pfil_head, mp, ifp, dir, NULL)) {
+		switch (pfil_mbuf_out(V_link_pfil_head, mp, ifp, NULL)) {
 		case PFIL_DROPPED:
 			return (EACCES);
 		case PFIL_CONSUMED:
@@ -3413,17 +3419,20 @@ bridge_pfil(struct mbuf **mp, struct ifnet *bifp, struct ifnet *ifp, int dir)
 		 *   in_if -> bridge_if -> out_if
 		 */
 		if (V_pfil_bridge && dir == PFIL_OUT && bifp != NULL && (rv =
-		    pfil_run_hooks(V_inet_pfil_head, mp, bifp, dir, NULL)) !=
+		    pfil_mbuf_out(V_inet_pfil_head, mp, bifp, NULL)) !=
 		    PFIL_PASS)
 			break;
 
-		if (V_pfil_member && ifp != NULL && (rv =
-		    pfil_run_hooks(V_inet_pfil_head, mp, ifp, dir, NULL)) !=
-		    PFIL_PASS)
-			break;
+		if (V_pfil_member && ifp != NULL) {
+			rv = (dir == PFIL_OUT) ?
+			    pfil_mbuf_out(V_inet_pfil_head, mp, ifp, NULL) :
+			    pfil_mbuf_in(V_inet_pfil_head, mp, ifp, NULL);
+			if (rv != PFIL_PASS)
+				break;
+		}
 
 		if (V_pfil_bridge && dir == PFIL_IN && bifp != NULL && (rv =
-		    pfil_run_hooks(V_inet_pfil_head, mp, bifp, dir, NULL)) !=
+		    pfil_mbuf_in(V_inet_pfil_head, mp, bifp, NULL)) !=
 		    PFIL_PASS)
 			break;
 
@@ -3461,17 +3470,20 @@ bridge_pfil(struct mbuf **mp, struct ifnet *bifp, struct ifnet *ifp, int dir)
 #ifdef INET6
 	case ETHERTYPE_IPV6:
 		if (V_pfil_bridge && dir == PFIL_OUT && bifp != NULL && (rv =
-		    pfil_run_hooks(V_inet6_pfil_head, mp, bifp, dir, NULL)) !=
+		    pfil_mbuf_out(V_inet6_pfil_head, mp, bifp, NULL)) !=
 		    PFIL_PASS)
 			break;
 
-		if (V_pfil_member && ifp != NULL && (rv =
-		    pfil_run_hooks(V_inet6_pfil_head, mp, ifp, dir, NULL)) !=
-		    PFIL_PASS)
-			break;
+		if (V_pfil_member && ifp != NULL) {
+			rv = (dir == PFIL_OUT) ?
+			    pfil_mbuf_out(V_inet6_pfil_head, mp, ifp, NULL) :
+			    pfil_mbuf_in(V_inet6_pfil_head, mp, ifp, NULL);
+			if (rv != PFIL_PASS)
+				break;
+		}
 
 		if (V_pfil_bridge && dir == PFIL_IN && bifp != NULL && (rv =
-		    pfil_run_hooks(V_inet6_pfil_head, mp, bifp, dir, NULL)) !=
+		    pfil_mbuf_in(V_inet6_pfil_head, mp, bifp, NULL)) !=
 		    PFIL_PASS)
 			break;
 		break;

@@ -78,6 +78,25 @@ nlmsg_report_err_offset(struct nl_pstate *npt, uint32_t off)
 	return (true);
 }
 
+void
+nlmsg_report_cookie(struct nl_pstate *npt, struct nlattr *nla)
+{
+	MPASS(nla->nla_type == NLMSGERR_ATTR_COOKIE);
+	MPASS(nla->nla_len >= sizeof(struct nlattr));
+	npt->cookie = nla;
+}
+
+void
+nlmsg_report_cookie_u32(struct nl_pstate *npt, uint32_t val)
+{
+	struct nlattr *nla = npt_alloc(npt, sizeof(*nla) + sizeof(uint32_t));
+
+	nla->nla_type = NLMSGERR_ATTR_COOKIE;
+	nla->nla_len = sizeof(*nla) + sizeof(uint32_t);
+	memcpy(nla + 1, &val, sizeof(uint32_t));
+	nlmsg_report_cookie(npt, nla);
+}
+
 static const struct nlattr_parser *
 search_states(const struct nlattr_parser *ps, int pslen, int key)
 {
@@ -147,15 +166,31 @@ nl_parse_attrs_raw(struct nlattr *nla_head, int len, const struct nlattr_parser 
 	return (0);
 }
 
-int
-nl_parse_attrs(struct nlmsghdr *hdr, int hdrlen, struct nlattr_parser *ps, int pslen,
-    struct nl_pstate *npt, void *target)
+void
+nl_get_attrs_bmask_raw(struct nlattr *nla_head, int len, struct nlattr_bmask *bm)
 {
-	int off = NLMSG_HDRLEN + NETLINK_ALIGN(hdrlen);
-	int len = hdr->nlmsg_len - off;
-	struct nlattr *nla_head = (struct nlattr *)((char *)hdr + off);
+	struct nlattr *nla = NULL;
 
-	return (nl_parse_attrs_raw(nla_head, len, ps, pslen, npt, target));
+	BIT_ZERO(NL_ATTR_BMASK_SIZE, bm);
+
+	NLA_FOREACH(nla, nla_head, len) {
+		if (nla->nla_len < sizeof(struct nlattr))
+			return;
+		int nla_type = nla->nla_type & NLA_TYPE_MASK;
+		if (nla_type < NL_ATTR_BMASK_SIZE)
+			BIT_SET(NL_ATTR_BMASK_SIZE, nla_type, bm);
+		else
+			NL_LOG(LOG_DEBUG2, "Skipping type %d in the mask: too short",
+			    nla_type);
+	}
+}
+
+bool
+nl_has_attr(const struct nlattr_bmask *bm, unsigned int nla_type)
+{
+	MPASS(nla_type < NL_ATTR_BMASK_SIZE);
+
+	return (BIT_ISSET(NL_ATTR_BMASK_SIZE, nla_type, bm));
 }
 
 int

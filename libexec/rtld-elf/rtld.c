@@ -269,7 +269,7 @@ static int osreldate;
 size_t *pagesizes;
 size_t page_size;
 
-static int stack_prot = PROT_READ | PROT_WRITE | RTLD_DEFAULT_STACK_EXEC;
+static int stack_prot = PROT_READ | PROT_WRITE | PROT_EXEC;
 static int max_stack_flags;
 
 /*
@@ -1200,6 +1200,8 @@ static const struct {
 	{ .kw = "${OSREL}", .pass_obj = false, .subst = uts.release },
 	{ .kw = "$PLATFORM", .pass_obj = false, .subst = uts.machine },
 	{ .kw = "${PLATFORM}", .pass_obj = false, .subst = uts.machine },
+	{ .kw = "$LIB", .pass_obj = false, .subst = TOKEN_LIB },
+	{ .kw = "${LIB}", .pass_obj = false, .subst = TOKEN_LIB },
 };
 
 static char *

@@ -98,7 +98,8 @@ sysctl_hw_machine(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_hw, HW_MACHINE, machine, CTLTYPE_STRING | CTLFLAG_RD |
-	CTLFLAG_MPSAFE, NULL, 0, sysctl_hw_machine, "A", "Machine class");
+	 CTLFLAG_CAPRD | CTLFLAG_MPSAFE, NULL, 0, sysctl_hw_machine, "A",
+	 "Machine class");
 
 static char cpu_model[64];
 SYSCTL_STRING(_hw, HW_MODEL, model, CTLFLAG_RD,
@@ -199,6 +200,7 @@ static const struct cpu_parts cpu_parts_arm[] = {
 	{ CPU_PART_NEOVERSE_N1, "Neoverse-N1" },
 	{ CPU_PART_NEOVERSE_N2, "Neoverse-N2" },
 	{ CPU_PART_NEOVERSE_V1, "Neoverse-V1" },
+	{ CPU_PART_NEOVERSE_V2, "Neoverse-V2" },
 	CPU_PART_NONE,
 };
 
@@ -212,6 +214,13 @@ static const struct cpu_parts cpu_parts_cavium[] = {
 /* APM / Ampere */
 static const struct cpu_parts cpu_parts_apm[] = {
 	{ CPU_PART_EMAG8180, "eMAG 8180" },
+	CPU_PART_NONE,
+};
+
+/* Qualcomm */
+static const struct cpu_parts cpu_parts_qcom[] = {
+	{ CPU_PART_KRYO400_GOLD, "Kryo 400 Gold" },
+	{ CPU_PART_KRYO400_SILVER, "Kryo 400 Silver" },
 	CPU_PART_NONE,
 };
 
@@ -237,7 +246,7 @@ const struct cpu_implementers cpu_implementers[] = {
 	{ CPU_IMPL_INTEL,	"Intel",	cpu_parts_none },
 	{ CPU_IMPL_MARVELL,	"Marvell",	cpu_parts_none },
 	{ CPU_IMPL_NVIDIA,	"NVIDIA",	cpu_parts_none },
-	{ CPU_IMPL_QUALCOMM,	"Qualcomm",	cpu_parts_none },
+	{ CPU_IMPL_QUALCOMM,	"Qualcomm",	cpu_parts_qcom },
 	CPU_IMPLEMENTER_NONE,
 };
 

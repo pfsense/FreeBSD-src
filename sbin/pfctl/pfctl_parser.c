@@ -622,6 +622,8 @@ print_status(struct pfctl_status *s, struct pfctl_syncookies *cookies, int opts)
 		assert(cookies->mode <= PFCTL_SYNCOOKIES_ADAPTIVE);
 		printf("  %-25s %s\n", "mode",
 		    PFCTL_SYNCOOKIES_MODE_NAMES[cookies->mode]);
+		printf("  %-25s %s\n", "active",
+		    s->syncookies_active ? "active" : "inactive");
 	}
 }
 
@@ -1129,7 +1131,8 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 		if (r->rule_flag & PFRULE_REASSEMBLE_TCP)
 			printf(" reassemble tcp");
 
-		printf(" fragment reassemble");
+		printf(" fragment %sreassemble",
+		    r->rule_flag & PFRULE_FRAGMENT_NOREASS ? "no " : "");
 	}
 	i = 0;
 	while (r->label[i][0])

@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 
 #include <net/if.h>
 #include <net/if_var.h>
+#include <net/if_private.h>
 #include <net/if_types.h>
 #include <net/if_media.h>
 #include <net/bpf.h>
@@ -801,7 +802,7 @@ static int
 iflib_netmap_register(struct netmap_adapter *na, int onoff)
 {
 	if_t ifp = na->ifp;
-	if_ctx_t ctx = ifp->if_softc;
+	if_ctx_t ctx = if_getsoftc(ifp);
 	int status;
 
 	CTX_LOCK(ctx);
@@ -826,7 +827,7 @@ iflib_netmap_register(struct netmap_adapter *na, int onoff)
 
 	iflib_init_locked(ctx);
 	IFDI_CRCSTRIP_SET(ctx, onoff, iflib_crcstrip); // XXX why twice ?
-	status = ifp->if_drv_flags & IFF_DRV_RUNNING ? 0 : 1;
+	status = if_getdrvflags(ifp) & IFF_DRV_RUNNING ? 0 : 1;
 	if (status)
 		nm_clear_native_flags(na);
 	CTX_UNLOCK(ctx);
@@ -837,7 +838,7 @@ static int
 iflib_netmap_config(struct netmap_adapter *na, struct nm_config_info *info)
 {
 	if_t ifp = na->ifp;
-	if_ctx_t ctx = ifp->if_softc;
+	if_ctx_t ctx = if_getsoftc(ifp);
 	iflib_rxq_t rxq = &ctx->ifc_rxqs[0];
 	iflib_fl_t fl = &rxq->ifr_fl[0];
 
@@ -1002,7 +1003,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 	 */
 	u_int report_frequency = kring->nkr_num_slots >> 1;
 	/* device-specific */
-	if_ctx_t ctx = ifp->if_softc;
+	if_ctx_t ctx = if_getsoftc(ifp);
 	iflib_txq_t txq = &ctx->ifc_txqs[kring->ring_id];
 
 	bus_dmamap_sync(txq->ift_ifdi->idi_tag, txq->ift_ifdi->idi_map,
@@ -1174,7 +1175,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 	int force_update = (flags & NAF_FORCE_READ) || kring->nr_kflags & NKR_PENDINTR;
 	int i = 0, rx_bytes = 0, rx_pkts = 0;
 
-	if_ctx_t ctx = ifp->if_softc;
+	if_ctx_t ctx = if_getsoftc(ifp);
 	if_shared_ctx_t sctx = ctx->ifc_sctx;
 	if_softc_ctx_t scctx = &ctx->ifc_softc_ctx;
 	iflib_rxq_t rxq = &ctx->ifc_rxqs[kring->ring_id];
@@ -1293,7 +1294,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 static void
 iflib_netmap_intr(struct netmap_adapter *na, int onoff)
 {
-	if_ctx_t ctx = na->ifp->if_softc;
+	if_ctx_t ctx = if_getsoftc(na->ifp);
 
 	CTX_LOCK(ctx);
 	if (onoff) {
@@ -2643,8 +2644,9 @@ iflib_stop(if_ctx_t ctx)
 			bzero((void *)di->idi_vaddr, di->idi_size);
 	}
 	for (i = 0; i < scctx->isc_nrxqsets; i++, rxq++) {
-		gtaskqueue_drain(rxq->ifr_task.gt_taskqueue,
-		    &rxq->ifr_task.gt_task);
+		if (rxq->ifr_task.gt_taskqueue != NULL)
+			gtaskqueue_drain(rxq->ifr_task.gt_taskqueue,
+				 &rxq->ifr_task.gt_task);
 
 		rxq->ifr_cq_cidx = 0;
 		for (j = 0, di = rxq->ifr_ifdi; j < sctx->isc_nrxqs; j++, di++)
@@ -2730,8 +2732,7 @@ rxd_frag_to_sd(iflib_rxq_t rxq, if_rxd_frag_t irf, bool unload, if_rxsd_t sd,
 		payload  = *sd->ifsd_cl;
 		payload +=  ri->iri_pad;
 		len = ri->iri_len - ri->iri_pad;
-		*pf_rv = pfil_run_hooks(rxq->pfil, payload, ri->iri_ifp,
-		    len | PFIL_MEMPTR | PFIL_IN, NULL);
+		*pf_rv = pfil_mem_in(rxq->pfil, payload, len, ri->iri_ifp, &m);
 		switch (*pf_rv) {
 		case PFIL_DROPPED:
 		case PFIL_CONSUMED:
@@ -2744,8 +2745,8 @@ rxd_frag_to_sd(iflib_rxq_t rxq, if_rxd_frag_t irf, bool unload, if_rxsd_t sd,
 		case PFIL_REALLOCED:
 			/*
 			 * The filter copied it.  Everything is recycled.
+			 * 'm' points at new mbuf.
 			 */
-			m = pfil_mem2mbuf(payload);
 			unload = 0;
 			break;
 		case PFIL_PASS:
@@ -2888,7 +2889,7 @@ iflib_rxd_pkt_get(iflib_rxq_t rxq, if_rxd_info_t ri)
 static void
 iflib_get_ip_forwarding(struct lro_ctrl *lc, bool *v4, bool *v6)
 {
-	CURVNET_SET(lc->ifp->if_vnet);
+	CURVNET_SET(lc->ifp->if_vnet); /* XXX - DRVAPI */
 #if defined(INET6)
 	*v6 = V_ip6_forwarding;
 #endif
@@ -2978,7 +2979,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 	}
 
 	/* pfil needs the vnet to be set */
-	CURVNET_SET_QUIET(ifp->if_vnet);
+	CURVNET_SET_QUIET(ifp->if_vnet); /* XXX - DRVAPI */
 	for (budget_left = budget; budget_left > 0 && avail > 0;) {
 		if (__predict_false(!CTX_ACTIVE(ctx))) {
 			DBG_COUNTER_INC(rx_ctx_inactive);
@@ -3051,7 +3052,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 			if (!lro_possible) {
 				lro_possible = iflib_check_lro_possible(m, v4_forwarding, v6_forwarding);
 				if (lro_possible && mf != NULL) {
-					ifp->if_input(ifp, mf);
+					if_input(ifp, mf);
 					DBG_COUNTER_INC(rx_if_input);
 					mt = mf = NULL;
 				}
@@ -3064,7 +3065,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 		}
 #endif
 		if (lro_possible) {
-			ifp->if_input(ifp, m);
+			if_input(ifp, m);
 			DBG_COUNTER_INC(rx_if_input);
 			continue;
 		}
@@ -3076,7 +3077,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 		mt = m;
 	}
 	if (mf != NULL) {
-		ifp->if_input(ifp, mf);
+		if_input(ifp, mf);
 		DBG_COUNTER_INC(rx_if_input);
 	}
 
@@ -4015,7 +4016,7 @@ iflib_txq_drain(struct ifmp_ring *r, uint32_t cidx, uint32_t pidx)
 		bytes_sent += m->m_pkthdr.len;
 		mcast_sent += !!(m->m_flags & M_MCAST);
 
-		if (__predict_false(!(ifp->if_drv_flags & IFF_DRV_RUNNING)))
+		if (__predict_false(!(if_getdrvflags(ifp) & IFF_DRV_RUNNING)))
 			break;
 		ETHER_BPF_MTAP(ifp, m);
 		rang = iflib_txd_db_check(txq, false);
@@ -4101,7 +4102,7 @@ _task_fn_tx(void *context)
 		goto skip_ifmp;
 #endif
 #ifdef ALTQ
-	if (ALTQ_IS_ENABLED(&ifp->if_snd))
+	if (ALTQ_IS_ENABLED(&ifp->if_snd)) /* XXX - DRVAPI */
 		iflib_altq_if_start(ifp);
 #endif
 	if (txq->ift_db_pending)
@@ -4283,7 +4284,7 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 	int err, qidx;
 	int abdicate;
 
-	if (__predict_false((ifp->if_drv_flags & IFF_DRV_RUNNING) == 0 || !LINK_ACTIVE(ctx))) {
+	if (__predict_false((if_getdrvflags(ifp) & IFF_DRV_RUNNING) == 0 || !LINK_ACTIVE(ctx))) {
 		DBG_COUNTER_INC(tx_frees);
 		m_freem(m);
 		return (ENETDOWN);
@@ -4401,7 +4402,7 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 static void
 iflib_altq_if_start(if_t ifp)
 {
-	struct ifaltq *ifq = &ifp->if_snd;
+	struct ifaltq *ifq = &ifp->if_snd; /* XXX - DRVAPI */
 	struct mbuf *m;
 
 	IFQ_LOCK(ifq);
@@ -4418,8 +4419,8 @@ iflib_altq_if_transmit(if_t ifp, struct mbuf *m)
 {
 	int err;
 
-	if (ALTQ_IS_ENABLED(&ifp->if_snd)) {
-		IFQ_ENQUEUE(&ifp->if_snd, m, err);
+	if (ALTQ_IS_ENABLED(&ifp->if_snd)) { /* XXX - DRVAPI */
+		IFQ_ENQUEUE(&ifp->if_snd, m, err); /* XXX - DRVAPI */
 		if (err == 0)
 			iflib_altq_if_start(ifp);
 	} else
@@ -4847,7 +4848,7 @@ iflib_add_pfil(if_ctx_t ctx)
 	pa.pa_version = PFIL_VERSION;
 	pa.pa_flags = PFIL_IN;
 	pa.pa_type = PFIL_TYPE_ETHERNET;
-	pa.pa_headname = ctx->ifc_ifp->if_xname;
+	pa.pa_headname = if_name(ctx->ifc_ifp);
 	pfil = pfil_head_register(&pa);
 
 	for (i = 0, rxq = ctx->ifc_rxqs; i < NRXQSETS(ctx); i++, rxq++) {
@@ -5490,7 +5491,7 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 	if_setcapabilities(ifp, scctx->isc_capabilities | IFCAP_HWSTATS | IFCAP_LINKSTATE);
 	if_setcapenable(ifp, scctx->isc_capenable | IFCAP_HWSTATS | IFCAP_LINKSTATE);
 
-	ifp->if_flags |= IFF_NOGROUP;
+	if_setflagbits(ifp, IFF_NOGROUP, 0);
 	if (sctx->isc_flags & IFLIB_PSEUDO) {
 		ifmedia_add(ctx->ifc_mediap, IFM_ETHER | IFM_AUTO, 0, NULL);
 		ifmedia_set(ctx->ifc_mediap, IFM_ETHER | IFM_AUTO);

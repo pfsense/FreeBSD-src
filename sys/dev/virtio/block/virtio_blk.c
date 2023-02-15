@@ -397,6 +397,15 @@ vtblk_attach(device_t dev)
 		goto fail;
 	}
 
+#ifdef __powerpc__
+	/*
+	 * Virtio uses physical addresses rather than bus addresses, so we
+	 * need to ask busdma to skip the iommu physical->bus mapping.  At
+	 * present, this is only a thing on the powerpc architectures.
+	 */
+	bus_dma_tag_set_iommu(sc->vtblk_dmat, NULL, NULL);
+#endif
+
 	error = vtblk_alloc_virtqueue(sc);
 	if (error) {
 		device_printf(dev, "cannot allocate virtqueue\n");
@@ -992,9 +1001,12 @@ vtblk_request_execute(struct vtblk_request *req, int flags)
 
 	/*
 	 * Call via bus_dmamap_load_bio or directly depending on whether we
-	 * have a buffer we need to map.
+	 * have a buffer we need to map.  If we don't have a busdma map,
+	 * try to perform the I/O directly and hope that it works (this will
+	 * happen when dumping).
 	 */
-	if (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE) {
+	if ((req->vbr_mapp != NULL) &&
+	    (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE)) {
 		error = bus_dmamap_load_bio(sc->vtblk_dmat, req->vbr_mapp,
 		    req->vbr_bp, vtblk_request_execute_cb, req, flags);
 		if (error == EINPROGRESS) {
@@ -1067,13 +1079,21 @@ vtblk_request_execute_cb(void * callback_arg, bus_dma_segment_t * segs,
 
 	if (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE) {
 		/*
-		 * We cast bus_addr_t to vm_paddr_t here; this isn't valid on
-		 * all platforms, but we believe it works on all platforms
-		 * which are supported by virtio.
+		 * We cast bus_addr_t to vm_paddr_t here; since we skip the
+		 * iommu mapping (see vtblk_attach) this should be safe.
 		 */
 		for (i = 0; i < nseg; i++) {
 			error = sglist_append_phys(sg,
 			    (vm_paddr_t)segs[i].ds_addr, segs[i].ds_len);
+			if (error || sg->sg_nseg == sg->sg_maxseg) {
+				panic("%s: bio %p data buffer too big %d",
+				    __func__, bp, error);
+			}
+		}
+
+		/* Special handling for dump, which bypasses busdma. */
+		if (req->vbr_mapp == NULL) {
+			error = sglist_append_bio(sg, bp);
 			if (error || sg->sg_nseg == sg->sg_maxseg) {
 				panic("%s: bio %p data buffer too big %d",
 				    __func__, bp, error);
@@ -1106,15 +1126,17 @@ vtblk_request_execute_cb(void * callback_arg, bus_dma_segment_t * segs,
 	sglist_append(sg, &req->vbr_ack, sizeof(uint8_t));
 	readable = sg->sg_nseg - writable;
 
-	switch (bp->bio_cmd) {
-	case BIO_READ:
-		bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
-		    BUS_DMASYNC_PREREAD);
-		break;
-	case BIO_WRITE:
-		bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
-		    BUS_DMASYNC_PREWRITE);
-		break;
+	if (req->vbr_mapp != NULL) {
+		switch (bp->bio_cmd) {
+		case BIO_READ:
+			bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
+			    BUS_DMASYNC_PREREAD);
+			break;
+		case BIO_WRITE:
+			bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
+			    BUS_DMASYNC_PREWRITE);
+			break;
+		}
 	}
 
 	error = virtqueue_enqueue(vq, req, sg, readable, writable);
@@ -1130,7 +1152,7 @@ vtblk_request_execute_cb(void * callback_arg, bus_dma_segment_t * segs,
 		virtqueue_notify(vq);
 
 out:
-	if (error)
+	if (error && (req->vbr_mapp != NULL))
 		bus_dmamap_unload(sc->vtblk_dmat, req->vbr_mapp);
 out1:
 	if (error && req->vbr_requeue_on_error)
@@ -1171,17 +1193,21 @@ vtblk_queue_completed(struct vtblk_softc *sc, struct bio_queue *queue)
 		}
 
 		bp = req->vbr_bp;
-		switch (bp->bio_cmd) {
-		case BIO_READ:
-			bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
-			    BUS_DMASYNC_POSTREAD);
-			bus_dmamap_unload(sc->vtblk_dmat, req->vbr_mapp);
-			break;
-		case BIO_WRITE:
-			bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
-			    BUS_DMASYNC_POSTWRITE);
-			bus_dmamap_unload(sc->vtblk_dmat, req->vbr_mapp);
-			break;
+		if (req->vbr_mapp != NULL) {
+			switch (bp->bio_cmd) {
+			case BIO_READ:
+				bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
+				    BUS_DMASYNC_POSTREAD);
+				bus_dmamap_unload(sc->vtblk_dmat,
+				    req->vbr_mapp);
+				break;
+			case BIO_WRITE:
+				bus_dmamap_sync(sc->vtblk_dmat, req->vbr_mapp,
+				    BUS_DMASYNC_POSTWRITE);
+				bus_dmamap_unload(sc->vtblk_dmat,
+				    req->vbr_mapp);
+				break;
+			}
 		}
 		bp->bio_error = vtblk_request_error(req);
 		TAILQ_INSERT_TAIL(queue, bp, bio_queue);
@@ -1505,6 +1531,7 @@ vtblk_dump_write(struct vtblk_softc *sc, void *virtual, off_t offset,
 	struct vtblk_request *req;
 
 	req = &sc->vtblk_dump_request;
+	req->vbr_sc = sc;
 	req->vbr_ack = -1;
 	req->vbr_hdr.type = vtblk_gtoh32(sc, VIRTIO_BLK_T_OUT);
 	req->vbr_hdr.ioprio = vtblk_gtoh32(sc, 1);
@@ -1527,6 +1554,7 @@ vtblk_dump_flush(struct vtblk_softc *sc)
 	struct vtblk_request *req;
 
 	req = &sc->vtblk_dump_request;
+	req->vbr_sc = sc;
 	req->vbr_ack = -1;
 	req->vbr_hdr.type = vtblk_gtoh32(sc, VIRTIO_BLK_T_FLUSH);
 	req->vbr_hdr.ioprio = vtblk_gtoh32(sc, 1);

@@ -273,7 +273,7 @@ static int
 pci_vtcon_sock_add(struct pci_vtcon_softc *sc, const char *port_name,
     const nvlist_t *nvl)
 {
-	struct pci_vtcon_sock *sock;
+	struct pci_vtcon_sock *sock = NULL;
 	struct sockaddr_un sun;
 	const char *name, *path;
 	char *cp, *pathcopy;
@@ -684,8 +684,7 @@ pci_vtcon_legacy_config(nvlist_t *nvl, const char *opts)
 }
 
 static int
-pci_vtcon_init(struct vmctx *ctx __unused, struct pci_devinst *pi,
-    nvlist_t *nvl)
+pci_vtcon_init(struct pci_devinst *pi, nvlist_t *nvl)
 {
 	struct pci_vtcon_softc *sc;
 	nvlist_t *ports_nvl;

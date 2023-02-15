@@ -196,6 +196,7 @@ MAN=	accept_filter.9 \
 	KASSERT.9 \
 	kern_reboot.9 \
 	kern_testfrwk.9 \
+	kern_yield.9 \
 	kernacc.9 \
 	kernel_mount.9 \
 	khelp.9 \
@@ -246,7 +247,6 @@ MAN=	accept_filter.9 \
 	owll.9 \
 	own.9 \
 	panic.9 \
-	PCBGROUP.9 \
 	p_candebug.9 \
 	p_cansee.9 \
 	pci.9 \
@@ -303,7 +303,6 @@ MAN=	accept_filter.9 \
 	rijndael.9 \
 	rman.9 \
 	rmlock.9 \
-	rtalloc.9 \
 	rtentry.9 \
 	runqueue.9 \
 	rwlock.9 \
@@ -1035,6 +1034,15 @@ MLINKS+=domain.9 protosw.9 \
 	domain.9 domain_add.9 \
 	domain.9 protosw_register.9 \
 	domain.9 protosw_unregister.9
+MLINKS+=dpcpu.9 DPCPU_DECLARE.9 \
+	dpcpu.9 DPCPU_DEFINE.9 \
+	dpcpu.9 DPCPU_DEFINE_STATIC.9 \
+	dpcpu.9 DPCPU_GET.9 \
+	dpcpu.9 DPCPU_ID_PTR.9 \
+	dpcpu.9 DPCPU_ID_GET.9 \
+	dpcpu.9 DPCPU_ID_SET.9 \
+	dpcpu.9 DPCPU_PTR.9 \
+	dpcpu.9 DPCPU_SET.9
 MLINKS+=drbr.9 drbr_free.9 \
 	drbr.9 drbr_enqueue.9 \
 	drbr.9 drbr_dequeue.9 \
@@ -1322,8 +1330,11 @@ MLINKS+=insmntque.9 insmntque1.9
 MLINKS+=intr_event.9 intr_event_add_handler.9 \
 	intr_event.9 intr_event_create.9 \
 	intr_event.9 intr_event_destroy.9 \
+	intr_event.9 intr_event_handle.9 \
 	intr_event.9 intr_event_remove_handler.9 \
 	intr_event.9 intr_priority.9
+MLINKS+=kern_yield.9 maybe_yield.9 \
+	kern_yield.9 should_yield.9
 MLINKS+=kernacc.9 useracc.9
 MLINKS+=kernel_mount.9 free_mntarg.9 \
 	kernel_mount.9 mount_arg.9 \
@@ -1721,15 +1732,6 @@ MLINKS+=osd.9 osd_call.9 \
 	osd.9 osd_set.9 \
 	osd.9 osd_set_reserved.9
 MLINKS+=panic.9 vpanic.9
-MLINKS+=PCBGROUP.9 in_pcbgroup_byhash.9 \
-	PCBGROUP.9 in_pcbgroup_byinpcb.9 \
-	PCBGROUP.9 in_pcbgroup_destroy.9 \
-	PCBGROUP.9 in_pcbgroup_enabled.9 \
-	PCBGROUP.9 in_pcbgroup_init.9 \
-	PCBGROUP.9 in_pcbgroup_remove.9 \
-	PCBGROUP.9 in_pcbgroup_update.9 \
-	PCBGROUP.9 in_pcbgroup_update_mbuf.9 \
-	PCBGROUP.9 in6_pcbgroup_byhash.9
 MLINKS+=pci.9 pci_alloc_msi.9 \
 	pci.9 pci_alloc_msix.9 \
 	pci.9 pci_disable_busmaster.9 \
@@ -1879,19 +1881,6 @@ MLINKS+=rmlock.9 rm_assert.9 \
 	rmlock.9 rm_wlock.9 \
 	rmlock.9 rm_wowned.9 \
 	rmlock.9 rm_wunlock.9
-MLINKS+=rtalloc.9 rtalloc1.9 \
-	rtalloc.9 rtalloc_ign.9 \
-	rtalloc.9 RT_ADDREF.9 \
-	rtalloc.9 RT_LOCK.9 \
-	rtalloc.9 RT_REMREF.9 \
-	rtalloc.9 RT_RTFREE.9 \
-	rtalloc.9 RT_UNLOCK.9 \
-	rtalloc.9 RTFREE_LOCKED.9 \
-	rtalloc.9 RTFREE.9 \
-	rtalloc.9 rtfree.9 \
-	rtalloc.9 rtalloc1_fib.9 \
-	rtalloc.9 rtalloc_ign_fib.9 \
-	rtalloc.9 rtalloc_fib.9
 MLINKS+=runqueue.9 choosethread.9 \
 	runqueue.9 procrunnable.9 \
 	runqueue.9 remrunqueue.9 \
@@ -2351,9 +2340,7 @@ MLINKS+=vm_map_lookup.9 vm_map_lookup_done.9
 MLINKS+=vm_map_max.9 vm_map_min.9 \
 	vm_map_max.9 vm_map_pmap.9
 MLINKS+=vm_map_stack.9 vm_map_growstack.9
-MLINKS+=vm_map_wire.9 vm_map_wire_mapped.9 \
-	vm_page_wire.9 vm_page_unwire.9 \
-	vm_page_wire.9 vm_page_unwire_noq.9
+MLINKS+=vm_map_wire.9 vm_map_unwire.9
 MLINKS+=vm_page_alloc.9 vm_page_alloc_after.9 \
 	vm_page_alloc.9 vm_page_alloc_contig.9 \
 	vm_page_alloc.9 vm_page_alloc_contig_domain.9 \
@@ -2392,7 +2379,9 @@ MLINKS+=vm_page_free.9 vm_page_free_toq.9 \
 	vm_page_free.9 vm_page_free_zero.9 \
 	vm_page_free.9 vm_page_try_to_free.9
 MLINKS+=vm_page_insert.9 vm_page_remove.9
-MLINKS+=vm_page_wire.9 vm_page_unwire.9
+MLINKS+=vm_page_wire.9 vm_page_unwire.9 \
+	vm_page_wire.9 vm_page_unwire_noq.9 \
+	vm_page_wire.9 vm_page_wire_mapped.9
 MLINKS+=VOP_ACCESS.9 VOP_ACCESSX.9
 MLINKS+=VOP_ATTRIB.9 VOP_GETATTR.9 \
 	VOP_ATTRIB.9 VOP_SETATTR.9 \
@@ -2452,7 +2441,6 @@ MLINKS+=superio.9 superio_devid.9 \
 	superio.9 superio_dev_disable.9 \
 	superio.9 superio_dev_enable.9 \
 	superio.9 superio_dev_enabled.9 \
-	superio.9 superio_find_dev.9 \
 	superio.9 superio_find_dev.9 \
 	superio.9 superio_get_dma.9 \
 	superio.9 superio_get_iobase.9 \

@@ -58,7 +58,6 @@ __FBSDID("$FreeBSD$");
  * PURPOSE.
  */
 
-#include "opt_compat.h"
 #include "opt_ddb.h"
 
 #include <sys/param.h>
@@ -149,8 +148,8 @@ SYSCTL_NODE(_kern, OID_AUTO, crypto, CTLFLAG_RW, 0,
     "In-kernel cryptography");
 
 /*
- * Taskqueue used to dispatch the crypto requests
- * that have the CRYPTO_F_ASYNC flag
+ * Taskqueue used to dispatch the crypto requests submitted with
+ * crypto_dispatch_async .
  */
 static struct taskqueue *crypto_tq;
 

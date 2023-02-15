@@ -143,6 +143,7 @@ MAN=	aac.4 \
 	em.4 \
 	ena.4 \
 	enc.4 \
+	enic.4 \
 	epair.4 \
 	est.4 \
 	et.4 \
@@ -168,6 +169,7 @@ MAN=	aac.4 \
 	gdb.4 \
 	gem.4 \
 	genet.4 \
+	genetlink.4 \
 	geom.4 \
 	geom_linux_lvm.4 \
 	geom_map.4 \
@@ -270,6 +272,7 @@ MAN=	aac.4 \
 	ktls.4 \
 	ktr.4 \
 	kue.4 \
+	${_kvmclock.4} \
 	lagg.4 \
 	le.4 \
 	led.4 \
@@ -335,6 +338,7 @@ MAN=	aac.4 \
 	netgdb.4 \
 	netgraph.4 \
 	netintro.4 \
+	netlink.4 \
 	netmap.4 \
 	${_nfe.4} \
 	${_nfsmb.4} \
@@ -468,6 +472,7 @@ MAN=	aac.4 \
 	rl.4 \
 	rndtest.4 \
 	route.4 \
+	rtnetlink.4 \
 	rtsx.4 \
 	rtw88.4 \
 	rtw88fw.4 \
@@ -546,6 +551,7 @@ MAN=	aac.4 \
 	targ.4 \
 	tcp.4 \
 	tcp_bbr.4 \
+	tcp_rack.4 \
 	tdfx.4 \
 	termios.4 \
 	textdump.4 \
@@ -584,6 +590,8 @@ MAN=	aac.4 \
 	vtnet.4 \
 	watchdog.4 \
 	${_wbwd.4} \
+	${_wdatwd.4} \
+	wg.4 \
 	witness.4 \
 	wlan.4 \
 	wlan_acl.4 \
@@ -761,6 +769,7 @@ MLINKS+=vr.4 if_vr.4
 MLINKS+=vte.4 if_vte.4
 MLINKS+=vtnet.4 if_vtnet.4
 MLINKS+=watchdog.4 SW_WATCHDOG.4
+MLINKS+=wg.4 if_wg.4
 MLINKS+=${_wpi.4} ${_if_wpi.4}
 MLINKS+=xl.4 if_xl.4
 
@@ -817,6 +826,7 @@ _igc.4=		igc.4
 _imcsmb.4=	imcsmb.4
 _io.4=		io.4
 _itwd.4=	itwd.4
+_kvmclock.4=	kvmclock.4
 _mgb.4=		mgb.4
 _nda.4=		nda.4
 _nfe.4=		nfe.4
@@ -844,6 +854,7 @@ _vmci.4=	vmci.4
 _vmd.4=		vmd.4
 _vmx.4=		vmx.4
 _wbwd.4=	wbwd.4
+_wdatwd.4=	wdatwd.4
 _wpi.4=		wpi.4
 _xen.4=		xen.4
 _xnb.4=		xnb.4
