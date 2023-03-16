@@ -103,6 +103,10 @@ v6_body()
 	jexec singsing ifconfig ${epair_link}b inet6 -ifdisabled
 	ifconfig ${epair_send}a inet6 -ifdisabled
 
+	ifconfig ${epair_send}a
+	jexec alcatraz ifconfig ${epair_send}b
+	lladdr=$(jexec alcatraz ifconfig ${epair_send}b | awk '/ scopeid / { print($2); }' | cut -f 1 -d %)
+
 	jexec alcatraz pfctl -e
 	pft_set_rules alcatraz \
 		"scrub fragment reassemble" \
@@ -119,6 +123,12 @@ v6_body()
 
 	atf_check -s exit:0 -o ignore\
 		ping -6 -c 1 -b 70000 -s 65000 2001:db8:42::2
+
+	# Force an NDP lookup
+	ping -6 -c 1 ${lladdr}%${epair_send}a
+
+	atf_check -s exit:0 -o ignore\
+		ping -6 -c 1 -b 70000 -s 65000 ${lladdr}%${epair_send}a
 
 	# Forwarding test
 	atf_check -s exit:0 -o ignore \
@@ -327,6 +337,43 @@ reassemble_cleanup()
 	pft_cleanup
 }
 
+atf_test_case "no_df" "cleanup"
+no_df_head()
+{
+	atf_set descr 'Test removing of DF flag'
+	atf_set require.user root
+}
+
+no_df_body()
+{
+	setup_router_server_ipv4
+
+	# Tester can send long packets which will get fragmented by the router.
+	# Replies from server will come in fragments which might get
+	# reassembled resulting in a long reply packet sent back to tester.
+	ifconfig ${epair_tester}a mtu 9000
+	jexec router ifconfig ${epair_tester}b mtu 9000
+	jexec router ifconfig ${epair_server}a mtu 1500
+	jexec server ifconfig ${epair_server}b mtu 1500
+
+	# Sanity check.
+	ping_server_check_reply exit:0 --ping-type=icmp
+
+	# Enable packet reassembly with clearing of the no-df flag.
+	pft_set_rules router \
+		"scrub all fragment reassemble no-df" \
+		"block" \
+		"pass inet proto icmp all icmp-type echoreq"
+	# Ping with non-fragmentable packets.
+	# pf will strip the DF flag resulting in fragmentation and packets
+	# getting properly forwarded.
+	ping_server_check_reply exit:0 --ping-type=icmp --send-length=2000 --send-flags DF
+}
+no_df_cleanup()
+{
+	pft_cleanup
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case "too_many_fragments"
@@ -336,4 +383,5 @@ atf_init_test_cases()
 	atf_add_test_case "overindex"
 	atf_add_test_case "overlimit"
 	atf_add_test_case "reassemble"
+	atf_add_test_case "no_df"
 }

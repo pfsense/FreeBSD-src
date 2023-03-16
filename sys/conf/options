@@ -509,8 +509,6 @@ SCTP_DETAILED_STR_STATS	opt_sctp.h # Use per PR-SCTP policy stream stats
 NETGRAPH
 NETGRAPH_DEBUG		opt_netgraph.h
 NETGRAPH_ASYNC		opt_netgraph.h
-NETGRAPH_ATMLLC		opt_netgraph.h
-NETGRAPH_ATM_ATMPIF	opt_netgraph.h
 NETGRAPH_BLUETOOTH	opt_netgraph.h
 NETGRAPH_BLUETOOTH_BT3C	opt_netgraph.h
 NETGRAPH_BLUETOOTH_H4	opt_netgraph.h
@@ -563,14 +561,6 @@ NETGRAPH_TTY		opt_netgraph.h
 NETGRAPH_UI		opt_netgraph.h
 NETGRAPH_VJC		opt_netgraph.h
 NETGRAPH_VLAN		opt_netgraph.h
-
-# NgATM options
-NGATM_ATM		opt_netgraph.h
-NGATM_ATMBASE		opt_netgraph.h
-NGATM_SSCOP		opt_netgraph.h
-NGATM_SSCFU		opt_netgraph.h
-NGATM_UNI		opt_netgraph.h
-NGATM_CCATM		opt_netgraph.h
 
 # DRM options
 DRM_DEBUG		opt_drm.h
@@ -803,8 +793,9 @@ KBD_INSTALL_CDEV	opt_kbd.h
 KBD_MAXRETRY		opt_kbd.h
 KBD_MAXWAIT		opt_kbd.h
 KBD_RESETDELAY		opt_kbd.h
+KBD_DELAY1		opt_kbd.h
+KBD_DELAY2		opt_kbd.h
 KBDIO_DEBUG		opt_kbd.h
-
 KBDMUX_DFLT_KEYMAP	opt_kbdmux.h
 
 # options for the Atheros driver

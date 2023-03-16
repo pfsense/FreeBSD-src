@@ -78,6 +78,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/armreg.h>
 #include <machine/cpu.h>
 #include <machine/debug_monitor.h>
+#include <machine/hypervisor.h>
 #include <machine/kdb.h>
 #include <machine/machdep.h>
 #include <machine/metadata.h>
@@ -99,6 +100,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/fdt/fdt_common.h>
 #include <dev/ofw/openfirm.h>
 #endif
+
+#include <dev/smbios/smbios.h>
 
 enum arm64_bus arm64_bus_method = ARM64_BUS_NONE;
 
@@ -122,6 +125,7 @@ static struct trapframe proc0_tf;
 int early_boot = 1;
 int cold = 1;
 static int boot_el;
+static uint64_t hcr_el2;
 
 struct kva_md_info kmi;
 
@@ -189,7 +193,11 @@ bool
 has_hyp(void)
 {
 
-	return (boot_el == 2);
+	/*
+	 * XXX The E2H check is wrong, but it's close enough for now.  Needs to
+	 * be re-evaluated once we're running regularly in EL2.
+	 */
+	return (boot_el == 2 && (hcr_el2 & HCR_E2H) == 0);
 }
 
 static void
@@ -447,36 +455,25 @@ foreach_efi_map_entry(struct efi_map_header *efihdr, efi_map_entry_cb cb, void *
 	}
 }
 
+/*
+ * Handle the EFI memory map list.
+ *
+ * We will make two passes at this, the first (exclude == false) to populate
+ * physmem with valid physical memory ranges from recognized map entry types.
+ * In the second pass we will exclude memory ranges from physmem which must not
+ * be used for general allocations, either because they are used by runtime
+ * firmware or otherwise reserved.
+ *
+ * Adding the runtime-reserved memory ranges to physmem and excluding them
+ * later ensures that they are included in the DMAP, but excluded from
+ * phys_avail[].
+ *
+ * Entry types not explicitly listed here are ignored and not mapped.
+ */
 static void
-exclude_efi_map_entry(struct efi_md *p, void *argp __unused)
+handle_efi_map_entry(struct efi_md *p, void *argp)
 {
-
-	switch (p->md_type) {
-	case EFI_MD_TYPE_CODE:
-	case EFI_MD_TYPE_DATA:
-	case EFI_MD_TYPE_BS_CODE:
-	case EFI_MD_TYPE_BS_DATA:
-	case EFI_MD_TYPE_FREE:
-		/*
-		 * We're allowed to use any entry with these types.
-		 */
-		break;
-	default:
-		physmem_exclude_region(p->md_phys, p->md_pages * EFI_PAGE_SIZE,
-		    EXFLAG_NOALLOC);
-	}
-}
-
-static void
-exclude_efi_map_entries(struct efi_map_header *efihdr)
-{
-
-	foreach_efi_map_entry(efihdr, exclude_efi_map_entry, NULL);
-}
-
-static void
-add_efi_map_entry(struct efi_md *p, void *argp __unused)
-{
+	bool exclude = *(bool *)argp;
 
 	switch (p->md_type) {
 	case EFI_MD_TYPE_RECLAIM:
@@ -488,7 +485,7 @@ add_efi_map_entry(struct efi_md *p, void *argp __unused)
 		/*
 		 * Some UEFI implementations put the system table in the
 		 * runtime code section. Include it in the DMAP, but will
-		 * be excluded from phys_avail later.
+		 * be excluded from phys_avail.
 		 */
 	case EFI_MD_TYPE_RT_DATA:
 		/*
@@ -496,6 +493,12 @@ add_efi_map_entry(struct efi_md *p, void *argp __unused)
 		 * region is created to stop it from being added
 		 * to phys_avail.
 		 */
+		if (exclude) {
+			physmem_exclude_region(p->md_phys,
+			    p->md_pages * EFI_PAGE_SIZE, EXFLAG_NOALLOC);
+			break;
+		}
+		/* FALLTHROUGH */
 	case EFI_MD_TYPE_CODE:
 	case EFI_MD_TYPE_DATA:
 	case EFI_MD_TYPE_BS_CODE:
@@ -504,8 +507,12 @@ add_efi_map_entry(struct efi_md *p, void *argp __unused)
 		/*
 		 * We're allowed to use any entry with these types.
 		 */
-		physmem_hardware_region(p->md_phys,
-		    p->md_pages * EFI_PAGE_SIZE);
+		if (!exclude)
+			physmem_hardware_region(p->md_phys,
+			    p->md_pages * EFI_PAGE_SIZE);
+		break;
+	default:
+		/* Other types shall not be handled by physmem. */
 		break;
 	}
 }
@@ -513,7 +520,15 @@ add_efi_map_entry(struct efi_md *p, void *argp __unused)
 static void
 add_efi_map_entries(struct efi_map_header *efihdr)
 {
-	foreach_efi_map_entry(efihdr, add_efi_map_entry, NULL);
+	bool exclude = false;
+	foreach_efi_map_entry(efihdr, handle_efi_map_entry, &exclude);
+}
+
+static void
+exclude_efi_map_entries(struct efi_map_header *efihdr)
+{
+	bool exclude = true;
+	foreach_efi_map_entry(efihdr, handle_efi_map_entry, &exclude);
 }
 
 static void
@@ -863,6 +878,7 @@ initarm(struct arm64_bootparams *abp)
 	TSRAW(&thread0, TS_ENTER, __func__, NULL);
 
 	boot_el = abp->boot_el;
+	hcr_el2 = abp->hcr_el2;
 
 	/* Parse loader or FDT boot parametes. Determine last used address. */
 	lastaddr = parse_boot_param(abp);
@@ -873,6 +889,8 @@ initarm(struct arm64_bootparams *abp)
 		kmdp = preload_search_by_type("elf64 kernel");
 
 	identify_cpu(0);
+	identify_hypervisor_smbios();
+
 	update_special_regs(0);
 
 	link_elf_ireloc(kmdp);

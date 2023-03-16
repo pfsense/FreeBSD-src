@@ -8052,7 +8052,7 @@ done:
 	/* If reassembled packet passed, create new fragments. */
 	if (action == PF_PASS && *m0 && dir == PF_OUT &&
 	    (mtag = m_tag_find(m, PF_REASSEMBLED, NULL)) != NULL)
-		action = pf_refragment6(ifp, m0, mtag);
+		action = pf_refragment6(ifp, m0, mtag, pflags & PFIL_FWD);
 
 	SDT_PROBE4(pf, ip, test6, done, action, reason, r, s);
 

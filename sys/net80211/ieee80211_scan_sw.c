@@ -196,8 +196,7 @@ ieee80211_swscan_start_scan_locked(const struct ieee80211_scanner *scan,
 			if ((flags & IEEE80211_SCAN_NOSSID) == 0)
 				ieee80211_scan_copy_ssid(vap, ss, nssid, ssids);
 
-			/* NB: top 4 bits for internal use */
-			ss->ss_flags = flags & 0xfff;
+			ss->ss_flags = flags & IEEE80211_SCAN_PUBLIC_MASK;
 			if (ss->ss_flags & IEEE80211_SCAN_ACTIVE)
 				vap->iv_stats.is_scan_active++;
 			else
@@ -307,7 +306,7 @@ ieee80211_swscan_check_scan(const struct ieee80211_scanner *scan,
 			ic->ic_flags |= IEEE80211_F_SCAN;
 
 			/* NB: need to use supplied flags in check */
-			ss->ss_flags = flags & 0xff;
+			ss->ss_flags = flags & IEEE80211_SCAN_PUBLIC_MASK;
 			result = ss->ss_ops->scan_end(ss, vap);
 
 			ic->ic_flags &= ~IEEE80211_F_SCAN;
@@ -336,12 +335,14 @@ ieee80211_swscan_bg_scan(const struct ieee80211_scanner *scan,
 {
 	struct ieee80211com *ic = vap->iv_ic;
 	struct ieee80211_scan_state *ss = ic->ic_scan;
+	bool scanning;
 
 	/* XXX assert unlocked? */
 	// IEEE80211_UNLOCK_ASSERT(ic);
 
 	IEEE80211_LOCK(ic);
-	if ((ic->ic_flags & IEEE80211_F_SCAN) == 0) {
+	scanning = ic->ic_flags & IEEE80211_F_SCAN;
+	if (!scanning) {
 		u_int duration;
 		/*
 		 * Go off-channel for a fixed interval that is large
@@ -405,6 +406,7 @@ ieee80211_swscan_bg_scan(const struct ieee80211_scanner *scan,
 			ic->ic_flags_ext |= IEEE80211_FEXT_BGSCAN;
 			ieee80211_runtask(ic,
 			    &SCAN_PRIVATE(ss)->ss_scan_start);
+			scanning = true;
 		} else {
 			/* XXX msg+stat */
 		}
@@ -415,8 +417,7 @@ ieee80211_swscan_bg_scan(const struct ieee80211_scanner *scan,
 	}
 	IEEE80211_UNLOCK(ic);
 
-	/* NB: racey, does it matter? */
-	return (ic->ic_flags & IEEE80211_F_SCAN);
+	return (scanning);
 }
 
 /*
