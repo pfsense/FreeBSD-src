@@ -52,6 +52,34 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230329: libcasper libraries moved to /lib
+MOVED_LIBS+=lib/casper/libcap_dns.so.2
+MOVED_LIBS+=lib/casper/libcap_fileargs.so.1
+MOVED_LIBS+=lib/casper/libcap_grp.so.1
+MOVED_LIBS+=lib/casper/libcap_net.so.1
+MOVED_LIBS+=lib/casper/libcap_pwd.so.1
+MOVED_LIBS+=lib/casper/libcap_sysctl.so.1
+MOVED_LIBS+=lib/casper/libcap_sysctl.so.2
+MOVED_LIBS+=lib/casper/libcap_syslog.so.1
+OLD_DIRS+=lib/casper
+
+# 20230324: libvmmapi shlib version bumped to 6
+OLD_LIBS+=usr/lib/libvmmapi.so.5
+
+# 20230320: vcount.9 removed
+OLD_FILES+=usr/share/man/man9/count_dev.9.gz
+OLD_FILES+=usr/share/man/man9/vcount.9.gz
+
+# 20230320: case-sensitive conflicts removed
+OLD_FILES+=usr/tests/bin/pkill/pgrep-F_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-LF_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-P_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-U_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-F_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-LF_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-P_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-U_test
+
 # 20230309: remove remaining ATM support
 OLD_FILES+=usr/bin/sscop
 OLD_FILES+=usr/include/netnatm/addr.h

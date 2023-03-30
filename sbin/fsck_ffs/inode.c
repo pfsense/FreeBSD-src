@@ -798,12 +798,8 @@ snapclean(struct inodesc *idesc)
  * must always have been allocated from a BLK_NOCOPY location.
  */
 int
-snapblkfree(fs, bno, size, inum, checkblkavail)
-	struct fs *fs;
-	ufs2_daddr_t bno;
-	long size;
-	ino_t inum;
-	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags);
+snapblkfree(struct fs *fs, ufs2_daddr_t bno, long size, ino_t inum,
+	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags))
 {
 	union dinode *dp;
 	struct inode ip;
@@ -930,10 +926,8 @@ snapblkfree(fs, bno, size, inum, checkblkavail)
  * block. Here we need to check each block in the buffer.
  */
 void
-copyonwrite(fs, bp, checkblkavail)
-	struct fs *fs;
-	struct bufarea *bp;
-	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags);
+copyonwrite(struct fs *fs, struct bufarea *bp,
+	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags))
 {
 	ufs2_daddr_t copyblkno;
 	long i, numblks;
@@ -953,10 +947,8 @@ copyonwrite(fs, bp, checkblkavail)
 }
 
 static void
-chkcopyonwrite(fs, copyblkno, checkblkavail)
-	struct fs *fs;
-	ufs2_daddr_t copyblkno;
-	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags);
+chkcopyonwrite(struct fs *fs, ufs2_daddr_t copyblkno,
+	ufs2_daddr_t (*checkblkavail)(ufs2_daddr_t blkno, long frags))
 {
 	struct inode ip;
 	union dinode *dp;
@@ -1143,6 +1135,7 @@ cacheino(union dinode *dp, ino_t inumber)
 	inp->i_dotdot = (ino_t)0;
 	inp->i_number = inumber;
 	inp->i_isize = DIP(dp, di_size);
+	inp->i_depth = DIP(dp, di_dirdepth);
 	inp->i_numblks = blks;
 	for (i = 0; i < MIN(blks, UFS_NDADDR); i++)
 		inp->i_blks[i] = DIP(dp, di_db[i]);

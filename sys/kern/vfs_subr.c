@@ -198,9 +198,9 @@ static counter_u64_t recycles_free_count;
 SYSCTL_COUNTER_U64(_vfs, OID_AUTO, recycles_free, CTLFLAG_RD, &recycles_free_count,
     "Number of free vnodes recycled to meet vnode cache targets");
 
-static counter_u64_t deferred_inact;
-SYSCTL_COUNTER_U64(_vfs, OID_AUTO, deferred_inact, CTLFLAG_RD, &deferred_inact,
-    "Number of times inactive processing was deferred");
+static u_long deferred_inact;
+SYSCTL_ULONG(_vfs, OID_AUTO, deferred_inact, CTLFLAG_RD,
+    &deferred_inact, 0, "Number of times inactive processing was deferred");
 
 /* To keep more than one thread at a time from running vfs_getnewfsid */
 static struct mtx mntid_mtx;
@@ -287,7 +287,6 @@ SYSCTL_INT(_debug, OID_AUTO, rush_requests, CTLFLAG_RW, &stat_rush_requests, 0,
 #define	VDBATCH_SIZE 8
 struct vdbatch {
 	u_int index;
-	long freevnodes;
 	struct mtx lock;
 	struct vnode *tab[VDBATCH_SIZE];
 };
@@ -735,7 +734,6 @@ vntblinit(void *dummy __unused)
 	vnodes_created = counter_u64_alloc(M_WAITOK);
 	recycles_count = counter_u64_alloc(M_WAITOK);
 	recycles_free_count = counter_u64_alloc(M_WAITOK);
-	deferred_inact = counter_u64_alloc(M_WAITOK);
 
 	/*
 	 * Initialize the filesystem syncer.
@@ -1418,48 +1416,62 @@ static int vnlruproc_sig;
  * at any given moment can still exceed slop, but it should not be by significant
  * margin in practice.
  */
-#define VNLRU_FREEVNODES_SLOP 128
+#define VNLRU_FREEVNODES_SLOP 126
+
+static void __noinline
+vfs_freevnodes_rollup(int8_t *lfreevnodes)
+{
+
+	atomic_add_long(&freevnodes, *lfreevnodes);
+	*lfreevnodes = 0;
+	critical_exit();
+}
 
 static __inline void
 vfs_freevnodes_inc(void)
 {
-	struct vdbatch *vd;
+	int8_t *lfreevnodes;
 
 	critical_enter();
-	vd = DPCPU_PTR(vd);
-	vd->freevnodes++;
-	critical_exit();
+	lfreevnodes = PCPU_PTR(vfs_freevnodes);
+	(*lfreevnodes)++;
+	if (__predict_false(*lfreevnodes == VNLRU_FREEVNODES_SLOP))
+		vfs_freevnodes_rollup(lfreevnodes);
+	else
+		critical_exit();
 }
 
 static __inline void
 vfs_freevnodes_dec(void)
 {
-	struct vdbatch *vd;
+	int8_t *lfreevnodes;
 
 	critical_enter();
-	vd = DPCPU_PTR(vd);
-	vd->freevnodes--;
-	critical_exit();
+	lfreevnodes = PCPU_PTR(vfs_freevnodes);
+	(*lfreevnodes)--;
+	if (__predict_false(*lfreevnodes == -VNLRU_FREEVNODES_SLOP))
+		vfs_freevnodes_rollup(lfreevnodes);
+	else
+		critical_exit();
 }
 
 static u_long
 vnlru_read_freevnodes(void)
 {
-	struct vdbatch *vd;
-	long slop;
+	long slop, rfreevnodes;
 	int cpu;
 
-	mtx_assert(&vnode_list_mtx, MA_OWNED);
-	if (freevnodes > freevnodes_old)
-		slop = freevnodes - freevnodes_old;
+	rfreevnodes = atomic_load_long(&freevnodes);
+
+	if (rfreevnodes > freevnodes_old)
+		slop = rfreevnodes - freevnodes_old;
 	else
-		slop = freevnodes_old - freevnodes;
+		slop = freevnodes_old - rfreevnodes;
 	if (slop < VNLRU_FREEVNODES_SLOP)
-		return (freevnodes >= 0 ? freevnodes : 0);
-	freevnodes_old = freevnodes;
+		return (rfreevnodes >= 0 ? rfreevnodes : 0);
+	freevnodes_old = rfreevnodes;
 	CPU_FOREACH(cpu) {
-		vd = DPCPU_ID_PTR((cpu), vd);
-		freevnodes_old += vd->freevnodes;
+		freevnodes_old += cpuid_to_pcpu[cpu]->pc_vfs_freevnodes;
 	}
 	return (freevnodes_old >= 0 ? freevnodes_old : 0);
 }
@@ -1637,8 +1649,7 @@ vtryrecycle(struct vnode *vp)
 	struct mount *vnmp;
 
 	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
-	VNASSERT(vp->v_holdcnt, vp,
-	    ("vtryrecycle: Recycling vp %p without a reference.", vp));
+	VNPASS(vp->v_holdcnt > 0, vp);
 	/*
 	 * This vnode may found and locked via some other list, if so we
 	 * can't recycle it yet.
@@ -3181,14 +3192,13 @@ vdefer_inactive(struct vnode *vp)
 {
 
 	ASSERT_VI_LOCKED(vp, __func__);
-	VNASSERT(vp->v_holdcnt > 0, vp,
-	    ("%s: vnode without hold count", __func__));
+	VNPASS(vp->v_holdcnt > 0, vp);
 	if (VN_IS_DOOMED(vp)) {
 		vdropl(vp);
 		return;
 	}
 	if (vp->v_iflag & VI_DEFINACT) {
-		VNASSERT(vp->v_holdcnt > 1, vp, ("lost hold count"));
+		VNPASS(vp->v_holdcnt > 1, vp);
 		vdropl(vp);
 		return;
 	}
@@ -3200,7 +3210,7 @@ vdefer_inactive(struct vnode *vp)
 	vlazy(vp);
 	vp->v_iflag |= VI_DEFINACT;
 	VI_UNLOCK(vp);
-	counter_u64_add(deferred_inact, 1);
+	atomic_add_long(&deferred_inact, 1);
 }
 
 static void
@@ -3511,19 +3521,25 @@ vdbatch_process(struct vdbatch *vd)
 	MPASS(curthread->td_pinned > 0);
 	MPASS(vd->index == VDBATCH_SIZE);
 
-	mtx_lock(&vnode_list_mtx);
 	critical_enter();
-	freevnodes += vd->freevnodes;
-	for (i = 0; i < VDBATCH_SIZE; i++) {
-		vp = vd->tab[i];
-		TAILQ_REMOVE(&vnode_list, vp, v_vnodelist);
-		TAILQ_INSERT_TAIL(&vnode_list, vp, v_vnodelist);
-		MPASS(vp->v_dbatchcpu != NOCPU);
-		vp->v_dbatchcpu = NOCPU;
+	if (mtx_trylock(&vnode_list_mtx)) {
+		for (i = 0; i < VDBATCH_SIZE; i++) {
+			vp = vd->tab[i];
+			vd->tab[i] = NULL;
+			TAILQ_REMOVE(&vnode_list, vp, v_vnodelist);
+			TAILQ_INSERT_TAIL(&vnode_list, vp, v_vnodelist);
+			MPASS(vp->v_dbatchcpu != NOCPU);
+			vp->v_dbatchcpu = NOCPU;
+		}
+		mtx_unlock(&vnode_list_mtx);
+	} else {
+		for (i = 0; i < VDBATCH_SIZE; i++) {
+			vp = vd->tab[i];
+			vd->tab[i] = NULL;
+			MPASS(vp->v_dbatchcpu != NOCPU);
+			vp->v_dbatchcpu = NOCPU;
+		}
 	}
-	mtx_unlock(&vnode_list_mtx);
-	vd->freevnodes = 0;
-	bzero(vd->tab, sizeof(vd->tab));
 	vd->index = 0;
 	critical_exit();
 }
@@ -3534,8 +3550,7 @@ vdbatch_enqueue(struct vnode *vp)
 	struct vdbatch *vd;
 
 	ASSERT_VI_LOCKED(vp, __func__);
-	VNASSERT(!VN_IS_DOOMED(vp), vp,
-	    ("%s: deferring requeue of a doomed vnode", __func__));
+	VNPASS(!VN_IS_DOOMED(vp), vp);
 
 	if (vp->v_dbatchcpu != NOCPU) {
 		VI_UNLOCK(vp);
@@ -3573,8 +3588,7 @@ vdbatch_dequeue(struct vnode *vp)
 	int i;
 	short cpu;
 
-	VNASSERT(vp->v_type == VBAD || vp->v_type == VNON, vp,
-	    ("%s: called for a used vnode\n", __func__));
+	VNPASS(vp->v_type == VBAD || vp->v_type == VNON, vp);
 
 	cpu = vp->v_dbatchcpu;
 	if (cpu == NOCPU)
@@ -3726,8 +3740,7 @@ vinactivef(struct vnode *vp)
 
 	ASSERT_VOP_ELOCKED(vp, "vinactive");
 	ASSERT_VI_LOCKED(vp, "vinactive");
-	VNASSERT((vp->v_iflag & VI_DOINGINACT) == 0, vp,
-	    ("vinactive: recursed on VI_DOINGINACT"));
+	VNPASS((vp->v_iflag & VI_DOINGINACT) == 0, vp);
 	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
 	vp->v_iflag |= VI_DOINGINACT;
 	vp->v_iflag &= ~VI_OWEINACT;
@@ -3750,8 +3763,7 @@ vinactivef(struct vnode *vp)
 	}
 	error = VOP_INACTIVE(vp);
 	VI_LOCK(vp);
-	VNASSERT(vp->v_iflag & VI_DOINGINACT, vp,
-	    ("vinactive: lost VI_DOINGINACT"));
+	VNPASS(vp->v_iflag & VI_DOINGINACT, vp);
 	vp->v_iflag &= ~VI_DOINGINACT;
 	return (error);
 }
@@ -4755,7 +4767,7 @@ vfs_deferred_inactive(struct vnode *vp, int lkflags)
 {
 
 	ASSERT_VI_LOCKED(vp, __func__);
-	VNASSERT((vp->v_iflag & VI_DEFINACT) == 0, vp, ("VI_DEFINACT still set"));
+	VNPASS((vp->v_iflag & VI_DEFINACT) == 0, vp);
 	if ((vp->v_iflag & VI_OWEINACT) == 0) {
 		vdropl(vp);
 		return;
@@ -6365,7 +6377,7 @@ vfs_emptydir(struct vnode *vp)
 	eof = 0;
 
 	ASSERT_VOP_LOCKED(vp, "vfs_emptydir");
-	VNASSERT(vp->v_type == VDIR, vp, ("vp is not a directory"));
+	VNPASS(vp->v_type == VDIR, vp);
 
 	dirent = malloc(sizeof(struct dirent), M_TEMP, M_WAITOK);
 	iov.iov_base = dirent;

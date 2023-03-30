@@ -28,6 +28,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "opt_netlink.h"
+
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -1586,7 +1588,7 @@ carp_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *sa)
 
 	switch (sa->sa_family) {
 	case AF_INET:
-		if (! IN_MULTICAST(sc->sc_carpaddr.s_addr))
+		if (! IN_MULTICAST(ntohl(sc->sc_carpaddr.s_addr)))
 			return (0);
 		break;
 	case AF_INET6:
