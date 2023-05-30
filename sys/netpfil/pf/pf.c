@@ -6503,7 +6503,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 	if (dir == PF_IN) {
 		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
 			return;
-		if (pf_test(PF_OUT, 0, ifp, &m0, inp) != PF_PASS)
+		if (pf_test(PF_OUT, 0, ifp, &m0, inp, &pd->act) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
 			goto done;
@@ -6756,7 +6756,7 @@ pf_route6(struct mbuf **m, struct pf_krule *r, int dir, struct ifnet *oifp,
 		return;
 
 	if (dir == PF_IN) {
-		if (pf_test6(PF_OUT, 0, ifp, &m0, inp) != PF_PASS)
+		if (pf_test6(PF_OUT, 0, ifp, &m0, inp, &pd->act) != PF_PASS)
 			goto bad;
 		else if (m0 == NULL)
 			goto done;
@@ -7114,7 +7114,8 @@ pf_dummynet_route(struct pf_pdesc *pd, int dir, struct pf_kstate *s,
 
 #ifdef INET
 int
-pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
+pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0,
+    struct inpcb *inp, struct pf_rule_actions *default_actions)
 {
 	struct pfi_kkif		*kif;
 	u_short			 action, reason = 0, log = 0;
@@ -7155,6 +7156,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	}
 
 	memset(&pd, 0, sizeof(pd));
+	if (default_actions != NULL)
+		memcpy(&pd.act, default_actions, sizeof(pd.act));
 	pd.pf_mtag = pf_find_mtag(m);
 
 	if (pd.pf_mtag != NULL && (pd.pf_mtag->flags & PF_TAG_ROUTE_TO)) {
@@ -7293,7 +7296,7 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 					break;
 				}
 
-				action = pf_test(dir, pflags, ifp, &msyn, inp);
+				action = pf_test(dir, pflags, ifp, &msyn, inp, &pd.act);
 				m_freem(msyn);
 
 				if (action == PF_PASS) {
@@ -7612,7 +7615,8 @@ done:
 
 #ifdef INET6
 int
-pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
+pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp,
+    struct pf_rule_actions *default_actions)
 {
 	struct pfi_kkif		*kif;
 	u_short			 action, reason = 0, log = 0;
@@ -7652,6 +7656,8 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 	}
 
 	memset(&pd, 0, sizeof(pd));
+	if (default_actions != NULL)
+		memcpy(&pd.act, default_actions, sizeof(pd.act));
 	pd.pf_mtag = pf_find_mtag(m);
 
 	if (pd.pf_mtag != NULL && (pd.pf_mtag->flags & PF_TAG_ROUTE_TO)) {
