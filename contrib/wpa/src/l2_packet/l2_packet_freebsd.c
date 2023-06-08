@@ -101,8 +101,10 @@ static void l2_packet_receive(int sock, void *eloop_ctx, void *sock_ctx)
 		buf = (unsigned char *) (ethhdr + 1);
 		len = hdr->caplen - sizeof(*ethhdr);
 		/* handle 8021Q encapsulated frames */
-		if (ethhdr->h_proto == htons(ETH_P_8021Q))
-			buf += ETHER_VLAN_ENCAP_LEN; len -= ETHER_VLAN_ENCAP_LEN;
+		if (ethhdr->h_proto == htons(ETH_P_8021Q)) {
+			buf += ETHER_VLAN_ENCAP_LEN;
+			len -= ETHER_VLAN_ENCAP_LEN;
+		}
 	}
 	l2->rx_callback(l2->rx_callback_ctx, ethhdr->h_source, buf, len);
 }
