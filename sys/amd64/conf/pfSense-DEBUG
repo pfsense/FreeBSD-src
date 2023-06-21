@@ -20,12 +20,6 @@ options 	TMPFS
 options 	NULLFS
 options 	PPS_SYNC
 
-# Enable etherswitch
-options         IXGBE_ETHERSWITCH
-device          etherswitch
-device          mdio
-device          e6000sw
-
 # Wireless
 nooptions	IEEE80211_DEBUG	# enable debug msgs
 device		wlan_rssadapt
