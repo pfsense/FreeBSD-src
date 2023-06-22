@@ -1,3 +1,97 @@
+2023-05-10  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* meta.autodep.mk: if LOCAL_DEPENDS_GUARD is "no"
+	suppress processing of .depend
+
+2023-05-09  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* dirdeps.mk: do not add _CURDIR to DIRDEPS for SRCTOP
+
+	* meta.sys.mk sys.dirdeps.mk:
+	originally DIRDEPS_BUILD and META_MODE were the same thing,
+	but META_MODE is useful by itself.
+	Move things from meta.sys.mk which actually pertain to
+	DIRDEPS_BUILD to sys.dirdeps.mk
+
+2023-05-04  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20230504 May the Forth be with you
+
+	* dirdeps.mk: as with meta.sys.mk we treat "host" as special.
+	DEP_TARGET_SPEC is just ${DEP_MACHINE}
+
+	* meta.sys.mk: ensure DEP_* for TARGET_SPEC_VARS are set at
+	level > 0 since these are often refered to in Makefile.depend*
+
+2023-04-26  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* jobs.mk: report ${.TARGET} ${JOB_ARGS} ${JOB_LOG} and
+	anything in ${JOB_LOG_START}
+
+	* jobs.mk: look for newlog.sh in ${.SYSPATH:U${.PARSEDIR}}
+	or a scripts subdir before searching $PATH.
+
+	* FILES: include newlog.sh for jobs.mk
+
+2023-04-20  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20230420
+
+	* lib.mk: include LDFLAGS and LDADD when linking shared libs
+
+	* gendirdeps.mk: document setting GENDIRDEPS_FILTER_VARS etc
+	via local.meta.sys.mk rather than local.gendirdeps.mk
+	so DEP_* variables can be set at level 1+ to avoid syntax errors
+	when used in conditionals in manually maintained Makefile.depend
+	files.
+
+	* dirdeps.mk: ensure M_dep_qual_fixes is applied to all _machines
+
+2023-04-18  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* dirdeps.mk: check we were not included by
+	Makefile.depend.options as the result is bad.
+
+2023-04-14  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20230414
+
+	* meta.sys.mk: since we have :range we can put the logic for
+	processing TARGET_SPEC from env here.
+
+	* dirdeps.mk: reset DIRDEPS and DEP_RELDIR before including
+	local.dirdeps-missing.mk, also improve debug output.
+
+	* dirdeps.mk: to allow make -f dirdeps.mk include.$TARGET_SPEC
+	we need to use :M*[/.]* same as for when actually setting DIRDEPS
+	from the targets on command line.
+
+2023-04-12  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* Add jobs.mk
+
+2023-03-21  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20230321
+
+	* meta.stage.mk: allow STAGE_SHLIB_LINKS_FILTER to filter
+	STAGE_LIBS for SHLIB_LINKS.
+
+	* autoconf.mk: add .WAIT after config.status
+
+2023-02-17  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* sys.vars.mk: add M_Index to report the index of a word in a list.
+
+2023-02-15  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20230215
+
+	* warnings.mk: allow better control of -Werror
+	allow -Wno-error or similar to be added if
+	WARNINGS_SET < WERROR_SET
+	account for COMPILER_TYPE
+
 2023-01-29  Simon J Gerraty  <sjg@beast.crufty.net>
 
 	* autoconf.mk: hook config.status to beforebuild.

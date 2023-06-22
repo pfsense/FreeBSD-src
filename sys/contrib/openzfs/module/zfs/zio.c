@@ -41,6 +41,7 @@
 #include <sys/zio_checksum.h>
 #include <sys/dmu_objset.h>
 #include <sys/arc.h>
+#include <sys/brt.h>
 #include <sys/ddt.h>
 #include <sys/blkptr.h>
 #include <sys/zfeature.h>
@@ -569,7 +570,8 @@ error:
 	if (ret == ECKSUM) {
 		zio->io_error = SET_ERROR(EIO);
 		if ((zio->io_flags & ZIO_FLAG_SPECULATIVE) == 0) {
-			spa_log_error(spa, &zio->io_bookmark);
+			spa_log_error(spa, &zio->io_bookmark,
+			    &zio->io_bp->blk_birth);
 			(void) zfs_ereport_post(FM_EREPORT_ZFS_AUTHENTICATION,
 			    spa, NULL, &zio->io_bookmark, zio, 0);
 		}
@@ -648,9 +650,6 @@ zio_add_child(zio_t *pio, zio_t *cio)
 	list_insert_head(&pio->io_child_list, zl);
 	list_insert_head(&cio->io_parent_list, zl);
 
-	pio->io_child_count++;
-	cio->io_parent_count++;
-
 	mutex_exit(&cio->io_lock);
 	mutex_exit(&pio->io_lock);
 }
@@ -666,9 +665,6 @@ zio_remove_child(zio_t *pio, zio_t *cio, zio_link_t *zl)
 
 	list_remove(&pio->io_child_list, zl);
 	list_remove(&cio->io_parent_list, zl);
-
-	pio->io_child_count--;
-	cio->io_parent_count--;
 
 	mutex_exit(&cio->io_lock);
 	mutex_exit(&pio->io_lock);
@@ -933,9 +929,35 @@ zfs_blkptr_verify_log(spa_t *spa, const blkptr_t *bp,
 	(void) vsnprintf(buf, sizeof (buf), fmt, adx);
 	va_end(adx);
 
+	zfs_dbgmsg("bad blkptr at %px: "
+	    "DVA[0]=%#llx/%#llx "
+	    "DVA[1]=%#llx/%#llx "
+	    "DVA[2]=%#llx/%#llx "
+	    "prop=%#llx "
+	    "pad=%#llx,%#llx "
+	    "phys_birth=%#llx "
+	    "birth=%#llx "
+	    "fill=%#llx "
+	    "cksum=%#llx/%#llx/%#llx/%#llx",
+	    bp,
+	    (long long)bp->blk_dva[0].dva_word[0],
+	    (long long)bp->blk_dva[0].dva_word[1],
+	    (long long)bp->blk_dva[1].dva_word[0],
+	    (long long)bp->blk_dva[1].dva_word[1],
+	    (long long)bp->blk_dva[2].dva_word[0],
+	    (long long)bp->blk_dva[2].dva_word[1],
+	    (long long)bp->blk_prop,
+	    (long long)bp->blk_pad[0],
+	    (long long)bp->blk_pad[1],
+	    (long long)bp->blk_phys_birth,
+	    (long long)bp->blk_birth,
+	    (long long)bp->blk_fill,
+	    (long long)bp->blk_cksum.zc_word[0],
+	    (long long)bp->blk_cksum.zc_word[1],
+	    (long long)bp->blk_cksum.zc_word[2],
+	    (long long)bp->blk_cksum.zc_word[3]);
 	switch (blk_verify) {
 	case BLK_VERIFY_HALT:
-		dprintf_bp(bp, "blkptr at %p dprintf_bp():", bp);
 		zfs_panic_recover("%s: %s", spa_name(spa), buf);
 		break;
 	case BLK_VERIFY_LOG:
@@ -956,47 +978,54 @@ zfs_blkptr_verify_log(spa_t *spa, const blkptr_t *bp,
  * If everything checks out B_TRUE is returned.  The zfs_blkptr_verify
  * argument controls the behavior when an invalid field is detected.
  *
- * Modes for zfs_blkptr_verify:
- *   1) BLK_VERIFY_ONLY (evaluate the block)
- *   2) BLK_VERIFY_LOG (evaluate the block and log problems)
- *   3) BLK_VERIFY_HALT (call zfs_panic_recover on error)
+ * Values for blk_verify_flag:
+ *   BLK_VERIFY_ONLY: evaluate the block
+ *   BLK_VERIFY_LOG: evaluate the block and log problems
+ *   BLK_VERIFY_HALT: call zfs_panic_recover on error
+ *
+ * Values for blk_config_flag:
+ *   BLK_CONFIG_HELD: caller holds SCL_VDEV for writer
+ *   BLK_CONFIG_NEEDED: caller holds no config lock, SCL_VDEV will be
+ *   obtained for reader
+ *   BLK_CONFIG_SKIP: skip checks which require SCL_VDEV, for better
+ *   performance
  */
 boolean_t
-zfs_blkptr_verify(spa_t *spa, const blkptr_t *bp, boolean_t config_held,
-    enum blk_verify_flag blk_verify)
+zfs_blkptr_verify(spa_t *spa, const blkptr_t *bp,
+    enum blk_config_flag blk_config, enum blk_verify_flag blk_verify)
 {
 	int errors = 0;
 
 	if (!DMU_OT_IS_VALID(BP_GET_TYPE(bp))) {
 		errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-		    "blkptr at %p has invalid TYPE %llu",
+		    "blkptr at %px has invalid TYPE %llu",
 		    bp, (longlong_t)BP_GET_TYPE(bp));
 	}
 	if (BP_GET_CHECKSUM(bp) >= ZIO_CHECKSUM_FUNCTIONS) {
 		errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-		    "blkptr at %p has invalid CHECKSUM %llu",
+		    "blkptr at %px has invalid CHECKSUM %llu",
 		    bp, (longlong_t)BP_GET_CHECKSUM(bp));
 	}
 	if (BP_GET_COMPRESS(bp) >= ZIO_COMPRESS_FUNCTIONS) {
 		errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-		    "blkptr at %p has invalid COMPRESS %llu",
+		    "blkptr at %px has invalid COMPRESS %llu",
 		    bp, (longlong_t)BP_GET_COMPRESS(bp));
 	}
 	if (BP_GET_LSIZE(bp) > SPA_MAXBLOCKSIZE) {
 		errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-		    "blkptr at %p has invalid LSIZE %llu",
+		    "blkptr at %px has invalid LSIZE %llu",
 		    bp, (longlong_t)BP_GET_LSIZE(bp));
 	}
 	if (BP_GET_PSIZE(bp) > SPA_MAXBLOCKSIZE) {
 		errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-		    "blkptr at %p has invalid PSIZE %llu",
+		    "blkptr at %px has invalid PSIZE %llu",
 		    bp, (longlong_t)BP_GET_PSIZE(bp));
 	}
 
 	if (BP_IS_EMBEDDED(bp)) {
 		if (BPE_GET_ETYPE(bp) >= NUM_BP_EMBEDDED_TYPES) {
 			errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-			    "blkptr at %p has invalid ETYPE %llu",
+			    "blkptr at %px has invalid ETYPE %llu",
 			    bp, (longlong_t)BPE_GET_ETYPE(bp));
 		}
 	}
@@ -1008,10 +1037,19 @@ zfs_blkptr_verify(spa_t *spa, const blkptr_t *bp, boolean_t config_held,
 	if (!spa->spa_trust_config)
 		return (errors == 0);
 
-	if (!config_held)
-		spa_config_enter(spa, SCL_VDEV, bp, RW_READER);
-	else
+	switch (blk_config) {
+	case BLK_CONFIG_HELD:
 		ASSERT(spa_config_held(spa, SCL_VDEV, RW_WRITER));
+		break;
+	case BLK_CONFIG_NEEDED:
+		spa_config_enter(spa, SCL_VDEV, bp, RW_READER);
+		break;
+	case BLK_CONFIG_SKIP:
+		return (errors == 0);
+	default:
+		panic("invalid blk_config %u", blk_config);
+	}
+
 	/*
 	 * Pool-specific checks.
 	 *
@@ -1026,20 +1064,20 @@ zfs_blkptr_verify(spa_t *spa, const blkptr_t *bp, boolean_t config_held,
 
 		if (vdevid >= spa->spa_root_vdev->vdev_children) {
 			errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-			    "blkptr at %p DVA %u has invalid VDEV %llu",
+			    "blkptr at %px DVA %u has invalid VDEV %llu",
 			    bp, i, (longlong_t)vdevid);
 			continue;
 		}
 		vdev_t *vd = spa->spa_root_vdev->vdev_child[vdevid];
 		if (vd == NULL) {
 			errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-			    "blkptr at %p DVA %u has invalid VDEV %llu",
+			    "blkptr at %px DVA %u has invalid VDEV %llu",
 			    bp, i, (longlong_t)vdevid);
 			continue;
 		}
 		if (vd->vdev_ops == &vdev_hole_ops) {
 			errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-			    "blkptr at %p DVA %u has hole VDEV %llu",
+			    "blkptr at %px DVA %u has hole VDEV %llu",
 			    bp, i, (longlong_t)vdevid);
 			continue;
 		}
@@ -1057,13 +1095,11 @@ zfs_blkptr_verify(spa_t *spa, const blkptr_t *bp, boolean_t config_held,
 			asize = vdev_gang_header_asize(vd);
 		if (offset + asize > vd->vdev_asize) {
 			errors += zfs_blkptr_verify_log(spa, bp, blk_verify,
-			    "blkptr at %p DVA %u has invalid OFFSET %llu",
+			    "blkptr at %px DVA %u has invalid OFFSET %llu",
 			    bp, i, (longlong_t)offset);
 		}
 	}
-	if (errors > 0)
-		dprintf_bp(bp, "blkptr at %p dprintf_bp():", bp);
-	if (!config_held)
+	if (blk_config == BLK_CONFIG_NEEDED)
 		spa_config_exit(spa, SCL_VDEV, bp);
 
 	return (errors == 0);
@@ -1120,9 +1156,8 @@ zio_t *
 zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     abd_t *data, uint64_t lsize, uint64_t psize, const zio_prop_t *zp,
     zio_done_func_t *ready, zio_done_func_t *children_ready,
-    zio_done_func_t *physdone, zio_done_func_t *done,
-    void *private, zio_priority_t priority, zio_flag_t flags,
-    const zbookmark_phys_t *zb)
+    zio_done_func_t *done, void *private, zio_priority_t priority,
+    zio_flag_t flags, const zbookmark_phys_t *zb)
 {
 	zio_t *zio;
 
@@ -1142,7 +1177,6 @@ zio_write(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 
 	zio->io_ready = ready;
 	zio->io_children_ready = children_ready;
-	zio->io_physdone = physdone;
 	zio->io_prop = *zp;
 
 	/*
@@ -1176,12 +1210,14 @@ zio_rewrite(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp, abd_t *data,
 }
 
 void
-zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite)
+zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite,
+    boolean_t brtwrite)
 {
 	ASSERT(zio->io_type == ZIO_TYPE_WRITE);
 	ASSERT(zio->io_child_type == ZIO_CHILD_LOGICAL);
 	ASSERT(zio->io_stage == ZIO_STAGE_OPEN);
 	ASSERT(zio->io_txg == spa_syncing_txg(zio->io_spa));
+	ASSERT(!brtwrite || !nopwrite);
 
 	/*
 	 * We must reset the io_prop to match the values that existed
@@ -1190,6 +1226,7 @@ zio_write_override(zio_t *zio, blkptr_t *bp, int copies, boolean_t nopwrite)
 	 */
 	zio->io_prop.zp_dedup = nopwrite ? B_FALSE : zio->io_prop.zp_dedup;
 	zio->io_prop.zp_nopwrite = nopwrite;
+	zio->io_prop.zp_brtwrite = brtwrite;
 	zio->io_prop.zp_copies = copies;
 	zio->io_bp_override = bp;
 }
@@ -1198,7 +1235,7 @@ void
 zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 {
 
-	(void) zfs_blkptr_verify(spa, bp, B_FALSE, BLK_VERIFY_HALT);
+	(void) zfs_blkptr_verify(spa, bp, BLK_CONFIG_NEEDED, BLK_VERIFY_HALT);
 
 	/*
 	 * The check for EMBEDDED is a performance optimization.  We
@@ -1222,7 +1259,8 @@ zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 	    BP_GET_DEDUP(bp) ||
 	    txg != spa->spa_syncing_txg ||
 	    (spa_sync_pass(spa) >= zfs_sync_pass_deferred_free &&
-	    !spa_feature_is_active(spa, SPA_FEATURE_LOG_SPACEMAP))) {
+	    !spa_feature_is_active(spa, SPA_FEATURE_LOG_SPACEMAP)) ||
+	    brt_maybe_exists(spa, bp)) {
 		metaslab_check_free(spa, bp);
 		bplist_append(&spa->spa_free_bplist[txg & TXG_MASK], bp);
 	} else {
@@ -1249,11 +1287,13 @@ zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 	arc_freed(spa, bp);
 	dsl_scan_freed(spa, bp);
 
-	if (BP_IS_GANG(bp) || BP_GET_DEDUP(bp)) {
+	if (BP_IS_GANG(bp) ||
+	    BP_GET_DEDUP(bp) ||
+	    brt_maybe_exists(spa, bp)) {
 		/*
-		 * GANG and DEDUP blocks can induce a read (for the gang block
-		 * header, or the DDT), so issue them asynchronously so that
-		 * this thread is not tied up.
+		 * GANG, DEDUP and BRT blocks can induce a read (for the gang
+		 * block header, the DDT or the BRT), so issue them
+		 * asynchronously so that this thread is not tied up.
 		 */
 		enum zio_stage stage =
 		    ZIO_FREE_PIPELINE | ZIO_STAGE_ISSUE_ASYNC;
@@ -1274,8 +1314,8 @@ zio_claim(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 {
 	zio_t *zio;
 
-	(void) zfs_blkptr_verify(spa, bp, flags & ZIO_FLAG_CONFIG_WRITER,
-	    BLK_VERIFY_HALT);
+	(void) zfs_blkptr_verify(spa, bp, (flags & ZIO_FLAG_CONFIG_WRITER) ?
+	    BLK_CONFIG_HELD : BLK_CONFIG_NEEDED, BLK_VERIFY_HALT);
 
 	if (BP_IS_EMBEDDED(bp))
 		return (zio_null(pio, spa, NULL, NULL, NULL, 0));
@@ -1469,15 +1509,10 @@ zio_vdev_child_io(zio_t *pio, blkptr_t *bp, vdev_t *vd, uint64_t offset,
 		flags &= ~ZIO_FLAG_IO_ALLOCATING;
 	}
 
-
 	zio = zio_create(pio, pio->io_spa, pio->io_txg, bp, data, size, size,
 	    done, private, type, priority, flags, vd, offset, &pio->io_bookmark,
 	    ZIO_STAGE_VDEV_IO_START >> 1, pipeline);
 	ASSERT3U(zio->io_child_type, ==, ZIO_CHILD_VDEV);
-
-	zio->io_physdone = pio->io_physdone;
-	if (vd->vdev_ops->vdev_op_leaf && zio->io_logical != NULL)
-		zio->io_logical->io_phys_children++;
 
 	return (zio);
 }
@@ -1569,12 +1604,6 @@ zio_read_bp_init(zio_t *zio)
 		ASSERT3P(zio->io_bp, ==, &zio->io_bp_copy);
 	}
 
-	if (!DMU_OT_IS_METADATA(BP_GET_TYPE(bp)) && BP_GET_LEVEL(bp) == 0)
-		zio->io_flags |= ZIO_FLAG_DONT_CACHE;
-
-	if (BP_GET_TYPE(bp) == DMU_OT_DDT_ZAP)
-		zio->io_flags |= ZIO_FLAG_DONT_CACHE;
-
 	if (BP_GET_DEDUP(bp) && zio->io_child_type == ZIO_CHILD_LOGICAL)
 		zio->io_pipeline = ZIO_DDT_READ_PIPELINE;
 
@@ -1594,10 +1623,14 @@ zio_write_bp_init(zio_t *zio)
 		zio_prop_t *zp = &zio->io_prop;
 
 		ASSERT(bp->blk_birth != zio->io_txg);
-		ASSERT(BP_GET_DEDUP(zio->io_bp_override) == 0);
 
 		*bp = *zio->io_bp_override;
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
+
+		if (zp->zp_brtwrite)
+			return (zio);
+
+		ASSERT(!BP_GET_DEDUP(zio->io_bp_override));
 
 		if (BP_IS_EMBEDDED(bp))
 			return (zio);
@@ -1704,12 +1737,15 @@ zio_write_compress(zio_t *zio)
 	/* If it's a compressed write that is not raw, compress the buffer. */
 	if (compress != ZIO_COMPRESS_OFF &&
 	    !(zio->io_flags & ZIO_FLAG_RAW_COMPRESS)) {
-		void *cbuf = zio_buf_alloc(lsize);
-		psize = zio_compress_data(compress, zio->io_abd, cbuf, lsize,
+		void *cbuf = NULL;
+		psize = zio_compress_data(compress, zio->io_abd, &cbuf, lsize,
 		    zp->zp_complevel);
-		if (psize == 0 || psize >= lsize) {
+		if (psize == 0) {
 			compress = ZIO_COMPRESS_OFF;
-			zio_buf_free(cbuf, lsize);
+		} else if (psize >= lsize) {
+			compress = ZIO_COMPRESS_OFF;
+			if (cbuf != NULL)
+				zio_buf_free(cbuf, lsize);
 		} else if (!zp->zp_dedup && !zp->zp_encrypt &&
 		    psize <= BPE_PAYLOAD_SIZE &&
 		    zp->zp_level == 0 && !DMU_OT_HAS_FILL(zp->zp_type) &&
@@ -2286,7 +2322,7 @@ zio_nowait(zio_t *zio)
 	ASSERT3P(zio->io_executor, ==, NULL);
 
 	if (zio->io_child_type == ZIO_CHILD_LOGICAL &&
-	    zio_unique_parent(zio) == NULL) {
+	    list_is_empty(&zio->io_parent_list)) {
 		zio_t *pio;
 
 		/*
@@ -2662,7 +2698,7 @@ zio_gang_tree_assemble_done(zio_t *zio)
 	blkptr_t *bp = zio->io_bp;
 
 	ASSERT(gio == zio_unique_parent(zio));
-	ASSERT(zio->io_child_count == 0);
+	ASSERT(list_is_empty(&zio->io_child_list));
 
 	if (zio->io_error)
 		return;
@@ -2920,7 +2956,7 @@ zio_write_gang_block(zio_t *pio, metaslab_class_t *mc)
 		zio_t *cio = zio_write(zio, spa, txg, &gbh->zg_blkptr[g],
 		    has_data ? abd_get_offset(pio->io_abd, pio->io_size -
 		    resid) : NULL, lsize, lsize, &zp,
-		    zio_write_gang_member_ready, NULL, NULL,
+		    zio_write_gang_member_ready, NULL,
 		    zio_write_gang_done, &gn->gn_child[g], pio->io_priority,
 		    ZIO_GANG_CHILD_FLAGS(pio), &pio->io_bookmark);
 
@@ -3034,6 +3070,35 @@ zio_nop_write(zio_t *zio)
 		*bp = *bp_orig;
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
 		zio->io_flags |= ZIO_FLAG_NOPWRITE;
+	}
+
+	return (zio);
+}
+
+/*
+ * ==========================================================================
+ * Block Reference Table
+ * ==========================================================================
+ */
+static zio_t *
+zio_brt_free(zio_t *zio)
+{
+	blkptr_t *bp;
+
+	bp = zio->io_bp;
+
+	if (BP_GET_LEVEL(bp) > 0 ||
+	    BP_IS_METADATA(bp) ||
+	    !brt_maybe_exists(zio->io_spa, bp)) {
+		return (zio);
+	}
+
+	if (!brt_entry_decref(zio->io_spa, bp)) {
+		/*
+		 * This isn't the last reference, so we cannot free
+		 * the data yet.
+		 */
+		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
 	}
 
 	return (zio);
@@ -3353,7 +3418,7 @@ zio_ddt_write(zio_t *zio)
 	} else {
 		cio = zio_write(zio, spa, txg, bp, zio->io_orig_abd,
 		    zio->io_orig_size, zio->io_orig_size, zp,
-		    zio_ddt_child_write_ready, NULL, NULL,
+		    zio_ddt_child_write_ready, NULL,
 		    zio_ddt_child_write_done, dde, zio->io_priority,
 		    ZIO_DDT_CHILD_FLAGS(zio), &zio->io_bookmark);
 
@@ -3871,9 +3936,6 @@ zio_vdev_io_start(zio_t *zio)
 	    zio->io_type == ZIO_TYPE_WRITE ||
 	    zio->io_type == ZIO_TYPE_TRIM)) {
 
-		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio))
-			return (zio);
-
 		if ((zio = vdev_queue_io(zio)) == NULL)
 			return (NULL);
 
@@ -3909,9 +3971,6 @@ zio_vdev_io_done(zio_t *zio)
 	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
 	    vd->vdev_ops != &vdev_draid_spare_ops) {
 		vdev_queue_io_done(zio);
-
-		if (zio->io_type == ZIO_TYPE_WRITE)
-			vdev_cache_write(zio);
 
 		if (zio_injection_enabled && zio->io_error == 0)
 			zio->io_error = zio_handle_device_injections(vd, zio,
@@ -4022,8 +4081,7 @@ zio_vdev_io_assess(zio_t *zio)
 		ASSERT(!(zio->io_flags & ZIO_FLAG_DONT_QUEUE));	/* not a leaf */
 		ASSERT(!(zio->io_flags & ZIO_FLAG_IO_BYPASS));	/* not a leaf */
 		zio->io_error = 0;
-		zio->io_flags |= ZIO_FLAG_IO_RETRY |
-		    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_AGGREGATE;
+		zio->io_flags |= ZIO_FLAG_IO_RETRY | ZIO_FLAG_DONT_AGGREGATE;
 		zio->io_stage = ZIO_STAGE_VDEV_IO_START >> 1;
 		zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE,
 		    zio_requeue_io_start_cut_in_line);
@@ -4062,13 +4120,6 @@ zio_vdev_io_assess(zio_t *zio)
 
 	if (zio->io_error)
 		zio->io_pipeline = ZIO_INTERLOCK_PIPELINE;
-
-	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
-	    zio->io_physdone != NULL) {
-		ASSERT(!(zio->io_flags & ZIO_FLAG_DELEGATED));
-		ASSERT(zio->io_child_type == ZIO_CHILD_VDEV);
-		zio->io_physdone(zio->io_logical);
-	}
 
 	return (zio);
 }
@@ -4431,7 +4482,7 @@ zio_ready(zio_t *zio)
 	}
 
 	if (zio->io_flags & ZIO_FLAG_NODATA) {
-		if (BP_IS_GANG(bp)) {
+		if (bp != NULL && BP_IS_GANG(bp)) {
 			zio->io_flags &= ~ZIO_FLAG_NODATA;
 		} else {
 			ASSERT((uintptr_t)zio->io_abd < SPA_MAXBLOCKSIZE);
@@ -4675,7 +4726,8 @@ zio_done(zio_t *zio)
 			 * For logical I/O requests, tell the SPA to log the
 			 * error and generate a logical data ereport.
 			 */
-			spa_log_error(zio->io_spa, &zio->io_bookmark);
+			spa_log_error(zio->io_spa, &zio->io_bookmark,
+			    &zio->io_bp->blk_birth);
 			(void) zfs_ereport_post(FM_EREPORT_ZFS_DATA,
 			    zio->io_spa, NULL, &zio->io_bookmark, zio, 0);
 		}
@@ -4818,7 +4870,7 @@ zio_done(zio_t *zio)
 		return (NULL);
 	}
 
-	ASSERT(zio->io_child_count == 0);
+	ASSERT(list_is_empty(&zio->io_child_list));
 	ASSERT(zio->io_reexecute == 0);
 	ASSERT(zio->io_error == 0 || (zio->io_flags & ZIO_FLAG_CANFAIL));
 
@@ -4891,6 +4943,7 @@ static zio_pipe_stage_t *zio_pipeline[] = {
 	zio_encrypt,
 	zio_checksum_generate,
 	zio_nop_write,
+	zio_brt_free,
 	zio_ddt_read_start,
 	zio_ddt_read_done,
 	zio_ddt_write,

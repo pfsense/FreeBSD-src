@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2023 Dmitry Chagin <dchagin@FreeBSD.org>
  *
@@ -32,13 +32,14 @@ __FBSDID("$FreeBSD$");
 #include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
+#include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/sbuf.h>
 #include <sys/socket.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
-#include <net/if_dl.h>
+#include <net/vnet.h>
 
 #include <compat/linux/linux.h>
 #include <compat/linux/linux_common.h>
@@ -56,6 +57,7 @@ MTX_SYSINIT(net_latch_mtx, &net_latch_mtx, "lsfnet", MTX_DEF);
 struct ifp_nodes_queue {
 	TAILQ_ENTRY(ifp_nodes_queue) ifp_nodes_next;
 	if_t ifp;
+	struct vnet *vnet;
 	struct pfs_node *pn;
 };
 TAILQ_HEAD(,ifp_nodes_queue) ifp_nodes_q;
@@ -82,11 +84,11 @@ linsysfs_net_latch_rele(void)
 }
 
 static int
-linsysfs_ifnet_addr(PFS_FILL_ARGS)
+linsysfs_if_addr(PFS_FILL_ARGS)
 {
 	struct epoch_tracker et;
 	struct l_sockaddr lsa;
-	struct ifnet *ifp;
+	if_t ifp;
 	int error;
 
 	CURVNET_SET(TD_TO_VNET(td));
@@ -104,7 +106,7 @@ linsysfs_ifnet_addr(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_addrlen(PFS_FILL_ARGS)
+linsysfs_if_addrlen(PFS_FILL_ARGS)
 {
 
 	sbuf_printf(sb, "%d\n", LINUX_IFHWADDRLEN);
@@ -112,10 +114,10 @@ linsysfs_ifnet_addrlen(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_flags(PFS_FILL_ARGS)
+linsysfs_if_flags(PFS_FILL_ARGS)
 {
 	struct epoch_tracker et;
-	struct ifnet *ifp;
+	if_t ifp;
 	int error;
 
 	CURVNET_SET(TD_TO_VNET(td));
@@ -131,10 +133,10 @@ linsysfs_ifnet_flags(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_ifindex(PFS_FILL_ARGS)
+linsysfs_if_ifindex(PFS_FILL_ARGS)
 {
 	struct epoch_tracker et;
-	struct ifnet *ifp;
+	if_t ifp;
 	int error;
 
 	CURVNET_SET(TD_TO_VNET(td));
@@ -150,10 +152,10 @@ linsysfs_ifnet_ifindex(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_mtu(PFS_FILL_ARGS)
+linsysfs_if_mtu(PFS_FILL_ARGS)
 {
 	struct epoch_tracker et;
-	struct ifnet *ifp;
+	if_t ifp;
 	int error;
 
 	CURVNET_SET(TD_TO_VNET(td));
@@ -169,7 +171,7 @@ linsysfs_ifnet_mtu(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_tx_queue_len(PFS_FILL_ARGS)
+linsysfs_if_txq_len(PFS_FILL_ARGS)
 {
 
 	/* XXX */
@@ -178,11 +180,11 @@ linsysfs_ifnet_tx_queue_len(PFS_FILL_ARGS)
 }
 
 static int
-linsysfs_ifnet_type(PFS_FILL_ARGS)
+linsysfs_if_type(PFS_FILL_ARGS)
 {
 	struct epoch_tracker et;
 	struct l_sockaddr lsa;
-	struct ifnet *ifp;
+	if_t ifp;
 	int error;
 
 	CURVNET_SET(TD_TO_VNET(td));
@@ -197,26 +199,38 @@ linsysfs_ifnet_type(PFS_FILL_ARGS)
 	return (error == -1 ? ERANGE : error);
 }
 
-static struct pfs_node *
-linsysfs_net_find_node(if_t ifp)
+static int
+linsysfs_if_visible(PFS_VIS_ARGS)
 {
 	struct ifp_nodes_queue *nq, *nq_tmp;
+	struct epoch_tracker et;
+	if_t ifp;
+	int visible;
 
-	TAILQ_FOREACH_SAFE(nq, &ifp_nodes_q, ifp_nodes_next, nq_tmp) {
-		if (nq->ifp == ifp)
-			return (nq->pn);
+	visible = 0;
+	CURVNET_SET(TD_TO_VNET(td));
+	NET_EPOCH_ENTER(et);
+	ifp = ifname_linux_to_ifp(td, pn->pn_name);
+	if (ifp != NULL) {
+		TAILQ_FOREACH_SAFE(nq, &ifp_nodes_q, ifp_nodes_next, nq_tmp) {
+			if (nq->ifp == ifp && nq->vnet == curvnet) {
+				visible = 1;
+				break;
+			}
+		}
 	}
-	return (NULL);
+	NET_EPOCH_EXIT(et);
+	CURVNET_RESTORE();
+	return (visible);
 }
 
 static int
-linsysfs_net_addnic(if_t ifp, void *arg)
+linsysfs_net_addif(if_t ifp, void *arg)
 {
+	struct ifp_nodes_queue *nq, *nq_tmp;
+	struct pfs_node *nic, *dir = arg;
 	char ifname[LINUX_IFNAMSIZ];
-	struct ifp_nodes_queue *nq;
 	struct epoch_tracker et;
-	struct pfs_node *dir = arg;
-	struct pfs_node *nic = NULL;
 	int ret __diagused;
 
 	NET_EPOCH_ENTER(et);
@@ -224,88 +238,104 @@ linsysfs_net_addnic(if_t ifp, void *arg)
 	NET_EPOCH_EXIT(et);
 	KASSERT(ret > 0, ("Interface (%s) is not converted", if_name(ifp)));
 
-	nic = linsysfs_net_find_node(ifp);
-	MPASS(nic == NULL);
-
-	nic = pfs_create_dir(dir, ifname, NULL, NULL, NULL, 0);
-	pfs_create_file(nic, "address", &linsysfs_ifnet_addr,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "addr_len", &linsysfs_ifnet_addrlen,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "flags", &linsysfs_ifnet_flags,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "ifindex", &linsysfs_ifnet_ifindex,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "mtu", &linsysfs_ifnet_mtu,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "tx_queue_len", &linsysfs_ifnet_tx_queue_len,
-	    NULL, NULL, NULL, PFS_RD);
-	pfs_create_file(nic, "type", &linsysfs_ifnet_type,
-	    NULL, NULL, NULL, PFS_RD);
-
+	nic = pfs_find_node(dir, ifname);
+	if (nic == NULL) {
+		nic = pfs_create_dir(dir, ifname, NULL, linsysfs_if_visible,
+		    NULL, 0);
+		pfs_create_file(nic, "address", &linsysfs_if_addr,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "addr_len", &linsysfs_if_addrlen,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "flags", &linsysfs_if_flags,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "ifindex", &linsysfs_if_ifindex,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "mtu", &linsysfs_if_mtu,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "tx_queue_len", &linsysfs_if_txq_len,
+		    NULL, NULL, NULL, PFS_RD);
+		pfs_create_file(nic, "type", &linsysfs_if_type,
+		NULL, NULL, NULL, PFS_RD);
+	}
+	/*
+	 * There is a small window between registering the if_arrival
+	 * eventhandler and creating a list of interfaces.
+	 */
+	TAILQ_FOREACH_SAFE(nq, &ifp_nodes_q, ifp_nodes_next, nq_tmp) {
+		if (nq->ifp == ifp && nq->vnet == curvnet)
+			return (0);
+	}
 	nq = malloc(sizeof(*nq), M_LINSYSFS, M_WAITOK);
 	nq->pn = nic;
 	nq->ifp = ifp;
+	nq->vnet = curvnet;
 	TAILQ_INSERT_TAIL(&ifp_nodes_q, nq, ifp_nodes_next);
 	return (0);
 }
 
-static int
-linsysfs_net_delnic(if_t ifp, void *arg)
+static void
+linsysfs_net_delif(if_t ifp)
 {
 	struct ifp_nodes_queue *nq, *nq_tmp;
+	struct pfs_node *pn;
 
+	pn = NULL;
 	TAILQ_FOREACH_SAFE(nq, &ifp_nodes_q, ifp_nodes_next, nq_tmp) {
-		if (nq->ifp == ifp) {
+		if (nq->ifp == ifp && nq->vnet == curvnet) {
 			TAILQ_REMOVE(&ifp_nodes_q, nq, ifp_nodes_next);
-			pfs_destroy(nq->pn);
+			pn = nq->pn;
 			free(nq, M_LINSYSFS);
-			return (0);
+			break;
 		}
 	}
-	return (1);
+	if (pn == NULL)
+		return;
+	TAILQ_FOREACH_SAFE(nq, &ifp_nodes_q, ifp_nodes_next, nq_tmp) {
+		if (nq->pn == pn)
+			return;
+	}
+	pfs_destroy(pn);
 }
 
 static void
-linsysfs_net_listnics(struct pfs_node *dir)
-{
-
-	CURVNET_SET(TD_TO_VNET(curthread));
-	if_foreach_sleep(NULL, NULL, linsysfs_net_addnic, dir);
-	CURVNET_RESTORE();
-}
-
-static void
-linsysfs_ifnet_arrival(void *arg __unused, struct ifnet *ifp)
+linsysfs_if_arrival(void *arg __unused, if_t ifp)
 {
 
 	linsysfs_net_latch_hold();
-	linsysfs_net_addnic(ifp, net);
+	(void)linsysfs_net_addif(ifp, net);
 	linsysfs_net_latch_rele();
 }
 
 static void
-linsysfs_ifnet_departure(void *arg __unused, struct ifnet *ifp)
+linsysfs_if_departure(void *arg __unused, if_t ifp)
 {
 
 	linsysfs_net_latch_hold();
-	linsysfs_net_delnic(ifp, net);
+	linsysfs_net_delif(ifp);
 	linsysfs_net_latch_rele();
 }
 
 void
 linsysfs_net_init(void)
 {
+	VNET_ITERATOR_DECL(vnet_iter);
 
 	MPASS(net != NULL);
 	TAILQ_INIT(&ifp_nodes_q);
+
 	if_arrival_tag = EVENTHANDLER_REGISTER(ifnet_arrival_event,
-	    linsysfs_ifnet_arrival, NULL, EVENTHANDLER_PRI_ANY);
+	    linsysfs_if_arrival, NULL, EVENTHANDLER_PRI_ANY);
 	if_departure_tag = EVENTHANDLER_REGISTER(ifnet_departure_event,
-	    linsysfs_ifnet_departure, NULL, EVENTHANDLER_PRI_ANY);
+	    linsysfs_if_departure, NULL, EVENTHANDLER_PRI_ANY);
 
 	linsysfs_net_latch_hold();
-	linsysfs_net_listnics(net);
+	VNET_LIST_RLOCK();
+	VNET_FOREACH(vnet_iter) {
+		CURVNET_SET(vnet_iter);
+		if_foreach_sleep(NULL, NULL, linsysfs_net_addif, net);
+		CURVNET_RESTORE();
+	}
+	VNET_LIST_RUNLOCK();
 	linsysfs_net_latch_rele();
 }
 

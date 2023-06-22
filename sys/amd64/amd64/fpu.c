@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
+#include <sys/tslog.h>
 #include <machine/bus.h>
 #include <sys/rman.h>
 #include <sys/signalvar.h>
@@ -238,22 +239,8 @@ fpurestore_fxrstor(void *addr)
 	fxrstor((char *)addr);
 }
 
-static void
-init_xsave(void)
-{
-
-	if (use_xsave)
-		return;
-	if ((cpu_feature2 & CPUID2_XSAVE) == 0)
-		return;
-	use_xsave = 1;
-	TUNABLE_INT_FETCH("hw.use_xsave", &use_xsave);
-}
-
 DEFINE_IFUNC(, void, fpusave, (void *))
 {
-
-	init_xsave();
 	if (!use_xsave)
 		return (fpusave_fxsave);
 	if ((cpu_stdext_feature & CPUID_EXTSTATE_XSAVEOPT) != 0) {
@@ -266,8 +253,6 @@ DEFINE_IFUNC(, void, fpusave, (void *))
 
 DEFINE_IFUNC(, void, fpurestore, (void *))
 {
-
-	init_xsave();
 	if (!use_xsave)
 		return (fpurestore_fxrstor);
 	return ((cpu_stdext_feature & CPUID_STDEXT_NFPUSG) != 0 ?
@@ -376,6 +361,7 @@ fpuinit(void)
 	u_int mxcsr;
 	u_short control;
 
+	TSENTER();
 	if (IS_BSP())
 		fpuinit_bsp1();
 
@@ -417,6 +403,7 @@ fpuinit(void)
 	ldmxcsr(mxcsr);
 	start_emulating();
 	intr_restore(saveintr);
+	TSEXIT();
 }
 
 /*

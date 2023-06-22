@@ -24,24 +24,17 @@
  */
 
 #ifndef lint
-#if 0
-static char sccsid[] = "@(#)popen.c	5.7 (Berkeley) 2/14/89";
-#endif
 static const char rcsid[] =
-  "$FreeBSD$";
+    "$Id: popen.c,v 1.3 1998/08/14 00:32:41 vixie Exp $";
+#if 0
+static const char sccsid[] = "@(#)popen.c	5.7 (Berkeley) 2/14/89";
+#endif
 #endif /* not lint */
 
 #include "cron.h"
-#include <sys/signal.h>
-#include <fcntl.h>
-#include <paths.h>
-#if defined(SYSLOG)
-# include <syslog.h>
-#endif
 #if defined(LOGIN_CAP)
 # include <login_cap.h>
 #endif
-
 
 #define MAX_ARGS 100
 #define WANT_GLOBBING 0
@@ -55,12 +48,9 @@ static PID_T *pids;
 static int fds;
 
 FILE *
-cron_popen(program, type, e, pidptr)
-	char *program, *type;
-	entry *e;
-	PID_T *pidptr;
+cron_popen(char *program, char *type, entry *e, PID_T *pidptr)
 {
-	register char *cp;
+	char *cp;
 	FILE *iop;
 	int argc, pdes[2];
 	PID_T pid;
@@ -77,17 +67,17 @@ cron_popen(program, type, e, pidptr)
 	extern char **glob(), **copyblk();
 #endif
 
-	if ((*type != 'r' && *type != 'w') || type[1])
-		return(NULL);
+	if ((*type != 'r' && *type != 'w') || type[1] != '\0')
+		return (NULL);
 
 	if (!pids) {
-		if ((fds = getdtablesize()) <= 0)
-			return(NULL);
+		if ((fds = sysconf(_SC_OPEN_MAX)) <= 0)
+			return (NULL);
 		if (!(pids = calloc(fds, sizeof(PID_T))))
-			return(NULL);
+			return (NULL);
 	}
 	if (pipe(pdes) < 0)
-		return(NULL);
+		return (NULL);
 
 	/* break up string into pieces */
 	for (argc = 0, cp = program; argc < MAX_ARGS; cp = NULL)
@@ -222,14 +212,13 @@ pfree:
 
 	*pidptr = pid;
 
-	return(iop);
+	return (iop);
 }
 
 int
-cron_pclose(iop)
-	FILE *iop;
+cron_pclose(FILE *iop)
 {
-	register int fdes;
+	int fdes;
 	int omask;
 	WAIT_T stat_loc;
 	PID_T pid;
@@ -239,7 +228,7 @@ cron_pclose(iop)
 	 * `popened' command, or, if already `pclosed'.
 	 */
 	if (pids == 0 || pids[fdes = fileno(iop)] == 0)
-		return(-1);
+		return (-1);
 	(void)fclose(iop);
 	omask = sigblock(sigmask(SIGINT)|sigmask(SIGQUIT)|sigmask(SIGHUP));
 	while ((pid = wait(&stat_loc)) != pids[fdes] && pid != -1)

@@ -106,9 +106,6 @@ struct net_device_ops {
 };
 
 struct net_device {
-	/* BSD specific for compat. */
-	struct ifnet			bsdifp;
-
 	/* net_device fields seen publicly. */
 	/* XXX can we later make some aliases to ifnet? */
 	char				name[IFNAMSIZ];
@@ -342,10 +339,18 @@ ether_setup(struct net_device *ndev)
 }
 
 static __inline void
-dev_net_set(struct net_device *dev, void *p)
+dev_net_set(struct net_device *ndev, void *p)
 {
 
 	pr_debug("%s: TODO\n", __func__);
+}
+
+static __inline int
+dev_set_threaded(struct net_device *ndev, bool threaded)
+{
+
+	pr_debug("%s: TODO\n", __func__);
+	return (-ENODEV);
 }
 
 /* -------------------------------------------------------------------------- */

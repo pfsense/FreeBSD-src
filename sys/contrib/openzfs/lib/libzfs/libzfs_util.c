@@ -243,10 +243,20 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		    "into a new one"));
 	case EZFS_SCRUB_PAUSED:
 		return (dgettext(TEXT_DOMAIN, "scrub is paused; "
-		    "use 'zpool scrub' to resume"));
+		    "use 'zpool scrub' to resume scrub"));
+	case EZFS_SCRUB_PAUSED_TO_CANCEL:
+		return (dgettext(TEXT_DOMAIN, "scrub is paused; "
+		    "use 'zpool scrub' to resume or 'zpool scrub -s' to "
+		    "cancel scrub"));
 	case EZFS_SCRUBBING:
 		return (dgettext(TEXT_DOMAIN, "currently scrubbing; "
-		    "use 'zpool scrub -s' to cancel current scrub"));
+		    "use 'zpool scrub -s' to cancel scrub"));
+	case EZFS_ERRORSCRUBBING:
+		return (dgettext(TEXT_DOMAIN, "currently error scrubbing; "
+		    "use 'zpool scrub -s' to cancel error scrub"));
+	case EZFS_ERRORSCRUB_PAUSED:
+		return (dgettext(TEXT_DOMAIN, "error scrub is paused; "
+		    "use 'zpool scrub -e' to resume error scrub"));
 	case EZFS_NO_SCRUB:
 		return (dgettext(TEXT_DOMAIN, "there is no active scrub"));
 	case EZFS_DIFF:
@@ -1595,13 +1605,13 @@ zfs_nicestrtonum(libzfs_handle_t *hdl, const char *value, uint64_t *num)
  */
 int
 zprop_parse_value(libzfs_handle_t *hdl, nvpair_t *elem, int prop,
-    zfs_type_t type, nvlist_t *ret, char **svalp, uint64_t *ivalp,
+    zfs_type_t type, nvlist_t *ret, const char **svalp, uint64_t *ivalp,
     const char *errbuf)
 {
 	data_type_t datatype = nvpair_type(elem);
 	zprop_type_t proptype;
 	const char *propname;
-	char *value;
+	const char *value;
 	boolean_t isnone = B_FALSE;
 	boolean_t isauto = B_FALSE;
 	int err = 0;
@@ -1774,6 +1784,7 @@ addlist(libzfs_handle_t *hdl, const char *propname, zprop_list_t **listp,
 	 * a user-defined property.
 	 */
 	if (prop == ZPROP_USERPROP && ((type == ZFS_TYPE_POOL &&
+	    !zfs_prop_user(propname) &&
 	    !zpool_prop_feature(propname) &&
 	    !zpool_prop_unsupported(propname)) ||
 	    ((type == ZFS_TYPE_DATASET) && !zfs_prop_user(propname) &&
@@ -1965,7 +1976,7 @@ zfs_version_print(void)
  * Return 1 if the user requested ANSI color output, and our terminal supports
  * it.  Return 0 for no color.
  */
-static int
+int
 use_color(void)
 {
 	static int use_color = -1;
@@ -2011,10 +2022,11 @@ use_color(void)
 }
 
 /*
- * color_start() and color_end() are used for when you want to colorize a block
- * of text.  For example:
+ * The functions color_start() and color_end() are used for when you want
+ * to colorize a block of text.
  *
- * color_start(ANSI_RED_FG)
+ * For example:
+ * color_start(ANSI_RED)
  * printf("hello");
  * printf("world");
  * color_end();
@@ -2022,7 +2034,7 @@ use_color(void)
 void
 color_start(const char *color)
 {
-	if (use_color()) {
+	if (color && use_color()) {
 		fputs(color, stdout);
 		fflush(stdout);
 	}
@@ -2038,7 +2050,9 @@ color_end(void)
 
 }
 
-/* printf() with a color.  If color is NULL, then do a normal printf. */
+/*
+ * printf() with a color. If color is NULL, then do a normal printf.
+ */
 int
 printf_color(const char *color, const char *format, ...)
 {

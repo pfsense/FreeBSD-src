@@ -326,13 +326,17 @@ cpu_setregs(void)
 {
 	register_t cr0;
 
+	TSENTER();
 	cr0 = rcr0();
 	/*
 	 * CR0_MP, CR0_NE and CR0_TS are also set by npx_probe() for the
 	 * BSP.  See the comments there about why we set them.
 	 */
 	cr0 |= CR0_MP | CR0_NE | CR0_TS | CR0_WP | CR0_AM;
+	TSENTER2("load_cr0");
 	load_cr0(cr0);
+	TSEXIT2("load_cr0");
+	TSEXIT();
 }
 
 /*
@@ -870,6 +874,7 @@ getmemsize(caddr_t kmdp, u_int64_t first)
 	quad_t dcons_addr, dcons_size;
 	int page_counter;
 
+	TSENTER();
 	/*
 	 * Tell the physical memory allocator about pages used to store
 	 * the kernel and preloaded data.  See kmem_bootstrap_free().
@@ -1125,6 +1130,7 @@ do_next:
 
 	/* Map the message buffer. */
 	msgbufp = (struct msgbuf *)PHYS_TO_DMAP(phys_avail[pa_indx]);
+	TSEXIT();
 }
 
 static caddr_t
@@ -1344,6 +1350,11 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	TUNABLE_INT_FETCH("vm.pmap.pcid_invlpg_workaround",
 	    &pmap_pcid_invlpg_workaround_uena);
 	cpu_init_small_core();
+
+	if ((cpu_feature2 & CPUID2_XSAVE) != 0) {
+		use_xsave = 1;
+		TUNABLE_INT_FETCH("hw.use_xsave", &use_xsave);
+	}
 
 	link_elf_ireloc(kmdp);
 

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997 - 1999, 2001 Brian Somers <brian@Awfulhak.org>
  * All rights reserved.
@@ -94,7 +94,7 @@ sig_signal(int sig, sig_type fn)
  * select() returned due to a signal being recorded by signal_recorder().
  */
 int
-sig_Handle()
+sig_Handle(void)
 {
   int sig;
   int got;

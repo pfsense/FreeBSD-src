@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Chelsio Communications, Inc.
  * All rights reserved.
@@ -388,7 +388,8 @@ t4_set_tracer(struct adapter *sc, struct t4_tracer *t)
 			goto done;
 		}
 		tp.port = sc->port[t->tp.port - 4]->tx_chan + 4;
-	}
+	} else
+		tp.port = t->tp.port;
 	tpp = &tp;
 done:
 	if (rc == 0) {

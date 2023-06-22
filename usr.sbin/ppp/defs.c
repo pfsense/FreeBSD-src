@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997 Brian Somers <brian@Awfulhak.org>
  * All rights reserved.
@@ -384,7 +384,7 @@ SetTitle(const char *title)
 }
 
 fd_set *
-mkfdset()
+mkfdset(void)
 {
   return (fd_set *)malloc(howmany(getdtablesize(), NFDBITS) * sizeof (fd_mask));
 }

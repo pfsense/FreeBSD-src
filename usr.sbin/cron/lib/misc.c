@@ -1,23 +1,26 @@
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
+ */
+
+/*
+ * Copyright (c) 1997 by Internet Software Consortium
  *
- * Distribute freely, except: don't remove my name from the source or
- * documentation (don't take credit for my work), mark your changes (don't
- * get me blamed for your possible bugs), don't alter or remove this
- * notice.  May be sold if buildable source is provided to buyer.  No
- * warrantee of any kind, express or implied, is included with this
- * software; use at your own risk, responsibility for damages (if any) to
- * anyone resulting from the use of this software rests entirely with the
- * user.
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * Send bug reports, bug fixes, enhancements, requests, flames, etc., and
- * I'll try to keep a version up to date.  I can be reached as follows:
- * Paul Vixie          <paul@vix.com>          uunet!decwrl!vixie!paul
+ * THE SOFTWARE IS PROVIDED "AS IS" AND INTERNET SOFTWARE CONSORTIUM DISCLAIMS
+ * ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL INTERNET SOFTWARE
+ * CONSORTIUM BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+ * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+ * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+ * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+ * SOFTWARE.
  */
 
 #if !defined(lint) && !defined(LINT)
-static const char rcsid[] =
-  "$FreeBSD$";
+static const char rcsid[] = "$Id: misc.c,v 1.5 1998/08/14 00:32:40 vixie Exp $";
 #endif
 
 /* vix 26jan87 [RCS has the rest of the log]
@@ -33,7 +36,6 @@ static const char rcsid[] =
 #endif
 #include <sys/file.h>
 #include <sys/stat.h>
-#include <err.h>
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
@@ -42,8 +44,12 @@ static const char rcsid[] =
 #endif
 
 
+#if defined(LOG_CRON) && defined(LOG_FILE)
+# undef LOG_FILE
+#endif
+
 #if defined(LOG_DAEMON) && !defined(LOG_CRON)
-#define LOG_CRON LOG_DAEMON
+# define LOG_CRON LOG_DAEMON
 #endif
 
 
@@ -51,13 +57,8 @@ static int		LogFD = ERR;
 
 
 int
-strcmp_until(left, right, until)
-	char	*left;
-	char	*right;
-	int	until;
+strcmp_until(const char *left, const char *right, int until)
 {
-	register int	diff;
-
 	while (*left && *left != until && *left == *right) {
 		left++;
 		right++;
@@ -65,20 +66,16 @@ strcmp_until(left, right, until)
 
 	if ((*left=='\0' || *left == until) &&
 	    (*right=='\0' || *right == until)) {
-		diff = 0;
-	} else {
-		diff = *left - *right;
+		return (0);
 	}
-
-	return diff;
+	return (*left - *right);
 }
 
 
 /* strdtb(s) - delete trailing blanks in string 's' and return new length
  */
 int
-strdtb(s)
-	char	*s;
+strdtb(char *s)
 {
 	char	*x = s;
 
@@ -106,8 +103,7 @@ strdtb(s)
 
 
 int
-set_debug_flags(flags)
-	char	*flags;
+set_debug_flags(char *flags)
 {
 	/* debug flags are of the form    flag[,flag ...]
 	 *
@@ -127,13 +123,13 @@ set_debug_flags(flags)
 	DebugFlags = 0;
 
 	while (*pc) {
-		char	**test;
-		int	mask;
+		const char	**test;
+		int		mask;
 
 		/* try to find debug flag name in our list.
 		 */
 		for (	test = DebugFlagNames, mask = 1;
-			*test && strcmp_until(*test, pc, ',');
+			*test != NULL && strcmp_until(*test, pc, ',');
 			test++, mask <<= 1
 		    )
 			;
@@ -173,7 +169,7 @@ set_debug_flags(flags)
 
 
 void
-set_cron_uid()
+set_cron_uid(void)
 {
 #if defined(BSD) || defined(POSIX)
 	if (seteuid(ROOT_UID) < OK)
@@ -186,7 +182,7 @@ set_cron_uid()
 
 
 void
-set_cron_cwd()
+set_cron_cwd(void)
 {
 	struct stat	sb;
 
@@ -225,8 +221,7 @@ set_cron_cwd()
 /* get_char(file) : like getc() but increment LineNumber on newlines
  */
 int
-get_char(file)
-	FILE	*file;
+get_char(FILE *file)
 {
 	int	ch;
 
@@ -240,9 +235,7 @@ get_char(file)
 /* unget_char(ch, file) : like ungetc but do LineNumber processing
  */
 void
-unget_char(ch, file)
-	int	ch;
-	FILE	*file;
+unget_char(int ch, FILE *file)
 {
 	ungetc(ch, file);
 	if (ch == '\n')
@@ -257,11 +250,7 @@ unget_char(ch, file)
  *		(4) returns EOF or terminating character, whichever
  */
 int
-get_string(string, size, file, terms)
-	char	*string;
-	int	size;
-	FILE	*file;
-	char	*terms;
+get_string(char *string, int size, FILE *file, char *terms)
 {
 	int	ch;
 
@@ -282,8 +271,7 @@ get_string(string, size, file, terms)
 /* skip_comments(file) : read past comment (if any)
  */
 void
-skip_comments(file)
-	FILE	*file;
+skip_comments(FILE *file)
 {
 	int	ch;
 
@@ -346,8 +334,7 @@ in_file(char *string, FILE *file)
  *	or (neither file exists but user=="root" so it's okay)
  */
 int
-allowed(username)
-	char *username;
+allowed(char *username)
 {
 	FILE	*allow, *deny;
 	int	isallowed;
@@ -385,19 +372,19 @@ out:	if (allow)
 
 
 void
-log_it(char *username, int xpid, char *event, const char *detail)
+log_it(const char *username, int xpid, const char *event, const char *detail)
 {
 #if defined(LOG_FILE) || DEBUGGING
-	PID_T			pid = xpid;
+	PID_T		pid = xpid;
 #endif
 #if defined(LOG_FILE)
-	char			*msg;
-	TIME_T			now = time((TIME_T) 0);
-	register struct tm	*t = localtime(&now);
+	char		*msg;
+	TIME_T		now = time((TIME_T) 0);
+	struct tm	*t = localtime(&now);
 #endif /*LOG_FILE*/
 
 #if defined(SYSLOG)
-	static int		syslog_open = 0;
+	static int	syslog_open = 0;
 #endif
 
 #if defined(LOG_FILE)
@@ -471,7 +458,8 @@ log_it(char *username, int xpid, char *event, const char *detail)
 
 
 void
-log_close() {
+log_close(void)
+{
 	if (LogFD != ERR) {
 		close(LogFD);
 		LogFD = ERR;
@@ -482,15 +470,16 @@ log_close() {
 /* two warnings:
  *	(1) this routine is fairly slow
  *	(2) it returns a pointer to static storage
+ * parameters:
+ *	s: string we want the first word of
+ *	t: terminators, implicitly including \0
  */
 char *
-first_word(s, t)
-	register char *s;	/* string we want the first word of */
-	register char *t;	/* terminators, implicitly including \0 */
+first_word(char *s, char *t)
 {
 	static char retbuf[2][MAX_TEMPSTR + 1];	/* sure wish C had GC */
 	static int retsel = 0;
-	register char *rb, *rp;
+	char *rb, *rp;
 
 	/* select a return buffer */
 	retsel = 1-retsel;
@@ -517,11 +506,16 @@ first_word(s, t)
  *	heavily ascii-dependent.
  */
 static void
-mkprint(register char *dst, register unsigned char *src, register int len)
+mkprint(char *dst, unsigned char *src, int len)
 {
+	/*
+	 * XXX
+	 * We know this routine can't overflow the dst buffer because mkprints()
+	 * allocated enough space for the worst case.
+	 */
 	while (len-- > 0)
 	{
-		register unsigned char ch = *src++;
+		unsigned char ch = *src++;
 
 		if (ch < ' ') {			/* control character */
 			*dst++ = '^';
@@ -544,11 +538,9 @@ mkprint(register char *dst, register unsigned char *src, register int len)
  *	returns a pointer to malloc'd storage, you must call free yourself.
  */
 char *
-mkprints(src, len)
-	register unsigned char *src;
-	register unsigned int len;
+mkprints(unsigned char *src, unsigned int len)
 {
-	register char *dst = malloc(len*4 + 1);
+	char *dst = malloc(len*4 + 1);
 
 	if (dst != NULL)
 		mkprint(dst, src, len);
@@ -562,12 +554,11 @@ mkprints(src, len)
  * 123456789012345678901234567
  */
 char *
-arpadate(clock)
-	time_t *clock;
+arpadate(time_t *clock)
 {
 	time_t t = clock ?*clock :time(0L);
 	struct tm *tm = localtime(&t);
-	static char ret[32];	/* zone name might be >3 chars */
+	static char ret[60];	/* zone name might be >3 chars */
 
 	if (tm->tm_year >= 100)
 		tm->tm_year += 1900;
@@ -588,9 +579,9 @@ arpadate(clock)
 
 #ifdef HAVE_SAVED_UIDS
 static int save_euid;
-int swap_uids() { save_euid = geteuid(); return seteuid(getuid()); }
-int swap_uids_back() { return seteuid(save_euid); }
+int swap_uids(void) { save_euid = geteuid(); return seteuid(getuid()); }
+int swap_uids_back(void) { return seteuid(save_euid); }
 #else /*HAVE_SAVED_UIDS*/
-int swap_uids() { return setreuid(geteuid(), getuid()); }
-int swap_uids_back() { return swap_uids(); }
+int swap_uids(void) { return setreuid(geteuid(), getuid()); }
+int swap_uids_back(void) { return swap_uids(); }
 #endif /*HAVE_SAVED_UIDS*/

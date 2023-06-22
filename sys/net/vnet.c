@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004-2009 University of Zagreb
  * Copyright (c) 2006-2009 FreeBSD Foundation
@@ -245,7 +245,7 @@ vnet_alloc(void)
 
 	/*
 	 * Allocate storage for virtualized global variables and copy in
-	 * initial values form our 'master' copy.
+	 * initial values from our 'master' copy.
 	 */
 	vnet->vnet_data_mem = malloc(VNET_SIZE, M_VNET_DATA, M_WAITOK);
 	memcpy(vnet->vnet_data_mem, (void *)VNET_START, VNET_BYTES);

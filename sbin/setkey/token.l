@@ -186,6 +186,8 @@ nocyclic-seq	{ return(NOCYCLICSEQ); }
 {hyphen}r	{ return(F_REPLAY); }
 {hyphen}lh	{ return(F_LIFETIME_HARD); }
 {hyphen}ls	{ return(F_LIFETIME_SOFT); }
+{hyphen}natt	{ return(F_NATT); }
+{hyphen}natt_mtu { return(F_NATT_MTU); }
 
 	/* ... */
 any		{ return(ANY); }
@@ -253,23 +255,20 @@ any		{ return(ANY); }
 %%
 
 void
-yyfatal(s)
-	const char *s;
+yyfatal(const char *s)
 {
 	yyerror(s);
 	exit(1);
 }
 
 void
-yyerror(s)
-	const char *s;
+yyerror(const char *s)
 {
 	printf("line %d: %s at [%s]\n", lineno, s, yytext);
 }
 
 int
-parse(fp)
-	FILE **fp;
+parse(FILE **fp)
 {
 	yyin = *fp;
 

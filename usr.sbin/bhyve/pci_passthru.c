@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -64,7 +64,6 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/vmm.h>
 
-#include "config.h"
 #include "debug.h"
 #include "mem.h"
 #include "pci_passthru.h"
@@ -78,7 +77,11 @@ __FBSDID("$FreeBSD$");
 #define MSIX_TABLE_COUNT(ctrl) (((ctrl) & PCIM_MSIXCTRL_TABLE_SIZE) + 1)
 #define MSIX_CAPLEN 12
 
+#define PASSTHRU_MMIO_MAX 2
+
 static int pcifd = -1;
+
+SET_DECLARE(passthru_dev_set, struct passthru_dev);
 
 struct passthru_softc {
 	struct pci_devinst *psc_pi;
@@ -93,6 +96,10 @@ struct passthru_softc {
 		int		capoff;
 	} psc_msix;
 	struct pcisel psc_sel;
+
+	struct passthru_mmio_mapping psc_mmio_map[PASSTHRU_MMIO_MAX];
+	cfgread_handler psc_pcir_rhandler[PCI_REGMAX + 1];
+	cfgwrite_handler psc_pcir_whandler[PCI_REGMAX + 1];
 };
 
 static int
@@ -600,6 +607,7 @@ cfginit(struct pci_devinst *pi, int bus, int slot, int func)
 {
 	int error;
 	struct passthru_softc *sc;
+	uint8_t intline, intpin;
 
 	error = 1;
 	sc = pi->pi_arg;
@@ -608,6 +616,19 @@ cfginit(struct pci_devinst *pi, int bus, int slot, int func)
 	sc->psc_sel.pc_bus = bus;
 	sc->psc_sel.pc_dev = slot;
 	sc->psc_sel.pc_func = func;
+
+	/*
+	 * Copy physical PCI header to virtual config space. INTLINE and INTPIN
+	 * shouldn't be aligned with their physical value and they are already set by
+	 * pci_emul_init().
+	 */
+	intline = pci_get_cfgdata8(pi, PCIR_INTLINE);
+	intpin = pci_get_cfgdata8(pi, PCIR_INTPIN);
+	for (int i = 0; i <= PCIR_MAXLAT; i += 4) {
+		pci_set_cfgdata32(pi, i, read_config(&sc->psc_sel, i, 4));
+	}
+	pci_set_cfgdata8(pi, PCIR_INTLINE, intline);
+	pci_set_cfgdata8(pi, PCIR_INTPIN, intpin);
 
 	if (cfginitmsi(sc) != 0) {
 		warnx("failed to initialize MSI for PCI %d/%d/%d",
@@ -641,6 +662,40 @@ cfginit(struct pci_devinst *pi, int bus, int slot, int func)
 	error = 0;				/* success */
 done:
 	return (error);
+}
+
+struct passthru_mmio_mapping *
+passthru_get_mmio(struct passthru_softc *sc, int num)
+{
+	assert(sc != NULL);
+	assert(num < PASSTHRU_MMIO_MAX);
+
+	return (&sc->psc_mmio_map[num]);
+}
+
+struct pcisel *
+passthru_get_sel(struct passthru_softc *sc)
+{
+	assert(sc != NULL);
+
+	return (&sc->psc_sel);
+}
+
+int
+set_pcir_handler(struct passthru_softc *sc, int reg, int len,
+    cfgread_handler rhandler, cfgwrite_handler whandler)
+{
+	if (reg > PCI_REGMAX || reg + len > PCI_REGMAX + 1)
+		return (-1);
+
+	for (int i = reg; i < reg + len; ++i) {
+		assert(sc->psc_pcir_rhandler[i] == NULL || rhandler == NULL);
+		assert(sc->psc_pcir_whandler[i] == NULL || whandler == NULL);
+		sc->psc_pcir_rhandler[i] = rhandler;
+		sc->psc_pcir_whandler[i] = whandler;
+	}
+
+	return (0);
 }
 
 static int
@@ -802,6 +857,8 @@ passthru_init(struct pci_devinst *pi, nvlist_t *nvl)
 {
 	int bus, slot, func, error, memflags;
 	struct passthru_softc *sc;
+	struct passthru_dev **devpp;
+	struct passthru_dev *devp, *dev = NULL;
 	const char *value;
 
 	sc = NULL;
@@ -856,23 +913,39 @@ passthru_init(struct pci_devinst *pi, nvlist_t *nvl)
             get_config_value_node(nvl, "rom"))) != 0)
 		goto done;
 
+	/* Emulate most PCI header register. */
+	if ((error = set_pcir_handler(sc, 0, PCIR_MAXLAT + 1,
+	    passthru_cfgread_emulate, passthru_cfgwrite_emulate)) != 0)
+		goto done;
+
+	/* Allow access to the physical command and status register. */
+	if ((error = set_pcir_handler(sc, PCIR_COMMAND, 0x04, NULL, NULL)) != 0)
+		goto done;
+
+	SET_FOREACH(devpp, passthru_dev_set) {
+		devp = *devpp;
+		assert(devp->probe != NULL);
+		if (devp->probe(pi) == 0) {
+			dev = devp;
+			break;
+		}
+	}
+
+	if (dev != NULL) {
+		error = dev->init(pi, nvl);
+		if (error != 0)
+			goto done;
+	}
+
 	error = 0;		/* success */
 done:
 	if (error) {
+		if (dev != NULL)
+			dev->deinit(pi);
 		free(sc);
 		vm_unassign_pptdev(pi->pi_vmctx, bus, slot, func);
 	}
 	return (error);
-}
-
-static int
-bar_access(int coff)
-{
-	if ((coff >= PCIR_BAR(0) && coff < PCIR_BAR(PCI_BARMAX + 1)) ||
-	    coff == PCIR_BIOS)
-		return (1);
-	else
-		return (0);
 }
 
 static int
@@ -902,29 +975,14 @@ msixcap_access(struct passthru_softc *sc, int coff)
 }
 
 static int
-passthru_cfgread(struct pci_devinst *pi, int coff, int bytes, uint32_t *rv)
+passthru_cfgread_default(struct passthru_softc *sc,
+    struct pci_devinst *pi __unused, int coff, int bytes, uint32_t *rv)
 {
-	struct passthru_softc *sc;
-
-	sc = pi->pi_arg;
-
 	/*
-	 * PCI BARs and MSI capability is emulated.
+	 * MSI capability is emulated.
 	 */
-	if (bar_access(coff) || msicap_access(sc, coff) ||
-	    msixcap_access(sc, coff))
+	if (msicap_access(sc, coff) || msixcap_access(sc, coff))
 		return (-1);
-
-#ifdef LEGACY_SUPPORT
-	/*
-	 * Emulate PCIR_CAP_PTR if this device does not support MSI capability
-	 * natively.
-	 */
-	if (sc->psc_msi.emulated) {
-		if (coff >= PCIR_CAP_PTR && coff < PCIR_CAP_PTR + 4)
-			return (-1);
-	}
-#endif
 
 	/*
 	 * Emulate the command register.  If a single read reads both the
@@ -945,20 +1003,33 @@ passthru_cfgread(struct pci_devinst *pi, int coff, int bytes, uint32_t *rv)
 	return (0);
 }
 
-static int
-passthru_cfgwrite(struct pci_devinst *pi, int coff, int bytes, uint32_t val)
+int
+passthru_cfgread_emulate(struct passthru_softc *sc __unused,
+    struct pci_devinst *pi __unused, int coff __unused, int bytes __unused,
+    uint32_t *rv __unused)
 {
-	int error, msix_table_entries, i;
+	return (-1);
+}
+
+static int
+passthru_cfgread(struct pci_devinst *pi, int coff, int bytes, uint32_t *rv)
+{
 	struct passthru_softc *sc;
-	uint16_t cmd_old;
 
 	sc = pi->pi_arg;
 
-	/*
-	 * PCI BARs are emulated
-	 */
-	if (bar_access(coff))
-		return (-1);
+	if (sc->psc_pcir_rhandler[coff] != NULL)
+		return (sc->psc_pcir_rhandler[coff](sc, pi, coff, bytes, rv));
+
+	return (passthru_cfgread_default(sc, pi, coff, bytes, rv));
+}
+
+static int
+passthru_cfgwrite_default(struct passthru_softc *sc, struct pci_devinst *pi,
+    int coff, int bytes, uint32_t val)
+{
+	int error, msix_table_entries, i;
+	uint16_t cmd_old;
 
 	/*
 	 * MSI capability is emulated
@@ -1024,6 +1095,27 @@ passthru_cfgwrite(struct pci_devinst *pi, int coff, int bytes, uint32_t val)
 	}
 
 	return (0);
+}
+
+int
+passthru_cfgwrite_emulate(struct passthru_softc *sc __unused,
+    struct pci_devinst *pi __unused, int coff __unused, int bytes __unused,
+    uint32_t val __unused)
+{
+	return (-1);
+}
+
+static int
+passthru_cfgwrite(struct pci_devinst *pi, int coff, int bytes, uint32_t val)
+{
+	struct passthru_softc *sc;
+
+	sc = pi->pi_arg;
+
+	if (sc->psc_pcir_whandler[coff] != NULL)
+		return (sc->psc_pcir_whandler[coff](sc, pi, coff, bytes, val));
+
+	return (passthru_cfgwrite_default(sc, pi, coff, bytes, val));
 }
 
 static void

@@ -11,6 +11,11 @@ from typing import Optional
 import pytest
 
 
+def nodeid_to_method_name(nodeid: str) -> str:
+    """file_name.py::ClassName::method_name[parametrize] -> method_name"""
+    return nodeid.split("::")[-1].split("[")[0]
+
+
 class LibCWrapper(object):
     def __init__(self):
         path: Optional[str] = find_library("c")
@@ -20,6 +25,11 @@ class LibCWrapper(object):
 
     def modfind(self, mod_name: str) -> int:
         if self._libc.modfind(bytes(mod_name, encoding="ascii")) == -1:
+            return get_errno()
+        return 0
+
+    def kldload(self, kld_name: str) -> int:
+        if self._libc.kldload(bytes(kld_name, encoding="ascii")) == -1:
             return get_errno()
         return 0
 
@@ -37,14 +47,21 @@ class BaseTest(object):
     TARGET_USER = None  # Set to the target user by the framework
     REQUIRED_MODULES: List[str] = []
 
+    def require_module(self, mod_name: str, skip=True):
+        error_code = libc.modfind(mod_name)
+        if error_code == 0:
+            return
+        err_str = os.strerror(error_code)
+        txt = "kernel module '{}' not available: {}".format(mod_name, err_str)
+        if skip:
+            pytest.skip(txt)
+        else:
+            raise ValueError(txt)
+
     def _check_modules(self):
         for mod_name in self.REQUIRED_MODULES:
-            error_code = libc.modfind(mod_name)
-            if error_code != 0:
-                err_str = os.strerror(error_code)
-                pytest.skip(
-                    "kernel module '{}' not available: {}".format(mod_name, err_str)
-                )
+            self.require_module(mod_name)
+
     @property
     def atf_vars(self) -> Dict[str, str]:
         px = "_ATF_VAR_"

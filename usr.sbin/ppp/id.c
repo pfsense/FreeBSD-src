@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997 Brian Somers <brian@Awfulhak.org>
  * All rights reserved.
@@ -61,7 +61,7 @@ static int uid;
 static int euid;
 
 void
-ID0init()
+ID0init(void)
 {
   uid = getuid();
   euid = geteuid();
@@ -77,7 +77,7 @@ ID0setuser(void)
 }
 
 uid_t
-ID0realuid()
+ID0realuid(void)
 {
   return uid;
 }

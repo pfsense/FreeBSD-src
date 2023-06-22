@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Ng Peng Nam Sean
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
@@ -49,9 +49,12 @@ struct nl_writer {
 	void			*_storage;	/* Underlying storage pointer */
 	nl_writer_cb		*cb;		/* Callback to flush data */
 	union {
-		void		*arg_ptr;	/* Callback argument as pointer */
-		uint64_t	arg_uint;	/* Callback argument as int */
-	};
+		void		*ptr;
+		struct {
+			uint16_t	proto;
+			uint16_t	id;
+		} group;
+	} arg;
 	int			num_messages;	/* Number of messages in the buffer */
 	int			malloc_flag;	/* M_WAITOK or M_NOWAIT */
 	uint8_t			writer_type;	/* NS_WRITER_TYPE_* */
@@ -183,7 +186,7 @@ nlmsg_reply(struct nl_writer *nw, const struct nlmsghdr *hdr, int payload_len)
 	    hdr->nlmsg_flags, payload_len));
 }
 
-#define nlmsg_data(_hdr)        ((void *)((_hdr) + 1))
+#define nlmsg_data(_hdr)	((void *)((_hdr) + 1))
 
 /*
  * KPI similar to mtodo():
@@ -193,7 +196,7 @@ nlmsg_reply(struct nl_writer *nw, const struct nlmsghdr *hdr, int payload_len)
 static inline int
 nlattr_save_offset(const struct nl_writer *nw)
 {
-        return (nw->offset - ((char *)nw->hdr - nw->data));
+	return (nw->offset - ((char *)nw->hdr - nw->data));
 }
 
 static inline void *
@@ -215,15 +218,16 @@ nlmsg_reserve_data_raw(struct nl_writer *nw, size_t sz)
 {
 	sz = NETLINK_ALIGN(sz);
 
-        if (__predict_false(nw->offset + sz > nw->alloc_len)) {
+	if (__predict_false(nw->offset + sz > nw->alloc_len)) {
 		if (!nlmsg_refill_buffer(nw, sz))
 			return (NULL);
-        }
+	}
 
-        void *data_ptr = &nw->data[nw->offset];
-        nw->offset += sz;
+	void *data_ptr = &nw->data[nw->offset];
+	nw->offset += sz;
+	bzero(data_ptr, sz);
 
-        return (data_ptr);
+	return (data_ptr);
 }
 #define nlmsg_reserve_object(_ns, _t)	((_t *)nlmsg_reserve_data_raw(_ns, sizeof(_t)))
 #define nlmsg_reserve_data(_ns, _sz, _t)	((_t *)nlmsg_reserve_data_raw(_ns, _sz))
@@ -259,24 +263,24 @@ nlattr_add(struct nl_writer *nw, int attr_type, int attr_len, const void *data)
 {
 	int required_len = NLA_ALIGN(attr_len + sizeof(struct nlattr));
 
-        if (__predict_false(nw->offset + required_len > nw->alloc_len)) {
+	if (__predict_false(nw->offset + required_len > nw->alloc_len)) {
 		if (!nlmsg_refill_buffer(nw, required_len))
 			return (false);
 	}
 
-        struct nlattr *nla = (struct nlattr *)(&nw->data[nw->offset]);
+	struct nlattr *nla = (struct nlattr *)(&nw->data[nw->offset]);
 
-        nla->nla_len = attr_len + sizeof(struct nlattr);
-        nla->nla_type = attr_type;
-        if (attr_len > 0) {
+	nla->nla_len = attr_len + sizeof(struct nlattr);
+	nla->nla_type = attr_type;
+	if (attr_len > 0) {
 		if ((attr_len % 4) != 0) {
 			/* clear padding bytes */
 			bzero((char *)nla + required_len - 4, 4);
 		}
-                memcpy((nla + 1), data, attr_len);
+		memcpy((nla + 1), data, attr_len);
 	}
-        nw->offset += required_len;
-        return (true);
+	nw->offset += required_len;
+	return (true);
 }
 
 static inline bool

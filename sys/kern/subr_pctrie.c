@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 EMC Corp.
  * Copyright (c) 2011 Jeffrey Roberson <jeff@freebsd.org>
@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/libkern.h>
 #include <sys/pctrie.h>
 #include <sys/proc.h>	/* smr.h depends on struct thread. */
 #include <sys/smr.h>
@@ -259,21 +260,22 @@ pctrie_addval(struct pctrie_node *node, uint64_t index, uint16_t clev,
 }
 
 /*
- * Returns the slot where two keys differ.
+ * Returns the level where two keys differ.
  * It cannot accept 2 equal keys.
  */
 static __inline uint16_t
 pctrie_keydiff(uint64_t index1, uint64_t index2)
 {
-	uint16_t clev;
 
 	KASSERT(index1 != index2, ("%s: passing the same key value %jx",
 	    __func__, (uintmax_t)index1));
+	CTASSERT(sizeof(long long) >= sizeof(uint64_t));
 
-	index1 ^= index2;
-	for (clev = PCTRIE_LIMIT;; clev--)
-		if (pctrie_slot(index1, clev) != 0)
-			return (clev);
+	/*
+	 * From the highest-order bit where the indexes differ,
+	 * compute the highest level in the trie where they differ.
+	 */
+	return ((flsll(index1 ^ index2) - 1) / PCTRIE_WIDTH);
 }
 
 /*

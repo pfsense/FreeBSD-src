@@ -859,6 +859,7 @@ OLD_LIBS+=lib/libcap_dns.so.2
 OLD_LIBS+=lib/libcap_fileargs.so.1
 OLD_LIBS+=lib/libcap_grp.so.1
 OLD_LIBS+=lib/libcap_net.so.1
+OLD_LIBS+=lib/libcap_netdb.so.1
 OLD_LIBS+=lib/libcap_pwd.so.1
 OLD_LIBS+=lib/libcap_sysctl.so.1
 OLD_LIBS+=lib/libcap_sysctl.so.2
@@ -2024,7 +2025,7 @@ OLD_FILES+=usr/share/man/man5/freebsd-update.conf.5.gz
 OLD_FILES+=usr/share/man/man8/freebsd-update.8.gz
 .endif
 
-.if ${MK_FREEBSD_UPDATE} == no && ${MK_PORTSNAP} == no
+.if ${MK_FREEBSD_UPDATE} == no
 OLD_FILES+=usr/libexec/phttpget
 OLD_FILES+=usr/share/man/man8/phttpget.8.gz
 .endif
@@ -5638,6 +5639,11 @@ OLD_FILES+=var/yp/Makefile.dist
 OLD_DIRS+=var/yp
 .endif
 
+.if ${MK_NETLINK} == no
+OLD_FILES+=usr.bin/genl
+OLD_FILES+=usr/share/man/man1/genl.1.gz
+.endif
+
 .if ${MK_NLS} == no
 OLD_DIRS+=usr/share/nls/
 OLD_DIRS+=usr/share/nls/C
@@ -6840,14 +6846,6 @@ OLD_FILES+=usr/share/man/man8/pmcannotate.8.gz
 OLD_FILES+=usr/share/man/man8/pmccontrol.8.gz
 OLD_FILES+=usr/share/man/man8/pmcstat.8.gz
 OLD_FILES+=usr/share/man/man8/pmcstudy.8.gz
-.endif
-
-.if ${MK_PORTSNAP} == no
-OLD_FILES+=etc/portsnap.conf
-OLD_FILES+=usr/libexec/make_index
-OLD_FILES+=usr/sbin/portsnap
-OLD_FILES+=usr/share/examples/etc/portsnap.conf
-OLD_FILES+=usr/share/man/man8/portsnap.8.gz
 .endif
 
 .if ${MK_PPP} == no

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Alexander V. Chernikov
  *
@@ -34,6 +34,8 @@
 
 #ifndef	_NET_ROUTE_ROUTE_CTL_H_
 #define	_NET_ROUTE_ROUTE_CTL_H_
+
+struct rib_head *rt_tables_get_rnh_safe(uint32_t table, sa_family_t family);
 
 struct rib_cmd_info {
 	uint8_t			rc_cmd;		/* RTM_ADD|RTM_DEL|RTM_CHANGE */
@@ -123,11 +125,9 @@ struct nhop_object;
 struct nhgrp_object;
 struct ucred;
 
-const struct rtentry *rib_lookup_prefix(uint32_t fibnum, int family,
-    const struct sockaddr *dst, const struct sockaddr *netmask,
+const struct rtentry *
+rib_lookup_prefix_plen(struct rib_head *rnh, struct sockaddr *dst, int plen,
     struct route_nhop_data *rnd);
-const struct rtentry *rib_lookup_lpm(uint32_t fibnum, int family,
-    const struct sockaddr *dst, struct route_nhop_data *rnd);
 
 /* rtentry accessors */
 bool rt_is_host(const struct rtentry *rt);
@@ -158,6 +158,19 @@ void ip6_writemask(struct in6_addr *addr6, uint8_t mask);
 
 /* Nexthops */
 uint32_t nhops_get_count(struct rib_head *rh);
+
+struct nhop_priv;
+struct nhop_iter {
+	uint32_t		fibnum;
+	uint8_t			family;
+	struct rib_head		*rh;
+	int			_i;
+	struct nhop_priv	*_next;
+};
+
+struct nhop_object *nhops_iter_start(struct nhop_iter *iter);
+struct nhop_object *nhops_iter_next(struct nhop_iter *iter);
+void nhops_iter_stop(struct nhop_iter *iter);
 
 /* Multipath */
 struct weightened_nhop;

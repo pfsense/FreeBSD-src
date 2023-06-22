@@ -1,7 +1,7 @@
 /*-
  * Data structures and definitions for the CAM system.
  *
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997 Justin T. Gibbs.
  * All rights reserved.
@@ -38,6 +38,9 @@
 #endif
 
 #include <sys/cdefs.h>
+#ifndef _KERNEL
+#include <stdbool.h>
+#endif
 
 typedef u_int path_id_t;
 typedef u_int target_id_t;

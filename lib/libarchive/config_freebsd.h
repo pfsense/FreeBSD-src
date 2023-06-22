@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003-2007 Tim Kientzle
  * All rights reserved.
@@ -100,7 +100,9 @@
 #define HAVE_DIRENT_H 1
 #define HAVE_DIRFD 1
 #define HAVE_DLFCN_H 1
+#ifndef __linux__
 #define HAVE_D_MD_ORDER 1
+#endif
 #define HAVE_EFTYPE 1
 #define HAVE_EILSEQ 1
 #define HAVE_ERRNO_H 1
@@ -164,8 +166,10 @@
 #define HAVE_READDIR_R 1
 #define HAVE_READLINK 1
 #define HAVE_READLINKAT 1
+#ifndef __linux__
 #define HAVE_READPASSPHRASE 1
 #define HAVE_READPASSPHRASE_H 1
+#endif
 #define HAVE_REGEX_H 1
 #define HAVE_SELECT 1
 #define HAVE_SETENV 1

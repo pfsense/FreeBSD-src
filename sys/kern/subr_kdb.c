@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 The FreeBSD Project
  * All rights reserved.
@@ -40,11 +40,13 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/lock.h>
 #include <sys/pcpu.h>
+#include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/sbuf.h>
 #include <sys/smp.h>
 #include <sys/stack.h>
 #include <sys/sysctl.h>
+#include <sys/tslog.h>
 
 #include <machine/kdb.h>
 #include <machine/pcb.h>
@@ -484,6 +486,11 @@ int
 kdb_dbbe_select(const char *name)
 {
 	struct kdb_dbbe *be, **iter;
+	int error;
+
+	error = priv_check(curthread, PRIV_KDB_SET_BACKEND);
+	if (error)
+		return (error);
 
 	SET_FOREACH(iter, kdb_dbbe_set) {
 		be = *iter;
@@ -553,6 +560,7 @@ kdb_init(void)
 	struct kdb_dbbe *be, **iter;
 	int cur_pri, pri;
 
+	TSENTER();
 	kdb_active = 0;
 	kdb_dbbe = NULL;
 	cur_pri = -1;
@@ -576,6 +584,7 @@ kdb_init(void)
 		printf("KDB: current backend: %s\n",
 		    kdb_dbbe->dbbe_name);
 	}
+	TSEXIT();
 }
 
 /*
@@ -621,18 +630,18 @@ kdb_reenter_silent(void)
 struct pcb *
 kdb_thr_ctx(struct thread *thr)
 {
-#if defined(SMP) && defined(KDB_STOPPEDPCB)
+#ifdef SMP
 	struct pcpu *pc;
 #endif
 
 	if (thr == curthread)
 		return (&kdb_pcb);
 
-#if defined(SMP) && defined(KDB_STOPPEDPCB)
+#ifdef SMP
 	STAILQ_FOREACH(pc, &cpuhead, pc_allcpu)  {
 		if (pc->pc_curthread == thr &&
 		    CPU_ISSET(pc->pc_cpuid, &stopped_cpus))
-			return (KDB_STOPPEDPCB(pc));
+			return (&stoppcbs[pc->pc_cpuid]);
 	}
 #endif
 	return (thr->td_pcb);

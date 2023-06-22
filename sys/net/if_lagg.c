@@ -276,22 +276,22 @@ SYSCTL_INT(_net_link_lagg, OID_AUTO, failover_rx_all, CTLFLAG_RW | CTLFLAG_VNET,
 /* Default value for using flowid */
 VNET_DEFINE_STATIC(int, def_use_flowid) = 0;
 #define	V_def_use_flowid	VNET(def_use_flowid)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_flowid, CTLFLAG_RWTUN,
-    &VNET_NAME(def_use_flowid), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_flowid,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_use_flowid), 0,
     "Default setting for using flow id for load sharing");
 
 /* Default value for using numa */
 VNET_DEFINE_STATIC(int, def_use_numa) = 1;
 #define	V_def_use_numa	VNET(def_use_numa)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_numa, CTLFLAG_RWTUN,
-    &VNET_NAME(def_use_numa), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_numa,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_use_numa), 0,
     "Use numa to steer flows");
 
 /* Default value for flowid shift */
 VNET_DEFINE_STATIC(int, def_flowid_shift) = 16;
 #define	V_def_flowid_shift	VNET(def_flowid_shift)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_flowid_shift, CTLFLAG_RWTUN,
-    &VNET_NAME(def_flowid_shift), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_flowid_shift,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_flowid_shift), 0,
     "Default setting for flowid shift for load sharing");
 
 static void
@@ -2171,12 +2171,14 @@ lagg_input_ethernet(struct ifnet *ifp, struct mbuf *m)
 		return (NULL);
 	}
 
-	ETHER_BPF_MTAP(scifp, m);
-
 	m = lagg_proto_input(sc, lp, m);
-	if (m != NULL && (scifp->if_flags & IFF_MONITOR) != 0) {
-		m_freem(m);
-		m = NULL;
+	if (m != NULL) {
+		ETHER_BPF_MTAP(scifp, m);
+
+		if ((scifp->if_flags & IFF_MONITOR) != 0) {
+			m_freem(m);
+			m = NULL;
+		}
 	}
 
 #ifdef DEV_NETMAP
@@ -2192,29 +2194,28 @@ lagg_input_ethernet(struct ifnet *ifp, struct mbuf *m)
 static struct mbuf *
 lagg_input_infiniband(struct ifnet *ifp, struct mbuf *m)
 {
-	struct epoch_tracker et;
 	struct lagg_port *lp = ifp->if_lagg;
 	struct lagg_softc *sc = lp->lp_softc;
 	struct ifnet *scifp = sc->sc_ifp;
 
-	NET_EPOCH_ENTER(et);
+	NET_EPOCH_ASSERT();
 	if ((scifp->if_drv_flags & IFF_DRV_RUNNING) == 0 ||
 	    lp->lp_detaching != 0 ||
 	    sc->sc_proto == LAGG_PROTO_NONE) {
-		NET_EPOCH_EXIT(et);
 		m_freem(m);
 		return (NULL);
 	}
 
-	infiniband_bpf_mtap(scifp, m);
-
 	m = lagg_proto_input(sc, lp, m);
-	if (m != NULL && (scifp->if_flags & IFF_MONITOR) != 0) {
-		m_freem(m);
-		m = NULL;
+	if (m != NULL) {
+		infiniband_bpf_mtap(scifp, m);
+
+		if ((scifp->if_flags & IFF_MONITOR) != 0) {
+			m_freem(m);
+			m = NULL;
+		}
 	}
 
-	NET_EPOCH_EXIT(et);
 	return (m);
 }
 
@@ -2685,7 +2686,7 @@ lagg_lacp_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
 	 * If the port is not collecting or not in the active aggregator then
 	 * free and return.
 	 */
-	if (lacp_iscollecting(lp) == 0 || lacp_isactive(lp) == 0) {
+	if (!lacp_iscollecting(lp) || !lacp_isactive(lp)) {
 		m_freem(m);
 		return (NULL);
 	}

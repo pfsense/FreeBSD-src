@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Peter Grehan
  * Copyright (c) 2009 Nathan Whitehorn
@@ -68,7 +68,7 @@ static struct kobj_ops	plat_kernel_kops;
 static struct platform_kobj	plat_kernel_obj;
 
 static char plat_name[64] = "";
-SYSCTL_STRING(_hw, OID_AUTO, platform, CTLFLAG_RD | CTLFLAG_TUN,
+SYSCTL_STRING(_hw, OID_AUTO, platform, CTLFLAG_RDTUN,
     plat_name, 0, "Platform currently in use");
 
 static struct mem_affinity mem_info[VM_PHYSSEG_MAX + 1];

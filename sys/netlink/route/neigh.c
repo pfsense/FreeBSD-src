@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
  *
@@ -33,11 +33,14 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet6.h"
 #include <sys/types.h>
 #include <sys/eventhandler.h>
+#include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/socket.h>
 #include <sys/syslog.h>
 
 #include <net/if.h>
+#include <net/if_var.h>
+#include <net/if_private.h>
 #include <net/if_llatbl.h>
 #include <netlink/netlink.h>
 #include <netlink/netlink_ctl.h>
@@ -51,7 +54,7 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_neigh
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 static int lle_families[] = { AF_INET, AF_INET6 };
 
@@ -61,7 +64,7 @@ struct netlink_walkargs {
 	struct nl_writer *nw;
 	struct nlmsghdr hdr;
 	struct nlpcb *so;
-	struct ifnet *ifp;
+	if_t ifp;
 	int family;
 	int error;
 	int count;
@@ -122,6 +125,14 @@ lle_flags_to_nl_flags(const struct llentry *lle)
 	return (nl_flags);
 }
 
+static uint32_t
+get_lle_next_ts(const struct llentry *lle)
+{
+	if (lle->la_expire == 0)
+		return (0);
+	return (lle->la_expire + lle->lle_remtime / hz + time_second - time_uptime);
+}
+
 static int
 dump_lle_locked(struct llentry *lle, void *arg)
 {
@@ -147,7 +158,7 @@ dump_lle_locked(struct llentry *lle, void *arg)
 
 	ndm = nlmsg_reserve_object(nw, struct ndmsg);
 	ndm->ndm_family = wa->family;
-	ndm->ndm_ifindex = wa->ifp->if_index;
+	ndm->ndm_ifindex = if_getindex(wa->ifp);
 	ndm->ndm_state = lle_state_to_nl_state(wa->family, lle);
 	ndm->ndm_flags = lle_flags_to_nl_flags(lle);
 
@@ -169,7 +180,7 @@ dump_lle_locked(struct llentry *lle, void *arg)
 
 	if (lle->r_flags & RLLE_VALID) {
 		/* Has L2 */
-		int addrlen = wa->ifp->if_addrlen;
+		int addrlen = if_getaddrlen(wa->ifp);
 		nlattr_add(nw, NDA_LLADDR, addrlen, lle->ll_addr);
 	}
 
@@ -181,6 +192,13 @@ dump_lle_locked(struct llentry *lle, void *arg)
 		goto enomem;
 	/* TODO: provide confirmed/updated */
 	cache->ndm_refcnt = lle->lle_refcnt;
+
+	int off = nlattr_add_nested(nw, NDA_FREEBSD);
+	if (off != 0) {
+		nlattr_add_u32(nw, NDAF_NEXT_STATE_TS, get_lle_next_ts(lle));
+
+		nlattr_set_len(nw, off);
+	}
 
         if (nlmsg_end(nw))
 		return (0);
@@ -210,7 +228,7 @@ dump_llt(struct lltable *llt, struct netlink_walkargs *wa)
 }
 
 static int
-dump_llts_iface(struct netlink_walkargs *wa, struct ifnet *ifp, int family)
+dump_llts_iface(struct netlink_walkargs *wa, if_t ifp, int family)
 {
 	int error = 0;
 
@@ -232,21 +250,24 @@ dump_llts_iface(struct netlink_walkargs *wa, struct ifnet *ifp, int family)
 }
 
 static int
-dump_llts(struct netlink_walkargs *wa, struct ifnet *ifp, int family)
+dump_llts(struct netlink_walkargs *wa, if_t ifp, int family)
 {
-	NL_LOG(LOG_DEBUG, "Start dump ifp=%s family=%d", ifp ? if_name(ifp) : "NULL", family);
+	NL_LOG(LOG_DEBUG2, "Start dump ifp=%s family=%d", ifp ? if_name(ifp) : "NULL", family);
 
 	wa->hdr.nlmsg_flags |= NLM_F_MULTI;
 
 	if (ifp != NULL) {
 		dump_llts_iface(wa, ifp, family);
 	} else {
-		CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+		struct if_iter it;
+
+		for (ifp = if_iter_start(&it); ifp != NULL; ifp = if_iter_next(&it)) {
 			dump_llts_iface(wa, ifp, family);
 		}
+		if_iter_finish(&it);
 	}
 
-	NL_LOG(LOG_DEBUG, "End dump, iterated %d dumped %d", wa->count, wa->dumped);
+	NL_LOG(LOG_DEBUG2, "End dump, iterated %d dumped %d", wa->count, wa->dumped);
 
 	if (!nlmsg_end_dump(wa->nw, wa->error, &wa->hdr)) {
                 NL_LOG(LOG_DEBUG, "Unable to add new message");
@@ -257,20 +278,12 @@ dump_llts(struct netlink_walkargs *wa, struct ifnet *ifp, int family)
 }
 
 static int
-get_lle(struct netlink_walkargs *wa, struct ifnet *ifp, int family, struct sockaddr *dst)
+get_lle(struct netlink_walkargs *wa, if_t ifp, int family, struct sockaddr *dst)
 {
 	struct lltable *llt = lltable_get(ifp, family);
 	if (llt == NULL)
 		return (ESRCH);
 
-#ifdef INET6
-	if (dst->sa_family == AF_INET6) {
-		struct sockaddr_in6 *dst6 = (struct sockaddr_in6 *)dst;
-
-		if (IN6_IS_SCOPE_LINKLOCAL(&dst6->sin6_addr))
-			in6_set_unicast_scopeid(&dst6->sin6_addr, ifp->if_index);
-	}
-#endif
 	struct llentry *lle = lla_lookup(llt, LLE_UNLOCKED, dst);
 	if (lle == NULL)
 		return (ESRCH);
@@ -281,10 +294,24 @@ get_lle(struct netlink_walkargs *wa, struct ifnet *ifp, int family, struct socka
 	return (dump_lle(llt, lle, wa));
 }
 
+static void
+set_scope6(struct sockaddr *sa, if_t ifp)
+{
+#ifdef INET6
+	if (sa != NULL && sa->sa_family == AF_INET6 && ifp != NULL) {
+		struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)sa;
+
+		if (IN6_IS_ADDR_LINKLOCAL(&sa6->sin6_addr))
+			in6_set_unicast_scopeid(&sa6->sin6_addr, if_getindex(ifp));
+	}
+#endif
+}
+
 struct nl_parsed_neigh {
 	struct sockaddr	*nda_dst;
 	struct ifnet	*nda_ifp;
 	struct nlattr	*nda_lladdr;
+	uint32_t	ndaf_next_ts;
 	uint32_t	ndm_flags;
 	uint16_t	ndm_state;
 	uint8_t		ndm_family;
@@ -292,22 +319,37 @@ struct nl_parsed_neigh {
 
 #define	_IN(_field)	offsetof(struct ndmsg, _field)
 #define	_OUT(_field)	offsetof(struct nl_parsed_neigh, _field)
-static struct nlfield_parser nlf_p_neigh[] = {
+static const struct nlattr_parser nla_p_neigh_fbsd[] = {
+	{ .type = NDAF_NEXT_STATE_TS, .off = _OUT(ndaf_next_ts), .cb = nlattr_get_uint32 },
+};
+NL_DECLARE_ATTR_PARSER(neigh_fbsd_parser, nla_p_neigh_fbsd);
+
+static const struct nlfield_parser nlf_p_neigh[] = {
 	{ .off_in = _IN(ndm_family), .off_out = _OUT(ndm_family), .cb = nlf_get_u8 },
 	{ .off_in = _IN(ndm_flags), .off_out = _OUT(ndm_flags), .cb = nlf_get_u8_u32 },
 	{ .off_in = _IN(ndm_state), .off_out = _OUT(ndm_state), .cb = nlf_get_u16 },
 	{ .off_in = _IN(ndm_ifindex), .off_out = _OUT(nda_ifp), .cb = nlf_get_ifpz },
 };
 
-static struct nlattr_parser nla_p_neigh[] = {
+static const struct nlattr_parser nla_p_neigh[] = {
 	{ .type = NDA_DST, .off = _OUT(nda_dst), .cb = nlattr_get_ip },
 	{ .type = NDA_LLADDR, .off = _OUT(nda_lladdr), .cb = nlattr_get_nla },
 	{ .type = NDA_IFINDEX, .off = _OUT(nda_ifp), .cb = nlattr_get_ifp },
 	{ .type = NDA_FLAGS_EXT, .off = _OUT(ndm_flags), .cb = nlattr_get_uint32 },
+	{ .type = NDA_FREEBSD, .arg = &neigh_fbsd_parser, .cb = nlattr_get_nested },
 };
 #undef _IN
 #undef _OUT
-NL_DECLARE_PARSER(ndmsg_parser, struct ndmsg, nlf_p_neigh, nla_p_neigh);
+
+static bool
+post_p_neigh(void *_attrs, struct nl_pstate *npt __unused)
+{
+	struct nl_parsed_neigh *attrs = (struct nl_parsed_neigh *)_attrs;
+
+	set_scope6(attrs->nda_dst, attrs->nda_ifp);
+	return (true);
+}
+NL_DECLARE_PARSER_EXT(ndmsg_parser, struct ndmsg, NULL, nlf_p_neigh, nla_p_neigh, post_p_neigh);
 
 
 /*
@@ -345,17 +387,12 @@ rtnl_handle_newneigh(struct nlmsghdr *hdr, struct nlpcb *nlp, struct nl_pstate *
 		return (EINVAL);
 	}
 
-	int addrlen = attrs.nda_ifp->if_addrlen;
+	int addrlen = if_getaddrlen(attrs.nda_ifp);
 	if (attrs.nda_lladdr->nla_len != sizeof(struct nlattr) + addrlen) {
 		NLMSG_REPORT_ERR_MSG(npt,
 		    "NDA_LLADDR address length (%d) is different from expected (%d)",
 		    (int)attrs.nda_lladdr->nla_len - (int)sizeof(struct nlattr), addrlen);
 		return (EINVAL);
-	}
-
-	if (attrs.ndm_state != NUD_PERMANENT) {
-		NLMSG_REPORT_ERR_MSG(npt, "ndm_state %d not supported", attrs.ndm_state);
-		return (ENOTSUP);
 	}
 
 	const uint16_t supported_flags = NTF_PROXY | NTF_STICKY;
@@ -383,26 +420,36 @@ rtnl_handle_newneigh(struct nlmsghdr *hdr, struct nlpcb *nlp, struct nl_pstate *
 		return (EINVAL);
 	}
 
-	int lle_flags = LLE_STATIC | ((attrs.ndm_flags & NTF_PROXY) ? LLE_PUB : 0);
+	int lle_flags = (attrs.ndm_flags & NTF_PROXY) ? LLE_PUB : 0;
+	if (attrs.ndm_flags & NTF_STICKY)
+		lle_flags |= LLE_STATIC;
 	struct llentry *lle = lltable_alloc_entry(llt, lle_flags, attrs.nda_dst);
 	if (lle == NULL)
 		return (ENOMEM);
 	lltable_set_entry_addr(attrs.nda_ifp, lle, linkhdr, linkhdrsize, lladdr_off);
 
-	/* llentry created, try to insert or update :*/
+	if (attrs.ndm_flags & NTF_STICKY)
+		lle->la_expire = 0;
+	else
+		lle->la_expire = attrs.ndaf_next_ts - time_second + time_uptime;
+
+	/* llentry created, try to insert or update */
 	IF_AFDATA_WLOCK(attrs.nda_ifp);
 	LLE_WLOCK(lle);
 	struct llentry *lle_tmp = lla_lookup(llt, LLE_EXCLUSIVE, attrs.nda_dst);
 	if (lle_tmp != NULL) {
+		error = EEXIST;
 		if (hdr->nlmsg_flags & NLM_F_EXCL) {
 			LLE_WUNLOCK(lle_tmp);
 			lle_tmp = NULL;
-			error = EEXIST;
 		} else if (hdr->nlmsg_flags & NLM_F_REPLACE) {
-			lltable_unlink_entry(llt, lle_tmp);
-			lltable_link_entry(llt, lle);
-		} else
-			error = EEXIST;
+			if ((lle_tmp->la_flags & LLE_IFADDR) == 0) {
+				lltable_unlink_entry(llt, lle_tmp);
+				lltable_link_entry(llt, lle);
+				error = 0;
+			} else
+				error = EPERM;
+		}
 	} else {
 		if (hdr->nlmsg_flags & NLM_F_CREATE)
 			lltable_link_entry(llt, lle);
@@ -423,6 +470,7 @@ rtnl_handle_newneigh(struct nlmsghdr *hdr, struct nlpcb *nlp, struct nl_pstate *
 	/* XXX: We're inside epoch */
 	EVENTHANDLER_INVOKE(lle_event, lle, LLENTRY_RESOLVED);
 	LLE_WUNLOCK(lle);
+	llt->llt_post_resolved(llt, lle);
 
 	return (0);
 }
@@ -451,26 +499,7 @@ rtnl_handle_delneigh(struct nlmsghdr *hdr, struct nlpcb *nlp, struct nl_pstate *
 	if (llt == NULL)
 		return (EAFNOSUPPORT);
 
-	IF_AFDATA_WLOCK(attrs.nda_ifp);
-	struct llentry *lle = lla_lookup(llt, LLE_EXCLUSIVE, attrs.nda_dst);
-	if (lle != NULL) {
-		if ((lle->la_flags & LLE_IFADDR) != 0) {
-			LLE_WUNLOCK(lle);
-			lle = NULL;
-			error = EPERM;
-		} else
-			lltable_unlink_entry(llt, lle);
-	} else
-		error = ENOENT;
-	IF_AFDATA_WUNLOCK(attrs.nda_ifp);
-
-	if (error == 0 && lle != NULL)
-		EVENTHANDLER_INVOKE(lle_event, lle, LLENTRY_DELETED);
-
-	if (lle != NULL)
-		llentry_free(lle);
-
-	return (error);
+	return (lltable_delete_addr(llt, 0, attrs.nda_dst));
 }
 
 static int
@@ -510,6 +539,7 @@ static const struct rtnl_cmd_handler cmd_handlers[] = {
 		.cmd = NL_RTM_NEWNEIGH,
 		.name = "RTM_NEWNEIGH",
 		.cb = &rtnl_handle_newneigh,
+		.priv = PRIV_NET_ROUTE,
 	},
 	{
 		.cmd = NL_RTM_DELNEIGH,
@@ -527,7 +557,7 @@ static const struct rtnl_cmd_handler cmd_handlers[] = {
 static void
 rtnl_lle_event(void *arg __unused, struct llentry *lle, int evt)
 {
-	struct ifnet *ifp;
+	if_t ifp;
 	int family;
 
 	LLE_WLOCK_ASSERT(lle);
@@ -557,7 +587,7 @@ rtnl_lle_event(void *arg __unused, struct llentry *lle, int evt)
 	nlmsg_flush(&nw);
 }
 
-static const struct nlhdr_parser *all_parsers[] = { &ndmsg_parser };
+static const struct nlhdr_parser *all_parsers[] = { &ndmsg_parser, &neigh_fbsd_parser };
 
 void
 rtnl_neighs_init(void)

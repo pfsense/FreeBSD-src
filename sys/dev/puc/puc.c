@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Marcel Moolenaar
  * All rights reserved.
@@ -61,7 +61,7 @@ struct puc_port {
 	int		p_type;
 	int		p_rclk;
 
-	int		p_hasintr:1;
+	bool		p_hasintr:1;
 
 	serdev_intr_t	*p_ihsrc[PUC_ISRCCNT];
 	void		*p_iharg;

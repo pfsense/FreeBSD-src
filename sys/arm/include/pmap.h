@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Svatopluk Kraus
  * Copyright (c) 2016 Michal Meloun
@@ -45,6 +45,7 @@ extern vm_offset_t virtual_end;
 void *pmap_kenter_temporary(vm_paddr_t, int);
 #define	pmap_page_is_write_mapped(m)	(((m)->a.flags & PGA_WRITEABLE) != 0)
 void pmap_page_set_memattr(vm_page_t, vm_memattr_t);
+#define	pmap_map_delete(pmap, sva, eva)	pmap_remove(pmap, sva, eva)
 
 void *pmap_mapdev(vm_paddr_t, vm_size_t);
 void pmap_unmapdev(void *, vm_size_t);

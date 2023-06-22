@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Atsushi Onoe
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
@@ -1674,7 +1674,7 @@ _ieee80211_find_vap_node(struct ieee80211_node_table *nt,
 
 /*
  * Fake up a node; this handles node discovery in adhoc mode.
- * Note that for the driver's benefit we we treat this like
+ * Note that for the driver's benefit we treat this like
  * an association so the driver has an opportunity to setup
  * it's private state.
  */
@@ -1881,7 +1881,7 @@ ieee80211_init_neighbor(struct ieee80211_node *ni,
 /*
  * Do node discovery in adhoc mode on receipt of a beacon
  * or probe response frame.  Note that for the driver's
- * benefit we we treat this like an association so the
+ * benefit we treat this like an association so the
  * driver has an opportunity to setup it's private state.
  */
 struct ieee80211_node *

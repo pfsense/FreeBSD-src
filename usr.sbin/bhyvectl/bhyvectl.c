@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -1711,14 +1711,35 @@ done:
 }
 
 static int
-snapshot_request(const char *vmname, const char *file, bool suspend)
+open_directory(const char *file)
+{
+	char *path;
+	int fd;
+
+	if ((path = strdup(file)) == NULL)
+		return (-1);
+
+	dirname(path);
+	fd = open(path, O_DIRECTORY);
+	free(path);
+
+	return (fd);
+}
+
+static int
+snapshot_request(const char *vmname, char *file, bool suspend)
 {
 	nvlist_t *nvl;
+	int fd;
+
+	if ((fd = open_directory(file)) < 0)
+		return (errno);
 
 	nvl = nvlist_create(0);
 	nvlist_add_string(nvl, "cmd", "checkpoint");
-	nvlist_add_string(nvl, "filename", file);
+	nvlist_add_string(nvl, "filename", basename(file));
 	nvlist_add_bool(nvl, "suspend", suspend);
+	nvlist_move_descriptor(nvl, "fddir", fd);
 
 	return (send_message(vmname, nvl));
 }
@@ -1730,7 +1751,7 @@ main(int argc, char *argv[])
 	char *vmname;
 	int error, ch, vcpuid, ptenum;
 	vm_paddr_t gpa_pmap;
-	struct vm_exit vmexit;
+	struct vm_run vmrun;
 	uint64_t rax, cr0, cr2, cr3, cr4, dr0, dr1, dr2, dr3, dr6, dr7;
 	uint64_t rsp, rip, rflags, efer, pat;
 	uint64_t eptp, bm, addr, u64, pteval[4], *pte, info[2];
@@ -2365,7 +2386,13 @@ main(int argc, char *argv[])
 	}
 
 	if (!error && run) {
-		error = vm_run(vcpu, &vmexit);
+		struct vm_exit vmexit;
+		cpuset_t cpuset;
+
+		vmrun.vm_exit = &vmexit;
+		vmrun.cpuset = &cpuset;
+		vmrun.cpusetsize = sizeof(cpuset);
+		error = vm_run(vcpu, &vmrun);
 		if (error == 0)
 			dump_vm_run_exitcode(&vmexit, vcpuid);
 		else

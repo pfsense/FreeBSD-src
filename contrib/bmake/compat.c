@@ -1,4 +1,4 @@
-/*	$NetBSD: compat.c,v 1.244 2023/01/17 21:35:19 christos Exp $	*/
+/*	$NetBSD: compat.c,v 1.247 2023/05/04 22:31:17 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990 The Regents of the University of California.
@@ -94,7 +94,7 @@
 #include "pathnames.h"
 
 /*	"@(#)compat.c	8.2 (Berkeley) 3/19/94"	*/
-MAKE_RCSID("$NetBSD: compat.c,v 1.244 2023/01/17 21:35:19 christos Exp $");
+MAKE_RCSID("$NetBSD: compat.c,v 1.247 2023/05/04 22:31:17 sjg Exp $");
 
 static GNode *curTarg = NULL;
 static pid_t compatChild;
@@ -107,7 +107,8 @@ static int compatSigno;
 static void
 CompatDeleteTarget(GNode *gn)
 {
-	if (gn != NULL && !GNode_IsPrecious(gn)) {
+	if (gn != NULL && !GNode_IsPrecious(gn) &&
+	    (gn->type & OP_PHONY) == 0) {
 		const char *file = GNode_VarTarget(gn);
 
 		if (!opts.noExecute && unlink_file(file) == 0) {
@@ -223,7 +224,7 @@ bool
 Compat_RunCommand(const char *cmdp, GNode *gn, StringListNode *ln)
 {
 	char *cmdStart;		/* Start of expanded command */
-	char *bp;
+	char *volatile bp;
 	bool silent;		/* Don't print command */
 	bool doIt;		/* Execute even if -n */
 	volatile bool errCheck;	/* Check errors */
@@ -241,7 +242,7 @@ Compat_RunCommand(const char *cmdp, GNode *gn, StringListNode *ln)
 	errCheck = !(gn->type & OP_IGNORE);
 	doIt = false;
 
-	(void)Var_Subst(cmd, gn, VARE_WANTRES, &cmdStart);
+	cmdStart = Var_Subst(cmd, gn, VARE_WANTRES);
 	/* TODO: handle errors */
 
 	if (cmdStart[0] == '\0') {

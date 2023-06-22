@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1998-2000 Doug Rabson
  * All rights reserved.
@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/vnode.h>
 #include <sys/linker.h>
 #include <sys/sysctl.h>
+#include <sys/tslog.h>
 
 #include <machine/elf.h>
 
@@ -1431,6 +1432,7 @@ relocate_file1(elf_file_t ef, elf_lookup_fn lookup, elf_reloc_fn reloc,
 	const Elf_Rela *rela;
 	const char *symname;
 
+	TSENTER();
 #define	APPLY_RELOCS(iter, tbl, tblsize, type) do {			\
 	for ((iter) = (tbl); (iter) != NULL &&				\
 	    (iter) < (tbl) + (tblsize) / sizeof(*(iter)); (iter)++) {	\
@@ -1449,12 +1451,15 @@ relocate_file1(elf_file_t ef, elf_lookup_fn lookup, elf_reloc_fn reloc,
 } while (0)
 
 	APPLY_RELOCS(rel, ef->rel, ef->relsize, ELF_RELOC_REL);
+	TSENTER2("ef->rela");
 	APPLY_RELOCS(rela, ef->rela, ef->relasize, ELF_RELOC_RELA);
+	TSEXIT2("ef->rela");
 	APPLY_RELOCS(rel, ef->pltrel, ef->pltrelsize, ELF_RELOC_REL);
 	APPLY_RELOCS(rela, ef->pltrela, ef->pltrelasize, ELF_RELOC_RELA);
 
 #undef APPLY_RELOCS
 
+	TSEXIT();
 	return (0);
 }
 
@@ -1470,23 +1475,20 @@ relocate_file(elf_file_t ef)
 }
 
 /*
- * Hash function for symbol table lookup.  Don't even think about changing
- * this.  It is specified by the System V ABI.
+ * SysV hash function for symbol table lookup.  It is specified by the
+ * System V ABI.
  */
-static unsigned long
+static Elf32_Word
 elf_hash(const char *name)
 {
-	const unsigned char *p = (const unsigned char *) name;
-	unsigned long h = 0;
-	unsigned long g;
+	const unsigned char *p = (const unsigned char *)name;
+	Elf32_Word h = 0;
 
 	while (*p != '\0') {
 		h = (h << 4) + *p++;
-		if ((g = h & 0xf0000000) != 0)
-			h ^= g >> 24;
-		h &= ~g;
+		h ^= (h >> 24) & 0xf0;
 	}
-	return (h);
+	return (h & 0x0fffffff);
 }
 
 static int
@@ -1497,7 +1499,7 @@ link_elf_lookup_symbol1(linker_file_t lf, const char *name, c_linker_sym_t *sym,
 	unsigned long symnum;
 	const Elf_Sym* symp;
 	const char *strp;
-	unsigned long hash;
+	Elf32_Word hash;
 
 	/* If we don't have a hash, bail. */
 	if (ef->buckets == NULL || ef->nbuckets == 0) {
@@ -1953,6 +1955,7 @@ link_elf_ireloc(caddr_t kmdp)
 	struct elf_file eff;
 	elf_file_t ef;
 
+	TSENTER();
 	ef = &eff;
 
 	bzero_early(ef, sizeof(*ef));
@@ -1969,6 +1972,7 @@ link_elf_ireloc(caddr_t kmdp)
 
 	link_elf_preload_parse_symbols(ef);
 	relocate_file1(ef, elf_lookup_ifunc, elf_reloc, true);
+	TSEXIT();
 }
 
 #if defined(__aarch64__) || defined(__amd64__)

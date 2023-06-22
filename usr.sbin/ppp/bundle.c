@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1998 Brian Somers <brian@Awfulhak.org>
  * All rights reserved.
@@ -1354,7 +1354,7 @@ bundle_GetLabel(struct bundle *bundle)
 }
 
 int
-bundle_LinkSize()
+bundle_LinkSize(void)
 {
   struct iovec iov[SCATTER_SEGMENTS];
   int niov, expect, f;

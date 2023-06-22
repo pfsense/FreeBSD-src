@@ -30,7 +30,6 @@ extern unsigned int boot_address;
 /* global data in mp_x86.c */
 extern int mp_naps;
 extern int boot_cpu_id;
-extern struct pcb stoppcbs[];
 extern int cpu_apic_ids[];
 extern int bootAP;
 extern void *dpcpu;
@@ -56,10 +55,10 @@ extern int nmi_kdb_lock;
 extern int nmi_is_broadcast;
 
 struct cpu_info {
-	int	cpu_present:1;
-	int	cpu_bsp:1;
-	int	cpu_disabled:1;
-	int	cpu_hyperthread:1;
+	bool	cpu_present:1;
+	bool	cpu_bsp:1;
+	bool	cpu_disabled:1;
+	bool	cpu_hyperthread:1;
 };
 extern struct cpu_info *cpu_info;
 

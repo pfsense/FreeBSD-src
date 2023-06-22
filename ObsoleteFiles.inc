@@ -52,11 +52,106 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230614: caroot bundle updated
+OLD_FILES+=usr/share/certs/trusted/Cybertrust_Global_Root.pem
+OLD_FILES+=usr/share/certs/trusted/DST_Root_CA_X3.pem
+OLD_FILES+=usr/share/certs/trusted/GlobalSign_Root_CA_-_R2.pem
+OLD_FILES+=usr/share/certs/trusted/Hellenic_Academic_and_Research_Institutions_RootCA_2011.pem
+OLD_FILES+=usr/share/certs/trusted/Network_Solutions_Certificate_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/Staat_der_Nederlanden_EV_Root_CA.pem
+OLD_FILES+=usr/share/certs/trusted/TrustCor_ECA-1.pem
+OLD_FILES+=usr/share/certs/trusted/TrustCor_RootCert_CA-1.pem
+OLD_FILES+=usr/share/certs/trusted/TrustCor_RootCert_CA-2.pem
+
+# 20230505: md5 tests are now self-contained
+OLD_FILES+=usr/tests/sbin/md5/1.inp
+OLD_FILES+=usr/tests/sbin/md5/1.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/1.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/2.inp
+OLD_FILES+=usr/tests/sbin/md5/2.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/2.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/3.inp
+OLD_FILES+=usr/tests/sbin/md5/3.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/3.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/4.inp
+OLD_FILES+=usr/tests/sbin/md5/4.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/4.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/5.inp
+OLD_FILES+=usr/tests/sbin/md5/5.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/5.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/6.inp
+OLD_FILES+=usr/tests/sbin/md5/6.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/6.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/7.inp
+OLD_FILES+=usr/tests/sbin/md5/7.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/7.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/8.inp
+OLD_FILES+=usr/tests/sbin/md5/8.sha512-p.chk
+OLD_FILES+=usr/tests/sbin/md5/8.sha512sum-p.chk
+OLD_FILES+=usr/tests/sbin/md5/algorithms.txt
+OLD_FILES+=usr/tests/sbin/md5/bsd-c-test
+OLD_FILES+=usr/tests/sbin/md5/bsd-p-test
+OLD_FILES+=usr/tests/sbin/md5/bsd-s-test
+OLD_FILES+=usr/tests/sbin/md5/coreutils-c-test
+OLD_FILES+=usr/tests/sbin/md5/md5.digest
+OLD_FILES+=usr/tests/sbin/md5/md5sum.digest
+OLD_FILES+=usr/tests/sbin/md5/rmd160.digest
+OLD_FILES+=usr/tests/sbin/md5/rmd160sum.digest
+OLD_FILES+=usr/tests/sbin/md5/self-test
+OLD_FILES+=usr/tests/sbin/md5/self-test.md5.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.rmd160.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sh_inp
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha1.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha224.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha256.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha384.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha512.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha512t224.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.sha512t256.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.skein1024.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.skein256.chk
+OLD_FILES+=usr/tests/sbin/md5/self-test.skein512.chk
+OLD_FILES+=usr/tests/sbin/md5/sha1.digest
+OLD_FILES+=usr/tests/sbin/md5/sha1sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha224.digest
+OLD_FILES+=usr/tests/sbin/md5/sha224sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha256.digest
+OLD_FILES+=usr/tests/sbin/md5/sha256sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha384.digest
+OLD_FILES+=usr/tests/sbin/md5/sha384sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512t224.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512t224sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512t256.digest
+OLD_FILES+=usr/tests/sbin/md5/sha512t256sum.digest
+OLD_FILES+=usr/tests/sbin/md5/skein1024.digest
+OLD_FILES+=usr/tests/sbin/md5/skein1024sum.digest
+OLD_FILES+=usr/tests/sbin/md5/skein256.digest
+OLD_FILES+=usr/tests/sbin/md5/skein256sum.digest
+OLD_FILES+=usr/tests/sbin/md5/skein512.digest
+OLD_FILES+=usr/tests/sbin/md5/skein512sum.digest
+OLD_FILES+=usr/tests/sbin/md5/sum_a.in
+OLD_FILES+=usr/tests/sbin/md5/sum_b.in
+OLD_FILES+=usr/tests/sbin/md5/sum_c.in
+OLD_FILES+=usr/tests/sbin/md5/sum_sums.digest
+
+# 20230420: portsnap.8 removed
+OLD_FILES+=etc/portsnap.conf
+OLD_FILES+=usr/libexec/make_index
+OLD_FILES+=usr/sbin/portsnap
+OLD_FILES+=usr/share/examples/etc/portsnap.conf
+OLD_FILES+=usr/share/man/man8/portsnap.8.gz
+
+# 20230331: libpcap updated to 1.10.3
+OLD_FILES+=usr/include/fmtutils.h
+
 # 20230329: libcasper libraries moved to /lib
 MOVED_LIBS+=lib/casper/libcap_dns.so.2
 MOVED_LIBS+=lib/casper/libcap_fileargs.so.1
 MOVED_LIBS+=lib/casper/libcap_grp.so.1
 MOVED_LIBS+=lib/casper/libcap_net.so.1
+MOVED_LIBS+=lib/casper/libcap_netdb.so.1
 MOVED_LIBS+=lib/casper/libcap_pwd.so.1
 MOVED_LIBS+=lib/casper/libcap_sysctl.so.1
 MOVED_LIBS+=lib/casper/libcap_sysctl.so.2
@@ -65,6 +160,9 @@ OLD_DIRS+=lib/casper
 
 # 20230324: libvmmapi shlib version bumped to 6
 OLD_LIBS+=usr/lib/libvmmapi.so.5
+
+# 20230323: tzdata 2023a imported
+OLD_FILES+=usr/share/zoneinfo/posixrules
 
 # 20230320: vcount.9 removed
 OLD_FILES+=usr/share/man/man9/count_dev.9.gz
@@ -82,6 +180,12 @@ OLD_FILES+=usr/tests/bin/pkill/pkill-U_test
 
 # 20230309: remove remaining ATM support
 OLD_FILES+=usr/bin/sscop
+OLD_FILES+=usr/include/netgraph/atm/ng_ccatm.h
+OLD_FILES+=usr/include/netgraph/atm/ng_sscfu.h
+OLD_FILES+=usr/include/netgraph/atm/ng_sscop.h
+OLD_FILES+=usr/include/netgraph/atm/ng_uni.h
+OLD_FILES+=usr/include/netgraph/atm/ngatmbase.h
+OLD_FILES+=usr/include/netgraph/ng_atmllc.h
 OLD_FILES+=usr/include/netnatm/addr.h
 OLD_FILES+=usr/include/netnatm/api/atmapi.h
 OLD_FILES+=usr/include/netnatm/api/ccatm.h
@@ -562,6 +666,7 @@ OLD_FILES+=usr/bin/opiepasswd
 OLD_FILES+=usr/bin/otp-md4
 OLD_FILES+=usr/bin/otp-md5
 OLD_FILES+=usr/bin/otp-sha1
+OLD_FILES+=usr/include/opie.h
 OLD_FILES+=usr/lib/libopie.a
 OLD_FILES+=usr/lib/libopie.so
 OLD_LIBS+=usr/lib/libopie.so.8
@@ -627,6 +732,9 @@ OLD_FILES+=usr/share/man/man9/knlist_init_rw_reader.9.gz
 # 20220813: minigzip(1) removed in favor of gzip(1)
 OLD_FILES+=usr/bin/minigzip
 OLD_FILES+=usr/share/man/man1/minigzip.1.gz
+
+# 20220811: MP_WATCHDOG removed
+OLD_FILES+=usr/include/machine/mp_watchdog.h
 
 # 20220811: new iconv encoder trait added
 OLD_LIBS+=usr/lib/i18n/libBIG5.so.4
@@ -1654,6 +1762,7 @@ OLD_FILES+=usr/share/man/man3/efi_set_variables_supported.3.gz
 OLD_FILES+=usr/share/man/man4/meteor.4.gz
 
 # 20211125: Old SCSI drivers removed
+OLD_FILES+=usr/include/dev/ic/esp.h
 OLD_FILES+=usr/share/man/man4/amr.4.gz
 OLD_FILES+=usr/share/man/man4/esp.4.gz
 OLD_FILES+=usr/share/man/man4/iir.4.gz
@@ -2485,6 +2594,8 @@ OLD_FILES+=usr/share/certs/blacklisted/GeoTrust_Universal_CA.pem
 OLD_FILES+=usr/share/certs/blacklisted/Global_Chambersign_Root_-_2008.pem
 OLD_FILES+=usr/share/certs/blacklisted/LuxTrust_Global_Root_2.pem
 OLD_FILES+=usr/share/certs/blacklisted/OISTE_WISeKey_Global_Root_GA_CA.pem
+OLD_FILES+=usr/share/certs/blacklisted/QuoVadis_Root_CA.pem
+OLD_FILES+=usr/share/certs/blacklisted/Sonera_Class_2_Root_CA.pem
 OLD_FILES+=usr/share/certs/blacklisted/Staat_der_Nederlanden_Root_CA_-_G2.pem
 OLD_FILES+=usr/share/certs/blacklisted/Staat_der_Nederlanden_Root_CA_-_G3.pem
 OLD_FILES+=usr/share/certs/blacklisted/SwissSign_Platinum_CA_-_G2.pem
@@ -5768,6 +5879,9 @@ OLD_FILES+=usr/share/man/man8/ndiscvt.8.gz
 OLD_FILES+=usr/share/man/man8/ndisgen.8.gz
 OLD_FILES+=usr/share/misc/windrv_stub.c
 
+# 20210116: openpromio(4) removed
+OLD_FILES+=usr/include/dev/ofw/openpromio.h
+
 # 20210116: if_wl_wavelan.h removed
 .if ${TARGET_ARCH} == "i386"
 OLD_FILES+=usr/include/machine/if_wl_wavelan.h
@@ -5777,6 +5891,7 @@ OLD_FILES+=usr/include/machine/if_wl_wavelan.h
 OLD_FILES+=usr/include/dev/wi/if_wireg.h
 OLD_FILES+=usr/include/dev/wi/if_wavelan_ieee.h
 OLD_FILES+=usr/include/dev/wi/if_wivar.h
+OLD_FILES+=usr/include/netgraph/bluetooth/include/ng_bt3c.h
 OLD_FILES+=usr/sbin/bt3cfw
 OLD_FILES+=usr/share/man/man4/cmw.4.gz
 OLD_FILES+=usr/share/man/man4/if_wi.4.gz
@@ -6060,7 +6175,11 @@ OLD_DIRS+=usr/lib/clang/11.0.0/lib/freebsd
 OLD_DIRS+=usr/lib/clang/11.0.0/lib
 OLD_DIRS+=usr/lib/clang/11.0.0
 
+# 20201226: Siemens SAB 82532 support removed
+OLD_FILES+=usr/include/dev/ic/sab82532.h
+
 # 20201225: PMC for Xscale removed
+OLD_FILES+=usr/include/dev/hwpmc/hwpmc_xscale.h
 OLD_FILES+=usr/share/man/man3/pmc.xscale.3.gz
 
 # 20201225: libregex removed
@@ -6166,6 +6285,18 @@ OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.all
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.holiday
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.misc
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.orthodox
+OLD_DIRS+=usr/share/calendar/de_AT.ISO_8859-15
+OLD_DIRS+=usr/share/calendar/de_DE.ISO8859-1
+OLD_FILES+=usr/share/calendar/de_DE.ISO8859-15
+OLD_DIRS+=usr/share/calendar/fr_FR.ISO8859-1
+OLD_FILES+=usr/share/calendar/fr_FR.ISO8859-15
+OLD_DIRS+=usr/share/calendar/hr_HR.ISO8859-2
+OLD_DIRS+=usr/share/calendar/hu_HU.ISO8859-2
+OLD_DIRS+=usr/share/calendar/pt_BR.ISO8859-1
+OLD_DIRS+=usr/share/calendar/pt_BR.UTF-8
+OLD_DIRS+=usr/share/calendar/ru_RU.KOI8-R
+OLD_DIRS+=usr/share/calendar/ru_RU.UTF-8
+OLD_DIRS+=usr/share/calendar/uk_UA.KOI8-U
 
 # 20201004: logo files renamed to type-agnostic gfx-*.lua
 OLD_FILES+=boot/lua/logo-beastie.lua

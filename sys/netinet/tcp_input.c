@@ -55,6 +55,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_ipsec.h"
+#include "opt_rss.h"
 
 #include <sys/param.h>
 #include <sys/arb.h>
@@ -83,6 +84,7 @@ __FBSDID("$FreeBSD$");
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/route.h>
+#include <net/rss_config.h>
 #include <net/vnet.h>
 
 #define TCPSTATES		/* for logging */
@@ -90,6 +92,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in.h>
 #include <netinet/in_kdtrace.h>
 #include <netinet/in_pcb.h>
+#include <netinet/in_rss.h>
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>	/* required for icmp_var.h */
@@ -99,6 +102,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip6.h>
 #include <netinet/icmp6.h>
 #include <netinet6/in6_pcb.h>
+#include <netinet6/in6_rss.h>
 #include <netinet6/in6_var.h>
 #include <netinet6/ip6_var.h>
 #include <netinet6/nd6.h>
@@ -936,10 +940,35 @@ findpcb:
 	INP_LOCK_ASSERT(inp);
 
 	if ((inp->inp_flowtype == M_HASHTYPE_NONE) &&
-	    (M_HASHTYPE_GET(m) != M_HASHTYPE_NONE) &&
 	    !SOLISTENING(inp->inp_socket)) {
-		inp->inp_flowid = m->m_pkthdr.flowid;
-		inp->inp_flowtype = M_HASHTYPE_GET(m);
+		if (M_HASHTYPE_GET(m) != M_HASHTYPE_NONE) {
+			inp->inp_flowid = m->m_pkthdr.flowid;
+			inp->inp_flowtype = M_HASHTYPE_GET(m);
+#ifdef	RSS
+		} else {
+			  /* assign flowid by software RSS hash */
+#ifdef INET6
+			  if (isipv6) {
+				rss_proto_software_hash_v6(&inp->in6p_faddr,
+							   &inp->in6p_laddr,
+							   inp->inp_fport,
+							   inp->inp_lport,
+							   IPPROTO_TCP,
+							   &inp->inp_flowid,
+							   &inp->inp_flowtype);
+			  } else
+#endif	/* INET6 */
+			  {
+				rss_proto_software_hash_v4(inp->inp_faddr,
+							   inp->inp_laddr,
+							   inp->inp_fport,
+							   inp->inp_lport,
+							   IPPROTO_TCP,
+							   &inp->inp_flowid,
+							   &inp->inp_flowtype);
+			  }
+#endif	/* RSS */
+		}
 	}
 #if defined(IPSEC) || defined(IPSEC_SUPPORT)
 #ifdef INET6
@@ -1142,8 +1171,8 @@ tfo_socket_result:
 			 * the mbuf chain and unlocks the inpcb.
 			 */
 			TCP_PROBE5(receive, NULL, tp, m, tp, th);
-			tp->t_fb->tfb_tcp_do_segment(m, th, so, tp, drop_hdrlen, tlen,
-			    iptos);
+			tp->t_fb->tfb_tcp_do_segment(tp, m, th, drop_hdrlen,
+			    tlen, iptos);
 			return (IPPROTO_DONE);
 		}
 		/*
@@ -1379,7 +1408,7 @@ tfo_socket_result:
 	if ((lookupflag & INPLOOKUP_RLOCKPCB) && INP_TRY_UPGRADE(inp) == 0)
 		goto dropunlock;
 
-	tp->t_fb->tfb_tcp_do_segment(m, th, so, tp, drop_hdrlen, tlen, iptos);
+	tp->t_fb->tfb_tcp_do_segment(tp, m, th, drop_hdrlen, tlen, iptos);
 	return (IPPROTO_DONE);
 
 dropwithreset:
@@ -1493,8 +1522,8 @@ tcp_handle_wakeup(struct tcpcb *tp)
 }
 
 void
-tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
-    struct tcpcb *tp, int drop_hdrlen, int tlen, uint8_t iptos)
+tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
+    int drop_hdrlen, int tlen, uint8_t iptos)
 {
 	uint16_t thflags;
 	int acked, ourfinisacked, needoutput = 0, sack_changed;
@@ -1503,6 +1532,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	uint16_t nsegs;
 	char *s;
 	struct inpcb *inp = tptoinpcb(tp);
+	struct socket *so = tptosocket(tp);
 	struct in_conninfo *inc = &inp->inp_inc;
 	struct mbuf *mfree;
 	struct tcpopt to;

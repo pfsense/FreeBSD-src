@@ -20,6 +20,7 @@
 #include <vmmapi.h>
 
 #include "basl.h"
+#include "qemu_loader.h"
 
 struct basl_table_checksum {
 	STAILQ_ENTRY(basl_table_checksum) chain;
@@ -55,6 +56,10 @@ struct basl_table {
 };
 static STAILQ_HEAD(basl_table_list, basl_table) basl_tables = STAILQ_HEAD_INITIALIZER(
     basl_tables);
+
+static struct qemu_loader *basl_loader;
+static struct basl_table *rsdt;
+static struct basl_table *xsdt;
 
 static __inline uint64_t
 basl_le_dec(void *pp, size_t len)
@@ -163,6 +168,12 @@ basl_finish_install_guest_tables(struct basl_table *const table, uint32_t *const
 	}
 	memcpy(gva, table->data, table->len);
 
+	/* Cause guest bios to copy the ACPI table into guest memory. */
+	BASL_EXEC(
+	    qemu_fwcfg_add_file(table->fwcfg_name, table->len, table->data));
+	BASL_EXEC(qemu_loader_alloc(basl_loader, table->fwcfg_name,
+	    table->alignment, QEMU_LOADER_ALLOC_HIGH));
+
 	return (0);
 }
 
@@ -219,6 +230,10 @@ basl_finish_patch_checksums(struct basl_table *const table)
 			sum += *(gva + i);
 		}
 		*checksum_gva = -sum;
+
+		/* Cause guest bios to patch the checksum. */
+		BASL_EXEC(qemu_loader_add_checksum(basl_loader,
+		    table->fwcfg_name, checksum->off, checksum->start, len));
 	}
 
 	return (0);
@@ -286,6 +301,11 @@ basl_finish_patch_pointers(struct basl_table *const table)
 		val = basl_le_dec(gva + pointer->off, pointer->size);
 		val += BHYVE_ACPI_BASE + src_table->off;
 		basl_le_enc(gva + pointer->off, val, pointer->size);
+
+		/* Cause guest bios to patch the pointer. */
+		BASL_EXEC(
+		    qemu_loader_add_pointer(basl_loader, table->fwcfg_name,
+			src_table->fwcfg_name, pointer->off, pointer->size));
 	}
 
 	return (0);
@@ -335,13 +355,45 @@ basl_finish(void)
 		 */
 		BASL_EXEC(basl_finish_patch_checksums(table));
 	}
+	BASL_EXEC(qemu_loader_finish(basl_loader));
+
+	return (0);
+}
+
+static int
+basl_init_rsdt(struct vmctx *const ctx)
+{
+	BASL_EXEC(
+	    basl_table_create(&rsdt, ctx, ACPI_SIG_RSDT, BASL_TABLE_ALIGNMENT));
+
+	/* Header */
+	BASL_EXEC(basl_table_append_header(rsdt, ACPI_SIG_RSDT, 1, 1));
+	/* Pointers (added by basl_table_register_to_rsdt) */
+
+	return (0);
+}
+
+static int
+basl_init_xsdt(struct vmctx *const ctx)
+{
+	BASL_EXEC(
+	    basl_table_create(&xsdt, ctx, ACPI_SIG_XSDT, BASL_TABLE_ALIGNMENT));
+
+	/* Header */
+	BASL_EXEC(basl_table_append_header(xsdt, ACPI_SIG_XSDT, 1, 1));
+	/* Pointers (added by basl_table_register_to_rsdt) */
 
 	return (0);
 }
 
 int
-basl_init(void)
+basl_init(struct vmctx *const ctx)
 {
+	BASL_EXEC(basl_init_rsdt(ctx));
+	BASL_EXEC(basl_init_xsdt(ctx));
+	BASL_EXEC(
+	    qemu_loader_create(&basl_loader, QEMU_FWCFG_FILE_TABLE_LOADER));
+
 	return (0);
 }
 
@@ -472,6 +524,23 @@ basl_table_append_content(struct basl_table *table, void *data, uint32_t len)
 }
 
 int
+basl_table_append_fwcfg(struct basl_table *const table,
+    const uint8_t *fwcfg_name, const uint32_t alignment, const uint8_t size)
+{
+	assert(table != NULL);
+	assert(fwcfg_name != NULL);
+	assert(size <= sizeof(uint64_t));
+
+	BASL_EXEC(qemu_loader_alloc(basl_loader, fwcfg_name, alignment,
+	    QEMU_LOADER_ALLOC_HIGH));
+	BASL_EXEC(qemu_loader_add_pointer(basl_loader, table->fwcfg_name,
+	    fwcfg_name, table->len, size));
+	BASL_EXEC(basl_table_append_int(table, 0, size));
+
+	return (0);
+}
+
+int
 basl_table_append_gas(struct basl_table *const table, const uint8_t space_id,
     const uint8_t bit_width, const uint8_t bit_offset,
     const uint8_t access_width, const uint64_t address)
@@ -588,6 +657,23 @@ basl_table_create(struct basl_table **const table, struct vmctx *ctx,
 	STAILQ_INSERT_TAIL(&basl_tables, new_table, chain);
 
 	*table = new_table;
+
+	return (0);
+}
+
+int
+basl_table_register_to_rsdt(struct basl_table *table)
+{
+	const ACPI_TABLE_HEADER *header;
+
+	assert(table != NULL);
+
+	header = (const ACPI_TABLE_HEADER *)table->data;
+
+	BASL_EXEC(basl_table_append_pointer(rsdt, header->Signature,
+	    ACPI_RSDT_ENTRY_SIZE));
+	BASL_EXEC(basl_table_append_pointer(xsdt, header->Signature,
+	    ACPI_XSDT_ENTRY_SIZE));
 
 	return (0);
 }

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Neel Natu <neel@freebsd.org>
  * Copyright (c) 2013 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
@@ -461,12 +461,26 @@ pci_lpc_get_sel(struct pcisel *const sel)
 	memset(sel, 0, sizeof(*sel));
 
 	for (uint8_t slot = 0; slot <= PCI_SLOTMAX; ++slot) {
+		uint8_t max_func = 0;
+
 		sel->pc_dev = slot;
-		if ((read_config(sel, PCIR_CLASS, 1) == PCIC_BRIDGE) &&
-		    (read_config(sel, PCIR_SUBCLASS, 1) == PCIS_BRIDGE_ISA)) {
-			return (0);
+		sel->pc_func = 0;
+
+		if (read_config(sel, PCIR_HDRTYPE, 1) & PCIM_MFDEV)
+			max_func = PCI_FUNCMAX;
+
+		for (uint8_t func = 0; func <= max_func; ++func) {
+			sel->pc_func = func;
+
+			if ((read_config(sel, PCIR_CLASS, 1) == PCIC_BRIDGE) &&
+			    (read_config(sel, PCIR_SUBCLASS, 1) ==
+				PCIS_BRIDGE_ISA)) {
+				return (0);
+			}
 		}
 	}
+
+	warnx("%s: Unable to find host selector of LPC bridge.", __func__);
 
 	return (-1);
 }
@@ -475,6 +489,7 @@ static int
 pci_lpc_init(struct pci_devinst *pi, nvlist_t *nvl)
 {
 	struct pcisel sel = { 0 };
+	struct pcisel *selp = NULL;
 	uint16_t device, subdevice, subvendor, vendor;
 	uint8_t revid;
 
@@ -499,15 +514,15 @@ pci_lpc_init(struct pci_devinst *pi, nvlist_t *nvl)
 	if (lpc_init(pi->pi_vmctx) != 0)
 		return (-1);
 
-	if (pci_lpc_get_sel(&sel) != 0)
-		return (-1);
+	if (pci_lpc_get_sel(&sel) == 0)
+		selp = &sel;
 
-	vendor = pci_config_read_reg(&sel, nvl, PCIR_VENDOR, 2, LPC_VENDOR);
-	device = pci_config_read_reg(&sel, nvl, PCIR_DEVICE, 2, LPC_DEV);
-	revid = pci_config_read_reg(&sel, nvl, PCIR_REVID, 1, LPC_REVID);
-	subvendor = pci_config_read_reg(&sel, nvl, PCIR_SUBVEND_0, 2,
+	vendor = pci_config_read_reg(selp, nvl, PCIR_VENDOR, 2, LPC_VENDOR);
+	device = pci_config_read_reg(selp, nvl, PCIR_DEVICE, 2, LPC_DEV);
+	revid = pci_config_read_reg(selp, nvl, PCIR_REVID, 1, LPC_REVID);
+	subvendor = pci_config_read_reg(selp, nvl, PCIR_SUBVEND_0, 2,
 	    LPC_SUBVEND_0);
-	subdevice = pci_config_read_reg(&sel, nvl, PCIR_SUBDEV_0, 2,
+	subdevice = pci_config_read_reg(selp, nvl, PCIR_SUBDEV_0, 2,
 	    LPC_SUBDEV_0);
 
 	/* initialize config space */

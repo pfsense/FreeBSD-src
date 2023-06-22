@@ -37,6 +37,8 @@
 
 #include <machine/frame.h>
 #include <machine/md_var.h>
+#include <machine/encoding.h>
+#include <machine/riscvreg.h>
 
 #include <vm/vm.h>
 #include <vm/vm_param.h>
@@ -58,6 +60,12 @@ uint8_t dtrace_fuword8_nocheck(void *);
 uint16_t dtrace_fuword16_nocheck(void *);
 uint32_t dtrace_fuword32_nocheck(void *);
 uint64_t dtrace_fuword64_nocheck(void *);
+
+int dtrace_match_opcode(uint32_t, int, int);
+int dtrace_instr_sdsp(uint32_t **);
+int dtrace_instr_ret(uint32_t **);
+int dtrace_instr_c_sdsp(uint32_t **);
+int dtrace_instr_c_ret(uint32_t **);
 
 void
 dtrace_getpcstack(pc_t *pcstack, int pcstack_limit, int aframes,
@@ -309,12 +317,36 @@ dtrace_getstackdepth(int aframes)
 }
 
 ulong_t
-dtrace_getreg(struct trapframe *rp, uint_t reg)
+dtrace_getreg(struct trapframe *frame, uint_t reg)
 {
-
-	printf("IMPLEMENT ME: %s\n", __func__);
-
-	return (0);
+	switch (reg) {
+	case REG_ZERO:
+		return (0);
+	case REG_RA:
+		return (frame->tf_ra);
+	case REG_SP:
+		return (frame->tf_sp);
+	case REG_GP:
+		return (frame->tf_gp);
+	case REG_TP:
+		return (frame->tf_tp);
+	case REG_T0 ... REG_T2:
+		return (frame->tf_t[reg - REG_T0]);
+	case REG_S0 ... REG_S1:
+		return (frame->tf_s[reg - REG_S0]);
+	case REG_A0 ... REG_A7:
+		return (frame->tf_a[reg - REG_A0]);
+	case REG_S2 ... REG_S11:
+		return (frame->tf_s[reg - REG_S2 + 2]);
+	case REG_T3 ... REG_T6:
+		return (frame->tf_t[reg - REG_T3 + 3]);
+	case REG_PC:
+		return (frame->tf_sepc);
+	default:
+		DTRACE_CPUFLAG_SET(CPU_DTRACE_ILLOP);
+		return (0);
+	}
+	/* NOTREACHED */
 }
 
 static int
@@ -416,4 +448,69 @@ dtrace_fuword64(void *uaddr)
 	}
 
 	return (dtrace_fuword64_nocheck(uaddr));
+}
+
+int
+dtrace_match_opcode(uint32_t insn, int match, int mask)
+{
+	if (((insn ^ match) & mask) == 0)
+		return (1);
+
+	return (0);
+}
+
+int
+dtrace_instr_sdsp(uint32_t **instr)
+{
+	if (dtrace_match_opcode(**instr, (MATCH_SD | RS2_RA | RS1_SP),
+	    (MASK_SD | RS2_MASK | RS1_MASK)))
+		return (1);
+
+	return (0);
+}
+
+int
+dtrace_instr_c_sdsp(uint32_t **instr)
+{
+	uint16_t *instr1;
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		instr1 = (uint16_t *)(*instr) + i;
+		if (dtrace_match_opcode(*instr1, (MATCH_C_SDSP | RS2_C_RA),
+		    (MASK_C_SDSP | RS2_C_MASK))) {
+			*instr = (uint32_t *)instr1;
+			return (1);
+		}
+	}
+
+	return (0);
+}
+
+int
+dtrace_instr_ret(uint32_t **instr)
+{
+	if (dtrace_match_opcode(**instr, (MATCH_JALR | (X_RA << RS1_SHIFT)),
+	    (MASK_JALR | RD_MASK | RS1_MASK | IMM_MASK)))
+		return (1);
+
+	return (0);
+}
+
+int
+dtrace_instr_c_ret(uint32_t **instr)
+{
+	uint16_t *instr1;
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		instr1 = (uint16_t *)(*instr) + i;
+		if (dtrace_match_opcode(*instr1,
+		    (MATCH_C_JR | (X_RA << RD_SHIFT)), (MASK_C_JR | RD_MASK))) {
+			*instr = (uint32_t *)instr1;
+			return (1);
+		}
+	}
+
+	return (0);
 }

@@ -388,7 +388,8 @@ unionfs_nodeget(struct mount *mp, struct vnode *uppervp,
 	KASSERT(dvp != NULL || (vp->v_vflag & VV_ROOT) != 0,
 	    ("%s: NULL dvp for non-root vp %p", __func__, vp));
 
-	vn_lock_pair(lowervp, false, uppervp, false); 
+	vn_lock_pair(lowervp, false, LK_EXCLUSIVE, uppervp, false,
+	    LK_EXCLUSIVE);
 	error = insmntque1(vp, mp);
 	if (error != 0) {
 		unionfs_nodeget_cleanup(vp, unp);
@@ -396,13 +397,15 @@ unionfs_nodeget(struct mount *mp, struct vnode *uppervp,
 	}
 	if (lowervp != NULL && VN_IS_DOOMED(lowervp)) {
 		vput(lowervp);
-		unp->un_lowervp = NULL;
+		unp->un_lowervp = lowervp = NULL;
 	}
 	if (uppervp != NULL && VN_IS_DOOMED(uppervp)) {
 		vput(uppervp);
-		unp->un_uppervp = NULL;
+		unp->un_uppervp = uppervp = NULL;
+		if (lowervp != NULLVP)
+			vp->v_vnlock = lowervp->v_vnlock;
 	}
-	if (unp->un_lowervp == NULL && unp->un_uppervp == NULL) {
+	if (lowervp == NULL && uppervp == NULL) {
 		unionfs_nodeget_cleanup(vp, unp);
 		return (ENOENT);
 	}

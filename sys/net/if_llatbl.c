@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Luigi Rizzo, Alessandro Cerri. All rights reserved.
  * Copyright (c) 2004-2008 Qing Li. All rights reserved.
@@ -904,8 +904,12 @@ lltable_free_entry(struct lltable *llt, struct llentry *lle)
 int
 lltable_link_entry(struct lltable *llt, struct llentry *lle)
 {
+	int error = llt->llt_link_entry(llt, lle);
 
-	return (llt->llt_link_entry(llt, lle));
+	if (error == 0 && (lle->la_flags & LLE_PUB) != 0)
+		llt->llt_flags |= LLT_ADDEDPROXY;
+
+	return (error);
 }
 
 void
@@ -1034,9 +1038,6 @@ lla_rt_output(struct rt_msghdr *rtm, struct rt_addrinfo *info)
 			lltable_unlink_entry(llt, lle_tmp);
 		}
 		lltable_link_entry(llt, lle);
-		if ((lle->la_flags & LLE_PUB) != 0 &&
-		    (llt->llt_flags & LLT_ADDEDPROXY) == 0)
-			llt->llt_flags |= LLT_ADDEDPROXY;
 		IF_AFDATA_WUNLOCK(ifp);
 
 		if (lle_tmp != NULL) {

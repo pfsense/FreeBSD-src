@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
  *
@@ -50,7 +50,7 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_parser
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 bool
 nlmsg_report_err_msg(struct nl_pstate *npt, const char *fmt, ...)
@@ -315,10 +315,22 @@ nlattr_get_ipvia(struct nlattr *nla, struct nl_pstate *npt, const void *arg, voi
 
 
 int
+nlattr_get_uint8(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	if (__predict_false(NLA_DATA_LEN(nla) != sizeof(uint8_t))) {
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint8",
+		    nla->nla_type, NLA_DATA_LEN(nla));
+		return (EINVAL);
+	}
+	*((uint16_t *)target) = *((const uint16_t *)NL_RTA_DATA_CONST(nla));
+	return (0);
+}
+
+int
 nlattr_get_uint16(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
 {
 	if (__predict_false(NLA_DATA_LEN(nla) != sizeof(uint16_t))) {
-		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint32",
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint16",
 		    nla->nla_type, NLA_DATA_LEN(nla));
 		return (EINVAL);
 	}

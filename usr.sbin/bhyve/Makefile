@@ -5,7 +5,7 @@
 .include <src.opts.mk>
 CFLAGS+=-I${.CURDIR}/../../contrib/lib9p
 CFLAGS+=-I${SRCTOP}/sys
-.PATH:  ${SRCTOP}/sys/cam/ctl
+.PATH:  ${SRCTOP}/sys/libkern ${SRCTOP}/sys/cam/ctl
 
 PROG=	bhyve
 PACKAGE=	bhyve
@@ -15,9 +15,9 @@ MAN=	bhyve.8 bhyve_config.5
 BHYVE_SYSDIR?=${SRCTOP}
 
 SRCS=	\
+	acpi.c			\
 	acpi_device.c		\
 	atkbdc.c		\
-	acpi.c			\
 	audio.c			\
 	basl.c			\
 	bhyvegc.c		\
@@ -26,13 +26,16 @@ SRCS=	\
 	bootrom.c		\
 	config.c		\
 	console.c		\
-	ctl_util.c		\
+	crc16.c			\
 	ctl_scsi_all.c		\
+	ctl_util.c		\
+	e820.c			\
 	fwctl.c			\
 	gdb.c			\
 	hda_codec.c		\
 	inout.c			\
 	ioapic.c		\
+	iov.c			\
 	kernemu_dev.c		\
 	mem.c			\
 	mevent.c		\
@@ -42,13 +45,15 @@ SRCS=	\
 	pci_ahci.c		\
 	pci_e82545.c		\
 	pci_emul.c		\
-	pci_hda.c		\
 	pci_fbuf.c		\
+	pci_gvt-d.c		\
+	pci_hda.c		\
 	pci_hostbridge.c	\
 	pci_irq.c		\
 	pci_lpc.c		\
 	pci_nvme.c		\
 	pci_passthru.c		\
+	pci_uart.c		\
 	pci_virtio_9p.c		\
 	pci_virtio_block.c	\
 	pci_virtio_console.c	\
@@ -56,7 +61,6 @@ SRCS=	\
 	pci_virtio_net.c	\
 	pci_virtio_rnd.c	\
 	pci_virtio_scsi.c	\
-	pci_uart.c		\
 	pci_xhci.c		\
 	pctestdev.c		\
 	pm.c			\
@@ -64,20 +68,23 @@ SRCS=	\
 	ps2kbd.c		\
 	ps2mouse.c		\
 	qemu_fwcfg.c		\
+	qemu_loader.c		\
 	rfb.c			\
 	rtc.c			\
 	smbiostbl.c		\
 	sockstream.c		\
+	spinup_ap.c		\
 	task_switch.c		\
+	tpm_device.c		\
+	tpm_emul_passthru.c	\
+	tpm_intf_crb.c		\
 	uart_emul.c		\
 	usb_emul.c		\
 	usb_mouse.c		\
-	virtio.c		\
 	vga.c			\
+	virtio.c		\
 	vmgenc.c		\
-	xmsr.c			\
-	spinup_ap.c		\
-	iov.c
+	xmsr.c
 
 .if ${MK_BHYVE_SNAPSHOT} != "no"
 SRCS+=	snapshot.c
@@ -108,6 +115,7 @@ LIBADD+=    netgraph
 CFLAGS+=-DNO_OPENSSL
 .else
 LIBADD+=	crypto
+CFLAGS+=-DOPENSSL_API_COMPAT=0x10100000L
 .endif
 
 CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/e1000
@@ -115,10 +123,6 @@ CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/mii
 CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/usb/controller
 .if ${MK_BHYVE_SNAPSHOT} != "no"
 CFLAGS+= -I${SRCTOP}/contrib/libucl/include
-
-# Temporary disable capsicum, until we integrate checkpoint code with it.
-CFLAGS+= -DWITHOUT_CAPSICUM
-
 CFLAGS+= -DBHYVE_SNAPSHOT
 .endif
 

@@ -29,7 +29,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd April 7, 2022
+.Dd May 29, 2023
 .Dt SIFTR 4
 .Os
 .Sh NAME
@@ -83,10 +83,7 @@ In the IPv4-only (default) mode, standard dotted decimal notation (e.g.
 "136.186.229.95") is used to format IPv4 addresses for logging.
 In IPv6 mode, standard dotted decimal notation is used to format IPv4 addresses,
 and standard colon-separated hex notation (see RFC 4291) is used to format IPv6
-addresses for logging.
-Note that SIFTR uses uncompressed notation to format IPv6 addresses.
-For example, the address "fe80::20f:feff:fea2:531b" would be logged as
-"fe80:0:0:0:20f:feff:fea2:531b".
+addresses (e.g. "fd00::2") for logging.
 .Ss Run-time Configuration
 .Nm
 utilises the
@@ -122,18 +119,10 @@ By default, the file /var/log/siftr.log is used.
 The path can be changed at any time, even while the module is enabled.
 .El
 .Bl -tag -offset indent -width Va
-.It Va net.inet.siftr.genhashes
-controls whether a hash is generated for each TCP packet seen by
-.Nm .
-By default, the value is set to 0, which means no hashes are generated.
-The hashes are useful to correlate which TCP packet triggered the generation of
-a particular log message, but calculating them adds additional computational
-overhead into the fast path.
-.El
-.Bl -tag -offset indent -width Va
 .It Va net.inet.siftr.port_filter
-controls on which source or destination port siftr should capture
-.Nm .
+controls on which source or destination port
+.Nm
+should capture.
 By default, the value is set to 0, which means all ports are eligible for logging.
 Set to any other value, only packets where either the source or destination
 port is equal to this number are logged.
@@ -155,9 +144,8 @@ The text below shows an example module enable log.
 The fields are tab delimited key-value
 pairs which describe some basic information about the system.
 .Bd -literal -offset indent
-enable_time_secs=1238556193    enable_time_usecs=462104 \\
-siftrver=1.2.2    hz=1000    tcp_rtt_scale=32 \\
-sysname=FreeBSD    sysver=604000    ipmode=4
+enable_time_secs=1685191807    enable_time_usecs=160752 \\
+siftrver=1.3.0    sysname=FreeBSD    sysver=1400089    ipmode=4
 .Ed
 .Pp
 Field descriptions are as follows:
@@ -173,14 +161,6 @@ time at which the module was enabled, in microseconds since enable_time_secs.
 .It Va siftrver
 version of
 .Nm .
-.El
-.Bl -tag -offset indent -width Va
-.It Va hz
-tick rate of the kernel in ticks per second.
-.El
-.Bl -tag -offset indent -width Va
-.It Va tcp_rtt_scale
-smoothed RTT estimate scaling factor.
 .El
 .Bl -tag -offset indent -width Va
 .It Va sysname
@@ -207,9 +187,9 @@ The text below shows an example data log triggered by an IPv4
 TCP/IP packet.
 The data is CSV formatted.
 .Bd -literal -offset indent
-o,0xbec491a5,1238556193.463551,172.16.7.28,22,172.16.2.5,55931, \\
-1073725440,172312,34,66560,66608,8,1,4,1448,936,1,996,255, \\
-33304,208,66608,0,208,0
+o,1685191814.185109,10.1.1.2,32291,10.1.1.3,5001,1073725440, \\
+14480,2,65160,65700,7,9,4,1460,1000,1,16778209,230000,33580,0, \\
+65700,0,0,0,86707916,130
 .Ed
 .Pp
 Field descriptions are as follows:
@@ -224,127 +204,115 @@ for out.
 .El
 .Bl -tag -offset indent -width Va
 .It Va 2
-Hash of the packet that triggered the log message.
-.El
-.Bl -tag -offset indent -width Va
-.It Va 3
 Time at which the packet that triggered the log message was processed by
 the
 .Xr pfil 9
 hook function, in seconds and microseconds since the UNIX epoch.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 4
+.It Va 3
 The IPv4 or IPv6 address of the local host, in dotted quad (IPv4 packet)
 or colon-separated hex (IPv6 packet) notation.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 5
+.It Va 4
 The TCP port that the local host is communicating via.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 6
+.It Va 5
 The IPv4 or IPv6 address of the foreign host, in dotted quad (IPv4 packet)
 or colon-separated hex (IPv6 packet) notation.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 7
+.It Va 6
 The TCP port that the foreign host is communicating via.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 8
+.It Va 7
 The slow start threshold for the flow, in bytes.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 9
+.It Va 8
 The current congestion window for the flow, in bytes.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 10
+.It Va 9
 The current state of the t_flags2 field for the flow.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 11
+.It Va 10
 The current sending window for the flow, in bytes.
-The post scaled value is reported, except during the initial handshake (first
-few packets), during which time the unscaled value is reported.
+The post scaled value is reported.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 12
+.It Va 11
 The current receive window for the flow, in bytes.
 The post scaled value is always reported.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 13
+.It Va 12
 The current window scaling factor for the sending window.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 14
+.It Va 13
 The current window scaling factor for the receiving window.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 15
+.It Va 14
 The current state of the TCP finite state machine, as defined
 in
 .Aq Pa netinet/tcp_fsm.h .
 .El
 .Bl -tag -offset indent -width Va
-.It Va 16
+.It Va 15
 The maximum segment size for the flow, in bytes.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 17
-The current smoothed RTT estimate for the flow, in units of TCP_RTT_SCALE * HZ,
-where TCP_RTT_SCALE is a define found in tcp_var.h, and HZ is the kernel's tick
-timer.
-Divide by TCP_RTT_SCALE * HZ to get the RTT in secs.
-TCP_RTT_SCALE and HZ are reported in the enable log message.
+.It Va 16
+The current smoothed RTT estimate for the flow, in units of microsecond.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 18
+.It Va 17
 SACK enabled indicator. 1 if SACK enabled, 0 otherwise.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 19
+.It Va 18
 The current state of the TCP flags for the flow.
 See
 .Aq Pa netinet/tcp_var.h
 for information about the various flags.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 20
-The current retransmission timeout length for the flow, in units of HZ, where HZ
-is the kernel's tick timer.
-Divide by HZ to get the timeout length in seconds.
-HZ is reported in the enable log message.
+.It Va 19
+The current retransmission timeout length for the flow, in units microsecond.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 21
+.It Va 20
 The current size of the socket send buffer in bytes.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 22
+.It Va 21
 The current number of bytes in the socket send buffer.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 23
+.It Va 22
 The current size of the socket receive buffer in bytes.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 24
+.It Va 23
 The current number of bytes in the socket receive buffer.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 25
+.It Va 24
 The current number of unacknowledged bytes in-flight.
 Bytes acknowledged via SACK are not excluded from this count.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 26
+.It Va 25
 The current number of segments in the reassembly queue.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 27
+.It Va 26
 Flowid for the connection.
 A caveat: Zero '0' either represents a valid flowid or a default value when it's
 not being set.
@@ -352,7 +320,7 @@ There is no easy way to differentiate without looking at actual
 network interface card and drivers being used.
 .El
 .Bl -tag -offset indent -width Va
-.It Va 28
+.It Va 27
 Flow type for the connection.
 Flowtype defines which protocol fields are hashed to produce the flowid.
 A complete listing is available in
@@ -367,14 +335,13 @@ The text below shows an example module disable log.
 The fields are tab delimited key-value pairs which provide statistics about
 operations since the module was most recently enabled.
 .Bd -literal -offset indent
-disable_time_secs=1238556197    disable_time_usecs=933607 \\
-num_inbound_tcp_pkts=356    num_outbound_tcp_pkts=627 \\
-total_tcp_pkts=983    num_inbound_skipped_pkts_malloc=0 \\
-num_outbound_skipped_pkts_malloc=0    num_inbound_skipped_pkts_mtx=0 \\
-num_outbound_skipped_pkts_mtx=0    num_inbound_skipped_pkts_tcb=0 \\
-num_outbound_skipped_pkts_tcb=0    num_inbound_skipped_pkts_icb=0 \\
-num_outbound_skipped_pkts_icb=0    total_skipped_tcp_pkts=0 \\
-flow_list=172.16.7.28;22-172.16.2.5;55931,
+disable_time_secs=1685191816    disable_time_usecs=629397 \\
+num_inbound_tcp_pkts=10    num_outbound_tcp_pkts=10 \\
+total_tcp_pkts=20    num_inbound_skipped_pkts_malloc=0 \\
+num_outbound_skipped_pkts_malloc=0    num_inbound_skipped_pkts_tcpcb=2 \\
+num_outbound_skipped_pkts_tcpcb=2    num_inbound_skipped_pkts_inpcb=0 \\
+num_outbound_skipped_pkts_inpcb=0    total_skipped_tcp_pkts=4 \\
+flow_list=10.1.1.2;32291-10.1.1.3;5001,10.1.1.2;58544-10.1.1.3;5001,
 .Ed
 .Pp
 Field descriptions are as follows:
@@ -417,32 +384,22 @@ Number of outbound packets that were not processed because of failed
 calls.
 .El
 .Bl -tag -offset indent -width Va
-.It Va num_inbound_skipped_pkts_mtx
-Number of inbound packets that were not processed because of failure to add the
-packet to the packet processing queue.
-.El
-.Bl -tag -offset indent -width Va
-.It Va num_outbound_skipped_pkts_mtx
-Number of outbound packets that were not processed because of failure to add the
-packet to the packet processing queue.
-.El
-.Bl -tag -offset indent -width Va
-.It Va num_inbound_skipped_pkts_tcb
+.It Va num_inbound_skipped_pkts_tcpcb
 Number of inbound packets that were not processed because of failure to find the
 TCP control block associated with the packet.
 .El
 .Bl -tag -offset indent -width Va
-.It Va num_outbound_skipped_pkts_tcb
+.It Va num_outbound_skipped_pkts_tcpcb
 Number of outbound packets that were not processed because of failure to find
 the TCP control block associated with the packet.
 .El
 .Bl -tag -offset indent -width Va
-.It Va num_inbound_skipped_pkts_icb
+.It Va num_inbound_skipped_pkts_inpcb
 Number of inbound packets that were not processed because of failure to find the
 IP control block associated with the packet.
 .El
 .Bl -tag -offset indent -width Va
-.It Va num_outbound_skipped_pkts_icb
+.It Va num_outbound_skipped_pkts_inpcb
 Number of outbound packets that were not processed because of failure to find
 the IP control block associated with the packet.
 .El
@@ -555,8 +512,9 @@ As a result of needing to interrogate the TCP control block, certain packets
 during the lifecycle of a connection are unable to trigger a
 .Nm
 log message.
-The initial handshake takes place without the existence of a control block and
-the final ACK is exchanged when the connection is in the TIMEWAIT state.
+The initial handshake takes place without the existence of a control block or
+the complete initialization of the control block, and the final ACK is
+exchanged when the connection is in the TIMEWAIT state.
 .Pp
 .Nm
 was designed to minimise the delay introduced to packets traversing the network
@@ -785,9 +743,4 @@ value logged by
 does not take into account bytes that have been
 .No SACK Ap ed
 by the receiving host.
-.It
-Packet hash generation does not currently work for IPv6 based TCP packets.
-.It
-Compressed notation is not used for IPv6 address representation.
-This consumes more bytes than is necessary in log output.
 .El

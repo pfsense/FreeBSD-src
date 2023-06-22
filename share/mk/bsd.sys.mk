@@ -50,7 +50,7 @@ CWARNFLAGS+=	-Wall -Wno-format-y2k
 .endif # WARNS >= 2
 .if ${WARNS} >= 3
 CWARNFLAGS+=	-W -Wno-unused-parameter
-.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} < 150000
+.if ${COMPILER_TYPE} == "clang"
 CWARNFLAGS+=	-Wstrict-prototypes
 .endif
 CWARNFLAGS+=	-Wmissing-prototypes -Wpointer-arith
@@ -61,11 +61,6 @@ CWARNFLAGS+=	-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow\
 .if !defined(NO_WCAST_ALIGN) && !defined(NO_WCAST_ALIGN.${COMPILER_TYPE})
 CWARNFLAGS+=	-Wcast-align
 .endif # !NO_WCAST_ALIGN !NO_WCAST_ALIGN.${COMPILER_TYPE}
-.endif # WARNS >= 4
-.if ${WARNS} >= 5
-.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 150000
-CWARNFLAGS+=	-Wstrict-prototypes
-.endif
 .endif # WARNS >= 4
 .if ${WARNS} >= 6
 CWARNFLAGS+=	-Wchar-subscripts -Wnested-externs \
@@ -95,8 +90,6 @@ CWARNFLAGS.clang+=	-Wno-unused-const-variable
 CWARNFLAGS.clang+=	-Wno-error=unused-but-set-variable
 .endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 150000
-CWARNFLAGS.clang+=	-Wno-error=array-parameter
-CWARNFLAGS.clang+=	-Wno-error=deprecated-non-prototype
 CWARNFLAGS.clang+=	-Wno-error=unused-but-set-parameter
 .endif
 .endif # WARNS <= 6
@@ -123,12 +116,19 @@ CWARNFLAGS.clang+=	-Wno-array-bounds
       ${COMPILER_TYPE} == "gcc")
 CWARNFLAGS+=		-Wno-misleading-indentation
 .endif # NO_WMISLEADING_INDENTATION
+.if ${COMPILER_VERSION} >= 130000
+NO_WUNUSED_BUT_SET_VARIABLE=	-Wno-unused-but-set-variable
+.endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 140000
 NO_WBITWISE_INSTEAD_OF_LOGICAL=	-Wno-bitwise-instead-of-logical
 .endif
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 150000
+NO_WARRAY_PARAMETER=	-Wno-array-parameter
 NO_WSTRICT_PROTOTYPES=	-Wno-strict-prototypes
 NO_WDEPRECATED_NON_PROTOTYPE=-Wno-deprecated-non-prototype
+.endif
+.if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 50200
+NO_WUNUSED_BUT_SET_VARIABLE=-Wno-unused-but-set-variable
 .endif
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 100100
 NO_WZERO_LENGTH_BOUNDS=	-Wno-zero-length-bounds
@@ -149,7 +149,7 @@ WFORMAT=	1
 .if ${WFORMAT} > 0
 #CWARNFLAGS+=	-Wformat-nonliteral -Wformat-security -Wno-format-extra-args
 CWARNFLAGS+=	-Wformat=2 -Wno-format-extra-args
-.if ${WARNS} <= 3
+.if ${WARNS:U0} <= 3
 CWARNFLAGS.clang+=	-Wno-format-nonliteral
 .endif # WARNS <= 3
 .if ${MK_WERROR} != "no" && ${MK_WERROR.${COMPILER_TYPE}:Uyes} != "no"
@@ -435,6 +435,14 @@ stage_as.ldscript: ${SHLIB_LINK:R}.ld
 STAGE_DIR.ldscript = ${STAGE_LIBDIR}
 STAGE_AS_${SHLIB_LINK:R}.ld:= ${SHLIB_LINK}
 NO_SHLIB_LINKS=
+.endif
+
+.if defined(STATIC_LDSCRIPT) && target(lib${LIB}.ald)
+STAGE_AS_SETS+= ald
+STAGE_DIR.ald = ${STAGE_LIBDIR}
+STAGE_AS.ald+= lib${LIB}.ald
+STAGE_AS_lib${LIB}.ald = lib${LIB}.a
+stage_as.ald: lib${LIB}.ald
 .endif
 
 .if target(stage_files.shlib)

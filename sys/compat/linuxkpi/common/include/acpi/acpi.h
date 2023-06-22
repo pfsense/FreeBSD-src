@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2017 Mark Johnston <markj@FreeBSD.org>
  * Copyright (c) 2020 Vladimir Kondratyev <wulf@FreeBSD.org>
@@ -95,6 +95,12 @@ acpi_get_table(ACPI_STRING Signature, UINT32 Instance,
     ACPI_TABLE_HEADER **OutTable)
 {
 	return (AcpiGetTable(Signature, Instance, OutTable));
+}
+
+static inline void
+acpi_put_table(ACPI_TABLE_HEADER *Table)
+{
+	AcpiPutTable(Table);
 }
 
 #endif /* _LINUXKPI_ACPI_ACPI_H_ */

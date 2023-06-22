@@ -36,7 +36,6 @@ SRCS=	linux${SFX}_dummy_machdep.c \
 	linux_vdso.c \
 	opt_inet6.h \
 	opt_ktrace.h \
-	opt_netlink.h \
 	opt_posix.h \
 	bus_if.h \
 	device_if.h \
@@ -47,9 +46,6 @@ VDSODEPS=linux_vdso_gettc_x86.inc
 .endif
 .if ${MACHINE_CPUARCH} == "amd64"
 SRCS+=	linux${SFX}_support.S
-.else
-SRCS+=	linux_copyout.c
-SRCS+=	linux_netlink.c
 .endif
 DPSRCS=	assym.inc linux${SFX}_genassym.c
 
@@ -72,12 +68,14 @@ SRCS+=	imgact_linux.c \
 	linux_ptrace_machdep.c \
 	linux_util.c \
 	linux_vdso_selector_x86.c \
-	linux_x86.c
+	linux_x86.c \
+	linux_copyout.c \
+	linux_netlink.c \
+	opt_netlink.h
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386"
 EXPORT_SYMS=
-EXPORT_SYMS+=	linux_emul_path
 EXPORT_SYMS+=	linux_get_osname
 EXPORT_SYMS+=	linux_get_osrelease
 EXPORT_SYMS+=	linux_ioctl_register_handler

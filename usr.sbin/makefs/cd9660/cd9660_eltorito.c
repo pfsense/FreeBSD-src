@@ -1,7 +1,7 @@
 /*	$NetBSD: cd9660_eltorito.c,v 1.23 2018/03/28 06:48:55 nonaka Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Daniel Watt, Walter Deignan, Ryan Gabrys, Alan
  * Perez-Rathke and Ram Vedam.  All rights reserved.
@@ -40,6 +40,14 @@
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
+
+/*
+ * Partition Status Information from Apple Tech Note 1189
+ */
+#define	APPLE_PS_VALID		0x00000001	/* Entry is valid */
+#define	APPLE_PS_ALLOCATED	0x00000002	/* Entry is allocated */
+#define	APPLE_PS_READABLE	0x00000010	/* Entry is readable */
+#define	APPLE_PS_WRITABLE	0x00000020	/* Entry is writable */
 
 #ifdef DEBUG
 #define	ELTORITO_DPRINTF(__x)	printf __x
@@ -366,6 +374,7 @@ cd9660_setup_boot(iso9660_disk *diskStructure, int first_sector)
 	struct boot_catalog_entry *x86_head, *mac_head, *ppc_head, *efi_head,
 		*valid_entry, *default_entry, *temp, *head, **headp, *next;
 	struct cd9660_boot_image *tmp_disk;
+	uint8_t system;
 
 	headp = NULL;
 	x86_head = mac_head = ppc_head = efi_head = NULL;
@@ -380,9 +389,16 @@ cd9660_setup_boot(iso9660_disk *diskStructure, int first_sector)
 	cd9660_731(first_sector,
 	    diskStructure->boot_descriptor->boot_catalog_pointer);
 
+	/*
+	 * Use system type of default image for validation entry. Fallback to
+	 * X86 system type if not found.
+	 */
+	system = default_boot_image != NULL ? default_boot_image->system :
+	    ET_SYS_X86;
+
 	/* Step 1: Generate boot catalog */
 	/* Step 1a: Validation entry */
-	valid_entry = cd9660_boot_setup_validation_entry(ET_SYS_X86);
+	valid_entry = cd9660_boot_setup_validation_entry(system);
 	if (valid_entry == NULL)
 		return -1;
 
@@ -574,15 +590,8 @@ cd9660_write_apm_partition_entry(FILE *fd, int idx, int total_partitions,
 	uint32_t apm32, part_status;
 	uint16_t apm16;
 
-	/* See Apple Tech Note 1189 for the details about the pmPartStatus
-	 * flags.
-	 * Below the flags which are default:
-	 * - IsValid     0x01
-	 * - IsAllocated 0x02
-	 * - IsReadable  0x10
-	 * - IsWritable  0x20
-	 */
-	part_status = 0x01 | 0x02 | 0x10 | 0x20;
+	part_status = APPLE_PS_VALID | APPLE_PS_ALLOCATED | APPLE_PS_READABLE |
+	    APPLE_PS_WRITABLE;
 
 	if (fseeko(fd, (off_t)(idx + 1) * sector_size, SEEK_SET) == -1)
 		err(1, "fseeko");

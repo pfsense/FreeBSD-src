@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Ruslan Ermilov and Vsevolod Lobko.
  * Copyright (c) 2014 Yandex LLC
@@ -2760,6 +2760,7 @@ classify_srcdst(ipfw_insn *cmd, uint16_t *puidx, uint8_t *ptype)
 		case LOOKUP_UID:
 		case LOOKUP_JAIL:
 		case LOOKUP_DSCP:
+		case LOOKUP_MARK:
 			*ptype = IPFW_TABLE_NUMBER;
 			break;
 		case LOOKUP_DST_MAC:

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 1996, 1997, 1998, 1999, 2000 John D. Polstra.
  * Copyright 2003 Alexander Kabaev <kan@FreeBSD.ORG>.
@@ -1796,23 +1796,20 @@ donelist_check(DoneList *dlp, const Obj_Entry *obj)
 }
 
 /*
- * Hash function for symbol table lookup.  Don't even think about changing
- * this.  It is specified by the System V ABI.
+ * SysV hash function for symbol table lookup.  It is a slightly optimized
+ * version of the hash specified by the System V ABI.
  */
-unsigned long
+Elf32_Word
 elf_hash(const char *name)
 {
-    const unsigned char *p = (const unsigned char *) name;
-    unsigned long h = 0;
-    unsigned long g;
+	const unsigned char *p = (const unsigned char *)name;
+	Elf32_Word h = 0;
 
-    while (*p != '\0') {
-	h = (h << 4) + *p++;
-	if ((g = h & 0xf0000000) != 0)
-	    h ^= g >> 24;
-	h &= ~g;
-    }
-    return (h);
+	while (*p != '\0') {
+		h = (h << 4) + *p++;
+		h ^= (h >> 24) & 0xf0;
+	}
+	return (h & 0x0fffffff);
 }
 
 /*
@@ -5312,7 +5309,7 @@ free_tls(void *tcb, size_t tcbsize, size_t tcbalign __unused)
     Elf_Addr *dtv;
     Elf_Addr tlsstart, tlsend;
     size_t post_size;
-    size_t dtvsize, i, tls_init_align;
+    size_t dtvsize, i, tls_init_align __unused;
 
     assert(tcbsize >= TLS_TCB_SIZE);
     tls_init_align = MAX(obj_main->tlsalign, 1);
@@ -5466,6 +5463,17 @@ allocate_module_tls(int index)
 		rtld_die();
 	}
 
+	if (obj->tls_static) {
+#ifdef TLS_VARIANT_I
+		p = (char *)_tcb_get() + obj->tlsoffset + TLS_TCB_SIZE;
+#else
+		p = (char *)_tcb_get() - obj->tlsoffset;
+#endif
+		return (p);
+	}
+
+	obj->tls_dynamic = true;
+
 	p = malloc_aligned(obj->tlssize, obj->tlsalign, obj->tlspoffset);
 	memcpy(p, obj->tlsinit, obj->tlsinitsize);
 	memset(p + obj->tlsinitsize, 0, obj->tlssize - obj->tlsinitsize);
@@ -5477,11 +5485,14 @@ allocate_tls_offset(Obj_Entry *obj)
 {
     size_t off;
 
-    if (obj->tls_done)
+    if (obj->tls_dynamic)
+	return (false);
+
+    if (obj->tls_static)
 	return (true);
 
     if (obj->tlssize == 0) {
-	obj->tls_done = true;
+	obj->tls_static = true;
 	return (true);
     }
 
@@ -5512,7 +5523,7 @@ allocate_tls_offset(Obj_Entry *obj)
 
     tls_last_offset = off;
     tls_last_size = obj->tlssize;
-    obj->tls_done = true;
+    obj->tls_static = true;
 
     return (true);
 }
@@ -5888,7 +5899,7 @@ distribute_static_tls(Objlist *list, RtldLockState *lockstate)
 		return;
 	STAILQ_FOREACH(elm, list, link) {
 		obj = elm->obj;
-		if (obj->marker || !obj->tls_done || obj->static_tls_copied)
+		if (obj->marker || !obj->tls_static || obj->static_tls_copied)
 			continue;
 		distrib(obj->tlsoffset, obj->tlsinit, obj->tlsinitsize,
 		    obj->tlssize);
@@ -6032,13 +6043,16 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp,
 					_rtld_error("Both -b and -f specified");
 					rtld_die();
 				}
+				if (j != arglen - 1) {
+					_rtld_error("Invalid options: %s", arg);
+					rtld_die();
+				}
 				i++;
 				*argv0 = argv[i];
 				seen_b = true;
 				break;
 			} else if (opt == 'd') {
 				*dir_ignore = true;
-				break;
 			} else if (opt == 'f') {
 				if (seen_b) {
 					_rtld_error("Both -b and -f specified");
@@ -6053,7 +6067,8 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp,
 				 * name but the descriptor is what
 				 * will actually be executed).
 				 *
-				 * -f must be the last option in, e.g., -abcf.
+				 * -f must be the last option in the
+				 * group, e.g., -abcf <fd>.
 				 */
 				if (j != arglen - 1) {
 					_rtld_error("Invalid options: %s", arg);

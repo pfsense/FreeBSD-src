@@ -1,7 +1,7 @@
 /*	$NetBSD: iso9660_rrip.c,v 1.14 2014/05/30 13:14:47 martin Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Daniel Watt, Walter Deignan, Ryan Gabrys, Alan
  * Perez-Rathke and Ram Vedam.  All rights reserved.
@@ -394,6 +394,12 @@ cd9660_rrip_initialize_node(iso9660_disk *diskStructure, cd9660node *node,
 				SUSP_ENTRY_RRIP_PX, "PX", SUSP_LOC_ENTRY);
 			cd9660node_rrip_px(current, parent->node);
 			TAILQ_INSERT_TAIL(&node->head, current, rr_ll);
+
+			/* TF - timestamp */
+			current = cd9660node_susp_create_node(SUSP_TYPE_RRIP,
+				SUSP_ENTRY_RRIP_TF, "TF", SUSP_LOC_ENTRY);
+			cd9660node_rrip_tf(current, parent->node);
+			TAILQ_INSERT_TAIL(&node->head, current, rr_ll);
 		}
 	} else if (node->type & CD9660_TYPE_DOTDOT) {
 		if (grandparent != NULL && grandparent->node != NULL &&
@@ -402,6 +408,12 @@ cd9660_rrip_initialize_node(iso9660_disk *diskStructure, cd9660node *node,
 			current = cd9660node_susp_create_node(SUSP_TYPE_RRIP,
 				SUSP_ENTRY_RRIP_PX, "PX", SUSP_LOC_ENTRY);
 			cd9660node_rrip_px(current, grandparent->node);
+			TAILQ_INSERT_TAIL(&node->head, current, rr_ll);
+
+			/* TF - timestamp */
+			current = cd9660node_susp_create_node(SUSP_TYPE_RRIP,
+				SUSP_ENTRY_RRIP_TF, "TF", SUSP_LOC_ENTRY);
+			cd9660node_rrip_tf(current, grandparent->node);
 			TAILQ_INSERT_TAIL(&node->head, current, rr_ll);
 		}
 		/* Handle PL */

@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 	addi	sp, sp, -(TF_SIZE)
 
 	sd	ra, (TF_RA)(sp)
+	sd	tp, (TF_TP)(sp)
 
 .if \mode == 0	/* We came from userspace. */
 	sd	gp, (TF_GP)(sp)
@@ -54,7 +55,6 @@ __FBSDID("$FreeBSD$");
 .option pop
 
 	/* Load our pcpu */
-	sd	tp, (TF_TP)(sp)
 	ld	tp, (TF_SIZE)(sp)
 .endif
 

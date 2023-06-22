@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2013 NetApp, Inc.
 # All rights reserved.
@@ -83,7 +83,7 @@ usage() {
 	    "(default: ${DEFAULT_ISOFILE})"
 	echo "       -l: the OS loader to use (default: /boot/userboot.so)"
 	echo "       -L: IP address for UEFI GOP VNC server" \
-	    "(default: ${DEFAULT_VNCHOST}"
+	    "(default: ${DEFAULT_VNCHOST})"
 	echo "       -m: memory size (default: ${DEFAULT_MEMSIZE})"
 	echo "       -n: network adapter emulation type" \
 	    "(default: ${DEFAULT_NIC})"
@@ -249,7 +249,7 @@ fi
 if [ ${efi_mode} -gt 0 ]; then
 	if [ ! -f ${efi_firmware} ]; then
 		echo "Error: EFI Firmware ${efi_firmware} doesn't exist." \
-		    "Try: pkg install uefi-edk2-bhyve"
+		    "Try: pkg install edk2-bhyve"
 		exit 1
 	fi
 fi

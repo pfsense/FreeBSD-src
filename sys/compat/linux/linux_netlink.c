@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov
  *
@@ -57,7 +57,7 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_linux
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 static bool
 valid_rta_size(const struct rtattr *rta, int sz)
@@ -312,7 +312,7 @@ rtnl_if_flags_to_linux(unsigned int if_flags)
 		case IFF_ALLMULTI:
 			result |= flag;
 			break;
-		case IFF_KNOWSEPOCH:
+		case IFF_NEEDSEPOCH:
 		case IFF_DRV_OACTIVE:
 		case IFF_SIMPLEX:
 		case IFF_LINK0:

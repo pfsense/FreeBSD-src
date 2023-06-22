@@ -195,6 +195,12 @@ static MALLOC_DEFINE(M_PFRULE, "pf_rule", "pf(4) rules");
 #error PF_QNAME_SIZE must be equal to PF_TAG_NAME_SIZE
 #endif
 
+VNET_DEFINE_STATIC(bool, pf_filter_local) = false;
+#define V_pf_filter_local	VNET(pf_filter_local)
+SYSCTL_BOOL(_net_pf, OID_AUTO, filter_local, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(pf_filter_local), false,
+    "Enable filtering for packets delivered to local network stack");
+
 static void		 pf_init_tagset(struct pf_tagset *, unsigned int *,
 			    unsigned int);
 static void		 pf_cleanup_tagset(struct pf_tagset *);
@@ -277,8 +283,9 @@ VNET_DEFINE(int, pf_vnet_active);
 int pf_end_threads;
 struct proc *pf_purge_proc;
 
-struct rmlock			pf_rules_lock;
-struct sx			pf_ioctl_lock;
+VNET_DEFINE(struct rmlock, pf_rules_lock);
+VNET_DEFINE_STATIC(struct sx, pf_ioctl_lock);
+#define	V_pf_ioctl_lock		VNET(pf_ioctl_lock)
 struct sx			pf_end_lock;
 
 /* pfsync */
@@ -384,6 +391,14 @@ pfattach_vnet(void)
 	my_timeout[PFTM_ADAPTIVE_END] = PFSTATE_ADAPT_END;
 
 	V_pf_status.debug = PF_DEBUG_URGENT;
+	/*
+	 * XXX This is different than in OpenBSD where reassembly is enabled by
+	 * defult. In FreeBSD we expect people to still use scrub rules and
+	 * switch to the new syntax later. Only when they switch they must
+	 * explicitly enable reassemle. We could change the default once the
+	 * scrub rule functionality is hopefully removed some day in future.
+	 */
+	V_pf_status.reass = 0;
 
 	V_pf_pfil_hooked = false;
 	V_pf_pfil_eth_hooked = false;
@@ -834,6 +849,12 @@ pf_eth_calc_skip_steps(struct pf_keth_ruleq *rules)
 			PF_SET_SKIP_STEPS(PFE_SKIP_SRC_ADDR);
 		if (memcmp(&cur->dst, &prev->dst, sizeof(cur->dst)) != 0)
 			PF_SET_SKIP_STEPS(PFE_SKIP_DST_ADDR);
+		if (cur->ipsrc.neg != prev->ipsrc.neg ||
+		    pf_addr_wrap_neq(&cur->ipsrc.addr, &prev->ipsrc.addr))
+			PF_SET_SKIP_STEPS(PFE_SKIP_SRC_IP_ADDR);
+		if (cur->ipdst.neg != prev->ipdst.neg ||
+		    pf_addr_wrap_neq(&cur->ipdst.addr, &prev->ipdst.addr))
+			PF_SET_SKIP_STEPS(PFE_SKIP_DST_IP_ADDR);
 
 		prev = cur;
 		cur = TAILQ_NEXT(cur, entries);
@@ -1305,6 +1326,9 @@ pf_hash_rule_rolling(MD5_CTX *ctx, struct pf_krule *rule)
 	PF_MD5_UPD(rule, allow_opts);
 	PF_MD5_UPD(rule, rt);
 	PF_MD5_UPD(rule, tos);
+	PF_MD5_UPD(rule, scrub_flags);
+	PF_MD5_UPD(rule, min_ttl);
+	PF_MD5_UPD(rule, set_tos);
 	if (rule->anchor != NULL)
 		PF_MD5_UPD_STR(rule, anchor->path);
 }
@@ -1435,8 +1459,8 @@ pf_setup_pfsync_matching(struct pf_kruleset *rs)
 
 		if (rs->rules[rs_cnt].inactive.rcount) {
 			rs->rules[rs_cnt].inactive.ptr_array =
-			    malloc(sizeof(caddr_t) *
-			    rs->rules[rs_cnt].inactive.rcount,
+			    mallocarray(rs->rules[rs_cnt].inactive.rcount,
+			    sizeof(struct pf_rule **),
 			    M_TEMP, M_NOWAIT);
 
 			if (!rs->rules[rs_cnt].inactive.ptr_array)
@@ -2038,7 +2062,7 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 
 	pf_pool_to_kpool(&rule->rpool, &krule->rpool);
 
-	/* Don't allow userspace to set evaulations, packets or bytes. */
+	/* Don't allow userspace to set evaluations, packets or bytes. */
 	/* kif, anchor, overload_tbl are not copied over. */
 
 	krule->os_fingerprint = rule->os_fingerprint;
@@ -2595,7 +2619,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 
 	switch (cmd) {
 	case DIOCSTART:
-		sx_xlock(&pf_ioctl_lock);
+		sx_xlock(&V_pf_ioctl_lock);
 		if (V_pf_status.running)
 			error = EEXIST;
 		else {
@@ -2611,7 +2635,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		break;
 
 	case DIOCSTOP:
-		sx_xlock(&pf_ioctl_lock);
+		sx_xlock(&V_pf_ioctl_lock);
 		if (!V_pf_status.running)
 			error = ENOENT;
 		else {
@@ -3708,8 +3732,8 @@ DIOCCHANGERULE_error:
 	}
 
 	case DIOCADDSTATE: {
-		struct pfioc_state	*ps = (struct pfioc_state *)addr;
-		struct pfsync_state	*sp = &ps->state;
+		struct pfioc_state		*ps = (struct pfioc_state *)addr;
+		struct pfsync_state_1301	*sp = &ps->state;
 
 		if (sp->timeout >= PFTM_MAX) {
 			error = EINVAL;
@@ -3717,7 +3741,9 @@ DIOCCHANGERULE_error:
 		}
 		if (V_pfsync_state_import_ptr != NULL) {
 			PF_RULES_RLOCK();
-			error = V_pfsync_state_import_ptr(sp, PFSYNC_SI_IOCTL);
+			error = V_pfsync_state_import_ptr(
+			    (union pfsync_state_union *)sp, PFSYNC_SI_IOCTL,
+			    PFSYNC_MSG_VERSION_1301);
 			PF_RULES_RUNLOCK();
 		} else
 			error = EOPNOTSUPP;
@@ -3734,7 +3760,8 @@ DIOCCHANGERULE_error:
 			break;
 		}
 
-		pfsync_state_export(&ps->state, s);
+		pfsync_state_export((union pfsync_state_union*)&ps->state,
+		    s, PFSYNC_MSG_VERSION_1301);
 		PF_STATE_UNLOCK(s);
 		break;
 	}
@@ -3747,20 +3774,20 @@ DIOCCHANGERULE_error:
 	case DIOCGETSTATES: {
 		struct pfioc_states	*ps = (struct pfioc_states *)addr;
 		struct pf_kstate	*s;
-		struct pfsync_state	*pstore, *p;
+		struct pfsync_state_1301	*pstore, *p;
 		int			 i, nr;
 		size_t			 slice_count = 16, count;
 		void			*out;
 
 		if (ps->ps_len <= 0) {
 			nr = uma_zone_get_cur(V_pf_state_z);
-			ps->ps_len = sizeof(struct pfsync_state) * nr;
+			ps->ps_len = sizeof(struct pfsync_state_1301) * nr;
 			break;
 		}
 
 		out = ps->ps_states;
 		pstore = mallocarray(slice_count,
-		    sizeof(struct pfsync_state), M_TEMP, M_WAITOK | M_ZERO);
+		    sizeof(struct pfsync_state_1301), M_TEMP, M_WAITOK | M_ZERO);
 		nr = 0;
 
 		for (i = 0; i <= pf_hashmask; i++) {
@@ -3785,7 +3812,7 @@ DIOCGETSTATES_retry:
 				free(pstore, M_TEMP);
 				slice_count = count * 2;
 				pstore = mallocarray(slice_count,
-				    sizeof(struct pfsync_state), M_TEMP,
+				    sizeof(struct pfsync_state_1301), M_TEMP,
 				    M_WAITOK | M_ZERO);
 				goto DIOCGETSTATES_retry;
 			}
@@ -3799,19 +3826,20 @@ DIOCGETSTATES_retry:
 				if (s->timeout == PFTM_UNLINKED)
 					continue;
 
-				pfsync_state_export(p, s);
+				pfsync_state_export((union pfsync_state_union*)p,
+				    s, PFSYNC_MSG_VERSION_1301);
 				p++;
 				nr++;
 			}
 			PF_HASHROW_UNLOCK(ih);
 			error = copyout(pstore, out,
-			    sizeof(struct pfsync_state) * count);
+			    sizeof(struct pfsync_state_1301) * count);
 			if (error)
 				break;
 			out = ps->ps_states + nr;
 		}
 DIOCGETSTATES_full:
-		ps->ps_len = sizeof(struct pfsync_state) * nr;
+		ps->ps_len = sizeof(struct pfsync_state_1301) * nr;
 		free(pstore, M_TEMP);
 
 		break;
@@ -5625,13 +5653,24 @@ DIOCCHANGEADDR_error:
 		break;
 	}
 
+	case DIOCSETREASS: {
+		u_int32_t	*reass = (u_int32_t *)addr;
+
+		V_pf_status.reass = *reass & (PF_REASS_ENABLED|PF_REASS_NODF);
+		/* Removal of DF flag without reassembly enabled is not a
+		 * valid combination. Disable reassembly in such case. */
+		if (!(V_pf_status.reass & PF_REASS_ENABLED))
+			V_pf_status.reass = 0;
+		break;
+	}
+
 	default:
 		error = ENODEV;
 		break;
 	}
 fail:
-	if (sx_xlocked(&pf_ioctl_lock))
-		sx_xunlock(&pf_ioctl_lock);
+	if (sx_xlocked(&V_pf_ioctl_lock))
+		sx_xunlock(&V_pf_ioctl_lock);
 	CURVNET_RESTORE();
 
 #undef ERROUT_IOCTL
@@ -5640,63 +5679,90 @@ fail:
 }
 
 void
-pfsync_state_export(struct pfsync_state *sp, struct pf_kstate *st)
+pfsync_state_export(union pfsync_state_union *sp, struct pf_kstate *st, int msg_version)
 {
-	bzero(sp, sizeof(struct pfsync_state));
+	bzero(sp, sizeof(union pfsync_state_union));
 
 	/* copy from state key */
-	sp->key[PF_SK_WIRE].addr[0] = st->key[PF_SK_WIRE]->addr[0];
-	sp->key[PF_SK_WIRE].addr[1] = st->key[PF_SK_WIRE]->addr[1];
-	sp->key[PF_SK_WIRE].port[0] = st->key[PF_SK_WIRE]->port[0];
-	sp->key[PF_SK_WIRE].port[1] = st->key[PF_SK_WIRE]->port[1];
-	sp->key[PF_SK_STACK].addr[0] = st->key[PF_SK_STACK]->addr[0];
-	sp->key[PF_SK_STACK].addr[1] = st->key[PF_SK_STACK]->addr[1];
-	sp->key[PF_SK_STACK].port[0] = st->key[PF_SK_STACK]->port[0];
-	sp->key[PF_SK_STACK].port[1] = st->key[PF_SK_STACK]->port[1];
-	sp->proto = st->key[PF_SK_WIRE]->proto;
-	sp->af = st->key[PF_SK_WIRE]->af;
+	sp->pfs_1301.key[PF_SK_WIRE].addr[0] = st->key[PF_SK_WIRE]->addr[0];
+	sp->pfs_1301.key[PF_SK_WIRE].addr[1] = st->key[PF_SK_WIRE]->addr[1];
+	sp->pfs_1301.key[PF_SK_WIRE].port[0] = st->key[PF_SK_WIRE]->port[0];
+	sp->pfs_1301.key[PF_SK_WIRE].port[1] = st->key[PF_SK_WIRE]->port[1];
+	sp->pfs_1301.key[PF_SK_STACK].addr[0] = st->key[PF_SK_STACK]->addr[0];
+	sp->pfs_1301.key[PF_SK_STACK].addr[1] = st->key[PF_SK_STACK]->addr[1];
+	sp->pfs_1301.key[PF_SK_STACK].port[0] = st->key[PF_SK_STACK]->port[0];
+	sp->pfs_1301.key[PF_SK_STACK].port[1] = st->key[PF_SK_STACK]->port[1];
+	sp->pfs_1301.proto = st->key[PF_SK_WIRE]->proto;
+	sp->pfs_1301.af = st->key[PF_SK_WIRE]->af;
 
 	/* copy from state */
-	strlcpy(sp->ifname, st->kif->pfik_name, sizeof(sp->ifname));
-	bcopy(&st->rt_addr, &sp->rt_addr, sizeof(sp->rt_addr));
-	sp->creation = htonl(time_uptime - st->creation);
-	sp->expire = pf_state_expires(st);
-	if (sp->expire <= time_uptime)
-		sp->expire = htonl(0);
+	strlcpy(sp->pfs_1301.ifname, st->kif->pfik_name, sizeof(sp->pfs_1301.ifname));
+	bcopy(&st->rt_addr, &sp->pfs_1301.rt_addr, sizeof(sp->pfs_1301.rt_addr));
+	sp->pfs_1301.creation = htonl(time_uptime - st->creation);
+	sp->pfs_1301.expire = pf_state_expires(st);
+	if (sp->pfs_1301.expire <= time_uptime)
+		sp->pfs_1301.expire = htonl(0);
 	else
-		sp->expire = htonl(sp->expire - time_uptime);
+		sp->pfs_1301.expire = htonl(sp->pfs_1301.expire - time_uptime);
 
-	sp->direction = st->direction;
-	sp->log = st->log;
-	sp->timeout = st->timeout;
-	sp->state_flags = st->state_flags;
+	sp->pfs_1301.direction = st->direction;
+	sp->pfs_1301.log = st->log;
+	sp->pfs_1301.timeout = st->timeout;
+
+	switch (msg_version) {
+		case PFSYNC_MSG_VERSION_1301:
+			sp->pfs_1301.state_flags = st->state_flags;
+			break;
+		case PFSYNC_MSG_VERSION_1400:
+			sp->pfs_1400.state_flags = htons(st->state_flags);
+			sp->pfs_1400.qid = htons(st->qid);
+			sp->pfs_1400.pqid = htons(st->pqid);
+			sp->pfs_1400.dnpipe = htons(st->dnpipe);
+			sp->pfs_1400.dnrpipe = htons(st->dnrpipe);
+			sp->pfs_1400.rtableid = htonl(st->rtableid);
+			sp->pfs_1400.min_ttl = st->min_ttl;
+			sp->pfs_1400.set_tos = st->set_tos;
+			sp->pfs_1400.max_mss = htons(st->max_mss);
+			sp->pfs_1400.set_prio[0] = st->set_prio[0];
+			sp->pfs_1400.set_prio[1] = st->set_prio[1];
+			sp->pfs_1400.rt = st->rt;
+			if (st->rt_kif)
+				strlcpy(sp->pfs_1400.rt_ifname,
+				    st->rt_kif->pfik_name,
+				    sizeof(sp->pfs_1400.rt_ifname));
+			break;
+		default:
+			panic("%s: Unsupported pfsync_msg_version %d",
+			    __func__, msg_version);
+	}
+
 	if (st->src_node)
-		sp->sync_flags |= PFSYNC_FLAG_SRCNODE;
+		sp->pfs_1301.sync_flags |= PFSYNC_FLAG_SRCNODE;
 	if (st->nat_src_node)
-		sp->sync_flags |= PFSYNC_FLAG_NATSRCNODE;
+		sp->pfs_1301.sync_flags |= PFSYNC_FLAG_NATSRCNODE;
 
-	sp->id = st->id;
-	sp->creatorid = st->creatorid;
-	pf_state_peer_hton(&st->src, &sp->src);
-	pf_state_peer_hton(&st->dst, &sp->dst);
+	sp->pfs_1301.id = st->id;
+	sp->pfs_1301.creatorid = st->creatorid;
+	pf_state_peer_hton(&st->src, &sp->pfs_1301.src);
+	pf_state_peer_hton(&st->dst, &sp->pfs_1301.dst);
 
 	if (st->rule.ptr == NULL)
-		sp->rule = htonl(-1);
+		sp->pfs_1301.rule = htonl(-1);
 	else
-		sp->rule = htonl(st->rule.ptr->nr);
+		sp->pfs_1301.rule = htonl(st->rule.ptr->nr);
 	if (st->anchor.ptr == NULL)
-		sp->anchor = htonl(-1);
+		sp->pfs_1301.anchor = htonl(-1);
 	else
-		sp->anchor = htonl(st->anchor.ptr->nr);
+		sp->pfs_1301.anchor = htonl(st->anchor.ptr->nr);
 	if (st->nat_rule.ptr == NULL)
-		sp->nat_rule = htonl(-1);
+		sp->pfs_1301.nat_rule = htonl(-1);
 	else
-		sp->nat_rule = htonl(st->nat_rule.ptr->nr);
+		sp->pfs_1301.nat_rule = htonl(st->nat_rule.ptr->nr);
 
-	pf_state_counter_hton(st->packets[0], sp->packets[0]);
-	pf_state_counter_hton(st->packets[1], sp->packets[1]);
-	pf_state_counter_hton(st->bytes[0], sp->bytes[0]);
-	pf_state_counter_hton(st->bytes[1], sp->bytes[1]);
+	pf_state_counter_hton(st->packets[0], sp->pfs_1301.packets[0]);
+	pf_state_counter_hton(st->packets[1], sp->pfs_1301.packets[1]);
+	pf_state_counter_hton(st->bytes[0], sp->pfs_1301.bytes[0]);
+	pf_state_counter_hton(st->bytes[1], sp->pfs_1301.bytes[1]);
 }
 
 void
@@ -5733,7 +5799,9 @@ pf_state_export(struct pf_state_export *sp, struct pf_kstate *st)
 	sp->direction = st->direction;
 	sp->log = st->log;
 	sp->timeout = st->timeout;
-	sp->state_flags = st->state_flags;
+	/* 8 bits for the old libpfctl, 16 bits for the new libpfctl */
+	sp->state_flags_compat = st->state_flags;
+	sp->state_flags = htons(st->state_flags);
 	if (st->src_node)
 		sp->sync_flags |= PFSYNC_FLAG_SRCNODE;
 	if (st->nat_src_node)
@@ -5761,6 +5829,22 @@ pf_state_export(struct pf_state_export *sp, struct pf_kstate *st)
 	sp->packets[1] = st->packets[1];
 	sp->bytes[0] = st->bytes[0];
 	sp->bytes[1] = st->bytes[1];
+
+	sp->qid = htons(st->qid);
+	sp->pqid = htons(st->pqid);
+	sp->dnpipe = htons(st->dnpipe);
+	sp->dnrpipe = htons(st->dnrpipe);
+	sp->rtableid = htonl(st->rtableid);
+	sp->min_ttl = st->min_ttl;
+	sp->set_tos = st->set_tos;
+	sp->max_mss = htons(st->max_mss);
+	sp->rt = st->rt;
+	if (st->rt_kif)
+		strlcpy(sp->rt_ifname, st->rt_kif->pfik_name,
+		    sizeof(sp->rt_ifname));
+	sp->set_prio[0] = st->set_prio[0];
+	sp->set_prio[1] = st->set_prio[1];
+
 }
 
 static void
@@ -5828,6 +5912,7 @@ pf_getstatus(struct pfioc_nv *nv)
 	nvlist_add_number(nvl, "hostid", V_pf_status.hostid);
 	nvlist_add_number(nvl, "states", V_pf_status.states);
 	nvlist_add_number(nvl, "src_nodes", V_pf_status.src_nodes);
+	nvlist_add_number(nvl, "reass", V_pf_status.reass);
 	nvlist_add_bool(nvl, "syncookies_active",
 	    V_pf_status.syncookies_active);
 
@@ -6603,6 +6688,13 @@ hook_pf(void)
 	pla.pa_hook = V_pf_ip4_out_hook;
 	ret = pfil_link(&pla);
 	MPASS(ret == 0);
+	if (V_pf_filter_local) {
+		pla.pa_flags = PFIL_OUT | PFIL_HEADPTR | PFIL_HOOKPTR;
+		pla.pa_head = V_inet_local_pfil_head;
+		pla.pa_hook = V_pf_ip4_out_hook;
+		ret = pfil_link(&pla);
+		MPASS(ret == 0);
+	}
 #endif
 #ifdef INET6
 	pha.pa_type = PFIL_TYPE_IP6;
@@ -6624,6 +6716,13 @@ hook_pf(void)
 	pla.pa_hook = V_pf_ip6_out_hook;
 	ret = pfil_link(&pla);
 	MPASS(ret == 0);
+	if (V_pf_filter_local) {
+		pla.pa_flags = PFIL_OUT | PFIL_HEADPTR | PFIL_HOOKPTR;
+		pla.pa_head = V_inet6_local_pfil_head;
+		pla.pa_hook = V_pf_ip6_out_hook;
+		ret = pfil_link(&pla);
+		MPASS(ret == 0);
+	}
 #endif
 
 	atomic_store_bool(&V_pf_pfil_hooked, true);
@@ -6667,6 +6766,9 @@ pf_load_vnet(void)
 	V_pf_tag_z = uma_zcreate("pf tags", sizeof(struct pf_tagname),
 	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 
+	rm_init_flags(&V_pf_rules_lock, "pf rulesets", RM_RECURSE);
+	sx_init(&V_pf_ioctl_lock, "pf ioctl");
+
 	pf_init_tagset(&V_pf_tags, &pf_rule_tag_hashsize,
 	    PF_RULE_TAG_HASH_SIZE_DEFAULT);
 #ifdef ALTQ
@@ -6685,8 +6787,6 @@ pf_load(void)
 {
 	int error;
 
-	rm_init_flags(&pf_rules_lock, "pf rulesets", RM_RECURSE);
-	sx_init(&pf_ioctl_lock, "pf ioctl");
 	sx_init(&pf_end_lock, "pf end thread");
 
 	pf_mtag_initialize();
@@ -6790,6 +6890,9 @@ pf_unload_vnet(void)
 		pf_counter_u64_deinit(&V_pf_status.fcounters[i]);
 	for (int i = 0; i < SCNT_MAX; i++)
 		counter_u64_free(V_pf_status.scounters[i]);
+
+	rm_destroy(&V_pf_rules_lock);
+	sx_destroy(&V_pf_ioctl_lock);
 }
 
 static void
@@ -6809,8 +6912,6 @@ pf_unload(void)
 
 	pfi_cleanup();
 
-	rm_destroy(&pf_rules_lock);
-	sx_destroy(&pf_ioctl_lock);
 	sx_destroy(&pf_end_lock);
 }
 

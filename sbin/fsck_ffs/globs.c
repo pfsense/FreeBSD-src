@@ -68,6 +68,7 @@ int	adjnbfree[MIBSIZE];	/* MIB command to adjust number of free blocks */
 int	adjnifree[MIBSIZE];	/* MIB command to adjust number of free inodes */
 int	adjnffree[MIBSIZE];	/* MIB command to adjust number of free frags */
 int	adjnumclusters[MIBSIZE];	/* MIB command to adjust number of free clusters */
+int	adjdepth[MIBSIZE];	/* MIB cmd to adjust directory depth count */
 int	freefiles[MIBSIZE];	/* MIB command to free a set of files */
 int	freedirs[MIBSIZE];	/* MIB command to free a set of directories */
 int	freeblks[MIBSIZE];	/* MIB command to free a set of data blocks */
@@ -110,6 +111,7 @@ ino_t	lfdir;			/* lost & found directory inode number */
 const char *lfname;		/* lost & found directory name */
 int	lfmode;			/* lost & found directory creation mode */
 ufs2_daddr_t n_blks;		/* number of blocks in use */
+int	cgheader_corrupt;	/* one or more CG headers are corrupt */
 ino_t n_files;			/* number of files in use */
 volatile sig_atomic_t	got_siginfo;	/* received a SIGINFO */
 volatile sig_atomic_t	got_sigalarm;	/* received a SIGALRM */
@@ -139,6 +141,7 @@ fsckinit(void)
 	bzero(adjnifree, sizeof(int) * MIBSIZE);
 	bzero(adjnffree, sizeof(int) * MIBSIZE);
 	bzero(adjnumclusters, sizeof(int) * MIBSIZE);
+	bzero(adjdepth, sizeof(int) * MIBSIZE);
 	bzero(freefiles, sizeof(int) * MIBSIZE);
 	bzero(freedirs, sizeof(int) * MIBSIZE);
 	bzero(freeblks, sizeof(int) * MIBSIZE);
@@ -164,6 +167,7 @@ fsckinit(void)
 	lfmode = 0700;
 	n_blks = 0;
 	n_files = 0;
+	cgheader_corrupt = 0;
 	got_siginfo = 0;
 	got_sigalarm = 0;
 	bzero(&zino.dp1, sizeof(struct ufs1_dinode));
