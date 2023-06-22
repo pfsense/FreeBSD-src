@@ -278,8 +278,6 @@ comc_probe(struct console *sc)
 	 */
 	env = getenv("smbios.bios.version");
 	if (env == NULL || strncmp(env, "Hyper-V", 7) != 0) {
-		/* Disable being seen as "comconsole". */
-		comconsole.c_name = "efiserialio";
 		return;
 	}
 #endif
