@@ -112,6 +112,7 @@ static struct netgate_ids ng_ids[] = {
 	{ .id = NETGATE_1540, .prod = "SYS-5018D-FN4T", 			.model = "1540", .desc = "Super Micro XG-1540" },
 	{ .id = NETGATE_1541, .prod = "SYS-5018D-FN4T", .hwmodel = "D-1541",	.model = "1541", .desc = "Super Micro 1541" },
 	{ .id = NETGATE_4100, .prod = "4100", .maker = "Netgate",		.model = "4100", .desc = "Netgate 4100" },
+	{ .id = NETGATE_4200, .planar = "80300-0225", .maker = "Silicom",	.model = "4200", .desc = "Netgate 4200" },
 	{ .id = NETGATE_5100, .prod = "SG-5100",				.model = "5100", .desc = "Netgate 5100" },
 	{ .id = NETGATE_6100, .prod = "6100", .maker = "Netgate",		.model = "6100", .desc = "Netgate 6100" },
 	{ .id = NETGATE_6200, .prod = "6200", .maker = "Netgate",		.model = "6200", .desc = "Netgate 6200" },
@@ -335,6 +336,21 @@ netgate_probe(device_t dev)
 		    maker != NULL && prod != NULL &&
 		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
 		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
+			netgate_model = ng_ids[i].id;
+			break;
+
+		/* Planar and Maker */
+		} else if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar != NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    maker != NULL && planar != NULL &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
+		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0) {
 			netgate_model = ng_ids[i].id;
 			break;
 
