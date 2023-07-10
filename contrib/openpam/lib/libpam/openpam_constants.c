@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $OpenPAM: openpam_constants.c 938 2017-04-30 21:34:42Z des $
  */
 
 #ifdef HAVE_CONFIG_H
@@ -177,9 +175,9 @@ const char *openpam_policy_path[] = {
 const char *openpam_module_path[] = {
 #ifdef OPENPAM_MODULES_DIRECTORY
 	OPENPAM_MODULES_DIRECTORY,
-#elif COMPAT_32BIT
-	"/usr/lib32",
-	"/usr/local/lib32",
+#elif defined(COMPAT_libcompat)
+	"/usr/lib" COMPAT_libcompat,
+	"/usr/local/lib" COMPAT_libcompat,
 #else
 	"/usr/lib",
 	"/usr/local/lib",
