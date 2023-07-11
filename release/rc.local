@@ -269,7 +269,8 @@ case "$IMODE" in
 /var/tmp	mountpoint=/var/tmp,setuid=off
 
 # Needs to be below var/db so it does not get covered up when the var/db dataset is created
-/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg	mountpoint=/var/db/pkg,setuid=off,exec=off
+/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_cache_pkg	mountpoint=/var/cache/pkg,setuid=off,exec=off
+/$ZFSBOOT_BEROOT_NAME/$ZFSBOOT_BOOTFS_NAME/var_db_pkg		mountpoint=/var/db/pkg,setuid=off,exec=off
 " \
 		ZFSBOOT_POOL_NAME=pfSense \
 		ZFSBOOT_SWAP_SIZE=1g \
