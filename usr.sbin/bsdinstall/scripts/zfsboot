@@ -107,6 +107,11 @@ f_include $BSDCFG_SHARE/variable.subr
 : ${ZFSBOOT_BOOT_POOL_SIZE:=2g}
 
 #
+# Default offset for the boot pool when enabled (e.g., geli(8) or MBR)
+#
+: ${ZFSBOOT_BOOT_POOL_OFFSET:=2048}
+
+#
 # Default disks to use (always empty unless being scripted)
 #
 : ${ZFSBOOT_DISKS:=}
@@ -1008,12 +1013,14 @@ zfs_create_diskpart()
 
 		#
 		# Always prepare a boot pool on MBR
-		# Do not align this partition, there must not be a gap
+		#
+		# Offset the boot pool in order to protect the disk label
+		# and zfsboot from being clobbered by ZFS
 		#
 		ZFSBOOT_BOOT_POOL=1
 		f_eval_catch $funcname gpart \
 		             "$GPART_ADD_ALIGN_INDEX_WITH_SIZE" \
-		             "" 1 freebsd-zfs ${bootsize}b ${disk}s1 ||
+		             "-b $ZFSBOOT_BOOT_POOL_OFFSET" 1 freebsd-zfs ${bootsize}b ${disk}s1 ||
 		             return $FAILURE
 		# Pedantically nuke any old labels
 		f_eval_catch -d $funcname zpool "$ZPOOL_LABELCLEAR_F" \
@@ -1424,11 +1431,11 @@ zfs_create_boot()
 		fi
 
 		f_dprintf "$funcname: Updating MBR boot loader on disks..."
-		# Stick the ZFS boot loader in the "convenient hole" after
-		# the ZFS internal metadata
+		# The boot pool is offset from the beginning of the slice in order
+		# to protect the disk label and zfsboot from being clobbered by ZFS
 		for disk in $disks; do
 			f_eval_catch $funcname dd "$DD_WITH_OPTIONS" \
-			             /boot/zfsboot /dev/$disk$bootpart \
+			             /boot/zfsboot /dev/${disk}s1 \
 			             "skip=1 seek=1024" || return $FAILURE
 		done
 
