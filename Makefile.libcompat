@@ -4,7 +4,7 @@
 __<${_this:T}>__:
 
 # Makefile for the compatibility libraries.
-# - 32-bit compat libraries on PowerPC, and AMD64.
+# - 32-bit compat libraries on some 64-bit architectures
 
 .if defined(_LIBCOMPATS)
 
@@ -37,6 +37,7 @@ LIB${_LIBCOMPAT}WMAKE+=	${TIME_ENV} ${LIB${_LIBCOMPAT}WMAKEENV} ${MAKE} \
 			${LIB${_LIBCOMPAT}WMAKEFLAGS} \
 			OBJTOP=${LIB${_LIBCOMPAT}_OBJTOP} \
 			OBJROOT='$${OBJTOP}/' \
+			UNIVERSE_TOOLCHAIN_PATH=${UNIVERSE_TOOLCHAIN_PATH} \
 			MAKEOBJDIRPREFIX= \
 			MK_INCLUDES=no \
 			MK_MAN=no MK_HTML=no

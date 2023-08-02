@@ -52,6 +52,22 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230802: Remove a copy of libdtrace.so installed to the wrong path
+OLD_FILES+=usr/lib/libdtrace.so.2
+
+# 20230726: Removal of support for the VTOC8 partitioning scheme
+OLD_FILES+=usr/include/sys/disk/vtoc.h
+OLD_FILES+=usr/include/sys/vtoc.h
+
+# 20230724: Remove unneeded arm headers
+.if ${TARGET_ARCH} == "arm"
+OLD_FILES+=usr/include/machine/atomic-v6.h
+OLD_FILES+=usr/include/machine/cpu-v6.h
+OLD_FILES+=usr/include/machine/pmap-v6.h
+OLD_FILES+=usr/include/machine/pte-v6.h
+OLD_FILES+=usr/include/machine/swi.h
+.endif
+
 # 20230714: gsignal
 OLD_FILES+=usr/share/man/man9/gsignal.9.gz
 
@@ -65,7 +81,9 @@ OLD_LIBS+=usr/lib/engines/capi.so
 OLD_LIBS+=usr/lib/engines/padlock.so
 OLD_LIBS+=usr/lib/libssl.so.111
 OLD_DIRS+=usr/lib/engines
-OLD_DIRS+=usr/lib32/engines
+.for libcompat in ${_ALL_libcompats}
+OLD_DIRS+=usr/lib${libcompat}/engines
+.endfor
 OLD_FILES+=usr/share/man/man1/list.1
 OLD_FILES+=usr/share/man/man1/openssl-tsget.1
 OLD_FILES+=usr/share/man/man3/ECDH_get_ex_data.3

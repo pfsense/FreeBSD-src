@@ -5,6 +5,7 @@
 .include <bsd.init.mk>
 .include <bsd.compiler.mk>
 .include <bsd.linker.mk>
+.include <bsd.compat.pre.mk>
 
 __<bsd.lib.mk>__:
 
@@ -64,9 +65,11 @@ CTFFLAGS+= -g
 STRIP?=	-s
 .endif
 
-.if ${SHLIBDIR:M*lib32*}
-TAGS+=	lib32
+.for _libcompat in ${_ALL_libcompats}
+.if ${SHLIBDIR:M*/lib${_libcompat}} || ${SHLIBDIR:M*/lib${_libcompat}/*}
+TAGS+=	lib${_libcompat}
 .endif
+.endfor
 
 .if defined(NO_ROOT)
 .if !defined(TAGS) || ! ${TAGS:Mpackage=*}
@@ -441,6 +444,7 @@ _EXTRADEPEND:
 
 .if !target(install)
 
+INSTALLFLAGS+= -C
 .if defined(PRECIOUSLIB)
 .if !defined(NO_FSCHG)
 SHLINSTALLFLAGS+= -fschg
@@ -491,10 +495,10 @@ realinstall: _libinstall installpcfiles
 .ORDER: beforeinstall _libinstall
 _libinstall:
 .if defined(LIB) && !empty(LIB) && ${MK_INSTALLLIB} != "no"
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
+	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} lib${LIB_PRIVATE}${LIB}${_STATICLIB_SUFFIX}.a ${DESTDIR}${_LIBDIR}/
 .if ${MK_PROFILE} != "no"
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
+	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} lib${LIB_PRIVATE}${LIB}_p.a ${DESTDIR}${_LIBDIR}/
 .endif
 .endif
@@ -512,7 +516,7 @@ _libinstall:
 .endif
 .if defined(SHLIB_LINK)
 .if commands(${SHLIB_LINK:R}.ld)
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -S -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
+	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -S -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} ${SHLIB_LINK:R}.ld \
 	    ${DESTDIR}${_LIBDIR}/${SHLIB_LINK}
 .for _SHLIB_LINK_LINK in ${SHLIB_LDSCRIPT_LINKS}

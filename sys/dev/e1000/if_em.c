@@ -784,8 +784,7 @@ em_set_num_queues(if_ctx_t ctx)
 #define LEM_CAPS \
     IFCAP_HWCSUM | IFCAP_VLAN_MTU | IFCAP_VLAN_HWTAGGING | \
     IFCAP_VLAN_HWCSUM | IFCAP_WOL | IFCAP_VLAN_HWFILTER | IFCAP_TSO4 | \
-    IFCAP_LRO | IFCAP_VLAN_HWTSO| IFCAP_JUMBO_MTU | IFCAP_HWCSUM_IPV6 | \
-    IFCAP_TSO6
+    IFCAP_LRO | IFCAP_VLAN_HWTSO | IFCAP_JUMBO_MTU | IFCAP_HWCSUM_IPV6
 
 #define EM_CAPS \
     IFCAP_HWCSUM | IFCAP_VLAN_MTU | IFCAP_VLAN_HWTAGGING | \
@@ -937,26 +936,25 @@ em_if_attach_pre(if_ctx_t ctx)
 		scctx->isc_tx_tso_segments_max = EM_MAX_SCATTER;
 		scctx->isc_tx_tso_size_max = EM_TSO_SIZE;
 		scctx->isc_tx_tso_segsize_max = EM_TSO_SEG_SIZE;
-		scctx->isc_capabilities = scctx->isc_capenable = EM_CAPS;
+		scctx->isc_capabilities = scctx->isc_capenable = LEM_CAPS;
 		/*
-		 * For LEM-class devices, don't enable IFCAP_{TSO4,VLAN_HWTSO,TSO6}
+		 * For LEM-class devices, don't enable IFCAP_{TSO4,VLAN_HWTSO}
 		 * by default as we don't have workarounds for all associated
 		 * silicon errata.  TSO4 may work on > 82544 but its status
 		 * is unknown by the authors.  Please report any success or failures.
 		 */
-		scctx->isc_capenable &= ~(IFCAP_TSO4 | IFCAP_VLAN_HWTSO | IFCAP_TSO6);
+		scctx->isc_capenable &= ~(IFCAP_TSO4 | IFCAP_VLAN_HWTSO);
 		scctx->isc_tx_csum_flags = CSUM_TCP | CSUM_UDP | CSUM_IP_TSO |
 		    CSUM_IP6_TCP | CSUM_IP6_UDP;
 
-		/* 8254x SDM4.0 page 33 - FDX requirement on these chips */
-		if (hw->mac.type == e1000_82547 || hw->mac.type == e1000_82547_rev_2)
-			scctx->isc_capenable &= ~(IFCAP_HWCSUM|IFCAP_VLAN_HWCSUM);
-
-		if (hw->mac.type < e1000_82543)
-			scctx->isc_capabilities &= ~(IFCAP_HWCSUM|IFCAP_VLAN_HWCSUM);
+		/* "PCI/PCI-X SDM 4.0" page 33 (b) - FDX requirement on these chips */
+		if (hw->mac.type == e1000_82542 || hw->mac.type == e1000_82547 ||
+		    hw->mac.type == e1000_82547_rev_2)
+			scctx->isc_capenable &= ~(IFCAP_HWCSUM | IFCAP_VLAN_HWCSUM |
+			    IFCAP_HWCSUM_IPV6);
 		/* 82541ER doesn't do HW tagging */
 		if (hw->device_id == E1000_DEV_ID_82541ER || hw->device_id == E1000_DEV_ID_82541ER_LOM)
-			scctx->isc_capabilities &= ~IFCAP_VLAN_HWTAGGING;
+			scctx->isc_capenable &= ~IFCAP_VLAN_HWTAGGING;
 		/* INTx only */
 		scctx->isc_msix_bar = 0;
 	}
@@ -1351,7 +1349,6 @@ em_if_init(if_ctx_t ctx)
 		e1000_rar_set(&sc->hw, sc->hw.mac.addr,
 		    E1000_RAR_ENTRIES - 1);
 	}
-
 
 	/* Initialize the hardware */
 	em_reset(ctx);
