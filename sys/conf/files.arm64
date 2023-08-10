@@ -468,7 +468,6 @@ arm/allwinner/h6/h6_r_padconf.c			optional soc_allwinner_h6 fdt
 
 # Altera/Intel
 dev/altera/dwc/if_dwc_socfpga.c			optional fdt dwc_socfpga
-arm64/intel/firmware.c				optional soc_intel_stratix10 fdt
 arm64/intel/stratix10-soc-fpga-mgr.c		optional soc_intel_stratix10 fdt
 arm64/intel/stratix10-svc.c			optional soc_intel_stratix10 fdt
 
@@ -693,3 +692,4 @@ arm64/rockchip/clk/rk3568_pmucru.c		optional fdt soc_rockchip_rk3568
 
 # Xilinx
 arm/xilinx/uart_dev_cdnc.c			optional uart soc_xilinx_zynq fdt
+arm/xilinx/zy7_gpio.c				optional gpio soc_xilinx_zynq fdt

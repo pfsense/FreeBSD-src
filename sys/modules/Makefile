@@ -54,7 +54,6 @@ SUBDIR=	\
 	ath_hal_ar9300 \
 	ath_main \
 	ath_rate \
-	ath_pci \
 	${_autofs} \
 	axgbe \
 	backlight \
@@ -634,11 +633,12 @@ _cxgbe=		cxgbe
 .endif
 
 # This has only been tested on amd64 and arm64
-.if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "arm64"
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "aarch64"
 _mpi3mr=mpi3mr
 .endif
 
-.if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "arm64" || ${MACHINE_ARCH:Mpowerpc64*}
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "aarch64" || \
+	${MACHINE_ARCH:Mpowerpc64*}
 _ice=		ice
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ice_ddp=	ice_ddp

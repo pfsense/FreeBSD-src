@@ -897,6 +897,8 @@
         vfs
         ..
         vm
+            stack
+            ..
         ..
         vmm
         ..
@@ -1133,6 +1135,8 @@
         unifdef
         ..
         uniq
+        ..
+        unzip
         ..
         vmstat
         ..

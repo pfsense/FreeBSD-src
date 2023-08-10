@@ -52,8 +52,16 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230807: Removal of the ath(4) AHB bus-frontend for MIPS
+OLD_FILES+=usr/share/man/man4/ath_ahb.4
+OLD_FILES+=usr/share/man/man4/ath_pci.4
+OLD_FILES+=usr/share/man/man4/if_ath_pci.4
+
+# 20230803: Removal of support for cloning pseudo interfaces from iflib(9)
+OLD_FILES+=usr/include/net/iflib_private.h
+
 # 20230802: Remove a copy of libdtrace.so installed to the wrong path
-OLD_FILES+=usr/lib/libdtrace.so.2
+MOVED_LIBS+=usr/lib/libdtrace.so.2
 
 # 20230726: Removal of support for the VTOC8 partitioning scheme
 OLD_FILES+=usr/include/sys/disk/vtoc.h

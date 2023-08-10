@@ -2295,9 +2295,14 @@ ffs_blkfree_cg(struct ufsmount *ump,
 		return;
 	}
 	if ((error = ffs_getcg(fs, devvp, cg, GB_CVTENXIO, &bp, &cgp)) != 0) {
-		if (!ffs_fsfail_cleanup(ump, error) ||
-		    !MOUNTEDSOFTDEP(UFSTOVFS(ump)) || devvp->v_type != VCHR)
+		if (!MOUNTEDSOFTDEP(UFSTOVFS(ump)) || devvp->v_type != VCHR)
 			return;
+		/*
+		 * Would like to just downgrade to read-only. Until that
+		 * capability is available, just toss the cylinder group
+		 * update and mark the filesystem as needing to run fsck.
+		 */
+		fs->fs_flags |= FS_NEEDSFSCK;
 		if (devvp->v_type == VREG)
 			dbn = fragstoblks(fs, cgtod(fs, cg));
 		else
@@ -2305,7 +2310,7 @@ ffs_blkfree_cg(struct ufsmount *ump,
 		error = getblkx(devvp, dbn, dbn, fs->fs_cgsize, 0, 0, 0, &bp);
 		KASSERT(error == 0, ("getblkx failed"));
 		softdep_setup_blkfree(UFSTOVFS(ump), bp, bno,
-		    numfrags(fs, size), dephd);
+		    numfrags(fs, size), dephd, true);
 		bp->b_flags |= B_RELBUF | B_NOCACHE;
 		bp->b_flags &= ~B_CACHE;
 		bawrite(bp);
@@ -2380,7 +2385,7 @@ ffs_blkfree_cg(struct ufsmount *ump,
 	mp = UFSTOVFS(ump);
 	if (MOUNTEDSOFTDEP(mp) && devvp->v_type == VCHR)
 		softdep_setup_blkfree(UFSTOVFS(ump), bp, bno,
-		    numfrags(fs, size), dephd);
+		    numfrags(fs, size), dephd, false);
 	bdwrite(bp);
 }
 
@@ -2841,16 +2846,21 @@ ffs_freefile(struct ufsmount *ump,
 		panic("ffs_freefile: range: dev = %s, ino = %ju, fs = %s",
 		    devtoname(dev), (uintmax_t)ino, fs->fs_fsmnt);
 	if ((error = ffs_getcg(fs, devvp, cg, GB_CVTENXIO, &bp, &cgp)) != 0) {
-		if (!ffs_fsfail_cleanup(ump, error) ||
-		    !MOUNTEDSOFTDEP(UFSTOVFS(ump)) || devvp->v_type != VCHR)
+		if (!MOUNTEDSOFTDEP(UFSTOVFS(ump)) || devvp->v_type != VCHR)
 			return (error);
+		/*
+		 * Would like to just downgrade to read-only. Until that
+		 * capability is available, just toss the cylinder group
+		 * update and mark the filesystem as needing to run fsck.
+		 */
+		fs->fs_flags |= FS_NEEDSFSCK;
 		if (devvp->v_type == VREG)
 			dbn = fragstoblks(fs, cgtod(fs, cg));
 		else
 			dbn = fsbtodb(fs, cgtod(fs, cg));
 		error = getblkx(devvp, dbn, dbn, fs->fs_cgsize, 0, 0, 0, &bp);
 		KASSERT(error == 0, ("getblkx failed"));
-		softdep_setup_inofree(UFSTOVFS(ump), bp, ino, wkhd);
+		softdep_setup_inofree(UFSTOVFS(ump), bp, ino, wkhd, true);
 		bp->b_flags |= B_RELBUF | B_NOCACHE;
 		bp->b_flags &= ~B_CACHE;
 		bawrite(bp);
@@ -2880,7 +2890,7 @@ ffs_freefile(struct ufsmount *ump,
 	ACTIVECLEAR(fs, cg);
 	UFS_UNLOCK(ump);
 	if (MOUNTEDSOFTDEP(UFSTOVFS(ump)) && devvp->v_type == VCHR)
-		softdep_setup_inofree(UFSTOVFS(ump), bp, ino, wkhd);
+		softdep_setup_inofree(UFSTOVFS(ump), bp, ino, wkhd, false);
 	bdwrite(bp);
 	return (0);
 }
@@ -2888,6 +2898,7 @@ ffs_freefile(struct ufsmount *ump,
 /*
  * Check to see if a file is free.
  * Used to check for allocated files in snapshots.
+ * Return 1 if file is free.
  */
 int
 ffs_checkfreefile(struct fs *fs,
@@ -2980,15 +2991,6 @@ ffs_mapsearch(struct fs *fs,
 	return (-1);
 }
 
-static const struct statfs *
-ffs_getmntstat(struct vnode *devvp)
-{
-
-	if (devvp->v_type == VCHR)
-		return (&devvp->v_rdev->si_mountpt->mnt_stat);
-	return (ffs_getmntstat(VFSTOUFS(devvp->v_mount)->um_devvp));
-}
-
 /*
  * Fetch and verify a cylinder group.
  */
@@ -3002,6 +3004,7 @@ ffs_getcg(struct fs *fs,
 {
 	struct buf *bp;
 	struct cg *cgp;
+	struct mount *mp;
 	const struct statfs *sfs;
 	daddr_t blkno;
 	int error;
@@ -3010,10 +3013,13 @@ ffs_getcg(struct fs *fs,
 	*cgpp = NULL;
 	if ((fs->fs_metackhash & CK_CYLGRP) != 0)
 		flags |= GB_CKHASH;
-	if (devvp->v_type == VREG)
-		blkno = fragstoblks(fs, cgtod(fs, cg));
-	else
+	if (devvp->v_type == VCHR) {
 		blkno = fsbtodb(fs, cgtod(fs, cg));
+		mp = devvp->v_rdev->si_mountpt;
+	} else {
+		blkno = fragstoblks(fs, cgtod(fs, cg));
+		mp = devvp->v_mount;
+	}
 	error = breadn_flags(devvp, blkno, blkno, (int)fs->fs_cgsize, NULL,
 	    NULL, 0, NOCRED, flags, ffs_ckhash_cg, &bp);
 	if (error != 0)
@@ -3022,28 +3028,35 @@ ffs_getcg(struct fs *fs,
 	if ((fs->fs_metackhash & CK_CYLGRP) != 0 &&
 	    (bp->b_flags & B_CKHASH) != 0 &&
 	    cgp->cg_ckhash != bp->b_ckhash) {
-		sfs = ffs_getmntstat(devvp);
-		printf("UFS %s%s (%s) cylinder checksum failed: cg %ju, cgp: "
-		    "0x%x != bp: 0x%jx\n",
-		    devvp->v_type == VCHR ? "" : "snapshot of ",
-		    sfs->f_mntfromname, sfs->f_mntonname,
-		    (intmax_t)cg, cgp->cg_ckhash, (uintmax_t)bp->b_ckhash);
+		if (ppsratecheck(&VFSTOUFS(mp)->um_last_integritymsg,
+		    &VFSTOUFS(mp)->um_secs_integritymsg, 1)) {
+			sfs = &mp->mnt_stat;
+			printf("UFS %s%s (%s) cylinder checkhash failed: "
+			    "cg %ju, cgp: 0x%x != bp: 0x%jx\n",
+			    devvp->v_type == VCHR ? "" : "snapshot of ",
+			    sfs->f_mntfromname, sfs->f_mntonname, (intmax_t)cg,
+			    cgp->cg_ckhash, (uintmax_t)bp->b_ckhash);
+		}
 		bp->b_flags &= ~B_CKHASH;
 		bp->b_flags |= B_INVAL | B_NOCACHE;
 		brelse(bp);
 		return (EIO);
 	}
 	if (!cg_chkmagic(cgp) || cgp->cg_cgx != cg) {
-		sfs = ffs_getmntstat(devvp);
-		printf("UFS %s%s (%s)",
-		    devvp->v_type == VCHR ? "" : "snapshot of ",
-		    sfs->f_mntfromname, sfs->f_mntonname);
-		if (!cg_chkmagic(cgp))
-			printf(" cg %ju: bad magic number 0x%x should be "
-			    "0x%x\n", (intmax_t)cg, cgp->cg_magic, CG_MAGIC);
-		else
-			printf(": wrong cylinder group cg %ju != cgx %u\n",
-			    (intmax_t)cg, cgp->cg_cgx);
+		if (ppsratecheck(&VFSTOUFS(mp)->um_last_integritymsg,
+		    &VFSTOUFS(mp)->um_secs_integritymsg, 1)) {
+			sfs = &mp->mnt_stat;
+			printf("UFS %s%s (%s)",
+			    devvp->v_type == VCHR ? "" : "snapshot of ",
+			    sfs->f_mntfromname, sfs->f_mntonname);
+			if (!cg_chkmagic(cgp))
+				printf(" cg %ju: bad magic number 0x%x should "
+				    "be 0x%x\n", (intmax_t)cg, cgp->cg_magic,
+				    CG_MAGIC);
+			else
+				printf(": wrong cylinder group cg %ju != "
+				    "cgx %u\n", (intmax_t)cg, cgp->cg_cgx);
+		}
 		bp->b_flags &= ~B_CKHASH;
 		bp->b_flags |= B_INVAL | B_NOCACHE;
 		brelse(bp);
