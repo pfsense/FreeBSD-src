@@ -112,7 +112,7 @@ static struct netgate_ids ng_ids[] = {
 	{ .id = NETGATE_1540, .prod = "SYS-5018D-FN4T", 			.model = "1540", .desc = "Super Micro XG-1540" },
 	{ .id = NETGATE_1541, .prod = "SYS-5018D-FN4T", .hwmodel = "D-1541",	.model = "1541", .desc = "Super Micro 1541" },
 	{ .id = NETGATE_4100, .prod = "4100", .maker = "Netgate",		.model = "4100", .desc = "Netgate 4100" },
-	{ .id = NETGATE_4200, .planar = "80300-0225", .maker = "Silicom",	.model = "4200", .desc = "Netgate 4200" },
+	{ .id = NETGATE_4200, .prod = "4200", .maker = "Netgate",		.model = "4200", .desc = "Netgate 4200" },
 	{ .id = NETGATE_5100, .prod = "SG-5100",				.model = "5100", .desc = "Netgate 5100" },
 	{ .id = NETGATE_6100, .prod = "6100", .maker = "Netgate",		.model = "6100", .desc = "Netgate 6100" },
 	{ .id = NETGATE_6200, .prod = "6200", .maker = "Netgate",		.model = "6200", .desc = "Netgate 6200" },
