@@ -25,7 +25,6 @@
 # SUCH DAMAGE.
 #
 #	@(#)rc	5.27 (Berkeley) 6/5/91
-# $FreeBSD$
 #
 
 # Call pfSense version of this script when it's available

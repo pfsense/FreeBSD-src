@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "if_igc.h"
 #include <sys/sbuf.h>
 #include <machine/_inttypes.h>
@@ -48,7 +46,7 @@ __FBSDID("$FreeBSD$");
  *  { Vendor ID, Device ID, String }
  *********************************************************************/
 
-static pci_vendor_info_t igc_vendor_info_array[] =
+static const pci_vendor_info_t igc_vendor_info_array[] =
 {
 	/* Intel(R) PRO/1000 Network Connection - igc */
 	PVID(0x8086, IGC_DEV_ID_I225_LM, "Intel(R) Ethernet Controller I225-LM"),

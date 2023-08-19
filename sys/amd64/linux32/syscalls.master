@@ -1,4 +1,3 @@
- $FreeBSD$
 
 ;	@(#)syscalls.master	8.1 (Berkeley) 7/19/93
 ; System call name/number master file (or rather, slave, from LINUX).
@@ -1021,7 +1020,7 @@
 		int linux_sendfile(
 		    l_int out,
 		    l_int in,
-		    l_long *offset,
+		    l_off_t *offset,
 		    l_size_t count
 		);
 	}

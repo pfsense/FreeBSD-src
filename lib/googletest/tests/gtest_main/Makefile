@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <bsd.init.mk>
 
@@ -39,5 +38,6 @@ LIBADD.gtest_unittest+=		pthread
 
 CXXFLAGS.clang+=	-Wno-error=missing-variable-declarations
 CXXFLAGS.clang+=	-Wno-error=unused-but-set-variable
+MK_WERROR.gcc=		no
 
 .include <bsd.test.mk>
