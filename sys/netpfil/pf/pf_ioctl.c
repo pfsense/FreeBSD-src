@@ -3856,7 +3856,7 @@ DIOCGETSTATES_full:
 			break;
 		}
 
-		if (ps->ps_len <= 0) {
+		if (ps->ps_len == 0) {
 			nr = uma_zone_get_cur(V_pf_state_z);
 			ps->ps_len = sizeof(struct pf_state_export) * nr;
 			break;
