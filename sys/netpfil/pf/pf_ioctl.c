@@ -2502,6 +2502,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		case DIOCSETDEBUG:
 		case DIOCGETSTATES:
 		case DIOCGETSTATESV2:
+		case DIOCGETCREATORS:
 		case DIOCGETTIMEOUT:
 		case DIOCCLRRULECTRS:
 		case DIOCGETLIMIT:
@@ -2561,6 +2562,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		case DIOCGETSTATUSNV:
 		case DIOCGETSTATES:
 		case DIOCGETSTATESV2:
+		case DIOCGETCREATORS:
 		case DIOCGETTIMEOUT:
 		case DIOCGETLIMIT:
 		case DIOCGETALTQSV0:
@@ -3951,6 +3953,72 @@ DIOCGETSTATESV2_full:
 
 		pfi_update_status(s->ifname, s);
 		PF_RULES_RUNLOCK();
+		break;
+	}
+
+	case DIOCGETCREATORS: {
+		struct pfioc_nv		*nv = (struct pfioc_nv *)addr;
+		struct pf_kstate	*s;
+		nvlist_t		*nvl = NULL;
+		void			*nvlpacked = NULL;
+		uint32_t		 creators[16];
+		int			 i, j;
+
+		bzero(creators, sizeof(creators));
+
+		for (i = 0; i <= pf_hashmask; i++) {
+			struct pf_idhash *ih = &V_pf_idhash[i];
+
+			if (LIST_EMPTY(&ih->states))
+				continue;
+
+			PF_HASHROW_LOCK(ih);
+			LIST_FOREACH(s, &ih->states, entry) {
+				if (s->timeout == PFTM_UNLINKED)
+					continue;
+
+				for (j = 0; j < nitems(creators); j++) {
+					if (creators[j] == s->creatorid)
+						break;
+					if (creators[j] == 0) {
+						creators[j] = s->creatorid;
+						break;
+					}
+				}
+				if (j == nitems(creators))
+					printf("Warning: too many creators!\n");
+			}
+			PF_HASHROW_UNLOCK(ih);
+		}
+
+		nvl = nvlist_create(0);
+		if (nvl == NULL) {
+			error = ENOMEM;
+			break;
+		}
+		for (i = 0; i < nitems(creators); i++) {
+			if (creators[i] == 0)
+				continue;
+			nvlist_append_number_array(nvl, "creators", creators[i]);
+		}
+		nvlpacked = nvlist_pack(nvl, &nv->len);
+		nvlist_destroy(nvl);
+		if (nvlpacked == NULL) {
+			error = ENOMEM;
+			break;
+		}
+
+		if (nv->size == 0) {
+			error = 0;
+			free(nvlpacked, M_NVLIST);
+			break;
+		} else if (nv->size < nv->len) {
+			error = ENOSPC;
+			free(nvlpacked, M_NVLIST);
+			break;
+		}
+		error = copyout(nvlpacked, nv->data, nv->len);
+		free(nvlpacked, M_NVLIST);
 		break;
 	}
 

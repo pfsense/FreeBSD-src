@@ -1064,6 +1064,39 @@ pfctl_set_keepcounters(int dev, bool keep)
 	free(nv.data);
 	return (ret);
 }
+int
+pfctl_get_creatorids(int dev, uint32_t *creators, size_t *len)
+{
+	uint8_t		 buf[128];
+	struct pfioc_nv	 nv;
+	nvlist_t	*nvl;
+	const uint64_t	 *c;
+	size_t		 count;
+	int		 ret;
+
+	nv.data = buf;
+	nv.size = sizeof(buf);
+	nv.len = 0;
+
+	ret = ioctl(dev, DIOCGETCREATORS, &nv);
+	if (ret != 0)
+		return (errno);
+
+	nvl = nvlist_unpack(buf, nv.len, 0);
+	if (nvl == NULL)
+		return (ENXIO);
+	c = nvlist_get_number_array(nvl, "creators", &count);
+	if (count > *len) {
+		nvlist_destroy(nvl);
+		return (E2BIG);
+	}
+
+	for (size_t i = 0; i < count; i++)
+		creators[i] = ntohl(c[i]);
+	*len  = count;
+
+	return (0);
+}
 
 static void
 pfctl_nv_add_state_cmp(nvlist_t *nvl, const char *name,
