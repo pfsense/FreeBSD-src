@@ -89,6 +89,14 @@ common_body()
 	    grep 198.51.100.254 ; then
 		atf_fail "state not found on synced host"
 	fi
+
+	# Check creator IDs
+	hostid_one=$(jexec one pfctl -si -v | grep Hostid | awk '{ printf($2); }'| sed 's/0x//')
+
+	if ! jexec two pfctl -sc | grep ${hostid_one};
+	then
+		atf_fail "Didn't find creator one in jail two"
+	fi
 }
 
 basic_cleanup()
