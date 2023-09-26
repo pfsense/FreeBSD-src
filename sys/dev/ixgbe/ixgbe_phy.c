@@ -2016,6 +2016,13 @@ static s32 ixgbe_read_i2c_byte_generic_int(struct ixgbe_hw *hw, u8 byte_offset,
 	if (ixgbe_is_sfp_probe(hw, byte_offset, dev_addr))
 		max_retry = IXGBE_SFP_DETECT_RETRIES;
 
+	/*
+	 * Only try once until we've identified an SFP. This should reduce the
+	 * delay in `ifconfig -v ix0` when no SFP is present.
+	 */
+	if (hw->phy.sfp_type == ixgbe_sfp_type_not_present || hw->phy.sfp_type == ixgbe_sfp_type_unknown)
+		max_retry = 0;
+
 	do {
 		if (lock && hw->mac.ops.acquire_swfw_sync(hw, swfw_mask))
 			return IXGBE_ERR_SWFW_SYNC;
