@@ -6243,10 +6243,21 @@ zfs_freebsd_copy_file_range(struct vop_copy_file_range_args *ap)
 	int error;
 	uint64_t len = *ap->a_lenp;
 
+	/*
+	 * XXXMJG: block cloning came with numerous bugs and it is unclear if
+	 * they are sorted out now. Since said bugs can result in data
+	 * corruption and this is purely optional, make sure we don't end up
+	 * using this code.
+	 */
+#if 0
 	if (!zfs_bclone_enabled) {
 		mp = NULL;
 		goto bad_write_fallback;
 	}
+#else
+	mp = NULL;
+	goto bad_write_fallback;
+#endif
 
 	/*
 	 * TODO: If offset/length is not aligned to recordsize, use
