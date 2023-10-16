@@ -134,10 +134,10 @@ fi
 msg=$(cat <<EOD
 \ZbCopyright and Trademark Notices.\ZB
 
-Copyright(c) 2004-2016. Electric Sheep Fencing, LLC ("ESF").
+Copyright 2004-2016. Electric Sheep Fencing, LLC ("ESF").
 All Rights Reserved.
 
-Copyright(c) 2014-2023. Rubicon Communications, LLC d/b/a Netgate ("Netgate").
+Copyright 2014-2023. Rubicon Communications, LLC d/b/a Netgate ("Netgate").
 All Rights Reserved.
 
 All logos, text, and content of ESF and/or Netgate, including underlying
