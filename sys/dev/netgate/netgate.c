@@ -86,15 +86,17 @@ static struct netgate_ids ng_ids[] = {
 	{ .id = NETGATE_APU2_1,	.prod = "APU2",				.model = "apu2", .desc = "PC Engines APU2" },
 
 	/* VMs */
-	{ .id = NETGATE_VM_QEMU, .maker = "QEMU",		.model = "QEMU", .desc = "QEMU Guest" },
 	{ .id = NETGATE_VM_GOOGLE, .maker = "Google",		.model = "Google", .desc = "Google Cloud Platform" },
-	{ .id = NETGATE_VM_AWS, .maker = "Amazon EC2",		.model = "AWS",	.desc = "Amazon Web Services" },
-	{ .id = NETGATE_VM_KVM, .vm = "kvm",			.model = "KVM", .desc = "KVM Guest" },
 	{ .id = NETGATE_VM_GOOGLE_1, .bios = "Google",		.model = "Google", .desc = "Google Cloud Platform" },
+	{ .id = NETGATE_VM_AWS, .maker = "Amazon EC2",		.model = "AWS",	.desc = "Amazon Web Services" },
+	{ .id = NETGATE_VM_AWS_1, .bios = "4.11.amazon",	.model = "AWS",	.desc = "Amazon Web Services" },
+	{ .id = NETGATE_VM_ORACLE, .chassis = "OracleCloud.com",	.model = "Oracle",	.desc = "Oracle Cloud Infrastructure" },
 	{ .id = NETGATE_VM_VIRTUALBOX, .prod = "VirtualBox",	.model = "VirtualBox", .desc = "VirtualBox Virtual Machine" },
 	{ .id = NETGATE_VM_AZURE, .prod = "Virtual Machine", .maker = "Microsoft Corporation", .chassis = "7783-7084-3265-9085-8269-3286-77", .model = "Azure", .desc = "Microsoft Azure" },
 	{ .id = NETGATE_VM_HYPERV, .prod = "Virtual Machine", .maker = "Microsoft Corporation", .bios = "Hyper",	.model = "Hyper-V", .desc = "Hyper-V Virtual Machine" },
 	{ .id = NETGATE_VM_VMWARE, .prod = "VMware Virtual Platform", .maker = "VMware, Inc.", .model = "VMware", .desc = "VMware Virtual Machine" },
+	{ .id = NETGATE_VM_QEMU, .maker = "QEMU",		.model = "QEMU", .desc = "QEMU Guest" },
+	{ .id = NETGATE_VM_KVM, .vm = "kvm",			.model = "KVM", .desc = "KVM Guest" },
 
 	/* Netgate */
 #ifdef FDT
@@ -456,6 +458,20 @@ netgate_probe(device_t dev)
 		    ng_ids[i].cpu == 0 &&
 		    planar != NULL &&
 		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0) {
+			netgate_model = ng_ids[i].id;
+			break;
+		}
+		/* Chassis */
+		} else if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis != NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    chassis != NULL &&
+		    strncmp(chassis, ng_ids[i].chassis, strlen(ng_ids[i].chassis)) == 0) {
 			netgate_model = ng_ids[i].id;
 			break;
 		}

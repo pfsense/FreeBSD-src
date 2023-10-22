@@ -61,6 +61,8 @@
 #define	NETGATE_VM_HYPERV	56
 #define	NETGATE_VM_AZURE	57
 #define	NETGATE_VM_VMWARE	58
+#define	NETGATE_VM_AWS_1    59
+#define	NETGATE_VM_ORACLE   60
 
 /* Netgate */
 #define	NETGATE_SG1000		1000
