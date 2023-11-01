@@ -243,18 +243,15 @@ reloc_nonplt_object(Obj_Entry *obj, const Elf_Rel *rel, SymCache *cache,
 
 			tmp = (Elf_Addr)(def->st_value);
 			if (__predict_true(RELOC_ALIGNED_P(where)))
-				*where += tmp;
-			else {
-				tmp = load_ptr(where) + tmp;
+				*where = tmp;
+			else
 				store_ptr(where, tmp);
-			}
 
 			dbg("TLS_DTPOFF32 %s in %s --> %p",
 			    obj->strtab + obj->symtab[symnum].st_name,
 			    obj->path, (void *)tmp);
 
 			break;
-
 		case R_ARM_TLS_DTPMOD32:
 			def = find_symdef(symnum, obj, &defobj, flags, cache,
 			    lockstate);
@@ -263,11 +260,9 @@ reloc_nonplt_object(Obj_Entry *obj, const Elf_Rel *rel, SymCache *cache,
 
 			tmp = (Elf_Addr)(defobj->tlsindex);
 			if (__predict_true(RELOC_ALIGNED_P(where)))
-				*where += tmp;
-			else {
-				tmp = load_ptr(where) + tmp;
+				*where = tmp;
+			else
 				store_ptr(where, tmp);
-			}
 
 			dbg("TLS_DTPMOD32 %s in %s --> %p",
 			    obj->strtab + obj->symtab[symnum].st_name,
@@ -286,17 +281,14 @@ reloc_nonplt_object(Obj_Entry *obj, const Elf_Rel *rel, SymCache *cache,
 
 			tmp = (Elf_Addr)def->st_value + defobj->tlsoffset;
 			if (__predict_true(RELOC_ALIGNED_P(where)))
-				*where += tmp;
-			else {
-				tmp = load_ptr(where) + tmp;
+				*where = tmp;
+			else
 				store_ptr(where, tmp);
-			}
-
 			dbg("TLS_TPOFF32 %s in %s --> %p",
 			    obj->strtab + obj->symtab[symnum].st_name,
 			    obj->path, (void *)tmp);
-
 			break;
+
 
 		default:
 			dbg("sym = %lu, type = %lu, offset = %p, "
