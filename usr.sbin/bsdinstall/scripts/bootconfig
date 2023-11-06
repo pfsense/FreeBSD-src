@@ -134,9 +134,7 @@ if [ -n "$(awk '{if ($2=="/boot/efi") printf("%s\n",$1);}' $PATH_FSTAB)" ]; then
 		cp "$BSDINSTALL_CHROOT/boot/loader.efi" "${mntpt}/${BOOTNAME}"
 	fi
 
-	if [ "$BSDINSTALL_CONFIGCURRENT" ]; then
-		update_uefi_bootentry
-	fi
+	update_uefi_bootentry
 
 	f_dprintf "Finished configuring ESP"
 fi
