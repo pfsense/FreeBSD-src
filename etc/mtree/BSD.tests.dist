@@ -278,6 +278,8 @@
             ..
         ..
     ..
+    include
+    ..
     lib
         atf
             libatf-c
@@ -1093,6 +1095,8 @@
         ..
         pr
         ..
+        printenv
+        ..
         printf
         ..
         procstat
@@ -1180,6 +1184,8 @@
         rpcbind
         ..
         sa
+        ..
+        syslogd
         ..
     ..
 ..

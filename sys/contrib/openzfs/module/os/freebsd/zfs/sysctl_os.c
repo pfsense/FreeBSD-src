@@ -503,6 +503,24 @@ SYSCTL_UINT(_vfs_zfs_zfetch, OID_AUTO, max_idistance,
 
 /* metaslab.c */
 
+int
+param_set_active_allocator(SYSCTL_HANDLER_ARGS)
+{
+	char buf[16];
+	int rc;
+
+	if (req->newptr == NULL)
+		strlcpy(buf, zfs_active_allocator, sizeof (buf));
+
+	rc = sysctl_handle_string(oidp, buf, sizeof (buf), req);
+	if (rc || req->newptr == NULL)
+		return (rc);
+	if (strcmp(buf, zfs_active_allocator) == 0)
+		return (0);
+
+	return (param_set_active_allocator_common(buf));
+}
+
 /*
  * In pools where the log space map feature is not enabled we touch
  * multiple metaslabs (and their respective space maps) with each
@@ -594,28 +612,6 @@ SYSCTL_UINT(_vfs_zfs_metaslab, OID_AUTO, df_free_pct,
 	CTLFLAG_RWTUN, &metaslab_df_free_pct, 0,
 	"The minimum free space, in percent, which must be available in a"
 	" space map to continue allocations in a first-fit fashion");
-/* END CSTYLED */
-
-/*
- * Percentage of all cpus that can be used by the metaslab taskq.
- */
-extern int metaslab_load_pct;
-
-/* BEGIN CSTYLED */
-SYSCTL_INT(_vfs_zfs_metaslab, OID_AUTO, load_pct,
-	CTLFLAG_RWTUN, &metaslab_load_pct, 0,
-	"Percentage of cpus that can be used by the metaslab taskq");
-/* END CSTYLED */
-
-/*
- * Max number of metaslabs per group to preload.
- */
-extern uint_t metaslab_preload_limit;
-
-/* BEGIN CSTYLED */
-SYSCTL_UINT(_vfs_zfs_metaslab, OID_AUTO, preload_limit,
-	CTLFLAG_RWTUN, &metaslab_preload_limit, 0,
-	"Max number of metaslabs per group to preload");
 /* END CSTYLED */
 
 /* mmp.c */

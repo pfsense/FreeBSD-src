@@ -101,6 +101,26 @@
 #include "zfs_comutil.h"
 
 /*
+ * spa_thread() existed on Illumos as a parent thread for the various worker
+ * threads that actually run the pool, as a way to both reference the entire
+ * pool work as a single object, and to share properties like scheduling
+ * options. It has not yet been adapted to Linux or FreeBSD. This define is
+ * used to mark related parts of the code to make things easier for the reader,
+ * and to compile this code out. It can be removed when someone implements it,
+ * moves it to some Illumos-specific place, or removes it entirely.
+ */
+#undef HAVE_SPA_THREAD
+
+/*
+ * The "System Duty Cycle" scheduling class is an Illumos feature to help
+ * prevent CPU-intensive kernel threads from affecting latency on interactive
+ * threads. It doesn't exist on Linux or FreeBSD, so the supporting code is
+ * gated behind a define. On Illumos SDC depends on spa_thread(), but
+ * spa_thread() also has other uses, so this is a separate define.
+ */
+#undef HAVE_SYSDC
+
+/*
  * The interval, in seconds, at which failed configuration cache file writes
  * should be retried.
  */
@@ -169,12 +189,22 @@ static int spa_load_impl(spa_t *spa, spa_import_type_t type,
     const char **ereport);
 static void spa_vdev_resilver_done(spa_t *spa);
 
+/*
+ * Percentage of all CPUs that can be used by the metaslab preload taskq.
+ */
+static uint_t metaslab_preload_pct = 50;
+
 static uint_t	zio_taskq_batch_pct = 80;	  /* 1 thread per cpu in pset */
 static uint_t	zio_taskq_batch_tpq;		  /* threads per taskq */
+
+#ifdef HAVE_SYSDC
 static const boolean_t	zio_taskq_sysdc = B_TRUE; /* use SDC scheduling class */
 static const uint_t	zio_taskq_basedc = 80;	  /* base duty cycle */
+#endif
 
+#ifdef HAVE_SPA_THREAD
 static const boolean_t spa_create_process = B_TRUE; /* no process => no sysdc */
+#endif
 
 /*
  * Report any spa_load_verify errors found, but do not fail spa_load.
@@ -1024,7 +1054,9 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 	uint_t count = ztip->zti_count;
 	spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
 	uint_t cpus, flags = TASKQ_DYNAMIC;
+#ifdef HAVE_SYSDC
 	boolean_t batch = B_FALSE;
+#endif
 
 	switch (mode) {
 	case ZTI_MODE_FIXED:
@@ -1032,7 +1064,9 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 		break;
 
 	case ZTI_MODE_BATCH:
+#ifdef HAVE_SYSDC
 		batch = B_TRUE;
+#endif
 		flags |= TASKQ_THREADS_CPU_PCT;
 		value = MIN(zio_taskq_batch_pct, 100);
 		break;
@@ -1101,6 +1135,7 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 			(void) snprintf(name, sizeof (name), "%s_%s",
 			    zio_type_name[t], zio_taskq_types[q]);
 
+#ifdef HAVE_SYSDC
 		if (zio_taskq_sysdc && spa->spa_proc != &p0) {
 			if (batch)
 				flags |= TASKQ_DC_BATCH;
@@ -1109,6 +1144,7 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 			tq = taskq_create_sysdc(name, value, 50, INT_MAX,
 			    spa->spa_proc, zio_taskq_basedc, flags);
 		} else {
+#endif
 			pri_t pri = maxclsyspri;
 			/*
 			 * The write issue taskq can be extremely CPU
@@ -1134,7 +1170,9 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 			}
 			tq = taskq_create_proc(name, value, pri, 50,
 			    INT_MAX, spa->spa_proc, flags);
+#ifdef HAVE_SYSDC
 		}
+#endif
 
 		tqs->stqs_taskq[i] = tq;
 	}
@@ -1219,11 +1257,6 @@ spa_create_zio_taskqs(spa_t *spa)
 	}
 }
 
-/*
- * Disabled until spa_thread() can be adapted for Linux.
- */
-#undef HAVE_SPA_THREAD
-
 #if defined(_KERNEL) && defined(HAVE_SPA_THREAD)
 static void
 spa_thread(void *arg)
@@ -1264,9 +1297,11 @@ spa_thread(void *arg)
 		pool_unlock();
 	}
 
+#ifdef HAVE_SYSDC
 	if (zio_taskq_sysdc) {
 		sysdc_thread_enter(curthread, 100, 0);
 	}
+#endif
 
 	spa->spa_proc = curproc;
 	spa->spa_did = curthread->t_did;
@@ -1295,24 +1330,26 @@ spa_thread(void *arg)
 }
 #endif
 
+extern metaslab_ops_t *metaslab_allocator(spa_t *spa);
+
 /*
  * Activate an uninitialized pool.
  */
 static void
 spa_activate(spa_t *spa, spa_mode_t mode)
 {
+	metaslab_ops_t *msp = metaslab_allocator(spa);
 	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
 
 	spa->spa_state = POOL_STATE_ACTIVE;
 	spa->spa_mode = mode;
 	spa->spa_read_spacemaps = spa_mode_readable_spacemaps;
 
-	spa->spa_normal_class = metaslab_class_create(spa, &zfs_metaslab_ops);
-	spa->spa_log_class = metaslab_class_create(spa, &zfs_metaslab_ops);
-	spa->spa_embedded_log_class =
-	    metaslab_class_create(spa, &zfs_metaslab_ops);
-	spa->spa_special_class = metaslab_class_create(spa, &zfs_metaslab_ops);
-	spa->spa_dedup_class = metaslab_class_create(spa, &zfs_metaslab_ops);
+	spa->spa_normal_class = metaslab_class_create(spa, msp);
+	spa->spa_log_class = metaslab_class_create(spa, msp);
+	spa->spa_embedded_log_class = metaslab_class_create(spa, msp);
+	spa->spa_special_class = metaslab_class_create(spa, msp);
+	spa->spa_dedup_class = metaslab_class_create(spa, msp);
 
 	/* Try to create a covering process */
 	mutex_enter(&spa->spa_proc_lock);
@@ -1320,7 +1357,6 @@ spa_activate(spa_t *spa, spa_mode_t mode)
 	ASSERT(spa->spa_proc == &p0);
 	spa->spa_did = 0;
 
-	(void) spa_create_process;
 #ifdef HAVE_SPA_THREAD
 	/* Only create a process if we're going to be around a while. */
 	if (spa_create_process && strcmp(spa->spa_name, TRYIMPORT_NAME) != 0) {
@@ -1398,6 +1434,13 @@ spa_activate(spa_t *spa, spa_mode_t mode)
 	    1, INT_MAX, 0);
 
 	/*
+	 * The taskq to preload metaslabs.
+	 */
+	spa->spa_metaslab_taskq = taskq_create("z_metaslab",
+	    metaslab_preload_pct, maxclsyspri, 1, INT_MAX,
+	    TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT);
+
+	/*
 	 * Taskq dedicated to prefetcher threads: this is used to prevent the
 	 * pool traverse code from monopolizing the global (and limited)
 	 * system_taskq by inappropriately scheduling long running tasks on it.
@@ -1430,6 +1473,11 @@ spa_deactivate(spa_t *spa)
 	if (spa->spa_zvol_taskq) {
 		taskq_destroy(spa->spa_zvol_taskq);
 		spa->spa_zvol_taskq = NULL;
+	}
+
+	if (spa->spa_metaslab_taskq) {
+		taskq_destroy(spa->spa_metaslab_taskq);
+		spa->spa_metaslab_taskq = NULL;
 	}
 
 	if (spa->spa_prefetch_taskq) {
@@ -1704,13 +1752,7 @@ spa_unload(spa_t *spa)
 	 * This ensures that there is no async metaslab prefetching
 	 * while we attempt to unload the spa.
 	 */
-	if (spa->spa_root_vdev != NULL) {
-		for (int c = 0; c < spa->spa_root_vdev->vdev_children; c++) {
-			vdev_t *vc = spa->spa_root_vdev->vdev_child[c];
-			if (vc->vdev_mg != NULL)
-				taskq_wait(vc->vdev_mg->mg_taskq);
-		}
-	}
+	taskq_wait(spa->spa_metaslab_taskq);
 
 	if (spa->spa_mmp.mmp_thread)
 		mmp_thread_stop(spa);
@@ -3919,6 +3961,24 @@ spa_ld_trusted_config(spa_t *spa, spa_import_type_t type,
 	spa->spa_root_vdev = mrvd;
 	rvd = mrvd;
 	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	/*
+	 * If 'zpool import' used a cached config, then the on-disk hostid and
+	 * hostname may be different to the cached config in ways that should
+	 * prevent import.  Userspace can't discover this without a scan, but
+	 * we know, so we add these values to LOAD_INFO so the caller can know
+	 * the difference.
+	 *
+	 * Note that we have to do this before the config is regenerated,
+	 * because the new config will have the hostid and hostname for this
+	 * host, in readiness for import.
+	 */
+	if (nvlist_exists(mos_config, ZPOOL_CONFIG_HOSTID))
+		fnvlist_add_uint64(spa->spa_load_info, ZPOOL_CONFIG_HOSTID,
+		    fnvlist_lookup_uint64(mos_config, ZPOOL_CONFIG_HOSTID));
+	if (nvlist_exists(mos_config, ZPOOL_CONFIG_HOSTNAME))
+		fnvlist_add_string(spa->spa_load_info, ZPOOL_CONFIG_HOSTNAME,
+		    fnvlist_lookup_string(mos_config, ZPOOL_CONFIG_HOSTNAME));
 
 	/*
 	 * We will use spa_config if we decide to reload the spa or if spa_load
@@ -10131,6 +10191,9 @@ EXPORT_SYMBOL(spa_prop_clear_bootfs);
 
 /* asynchronous event notification */
 EXPORT_SYMBOL(spa_event_notify);
+
+ZFS_MODULE_PARAM(zfs_metaslab, metaslab_, preload_pct, UINT, ZMOD_RW,
+	"Percentage of CPUs to run a metaslab preload taskq");
 
 /* BEGIN CSTYLED */
 ZFS_MODULE_PARAM(zfs_spa, spa_, load_verify_shift, UINT, ZMOD_RW,

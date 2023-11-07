@@ -156,6 +156,7 @@ SRCS+=	__getosreldate.c \
 	time.c \
 	times.c \
 	timespec_get.c \
+	timespec_getres.c \
 	timezone.c \
 	tls.c \
 	ttyname.c \
@@ -319,6 +320,7 @@ MAN+=	alarm.3 \
 	time.3 \
 	times.3 \
 	timespec_get.3 \
+	timespec_getres.3 \
 	timezone.3 \
 	ttyname.3 \
 	tzset.3 \
@@ -482,7 +484,11 @@ MLINKS+=posix_spawn.3 posix_spawnp.3 \
 MLINKS+=psignal.3 strsignal.3 \
 	psignal.3 sys_siglist.3 \
 	psignal.3 sys_signame.3
-MLINKS+=pwcache.3 group_from_gid.3 \
+MLINKS+=pwcache.3 gid_from_group.3 \
+	pwcache.3 group_from_gid.3 \
+	pwcache.3 pwcache_groupdb.3 \
+	pwcache.3 pwcache_userdb.3 \
+	pwcache.3 uid_from_user.3 \
 	pwcache.3 user_from_uid.3
 MLINKS+=rand48.3 _rand48.3 \
 	rand48.3 drand48.3 \

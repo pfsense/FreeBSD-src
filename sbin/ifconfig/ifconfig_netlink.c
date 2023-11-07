@@ -171,7 +171,7 @@ prepare_ifmap(struct snl_state *ss)
 	hdr->nlmsg_flags |= NLM_F_DUMP;
 	snl_reserve_msg_object(&nw, struct ifinfomsg);
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return (NULL);
 
 	uint32_t nlmsg_seq = hdr->nlmsg_seq;
@@ -212,7 +212,7 @@ if_nametoindex_nl(struct snl_state *ss, const char *ifname)
 	snl_reserve_msg_object(&nw, struct ifinfomsg);
 	snl_add_msg_attr_string(&nw, IFLA_IFNAME, ifname);
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return (0);
 
 	hdr = snl_read_reply(ss, hdr->nlmsg_seq);
@@ -222,6 +222,19 @@ if_nametoindex_nl(struct snl_state *ss, const char *ifname)
 		return (0);
 
 	return (link.ifi_index);
+}
+
+ifType
+convert_iftype(ifType iftype)
+{
+	switch (iftype) {
+	case IFT_IEEE8023ADLAG:
+		return (IFT_ETHER);
+	case IFT_INFINIBANDLAG:
+		return (IFT_INFINIBAND);
+	default:
+		return (iftype);
+	}
 }
 
 static void
@@ -234,7 +247,7 @@ prepare_ifaddrs(struct snl_state *ss, struct ifmap *ifmap)
 	hdr->nlmsg_flags |= NLM_F_DUMP;
 	snl_reserve_msg_object(&nw, struct ifaddrmsg);
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return;
 
 	uint32_t nlmsg_seq = hdr->nlmsg_seq;
@@ -282,11 +295,17 @@ match_iface(struct ifconfig_args *args, struct iface *iface)
 		struct sockaddr_dl sdl = {
 			.sdl_len = sizeof(struct sockaddr_dl),
 			.sdl_family = AF_LINK,
-			.sdl_type = link->ifi_type,
+			.sdl_type = convert_iftype(link->ifi_type),
 			.sdl_alen = NLA_DATA_LEN(link->ifla_address),
 		};
 		return (match_ether(&sdl));
-	}
+	} else if (args->afp->af_af == AF_LINK)
+		/*
+		 * The rtnetlink(4) RTM_GETADDR does not list link level
+		 * addresses, so latter cycle won't match anything.  Short
+		 * circuit on RTM_GETLINK has provided us an address.
+		 */
+		return (link->ifla_address != NULL);
 
 	for (struct ifa *ifa = iface->ifa; ifa != NULL; ifa = ifa->next) {
 		if (args->afp->af_af == ifa->addr.ifa_family)

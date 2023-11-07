@@ -202,6 +202,8 @@ dev/axgbe/xgbe-phy-v1.c				optional axa fdt
 dev/cpufreq/cpufreq_dt.c			optional cpufreq fdt
 
 dev/dpaa2/dpaa2_bp.c				optional soc_nxp_ls dpaa2
+dev/dpaa2/dpaa2_buf.c				optional soc_nxp_ls dpaa2
+dev/dpaa2/dpaa2_channel.c			optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_cmd_if.m			optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_con.c				optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_console.c			optional soc_nxp_ls dpaa2 fdt
@@ -216,13 +218,19 @@ dev/dpaa2/dpaa2_ni.c				optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_rc.c				optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_swp.c				optional soc_nxp_ls dpaa2
 dev/dpaa2/dpaa2_swp_if.m			optional soc_nxp_ls dpaa2
+dev/dpaa2/dpaa2_types.c				optional soc_nxp_ls dpaa2
 dev/dpaa2/memac_mdio_acpi.c			optional soc_nxp_ls dpaa2 acpi
 dev/dpaa2/memac_mdio_common.c			optional soc_nxp_ls dpaa2 acpi | soc_nxp_ls dpaa2 fdt
 dev/dpaa2/memac_mdio_fdt.c			optional soc_nxp_ls dpaa2 fdt
 dev/dpaa2/memac_mdio_if.m			optional soc_nxp_ls dpaa2 acpi | soc_nxp_ls dpaa2 fdt
 
+# Synopsys DesignWare Ethernet Controller
 dev/dwc/if_dwc.c				optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399 | fdt dwc_socfpga soc_intel_stratix10
 dev/dwc/if_dwc_if.m				optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399 | fdt dwc_socfpga soc_intel_stratix10
+dev/dwc/dwc1000_core.c				optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399 | fdt dwc_socfpga soc_intel_stratix10
+dev/dwc/dwc1000_dma.c				optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399 | fdt dwc_socfpga soc_intel_stratix10
+dev/dwc/if_dwc_rk.c				optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399
+dev/dwc/if_dwc_socfpga.c			optional fdt dwc_socfpga
 
 dev/enetc/enetc_mdio.c				optional enetc soc_nxp_ls
 dev/enetc/if_enetc.c				optional enetc iflib pci fdt soc_nxp_ls
@@ -319,7 +327,7 @@ dev/ice/irdma_di_if.m				optional ice pci \
 dev/ice/ice_ddp_common.c			optional ice pci \
 	compile-with "${NORMAL_C} -I$S/dev/ice"
 ice_ddp.c					optional ice_ddp	\
-	compile-with	"${AWK} -f $S/tools/fw_stub.awk ice_ddp.fw:ice_ddp:0x01031e00 -mice_ddp -c${.TARGET}"	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk ice_ddp.fw:ice_ddp:0x01032300 -mice_ddp -c${.TARGET}"	\
 	no-ctfconvert no-implicit-rule before-depend local	\
 	clean		"ice_ddp.c"
 ice_ddp.fwo					optional ice_ddp	\
@@ -328,15 +336,14 @@ ice_ddp.fwo					optional ice_ddp	\
 	no-implicit-rule				\
 	clean		"ice_ddp.fwo"
 ice_ddp.fw					optional ice_ddp	\
-	dependency	"$S/contrib/dev/ice/ice-1.3.30.0.pkg" \
-	compile-with	"${CP} $S/contrib/dev/ice/ice-1.3.30.0.pkg ice_ddp.fw" \
+	dependency	"$S/contrib/dev/ice/ice-1.3.35.0.pkg" \
+	compile-with	"${CP} $S/contrib/dev/ice/ice-1.3.35.0.pkg ice_ddp.fw" \
 	no-obj no-implicit-rule				\
 	clean		"ice_ddp.fw"
 
-dev/iicbus/sy8106a.c				optional sy8106a fdt
-dev/iicbus/twsi/mv_twsi.c			optional twsi fdt
-dev/iicbus/twsi/a10_twsi.c			optional twsi fdt
-dev/iicbus/twsi/twsi.c				optional twsi fdt
+dev/iicbus/controller/twsi/mv_twsi.c		optional twsi fdt
+dev/iicbus/controller/twsi/a10_twsi.c		optional twsi fdt
+dev/iicbus/controller/twsi/twsi.c		optional twsi fdt
 
 dev/ipmi/ipmi.c					optional ipmi
 dev/ipmi/ipmi_acpi.c				optional ipmi acpi
@@ -467,7 +474,6 @@ arm/allwinner/h6/h6_padconf.c			optional soc_allwinner_h6 fdt
 arm/allwinner/h6/h6_r_padconf.c			optional soc_allwinner_h6 fdt
 
 # Altera/Intel
-dev/altera/dwc/if_dwc_socfpga.c			optional fdt dwc_socfpga
 arm64/intel/stratix10-soc-fpga-mgr.c		optional soc_intel_stratix10 fdt
 arm64/intel/stratix10-svc.c			optional soc_intel_stratix10 fdt
 
@@ -670,7 +676,6 @@ arm64/rockchip/rk_iodomain.c			optional fdt rk_iodomain
 arm64/rockchip/rk_spi.c				optional fdt rk_spi
 arm64/rockchip/rk_usb2phy.c			optional fdt rk_usb2phy soc_rockchip_rk3328 | fdt rk_usb2phy soc_rockchip_rk3399 | fdt rk_usb2phy soc_rockchip_rk3568
 arm64/rockchip/rk_typec_phy.c			optional fdt rk_typec_phy soc_rockchip_rk3399
-arm64/rockchip/if_dwc_rk.c			optional fdt dwc_rk soc_rockchip_rk3328 | fdt dwc_rk soc_rockchip_rk3399
 arm64/rockchip/rk_tsadc_if.m			optional fdt soc_rockchip_rk3399 | fdt soc_rockchip_rk3568
 arm64/rockchip/rk_tsadc.c			optional fdt soc_rockchip_rk3399 | fdt soc_rockchip_rk3568
 arm64/rockchip/rk_pwm.c				optional fdt rk_pwm
@@ -694,3 +699,14 @@ arm64/rockchip/clk/rk3568_pmucru.c		optional fdt soc_rockchip_rk3568
 # Xilinx
 arm/xilinx/uart_dev_cdnc.c			optional uart soc_xilinx_zynq fdt
 arm/xilinx/zy7_gpio.c				optional gpio soc_xilinx_zynq fdt
+dev/iicbus/controller/cadence/cdnc_i2c.c	optional cdnc_i2c iicbus soc_xilinx_zynq fdt
+dev/usb/controller/xlnx_dwc3.c			optional xhci soc_xilinx_zynq fdt
+dev/firmware/xilinx/zynqmp_firmware.c		optional fdt soc_xilinx_zynq
+dev/firmware/xilinx/zynqmp_firmware_if.m	optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clock.c			optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clk_div.c			optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clk_fixed.c		optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clk_gate.c		optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clk_mux.c			optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_clk_pll.c			optional fdt soc_xilinx_zynq
+dev/clk/xilinx/zynqmp_reset.c			optional fdt soc_xilinx_zynq

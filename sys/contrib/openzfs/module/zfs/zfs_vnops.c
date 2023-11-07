@@ -58,27 +58,20 @@
 #include <sys/zfs_znode.h>
 
 
-static ulong_t zfs_fsync_sync_cnt = 4;
-
 int
 zfs_fsync(znode_t *zp, int syncflag, cred_t *cr)
 {
 	int error = 0;
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
 
-	(void) tsd_set(zfs_fsyncer_key, (void *)(uintptr_t)zfs_fsync_sync_cnt);
-
 	if (zfsvfs->z_os->os_sync != ZFS_SYNC_DISABLED) {
 		if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
-			goto out;
+			return (error);
 		atomic_inc_32(&zp->z_sync_writes_cnt);
 		zil_commit(zfsvfs->z_log, zp->z_id);
 		atomic_dec_32(&zp->z_sync_writes_cnt);
 		zfs_exit(zfsvfs, FTAG);
 	}
-out:
-	tsd_set(zfs_fsyncer_key, NULL);
-
 	return (error);
 }
 
@@ -520,6 +513,8 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 
 	uint64_t end_size = MAX(zp->z_size, woff + n);
 	zilog_t *zilog = zfsvfs->z_log;
+	boolean_t commit = (ioflag & (O_SYNC | O_DSYNC)) ||
+	    (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS);
 
 	const uint64_t uid = KUID_TO_SUID(ZTOUID(zp));
 	const uint64_t gid = KGID_TO_SGID(ZTOGID(zp));
@@ -741,7 +736,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		 * zfs_clear_setid_bits_if_necessary must precede any of
 		 * the TX_WRITE records logged here.
 		 */
-		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag,
+		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, commit,
 		    NULL, NULL);
 
 		dmu_tx_commit(tx);
@@ -767,8 +762,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		return (error);
 	}
 
-	if (ioflag & (O_SYNC | O_DSYNC) ||
-	    zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
+	if (commit)
 		zil_commit(zilog, zp->z_id);
 
 	const int64_t nwritten = start_resid - zfs_uio_resid(uio);
@@ -839,7 +833,6 @@ zfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 	uint64_t zp_gen;
 
 	ASSERT3P(lwb, !=, NULL);
-	ASSERT3P(zio, !=, NULL);
 	ASSERT3U(size, !=, 0);
 
 	/*
@@ -889,6 +882,7 @@ zfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 		}
 		ASSERT(error == 0 || error == ENOENT);
 	} else { /* indirect write */
+		ASSERT3P(zio, !=, NULL);
 		/*
 		 * Have to lock the whole block to ensure when it's
 		 * written out and its checksum is being calculated
@@ -917,8 +911,8 @@ zfs_get_data(void *arg, uint64_t gen, lr_write_t *lr, char *buf,
 		}
 #endif
 		if (error == 0)
-			error = dmu_buf_hold(os, object, offset, zgd, &db,
-			    DMU_READ_NO_PREFETCH);
+			error = dmu_buf_hold_noread(os, object, offset, zgd,
+			    &db);
 
 		if (error == 0) {
 			blkptr_t *bp = &lr->lr_blkptr;
@@ -1028,6 +1022,10 @@ zfs_exit_two(zfsvfs_t *zfsvfs1, zfsvfs_t *zfsvfs2, const char *tag)
  *
  * On success, the function return the number of bytes copied in *lenp.
  * Note, it doesn't return how much bytes are left to be copied.
+ * On errors which are caused by any file system limitations or
+ * brt limitations `EINVAL` is returned. In the most cases a user
+ * requested bad parameters, it could be possible to clone the file but
+ * some parameters don't match the requirements.
  */
 int
 zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
@@ -1078,7 +1076,26 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 		return (SET_ERROR(EXDEV));
 	}
 
+	/*
+	 * outos and inos belongs to the same storage pool.
+	 * see a few lines above, only one check.
+	 */
+	if (!spa_feature_is_enabled(dmu_objset_spa(outos),
+	    SPA_FEATURE_BLOCK_CLONING)) {
+		zfs_exit_two(inzfsvfs, outzfsvfs, FTAG);
+		return (SET_ERROR(EOPNOTSUPP));
+	}
+
 	ASSERT(!outzfsvfs->z_replay);
+
+	/*
+	 * Block cloning from an unencrypted dataset into an encrypted
+	 * dataset and vice versa is not supported.
+	 */
+	if (inos->os_encrypted != outos->os_encrypted) {
+		zfs_exit_two(inzfsvfs, outzfsvfs, FTAG);
+		return (SET_ERROR(EXDEV));
+	}
 
 	error = zfs_verify_zp(inzp);
 	if (error == 0)
@@ -1086,12 +1103,6 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 	if (error != 0) {
 		zfs_exit_two(inzfsvfs, outzfsvfs, FTAG);
 		return (error);
-	}
-
-	if (!spa_feature_is_enabled(dmu_objset_spa(outos),
-	    SPA_FEATURE_BLOCK_CLONING)) {
-		zfs_exit_two(inzfsvfs, outzfsvfs, FTAG);
-		return (SET_ERROR(EXDEV));
 	}
 
 	/*
@@ -1164,10 +1175,21 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 	inblksz = inzp->z_blksz;
 
 	/*
-	 * We cannot clone into files with different block size.
+	 * We cannot clone into files with different block size if we can't
+	 * grow it (block size is already bigger or more than one block).
 	 */
-	if (inblksz != outzp->z_blksz && outzp->z_size > inblksz) {
-		error = SET_ERROR(EXDEV);
+	if (inblksz != outzp->z_blksz && (outzp->z_size > outzp->z_blksz ||
+	    outzp->z_size > inblksz)) {
+		error = SET_ERROR(EINVAL);
+		goto unlock;
+	}
+
+	/*
+	 * Block size must be power-of-2 if destination offset != 0.
+	 * There can be no multiple blocks of non-power-of-2 size.
+	 */
+	if (outoff != 0 && !ISP2(inblksz)) {
+		error = SET_ERROR(EINVAL);
 		goto unlock;
 	}
 
@@ -1175,7 +1197,7 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 	 * Offsets and len must be at block boundries.
 	 */
 	if ((inoff % inblksz) != 0 || (outoff % inblksz) != 0) {
-		error = SET_ERROR(EXDEV);
+		error = SET_ERROR(EINVAL);
 		goto unlock;
 	}
 	/*
@@ -1183,7 +1205,20 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 	 */
 	if ((len % inblksz) != 0 &&
 	    (len < inzp->z_size - inoff || len < outzp->z_size - outoff)) {
-		error = SET_ERROR(EXDEV);
+		error = SET_ERROR(EINVAL);
+		goto unlock;
+	}
+
+	/*
+	 * If we are copying only one block and it is smaller than recordsize
+	 * property, do not allow destination to grow beyond one block if it
+	 * is not there yet.  Otherwise the destination will get stuck with
+	 * that block size forever, that can be as small as 512 bytes, no
+	 * matter how big the destination grow later.
+	 */
+	if (len <= inblksz && inblksz < outzfsvfs->z_max_blksz &&
+	    outzp->z_size <= inblksz && outoff + len > inblksz) {
+		error = SET_ERROR(EINVAL);
 		goto unlock;
 	}
 
@@ -1212,7 +1247,7 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 	gid = KGID_TO_SGID(ZTOGID(outzp));
 	projid = outzp->z_projid;
 
-	bps = kmem_alloc(sizeof (bps[0]) * maxblocks, KM_SLEEP);
+	bps = vmem_alloc(sizeof (bps[0]) * maxblocks, KM_SLEEP);
 
 	/*
 	 * Clone the file in reasonable size chunks.  Each chunk is cloned
@@ -1238,13 +1273,11 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 		    &nbps);
 		if (error != 0) {
 			/*
-			 * If we are tyring to clone a block that was created
-			 * in the current transaction group. Return an error,
-			 * so the caller can fallback to just copying the data.
+			 * If we are trying to clone a block that was created
+			 * in the current transaction group, error will be
+			 * EAGAIN here, which we can just return to the caller
+			 * so it can fallback if it likes.
 			 */
-			if (error == EAGAIN) {
-				error = SET_ERROR(EXDEV);
-			}
 			break;
 		}
 		/*
@@ -1330,7 +1363,7 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 		done += size;
 	}
 
-	kmem_free(bps, sizeof (bps[0]) * maxblocks);
+	vmem_free(bps, sizeof (bps[0]) * maxblocks);
 	zfs_znode_update_vfs(outzp);
 
 unlock:
@@ -1352,6 +1385,12 @@ unlock:
 		*inoffp += done;
 		*outoffp += done;
 		*lenp = done;
+	} else {
+		/*
+		 * If we made no progress, there must be a good reason.
+		 * EOF is handled explicitly above, before the loop.
+		 */
+		ASSERT3S(error, !=, 0);
 	}
 
 	zfs_exit_two(inzfsvfs, outzfsvfs, FTAG);

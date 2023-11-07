@@ -26,8 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#include "opt_cam.h"
 #include "opt_nvme.h"
 
 #include <sys/param.h>
@@ -217,45 +215,19 @@ nvme_ctrlr_fail(struct nvme_controller *ctrlr)
 {
 	int i;
 
+	/*
+	 * No need to disable queues before failing them. Failing is a superet
+	 * of disabling (though pedantically we'd abort the AERs silently with
+	 * a different error, though when we fail, that hardly matters).
+	 */
 	ctrlr->is_failed = true;
-	nvme_admin_qpair_disable(&ctrlr->adminq);
 	nvme_qpair_fail(&ctrlr->adminq);
 	if (ctrlr->ioq != NULL) {
 		for (i = 0; i < ctrlr->num_io_queues; i++) {
-			nvme_io_qpair_disable(&ctrlr->ioq[i]);
 			nvme_qpair_fail(&ctrlr->ioq[i]);
 		}
 	}
 	nvme_notify_fail_consumers(ctrlr);
-}
-
-void
-nvme_ctrlr_post_failed_request(struct nvme_controller *ctrlr,
-    struct nvme_request *req)
-{
-
-	mtx_lock(&ctrlr->lock);
-	STAILQ_INSERT_TAIL(&ctrlr->fail_req, req, stailq);
-	mtx_unlock(&ctrlr->lock);
-	if (!ctrlr->is_dying)
-		taskqueue_enqueue(ctrlr->taskqueue, &ctrlr->fail_req_task);
-}
-
-static void
-nvme_ctrlr_fail_req_task(void *arg, int pending)
-{
-	struct nvme_controller	*ctrlr = arg;
-	struct nvme_request	*req;
-
-	mtx_lock(&ctrlr->lock);
-	while ((req = STAILQ_FIRST(&ctrlr->fail_req)) != NULL) {
-		STAILQ_REMOVE_HEAD(&ctrlr->fail_req, stailq);
-		mtx_unlock(&ctrlr->lock);
-		nvme_qpair_manual_complete_request(req->qpair, req,
-		    NVME_SCT_GENERIC, NVME_SC_ABORTED_BY_REQUEST);
-		mtx_lock(&ctrlr->lock);
-	}
-	mtx_unlock(&ctrlr->lock);
 }
 
 /*
@@ -427,9 +399,11 @@ nvme_ctrlr_hw_reset(struct nvme_controller *ctrlr)
 
 	err = nvme_ctrlr_disable(ctrlr);
 	if (err != 0)
-		return err;
+		goto out;
 
 	err = nvme_ctrlr_enable(ctrlr);
+out:
+
 	TSEXIT();
 	return (err);
 }
@@ -1164,18 +1138,6 @@ fail:
 		return;
 	}
 
-#ifdef NVME_2X_RESET
-	/*
-	 * Reset controller twice to ensure we do a transition from cc.en==1 to
-	 * cc.en==0.  This is because we don't really know what status the
-	 * controller was left in when boot handed off to OS.  Linux doesn't do
-	 * this, however, and when the controller is in state cc.en == 0, no
-	 * I/O can happen.
-	 */
-	if (nvme_ctrlr_hw_reset(ctrlr) != 0)
-		goto fail;
-#endif
-
 	nvme_qpair_reset(&ctrlr->adminq);
 	nvme_admin_qpair_enable(&ctrlr->adminq);
 
@@ -1202,15 +1164,6 @@ nvme_ctrlr_reset_task(void *arg, int pending)
 
 	nvme_ctrlr_devctl_log(ctrlr, "RESET", "resetting controller");
 	status = nvme_ctrlr_hw_reset(ctrlr);
-	/*
-	 * Use pause instead of DELAY, so that we yield to any nvme interrupt
-	 *  handlers on this CPU that were blocked on a qpair lock. We want
-	 *  all nvme interrupts completed before proceeding with restarting the
-	 *  controller.
-	 *
-	 * XXX - any way to guarantee the interrupt handlers have quiesced?
-	 */
-	pause("nvmereset", hz / 10);
 	if (status == 0)
 		nvme_ctrlr_start(ctrlr, true);
 	else
@@ -1333,8 +1286,9 @@ nvme_ctrlr_passthrough_cmd(struct nvme_controller *ctrlr,
 		mtx_sleep(pt, mtx, PRIBIO, "nvme_pt", 0);
 	mtx_unlock(mtx);
 
-err:
 	if (buf != NULL) {
+		vunmapbuf(buf);
+err:
 		uma_zfree(pbuf_zone, buf);
 		PRELE(curproc);
 	}
@@ -1449,6 +1403,12 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 	to = NVME_CAP_LO_TO(cap_lo) + 1;
 	ctrlr->ready_timeout_in_ms = to * 500;
 
+	timeout_period = NVME_ADMIN_TIMEOUT_PERIOD;
+	TUNABLE_INT_FETCH("hw.nvme.admin_timeout_period", &timeout_period);
+	timeout_period = min(timeout_period, NVME_MAX_TIMEOUT_PERIOD);
+	timeout_period = max(timeout_period, NVME_MIN_TIMEOUT_PERIOD);
+	ctrlr->admin_timeout_period = timeout_period;
+
 	timeout_period = NVME_DEFAULT_TIMEOUT_PERIOD;
 	TUNABLE_INT_FETCH("hw.nvme.timeout_period", &timeout_period);
 	timeout_period = min(timeout_period, NVME_MAX_TIMEOUT_PERIOD);
@@ -1485,7 +1445,6 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 	ctrlr->is_initialized = 0;
 	ctrlr->notification_sent = 0;
 	TASK_INIT(&ctrlr->reset_task, 0, nvme_ctrlr_reset_task, ctrlr);
-	TASK_INIT(&ctrlr->fail_req_task, 0, nvme_ctrlr_fail_req_task, ctrlr);
 	STAILQ_INIT(&ctrlr->fail_req);
 	ctrlr->is_failed = false;
 
@@ -1699,15 +1658,6 @@ nvme_ctrlr_resume(struct nvme_controller *ctrlr)
 
 	if (nvme_ctrlr_hw_reset(ctrlr) != 0)
 		goto fail;
-#ifdef NVME_2X_RESET
-	/*
-	 * Prior to FreeBSD 13.1, FreeBSD's nvme driver reset the hardware twice
-	 * to get it into a known good state. However, the hardware's state is
-	 * good and we don't need to do this for proper functioning.
-	 */
-	if (nvme_ctrlr_hw_reset(ctrlr) != 0)
-		goto fail;
-#endif
 
 	/*
 	 * Now that we've reset the hardware, we can restart the controller. Any

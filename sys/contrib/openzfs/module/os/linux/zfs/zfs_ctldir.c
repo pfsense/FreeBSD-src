@@ -478,17 +478,19 @@ zfsctl_is_snapdir(struct inode *ip)
  */
 static struct inode *
 zfsctl_inode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
-    const struct file_operations *fops, const struct inode_operations *ops)
+    const struct file_operations *fops, const struct inode_operations *ops,
+    uint64_t creation)
 {
-	inode_timespec_t now;
 	struct inode *ip;
 	znode_t *zp;
+	inode_timespec_t now = {.tv_sec = creation};
 
 	ip = new_inode(zfsvfs->z_sb);
 	if (ip == NULL)
 		return (NULL);
 
-	now = current_time(ip);
+	if (!creation)
+		now = current_time(ip);
 	zp = ITOZ(ip);
 	ASSERT3P(zp->z_dirlocks, ==, NULL);
 	ASSERT3P(zp->z_acl_cached, ==, NULL);
@@ -520,7 +522,7 @@ zfsctl_inode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	ip->i_blkbits = SPA_MINBLOCKSHIFT;
 	ip->i_atime = now;
 	ip->i_mtime = now;
-	ip->i_ctime = now;
+	zpl_inode_set_ctime_to_ts(ip, now);
 	ip->i_fop = fops;
 	ip->i_op = ops;
 #if defined(IOP_XATTR)
@@ -535,7 +537,6 @@ zfsctl_inode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
-	zfsvfs->z_nr_znodes++;
 	membar_producer();
 	mutex_exit(&zfsvfs->z_znodes_lock);
 
@@ -552,14 +553,28 @@ zfsctl_inode_lookup(zfsvfs_t *zfsvfs, uint64_t id,
     const struct file_operations *fops, const struct inode_operations *ops)
 {
 	struct inode *ip = NULL;
+	uint64_t creation = 0;
+	dsl_dataset_t *snap_ds;
+	dsl_pool_t *pool;
 
 	while (ip == NULL) {
 		ip = ilookup(zfsvfs->z_sb, (unsigned long)id);
 		if (ip)
 			break;
 
+		if (id <= ZFSCTL_INO_SNAPDIRS && !creation) {
+			pool = dmu_objset_pool(zfsvfs->z_os);
+			dsl_pool_config_enter(pool, FTAG);
+			if (!dsl_dataset_hold_obj(pool,
+			    ZFSCTL_INO_SNAPDIRS - id, FTAG, &snap_ds)) {
+				creation = dsl_get_creation(snap_ds);
+				dsl_dataset_rele(snap_ds, FTAG);
+			}
+			dsl_pool_config_exit(pool, FTAG);
+		}
+
 		/* May fail due to concurrent zfsctl_inode_alloc() */
-		ip = zfsctl_inode_alloc(zfsvfs, id, fops, ops);
+		ip = zfsctl_inode_alloc(zfsvfs, id, fops, ops, creation);
 	}
 
 	return (ip);
@@ -581,7 +596,7 @@ zfsctl_create(zfsvfs_t *zfsvfs)
 	ASSERT(zfsvfs->z_ctldir == NULL);
 
 	zfsvfs->z_ctldir = zfsctl_inode_alloc(zfsvfs, ZFSCTL_INO_ROOT,
-	    &zpl_fops_root, &zpl_ops_root);
+	    &zpl_fops_root, &zpl_ops_root, 0);
 	if (zfsvfs->z_ctldir == NULL)
 		return (SET_ERROR(ENOENT));
 

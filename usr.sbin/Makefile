@@ -6,6 +6,7 @@ SUBDIR=	adduser \
 	arp \
 	binmiscctl \
 	boottrace \
+	bsdconfig \
 	camdd \
 	cdcontrol \
 	chkgrp \
@@ -128,11 +129,11 @@ SUBDIR.${MK_BSNMP}+=	bsnmpd
 SUBDIR.${MK_OPENSSL}+=	certctl
 .endif
 SUBDIR.${MK_CXGBETOOL}+=	cxgbetool
-SUBDIR.${MK_DIALOG}+=	bsdconfig
 SUBDIR.${MK_EFI}+=	efivar efidp efibootmgr efitable efiwake
 .if ${MK_OPENSSL} != "no"
 SUBDIR.${MK_EFI}+=	uefisign
 .endif
+SUBDIR.${MK_FDT}+=	ofwdump
 SUBDIR.${MK_FLOPPY}+=	fdcontrol
 SUBDIR.${MK_FLOPPY}+=	fdformat
 SUBDIR.${MK_FLOPPY}+=	fdread

@@ -52,14 +52,19 @@ static unsigned int	zfetch_max_streams = 8;
 static unsigned int	zfetch_min_sec_reap = 1;
 /* max time before stream delete */
 static unsigned int	zfetch_max_sec_reap = 2;
+#ifdef _ILP32
+/* min bytes to prefetch per stream (default 2MB) */
+static unsigned int	zfetch_min_distance = 2 * 1024 * 1024;
+/* max bytes to prefetch per stream (default 8MB) */
+unsigned int	zfetch_max_distance = 8 * 1024 * 1024;
+#else
 /* min bytes to prefetch per stream (default 4MB) */
 static unsigned int	zfetch_min_distance = 4 * 1024 * 1024;
 /* max bytes to prefetch per stream (default 64MB) */
 unsigned int	zfetch_max_distance = 64 * 1024 * 1024;
+#endif
 /* max bytes to prefetch indirects for per stream (default 64MB) */
 unsigned int	zfetch_max_idistance = 64 * 1024 * 1024;
-/* max number of bytes in an array_read in which we allow prefetching (1MB) */
-uint64_t	zfetch_array_rd_sz = 1024 * 1024;
 
 typedef struct zfetch_stats {
 	kstat_named_t zfetchstat_hits;
@@ -324,9 +329,14 @@ dmu_zfetch_prepare(zfetch_t *zf, uint64_t blkid, uint64_t nblks,
 {
 	zstream_t *zs;
 	spa_t *spa = zf->zf_dnode->dn_objset->os_spa;
+	zfs_prefetch_type_t os_prefetch = zf->zf_dnode->dn_objset->os_prefetch;
 
-	if (zfs_prefetch_disable)
+	if (zfs_prefetch_disable || os_prefetch == ZFS_PREFETCH_NONE)
 		return (NULL);
+
+	if (os_prefetch == ZFS_PREFETCH_METADATA)
+		fetch_data = B_FALSE;
+
 	/*
 	 * If we haven't yet loaded the indirect vdevs' mappings, we
 	 * can only read from blocks that we carefully ensure are on
@@ -580,6 +590,3 @@ ZFS_MODULE_PARAM(zfs_prefetch, zfetch_, max_distance, UINT, ZMOD_RW,
 
 ZFS_MODULE_PARAM(zfs_prefetch, zfetch_, max_idistance, UINT, ZMOD_RW,
 	"Max bytes to prefetch indirects for per stream");
-
-ZFS_MODULE_PARAM(zfs_prefetch, zfetch_, array_rd_sz, U64, ZMOD_RW,
-	"Number of bytes in a array_read");

@@ -38,14 +38,6 @@ SRCS+= getdents.c lstat.c mknod.c stat.c
 NOASM+=  sched_getcpu.o
 PSEUDO+= _sched_getcpu.o
 
-SRCS+= fstat.c fstatat.c fstatfs.c getfsstat.c statfs.c
-NOASM+= fstat.o fstatat.o fstatfs.o getfsstat.o statfs.o
-PSEUDO+= _fstat.o _fstatat.o _fstatfs.o _getfsstat.o _statfs.o
-
-SRCS+= getdirentries.c
-NOASM+= getdirentries.o
-PSEUDO+= _getdirentries.o
-
 SRCS+= brk.c
 SRCS+= closefrom.c
 SRCS+= pipe.c
@@ -345,6 +337,7 @@ MAN+=	abort2.2 \
 	timer_create.2 \
 	timer_delete.2 \
 	timer_settime.2 \
+	timerfd.2 \
 	truncate.2 \
 	umask.2 \
 	undelete.2 \
@@ -468,6 +461,7 @@ MLINKS+=sched_get_priority_max.2 sched_get_priority_min.2 \
 	sched_get_priority_max.2 sched_rr_get_interval.2
 MLINKS+=sched_setparam.2 sched_getparam.2
 MLINKS+=sched_setscheduler.2 sched_getscheduler.2
+MLINKS+=sctp_generic_sendmsg.2 sctp_generic_sendmsg_iov.2
 MLINKS+=select.2 FD_CLR.3 \
 	select.2 FD_ISSET.3 \
 	select.2 FD_SET.3 \
@@ -496,6 +490,9 @@ MLINKS+=symlink.2 symlinkat.2
 MLINKS+=syscall.2 __syscall.2
 MLINKS+=timer_settime.2 timer_getoverrun.2 \
 	timer_settime.2 timer_gettime.2
+MLINKS+=timerfd.2 timerfd_create.2 \
+	timerfd.2 timerfd_gettime.2 \
+	timerfd.2 timerfd_settime.2
 MLINKS+=thr_kill.2 thr_kill2.2
 MLINKS+=truncate.2 ftruncate.2
 MLINKS+=unlink.2 unlinkat.2

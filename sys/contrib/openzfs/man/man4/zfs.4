@@ -15,7 +15,7 @@
 .\" own identifying information:
 .\" Portions Copyright [yyyy] [name of copyright owner]
 .\"
-.Dd January 10, 2023
+.Dd July 21, 2023
 .Dt ZFS 4
 .Os
 .
@@ -239,6 +239,11 @@ relative to the pool.
 Make some blocks above a certain size be gang blocks.
 This option is used by the test suite to facilitate testing.
 .
+.It Sy metaslab_force_ganging_pct Ns = Ns Sy 3 Ns % Pq uint
+For blocks that could be forced to be a gang block (due to
+.Sy metaslab_force_ganging ) ,
+force this many of them to be gang blocks.
+.
 .It Sy zfs_ddt_zap_default_bs Ns = Ns Sy 15 Po 32 KiB Pc Pq int
 Default DDT ZAP data block size as a power of 2. Note that changing this after
 creating a DDT on the pool will not affect existing DDTs, only newly created
@@ -397,6 +402,12 @@ Practical upper limit of total metaslabs per top-level vdev.
 .It Sy metaslab_preload_enabled Ns = Ns Sy 1 Ns | Ns 0 Pq int
 Enable metaslab group preloading.
 .
+.It Sy metaslab_preload_limit Ns = Ns Sy 10 Pq uint
+Maximum number of metaslabs per group to preload
+.
+.It Sy metaslab_preload_pct Ns = Ns Sy 50 Pq uint
+Percentage of CPUs to run a metaslab preload taskq
+.
 .It Sy metaslab_lba_weighting_enabled Ns = Ns Sy 1 Ns | Ns 0 Pq int
 Give more weight to metaslabs with lower LBAs,
 assuming they have greater bandwidth,
@@ -519,9 +530,6 @@ However, this is limited by
 Maximum micro ZAP size.
 A micro ZAP is upgraded to a fat ZAP, once it grows beyond the specified size.
 .
-.It Sy zfetch_array_rd_sz Ns = Ns Sy 1048576 Ns B Po 1 MiB Pc Pq u64
-If prefetching is enabled, disable prefetching for reads larger than this size.
-.
 .It Sy zfetch_min_distance Ns = Ns Sy 4194304 Ns B Po 4 MiB Pc Pq uint
 Min bytes to prefetch per stream.
 Prefetch distance starts from the demand access size and quickly grows to
@@ -636,10 +644,7 @@ Max size of ARC in bytes.
 If
 .Sy 0 ,
 then the max size of ARC is determined by the amount of system memory installed.
-Under Linux, half of system memory will be used as the limit.
-Under
-.Fx ,
-the larger of
+The larger of
 .Sy all_system_memory No \- Sy 1 GiB
 and
 .Sy 5/8 No \(mu Sy all_system_memory
@@ -790,7 +795,7 @@ Note that this should not be set below the ZED thresholds
 (currently 10 checksums over 10 seconds)
 or else the daemon may not trigger any action.
 .
-.It Sy zfs_commit_timeout_pct Ns = Ns Sy 5 Ns % Pq uint
+.It Sy zfs_commit_timeout_pct Ns = Ns Sy 10 Ns % Pq uint
 This controls the amount of time that a ZIL block (lwb) will remain "open"
 when it isn't "full", and it has a thread waiting for it to be committed to
 stable storage.
@@ -2142,12 +2147,10 @@ On very fragmented pools, lowering this
 .Pq typically to Sy 36 KiB
 can improve performance.
 .
-.It Sy zil_min_commit_timeout Ns = Ns Sy 5000 Pq u64
-This sets the minimum delay in nanoseconds ZIL care to delay block commit,
-waiting for more records.
-If ZIL writes are too fast, kernel may not be able sleep for so short interval,
-increasing log latency above allowed by
-.Sy zfs_commit_timeout_pct .
+.It Sy zil_maxcopied Ns = Ns Sy 7680 Ns B Po 7.5 KiB Pc Pq uint
+This sets the maximum number of write bytes logged via WR_COPIED.
+It tunes a tradeoff between additional memory copy and possibly worse log
+space efficiency vs additional range lock/unlock.
 .
 .It Sy zil_nocacheflush Ns = Ns Sy 0 Ns | Ns 1 Pq int
 Disable the cache flush commands that are normally sent to disk by
@@ -2159,7 +2162,7 @@ if a volatile out-of-order write cache is enabled.
 Disable intent logging replay.
 Can be disabled for recovery from corrupted ZIL.
 .
-.It Sy zil_slog_bulk Ns = Ns Sy 786432 Ns B Po 768 KiB Pc Pq u64
+.It Sy zil_slog_bulk Ns = Ns Sy 67108864 Ns B Po 64 MiB Pc Pq u64
 Limit SLOG write size per commit executed with synchronous priority.
 Any writes above that will be executed with lower (asynchronous) priority
 to limit potential SLOG device abuse by single active ZIL writer.

@@ -837,7 +837,7 @@ extern kmutex_t spa_namespace_lock;
 
 extern void spa_write_cachefile(spa_t *, boolean_t, boolean_t, boolean_t);
 extern void spa_config_load(void);
-extern nvlist_t *spa_all_configs(uint64_t *);
+extern int spa_all_configs(uint64_t *generation, nvlist_t **pools);
 extern void spa_config_set(spa_t *spa, nvlist_t *config);
 extern nvlist_t *spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg,
     int getstats);
@@ -1056,6 +1056,8 @@ extern uint64_t spa_deadman_synctime(spa_t *spa);
 extern uint64_t spa_deadman_ziotime(spa_t *spa);
 extern uint64_t spa_dirty_data(spa_t *spa);
 extern spa_autotrim_t spa_get_autotrim(spa_t *spa);
+extern int spa_get_allocator(spa_t *spa);
+extern void spa_set_allocator(spa_t *spa, const char *allocator);
 
 /* Miscellaneous support routines */
 extern void spa_load_failed(spa_t *spa, const char *fmt, ...)
@@ -1207,6 +1209,7 @@ int param_set_deadman_ziotime(ZFS_MODULE_PARAM_ARGS);
 int param_set_deadman_synctime(ZFS_MODULE_PARAM_ARGS);
 int param_set_slop_shift(ZFS_MODULE_PARAM_ARGS);
 int param_set_deadman_failmode(ZFS_MODULE_PARAM_ARGS);
+int param_set_active_allocator(ZFS_MODULE_PARAM_ARGS);
 
 #ifdef ZFS_DEBUG
 #define	dprintf_bp(bp, fmt, ...) do {				\

@@ -548,6 +548,7 @@ tun_clone_create(struct if_clone *ifc, char *name, size_t len,
 	if (i != 0)
 		i = tun_create_device(drv, unit, NULL, &dev, name);
 	if (i == 0) {
+		dev_ref(dev);
 		tuncreate(dev);
 		struct tuntap_softc *tp = dev->si_drv1;
 		*ifpp = tp->tun_ifp;
@@ -611,8 +612,10 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 
 		i = tun_create_device(drv, u, cred, dev, name);
 	}
-	if (i == 0)
+	if (i == 0) {
+		dev_ref(*dev);
 		if_clone_create(name, namelen, NULL);
+	}
 out:
 	CURVNET_RESTORE();
 }
@@ -930,6 +933,16 @@ tunstart_l2(struct ifnet *ifp)
 	TUN_UNLOCK(tp);
 } /* tunstart_l2 */
 
+static int
+tap_transmit(struct ifnet *ifp, struct mbuf *m)
+{
+	int error;
+
+	BPF_MTAP(ifp, m);
+	IFQ_HANDOFF(ifp, m, error);
+	return (error);
+}
+
 /* XXX: should return an error code so it can fail. */
 static void
 tuncreate(struct cdev *dev)
@@ -969,6 +982,8 @@ tuncreate(struct cdev *dev)
 	if ((tp->tun_flags & TUN_L2) != 0) {
 		ifp->if_init = tunifinit;
 		ifp->if_start = tunstart_l2;
+		ifp->if_transmit = tap_transmit;
+		ifp->if_qflush = if_qflush;
 
 		ether_gen_addr(ifp, &eaddr);
 		ether_ifattach(ifp, eaddr.octet);
@@ -1410,8 +1425,7 @@ tunoutput(struct ifnet *ifp, struct mbuf *m0, const struct sockaddr *dst,
 	else
 		af = RO_GET_FAMILY(ro, dst);
 
-	if (bpf_peers_present(ifp->if_bpf))
-		bpf_mtap2(ifp->if_bpf, &af, sizeof(af), m0);
+	BPF_MTAP2(ifp, &af, sizeof(af), m0);
 
 	/* prepend sockaddr? this may abort if the mbuf allocation fails */
 	if (cached_tun_flags & TUN_LMODE) {
@@ -1710,9 +1724,6 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 		}
 	}
 	TUN_UNLOCK(tp);
-
-	if ((tp->tun_flags & TUN_L2) != 0)
-		BPF_MTAP(ifp, m);
 
 	len = min(tp->tun_vhdrlen, uio->uio_resid);
 	if (len > 0) {

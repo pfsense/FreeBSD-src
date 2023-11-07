@@ -107,9 +107,9 @@ _Static_assert(offsetof(struct thread, td_flags) == 0x9c,
     "struct thread KBI td_flags");
 _Static_assert(offsetof(struct thread, td_pflags) == 0xa8,
     "struct thread KBI td_pflags");
-_Static_assert(offsetof(struct thread, td_frame) == 0x314,
+_Static_assert(offsetof(struct thread, td_frame) == 0x318,
     "struct thread KBI td_frame");
-_Static_assert(offsetof(struct thread, td_emuldata) == 0x358,
+_Static_assert(offsetof(struct thread, td_emuldata) == 0x35c,
     "struct thread KBI td_emuldata");
 _Static_assert(offsetof(struct proc, p_flag) == 0x6c,
     "struct proc KBI p_flag");
@@ -568,9 +568,15 @@ threadinit(void)
 	if (tid0 != THREAD0_TID)
 		panic("tid0 %d != %d\n", tid0, THREAD0_TID);
 
+	/*
+	 * Thread structures are specially aligned so that (at least) the
+	 * 5 lower bits of a pointer to 'struct thead' must be 0.  These bits
+	 * are used by synchronization primitives to store flags in pointers to
+	 * such structures.
+	 */
 	thread_zone = uma_zcreate("THREAD", sched_sizeof_thread(),
 	    thread_ctor, thread_dtor, thread_init, thread_fini,
-	    32 - 1, UMA_ZONE_NOFREE);
+	    UMA_ALIGN_CACHE_AND_MASK(32 - 1), UMA_ZONE_NOFREE);
 	tidhashtbl = hashinit(maxproc / 2, M_TIDHASH, &tidhash);
 	tidhashlock = (tidhash + 1) / 64;
 	if (tidhashlock > 0)

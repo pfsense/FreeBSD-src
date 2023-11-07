@@ -147,6 +147,9 @@
 /* bio_set_op_attrs is available */
 /* #undef HAVE_BIO_SET_OP_ATTRS */
 
+/* blkdev_get_by_path() exists and takes 4 args */
+/* #undef HAVE_BLKDEV_GET_BY_PATH_4ARG */
+
 /* blkdev_get_by_path() handles ERESTARTSYS */
 /* #undef HAVE_BLKDEV_GET_ERESTARTSYS */
 
@@ -155,6 +158,9 @@
 
 /* blkdev_issue_secure_erase() is available */
 /* #undef HAVE_BLKDEV_ISSUE_SECURE_ERASE */
+
+/* blkdev_put() accepts void* as arg 2 */
+/* #undef HAVE_BLKDEV_PUT_HOLDER */
 
 /* blkdev_reread_part() exists */
 /* #undef HAVE_BLKDEV_REREAD_PART */
@@ -176,6 +182,9 @@
 
 /* blk_cleanup_disk() exists */
 /* #undef HAVE_BLK_CLEANUP_DISK */
+
+/* blk_mode_t is defined */
+/* #undef HAVE_BLK_MODE_T */
 
 /* block multiqueue is available */
 /* #undef HAVE_BLK_MQ */
@@ -213,6 +222,12 @@
 /* blk_queue_write_cache() is GPL-only */
 /* #undef HAVE_BLK_QUEUE_WRITE_CACHE_GPL_ONLY */
 
+/* BLK_STS_RESV_CONFLICT is defined */
+/* #undef HAVE_BLK_STS_RESV_CONFLICT */
+
+/* Define if release() in block_device_operations takes 1 arg */
+/* #undef HAVE_BLOCK_DEVICE_OPERATIONS_RELEASE_1ARG */
+
 /* Define if revalidate_disk() in block_device_operations */
 /* #undef HAVE_BLOCK_DEVICE_OPERATIONS_REVALIDATE_DISK */
 
@@ -239,6 +254,9 @@
 
 /* copy_from_iter() is available */
 /* #undef HAVE_COPY_FROM_ITER */
+
+/* copy_splice_read exists */
+/* #undef HAVE_COPY_SPLICE_READ */
 
 /* copy_to_iter() is available */
 /* #undef HAVE_COPY_TO_ITER */
@@ -270,6 +288,9 @@
 
 /* sops->dirty_inode() wants flags */
 /* #undef HAVE_DIRTY_INODE_WITH_FLAGS */
+
+/* disk_check_media_change() exists */
+/* #undef HAVE_DISK_CHECK_MEDIA_CHANGE */
 
 /* disk_*_io_acct() available */
 /* #undef HAVE_DISK_IO_ACCT */
@@ -328,6 +349,9 @@
 /* Define if compiler supports -Wformat-overflow */
 /* #undef HAVE_FORMAT_OVERFLOW */
 
+/* fsync_bdev() is declared in include/blkdev.h */
+/* #undef HAVE_FSYNC_BDEV */
+
 /* fops->fsync() with range */
 /* #undef HAVE_FSYNC_RANGE */
 
@@ -339,6 +363,9 @@
 
 /* generic_fillattr requires struct mnt_idmap* */
 /* #undef HAVE_GENERIC_FILLATTR_IDMAP */
+
+/* generic_fillattr requires struct mnt_idmap* and u32 request_mask */
+/* #undef HAVE_GENERIC_FILLATTR_IDMAP_REQMASK */
 
 /* generic_fillattr requires struct user_namespace* */
 /* #undef HAVE_GENERIC_FILLATTR_USERNS */
@@ -403,6 +430,9 @@
 /* Define if compiler supports -Winfinite-recursion */
 /* #undef HAVE_INFINITE_RECURSION */
 
+/* inode_get_ctime() exists in linux/fs.h */
+/* #undef HAVE_INODE_GET_CTIME */
+
 /* yes */
 /* #undef HAVE_INODE_LOCK_SHARED */
 
@@ -414,6 +444,9 @@
 
 /* inode_owner_or_capable() takes user_ns */
 /* #undef HAVE_INODE_OWNER_OR_CAPABLE_USERNS */
+
+/* inode_set_ctime_to_ts() exists in linux/fs.h */
+/* #undef HAVE_INODE_SET_CTIME_TO_TS */
 
 /* inode_set_flags() exists */
 /* #undef HAVE_INODE_SET_FLAGS */
@@ -495,6 +528,9 @@
 
 /* Define to 1 if you have the `issetugid' function. */
 #define HAVE_ISSETUGID 1
+
+/* iter_iov() is available */
+/* #undef HAVE_ITER_IOV */
 
 /* kernel has kernel_fpu_* functions */
 /* #undef HAVE_KERNEL_FPU */
@@ -658,6 +694,9 @@
 /* register_shrinker is vararg */
 /* #undef HAVE_REGISTER_SHRINKER_VARARG */
 
+/* register_sysctl_table exists */
+/* #undef HAVE_REGISTER_SYSCTL_TABLE */
+
 /* iops->rename2() exists */
 /* #undef HAVE_RENAME2 */
 
@@ -801,6 +840,9 @@
 /* super_block->s_user_ns exists */
 /* #undef HAVE_SUPER_USER_NS */
 
+/* sync_blockdev() is declared in include/blkdev.h */
+/* #undef HAVE_SYNC_BLOCKDEV */
+
 /* struct kobj_type has default_groups */
 /* #undef HAVE_SYSFS_DEFAULT_GROUPS */
 
@@ -849,6 +891,15 @@
 /* iops->getattr() takes a vfsmount */
 /* #undef HAVE_VFSMOUNT_IOPS_GETATTR */
 
+/* fops->clone_file_range() is available */
+/* #undef HAVE_VFS_CLONE_FILE_RANGE */
+
+/* fops->copy_file_range() is available */
+/* #undef HAVE_VFS_COPY_FILE_RANGE */
+
+/* fops->dedupe_file_range() is available */
+/* #undef HAVE_VFS_DEDUPE_FILE_RANGE */
+
 /* aops->direct_IO() uses iovec */
 /* #undef HAVE_VFS_DIRECT_IO_IOVEC */
 
@@ -863,6 +914,12 @@
 
 /* filemap_dirty_folio exists */
 /* #undef HAVE_VFS_FILEMAP_DIRTY_FOLIO */
+
+/* file_operations_extend takes .copy_file_range() and .clone_file_range() */
+/* #undef HAVE_VFS_FILE_OPERATIONS_EXTEND */
+
+/* generic_copy_file_range() is available */
+/* #undef HAVE_VFS_GENERIC_COPY_FILE_RANGE */
 
 /* All required iov_iter interfaces are available */
 /* #undef HAVE_VFS_IOV_ITER */
@@ -881,6 +938,9 @@
 
 /* read_folio exists */
 /* #undef HAVE_VFS_READ_FOLIO */
+
+/* fops->remap_file_range() is available */
+/* #undef HAVE_VFS_REMAP_FILE_RANGE */
 
 /* fops->read/write_iter() are available */
 /* #undef HAVE_VFS_RW_ITERATE */
@@ -1050,7 +1110,7 @@
 /* #undef ZFS_IS_GPL_COMPATIBLE */
 
 /* Define the project alias string. */
-#define ZFS_META_ALIAS "zfs-2.2.0-FreeBSD_g009d3288"
+#define ZFS_META_ALIAS "zfs-2.2.99-184-FreeBSD_g41e55b476"
 
 /* Define the project author. */
 #define ZFS_META_AUTHOR "OpenZFS"
@@ -1059,7 +1119,7 @@
 /* #undef ZFS_META_DATA */
 
 /* Define the maximum compatible kernel version. */
-#define ZFS_META_KVER_MAX "6.3"
+#define ZFS_META_KVER_MAX "6.5"
 
 /* Define the minimum compatible kernel version. */
 #define ZFS_META_KVER_MIN "3.10"
@@ -1080,10 +1140,10 @@
 #define ZFS_META_NAME "zfs"
 
 /* Define the project release. */
-#define ZFS_META_RELEASE "FreeBSD_g009d3288"
+#define ZFS_META_RELEASE "184-FreeBSD_g41e55b476"
 
 /* Define the project version. */
-#define ZFS_META_VERSION "2.2.0"
+#define ZFS_META_VERSION "2.2.99"
 
 /* count is located in percpu_ref.data */
 /* #undef ZFS_PERCPU_REF_COUNT_IN_DATA */
