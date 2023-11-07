@@ -1153,8 +1153,8 @@ pfctl_get_states(int dev, struct pfctl_states *states)
 	struct pfioc_states_v2 ps;
 	struct pf_state_export *p;
 	char *inbuf = NULL, *newinbuf = NULL;
-	size_t len = 0, i;
-	int error;
+	unsigned int len = 0;
+	int i, error;
 
 	bzero(&ps, sizeof(ps));
 	ps.ps_req_version = PF_STATE_VERSION;

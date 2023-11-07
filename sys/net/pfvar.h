@@ -1773,7 +1773,7 @@ struct pfioc_states {
 };
 
 struct pfioc_states_v2 {
-	unsigned int		ps_len;
+	int		ps_len;
 	uint64_t	ps_req_version;
 	union {
 		void			*ps_buf;
