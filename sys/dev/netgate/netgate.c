@@ -460,7 +460,7 @@ netgate_probe(device_t dev)
 		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0) {
 			netgate_model = ng_ids[i].id;
 			break;
-		}
+
 		/* Chassis */
 		} else if (ng_ids[i].bios == NULL &&
 		    ng_ids[i].boardname == NULL &&
