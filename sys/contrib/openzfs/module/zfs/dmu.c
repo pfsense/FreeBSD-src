@@ -85,6 +85,16 @@ static uint_t zfs_per_txg_dirty_frees_percent = 30;
 static int zfs_dmu_offset_next_sync = 1;
 
 /*
+ * XXXNETGATE
+ *
+ * Hole reporting resulted in quite a few data corruption issues.
+ *
+ * Reporting is purely optional (at cost of wasted space), so err on safety
+ * instead.
+ */
+static int zfs_dmu_report_holes = 0;
+
+/*
  * Limit the amount we can prefetch with one call to this amount.  This
  * helps to limit the amount of memory that can be used by prefetching.
  * Larger objects should be prefetched a bit at a time.
@@ -2136,6 +2146,12 @@ restart:
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
 
+	if (!zfs_dmu_report_holes) {
+		rw_exit(&dn->dn_struct_rwlock);
+		dnode_rele(dn, FTAG);
+		return (SET_ERROR(EBUSY));
+	}
+
 	if (dnode_is_dirty(dn)) {
 		/*
 		 * If the zfs_dmu_offset_next_sync module option is enabled
@@ -2554,6 +2570,9 @@ ZFS_MODULE_PARAM(zfs, zfs_, per_txg_dirty_frees_percent, UINT, ZMOD_RW,
 
 ZFS_MODULE_PARAM(zfs, zfs_, dmu_offset_next_sync, INT, ZMOD_RW,
 	"Enable forcing txg sync to find holes");
+
+ZFS_MODULE_PARAM(zfs, zfs_, dmu_report_holes, INT, ZMOD_RW,
+	"Report holes to lseek et al");
 
 /* CSTYLED */
 ZFS_MODULE_PARAM(zfs, , dmu_prefetch_max, UINT, ZMOD_RW,
