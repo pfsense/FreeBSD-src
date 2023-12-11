@@ -542,15 +542,23 @@ tcp_hpts_release(struct tcpcb *tp)
 }
 
 /*
- * Initialize newborn tcpcb to get ready for use with HPTS.
+ * Initialize tcpcb to get ready for use with HPTS.  We will know which CPU
+ * is preferred on the first incoming packet.  Before that avoid crowding
+ * a single CPU with newborn connections and use a random one.
+ * This initialization is normally called on a newborn tcpcb, but potentially
+ * can be called once again if stack is switched.  In that case we inherit CPU
+ * that the previous stack has set, be it random or not.  In extreme cases,
+ * e.g. syzkaller fuzzing, a tcpcb can already be in HPTS in IHPTS_MOVING state
+ * and has never received a first packet.
  */
 void
 tcp_hpts_init(struct tcpcb *tp)
 {
 
-	tp->t_hpts_cpu = hpts_random_cpu();
-	tp->t_lro_cpu = HPTS_CPU_NONE;
-	MPASS(!(tp->t_flags2 & TF2_HPTS_CPU_SET));
+	if (__predict_true(tp->t_hpts_cpu == HPTS_CPU_NONE)) {
+		tp->t_hpts_cpu = hpts_random_cpu();
+		MPASS(!(tp->t_flags2 & TF2_HPTS_CPU_SET));
+	}
 }
 
 /*
@@ -1489,72 +1497,6 @@ __tcp_set_hpts(struct tcpcb *tp, int32_t line)
 	mtx_unlock(&hpts->p_mtx);
 }
 
-static void
-__tcp_run_hpts(struct tcp_hpts_entry *hpts)
-{
-	int ticks_ran;
-
-	if (hpts->p_hpts_active) {
-		/* Already active */
-		return;
-	}
-	if (mtx_trylock(&hpts->p_mtx) == 0) {
-		/* Someone else got the lock */
-		return;
-	}
-	if (hpts->p_hpts_active)
-		goto out_with_mtx;
-	hpts->syscall_cnt++;
-	counter_u64_add(hpts_direct_call, 1);
-	hpts->p_hpts_active = 1;
-	ticks_ran = tcp_hptsi(hpts, 0);
-	/* We may want to adjust the sleep values here */
-	if (hpts->p_on_queue_cnt >= conn_cnt_thresh) {
-		if (ticks_ran > ticks_indicate_less_sleep) {
-			struct timeval tv;
-			sbintime_t sb;
-
-			hpts->p_mysleep.tv_usec /= 2;
-			if (hpts->p_mysleep.tv_usec < dynamic_min_sleep)
-				hpts->p_mysleep.tv_usec = dynamic_min_sleep;
-			/* Reschedule with new to value */
-			tcp_hpts_set_max_sleep(hpts, 0);
-			tv.tv_usec = hpts->p_hpts_sleep_time * HPTS_TICKS_PER_SLOT;
-			/* Validate its in the right ranges */
-			if (tv.tv_usec < hpts->p_mysleep.tv_usec) {
-				hpts->overidden_sleep = tv.tv_usec;
-				tv.tv_usec = hpts->p_mysleep.tv_usec;
-			} else if (tv.tv_usec > dynamic_max_sleep) {
-				/* Lets not let sleep get above this value */
-				hpts->overidden_sleep = tv.tv_usec;
-				tv.tv_usec = dynamic_max_sleep;
-			}
-			/*
-			 * In this mode the timer is a backstop to
-			 * all the userret/lro_flushes so we use
-			 * the dynamic value and set the on_min_sleep
-			 * flag so we will not be awoken.
-			 */
-			sb = tvtosbt(tv);
-			/* Store off to make visible the actual sleep time */
-			hpts->sleeping = tv.tv_usec;
-			callout_reset_sbt_on(&hpts->co, sb, 0,
-					     hpts_timeout_swi, hpts, hpts->p_cpu,
-					     (C_DIRECT_EXEC | C_PREL(tcp_hpts_precision)));
-		} else if (ticks_ran < ticks_indicate_more_sleep) {
-			/* For the further sleep, don't reschedule  hpts */
-			hpts->p_mysleep.tv_usec *= 2;
-			if (hpts->p_mysleep.tv_usec > dynamic_max_sleep)
-				hpts->p_mysleep.tv_usec = dynamic_max_sleep;
-		}
-		hpts->p_on_min_sleep = 1;
-	}
-	hpts->p_hpts_active = 0;
-out_with_mtx:
-	HPTS_MTX_ASSERT(hpts);
-	mtx_unlock(&hpts->p_mtx);
-}
-
 static struct tcp_hpts_entry *
 tcp_choose_hpts_to_run(void)
 {
@@ -1596,19 +1538,78 @@ tcp_choose_hpts_to_run(void)
 		return(tcp_pace.rp_ent[(curcpu % tcp_pace.rp_num_hptss)]);
 }
 
-
-void
-tcp_run_hpts(void)
+static void
+__tcp_run_hpts(void)
 {
-	static struct tcp_hpts_entry *hpts;
 	struct epoch_tracker et;
+	struct tcp_hpts_entry *hpts;
+	int ticks_ran;
 
-	NET_EPOCH_ENTER(et);
 	hpts = tcp_choose_hpts_to_run();
-	__tcp_run_hpts(hpts);
+
+	if (hpts->p_hpts_active) {
+		/* Already active */
+		return;
+	}
+	if (mtx_trylock(&hpts->p_mtx) == 0) {
+		/* Someone else got the lock */
+		return;
+	}
+	NET_EPOCH_ENTER(et);
+	if (hpts->p_hpts_active)
+		goto out_with_mtx;
+	hpts->syscall_cnt++;
+	counter_u64_add(hpts_direct_call, 1);
+	hpts->p_hpts_active = 1;
+	ticks_ran = tcp_hptsi(hpts, 0);
+	/* We may want to adjust the sleep values here */
+	if (hpts->p_on_queue_cnt >= conn_cnt_thresh) {
+		if (ticks_ran > ticks_indicate_less_sleep) {
+			struct timeval tv;
+			sbintime_t sb;
+
+			hpts->p_mysleep.tv_usec /= 2;
+			if (hpts->p_mysleep.tv_usec < dynamic_min_sleep)
+				hpts->p_mysleep.tv_usec = dynamic_min_sleep;
+			/* Reschedule with new to value */
+			tcp_hpts_set_max_sleep(hpts, 0);
+			tv.tv_sec = 0;
+			tv.tv_usec = hpts->p_hpts_sleep_time * HPTS_TICKS_PER_SLOT;
+			/* Validate its in the right ranges */
+			if (tv.tv_usec < hpts->p_mysleep.tv_usec) {
+				hpts->overidden_sleep = tv.tv_usec;
+				tv.tv_usec = hpts->p_mysleep.tv_usec;
+			} else if (tv.tv_usec > dynamic_max_sleep) {
+				/* Lets not let sleep get above this value */
+				hpts->overidden_sleep = tv.tv_usec;
+				tv.tv_usec = dynamic_max_sleep;
+			}
+			/*
+			 * In this mode the timer is a backstop to
+			 * all the userret/lro_flushes so we use
+			 * the dynamic value and set the on_min_sleep
+			 * flag so we will not be awoken.
+			 */
+			sb = tvtosbt(tv);
+			/* Store off to make visible the actual sleep time */
+			hpts->sleeping = tv.tv_usec;
+			callout_reset_sbt_on(&hpts->co, sb, 0,
+					     hpts_timeout_swi, hpts, hpts->p_cpu,
+					     (C_DIRECT_EXEC | C_PREL(tcp_hpts_precision)));
+		} else if (ticks_ran < ticks_indicate_more_sleep) {
+			/* For the further sleep, don't reschedule  hpts */
+			hpts->p_mysleep.tv_usec *= 2;
+			if (hpts->p_mysleep.tv_usec > dynamic_max_sleep)
+				hpts->p_mysleep.tv_usec = dynamic_max_sleep;
+		}
+		hpts->p_on_min_sleep = 1;
+	}
+	hpts->p_hpts_active = 0;
+out_with_mtx:
+	HPTS_MTX_ASSERT(hpts);
+	mtx_unlock(&hpts->p_mtx);
 	NET_EPOCH_EXIT(et);
 }
-
 
 static void
 tcp_hpts_thread(void *ctx)
@@ -2000,6 +2001,8 @@ tcp_init_hptsi(void *st)
 			break;
 		}
 	}
+	tcp_hpts_softclock = __tcp_run_hpts;
+	tcp_lro_hpts_init();
 	printf("TCP Hpts created %d swi interrupt threads and bound %d to %s\n",
 	    created, bound,
 	    tcp_bind_threads == 2 ? "NUMA domains" : "cpus");

@@ -25,10 +25,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#ifdef __FreeBSD__
-#endif
-
 /*
  * IEEE 802.11 HOSTAP mode support.
  */
@@ -423,6 +419,8 @@ hostap_deliver_data(struct ieee80211vap *vap,
 			(void) ieee80211_vap_xmitpkt(vap, mcopy);
 	}
 	if (m != NULL) {
+		struct epoch_tracker et;
+
 		/*
 		 * Mark frame as coming from vap's interface.
 		 */
@@ -439,7 +437,9 @@ hostap_deliver_data(struct ieee80211vap *vap,
 			m->m_pkthdr.ether_vtag = ni->ni_vlan;
 			m->m_flags |= M_VLANTAG;
 		}
+		NET_EPOCH_ENTER(et);
 		ifp->if_input(ifp, m);
+		NET_EPOCH_EXIT(et);
 	}
 }
 

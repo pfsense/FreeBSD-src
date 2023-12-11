@@ -25,7 +25,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/malloc.h>
 
@@ -40,6 +39,8 @@
 #include <crypto/openssl/ossl_x86.h>
 #elif defined (__aarch64__)
 #include <crypto/openssl/ossl_aarch64.h>
+#elif defined (__arm__)
+#include <crypto/openssl/ossl_arm.h>
 #endif
 
 static ossl_cipher_process_t ossl_aes_cbc;
