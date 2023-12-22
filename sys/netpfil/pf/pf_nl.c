@@ -194,6 +194,14 @@ dump_state(struct nlpcb *nlp, const struct nlmsghdr *hdr, struct pf_kstate *s,
 	nlattr_add_u64(nw, PF_ST_PACKETS1, s->packets[1]);
 	nlattr_add_u64(nw, PF_ST_BYTES0, s->bytes[0]);
 	nlattr_add_u64(nw, PF_ST_BYTES1, s->bytes[1]);
+	nlattr_add_u32(nw, PF_ST_RTABLEID, s->act.rtableid);
+	nlattr_add_u8(nw, PF_ST_MIN_TTL, s->act.min_ttl);
+	nlattr_add_u16(nw, PF_ST_MAX_MSS, s->act.max_mss);
+	nlattr_add_u16(nw, PF_ST_DNPIPE, s->act.dnpipe);
+	nlattr_add_u16(nw, PF_ST_DNRPIPE, s->act.dnrpipe);
+	nlattr_add_u8(nw, PF_ST_RT, s->rt);
+	if (s->rt_kif != NULL)
+		nlattr_add_string(nw, PF_ST_RT_IFNAME, s->rt_kif->pfik_name);
 
 	if (!dump_state_peer(nw, PF_ST_PEER_SRC, &s->src))
 		goto enomem;
@@ -625,8 +633,10 @@ pf_handle_addrule(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	attrs.rule = pf_krule_alloc();
 
 	error = nl_parse_nlmsg(hdr, &addrule_parser, npt, &attrs);
-	if (error != 0)
+	if (error != 0) {
+		pf_free_rule(attrs.rule);
 		return (error);
+	}
 
 	error = pf_ioctl_addrule(attrs.rule, attrs.ticket, attrs.pool_ticket,
 	    attrs.anchor, attrs.anchor_call, nlp_get_cred(npt->nlp)->cr_uid,
