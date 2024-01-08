@@ -127,6 +127,13 @@ fib6_lookup(uint32_t fibnum, const struct in6_addr *dst6,
 	nh = dp->f(dp->arg, key, scopeid);
 	if (nh != NULL) {
 		nh = nhop_select(nh, flowid);
+		/* KP Work around pfSense redmine 14431
+		 * For unclear reasons we can end up with a route using an
+		 * interface that doesn't have IPv6 afdata. This is assumed
+		 * to be a race with interface cleanup, but as long as that's
+		 * not fixed this should at least prevent a panic here. */
+		if (if_getafdata(nh->nh_ifp, AF_INET6) == NULL)
+			goto out;
 		/* Ensure route & ifp is UP */
 		if (RT_LINK_IS_UP(nh->nh_ifp)) {
 			if (flags & NHR_REF)
@@ -134,6 +141,7 @@ fib6_lookup(uint32_t fibnum, const struct in6_addr *dst6,
 			return (nh);
 		}
 	}
+out:
 	RTSTAT_INC(rts_unreach);
 	return (NULL);
 }
