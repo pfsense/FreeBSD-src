@@ -433,7 +433,7 @@ qat_ocf_session_init(device_t dev,
 		    CPA_CY_SYM_OP_ALGORITHM_CHAINING;
 		/* Place the digest result in a buffer unrelated to srcBuffer */
 		sessionSetupData.digestIsAppended = CPA_FALSE;
-		/* Due to FW limitation it's done by SW */
+		/* Due to FW limitation to verify only appended MACs */
 		sessionSetupData.verifyDigest = CPA_FALSE;
 		if (CRYPTO_OP_IS_ENCRYPT(crp->crp_op)) {
 			sessionSetupData.cipherSetupData.cipherDirection =
