@@ -7,7 +7,7 @@
  * of Cambridge Computer Laboratory (Department of Computer Science
  * and Technology) under Defense Advanced Research Projects Agency
  * (DARPA) contract HR0011-18-C-0016 ("ECATS"), as part of the DARPA
- * SSITH research programme and under DARPA Contract No. HR001122S0003
+ * SSITH research programme and under DARPA Contract No. HR001123C0031
  * ("MTSS").
  *
  * Redistribution and use in source and binary forms, with or without
@@ -170,11 +170,7 @@ elf_read_raw_data(struct elf_file *efile, off_t offset, void *dst, size_t len)
 {
 	ssize_t nread;
 
-	if (offset != (off_t)-1) {
-		if (lseek(efile->ef_fd, offset, SEEK_SET) == -1)
-			return (EIO);
-	}
-	nread = read(efile->ef_fd, dst, len);
+	nread = pread(efile->ef_fd, dst, len, offset);
 	if (nread == -1)
 		return (errno);
 	if (nread != len)
