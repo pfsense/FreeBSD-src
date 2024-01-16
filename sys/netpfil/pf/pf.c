@@ -1227,6 +1227,7 @@ pf_state_key_attach(struct pf_state_key *skw, struct pf_state_key *sks,
 	struct pf_kstate	*si, *olds = NULL;
 	int idx;
 
+	NET_EPOCH_ASSERT();
 	KASSERT(s->refs == 0, ("%s: state not pristine", __func__));
 	KASSERT(s->key[PF_SK_WIRE] == NULL, ("%s: state has key", __func__));
 	KASSERT(s->key[PF_SK_STACK] == NULL, ("%s: state has key", __func__));
@@ -1393,7 +1394,12 @@ pf_detach_state(struct pf_kstate *s)
 	struct pf_state_key *sks = s->key[PF_SK_STACK];
 	struct pf_keyhash *kh;
 
+	NET_EPOCH_ASSERT();
+
 	pf_sctp_multihome_detach_addr(s);
+
+	if ((s->state_flags & PFSTATE_PFLOW) && V_pflow_export_state_ptr)
+		V_pflow_export_state_ptr(s);
 
 	if (sks != NULL) {
 		kh = &V_pf_keyhash[pf_hashkey(sks)];
@@ -1491,6 +1497,8 @@ pf_state_insert(struct pfi_kkif *kif, struct pfi_kkif *orig_kif,
 	struct pf_idhash *ih;
 	struct pf_kstate *cur;
 	int error;
+
+	NET_EPOCH_ASSERT();
 
 	KASSERT(TAILQ_EMPTY(&sks->states[0]) && TAILQ_EMPTY(&sks->states[1]),
 	    ("%s: sks not pristine", __func__));
@@ -1916,6 +1924,8 @@ pf_counter_u64_periodic_main(void)
 void
 pf_purge_thread(void *unused __unused)
 {
+	struct epoch_tracker	 et;
+
 	VNET_ITERATOR_DECL(vnet_iter);
 
 	sx_xlock(&pf_end_lock);
@@ -1923,6 +1933,7 @@ pf_purge_thread(void *unused __unused)
 		sx_sleep(pf_purge_thread, &pf_end_lock, 0, "pftm", pf_purge_thread_period);
 
 		VNET_LIST_RLOCK();
+		NET_EPOCH_ENTER(et);
 		VNET_FOREACH(vnet_iter) {
 			CURVNET_SET(vnet_iter);
 
@@ -1959,6 +1970,7 @@ pf_purge_thread(void *unused __unused)
 			}
 			CURVNET_RESTORE();
 		}
+		NET_EPOCH_EXIT(et);
 		VNET_LIST_RUNLOCK();
 	}
 
@@ -2026,12 +2038,12 @@ pf_state_expires(const struct pf_kstate *state)
 		if (states < end) {
 			timeout = (u_int64_t)timeout * (end - states) /
 			    (end - start);
-			return (state->expire + timeout);
+			return ((state->expire / 1000) + timeout);
 		}
 		else
 			return (time_uptime);
 	}
-	return (state->expire + timeout);
+	return ((state->expire / 1000) + timeout);
 }
 
 void
@@ -2098,6 +2110,7 @@ pf_unlink_state(struct pf_kstate *s)
 {
 	struct pf_idhash *ih = &V_pf_idhash[PF_IDHASH(s)];
 
+	NET_EPOCH_ASSERT();
 	PF_HASHROW_ASSERT(ih);
 
 	if (s->timeout == PFTM_UNLINKED) {
@@ -4863,6 +4876,9 @@ pf_create_state(struct pf_krule *r, struct pf_krule *nr, struct pf_krule *a,
 		s->state_flags |= PFSTATE_SLOPPY;
 	if (pd->flags & PFDESC_TCP_NORM) /* Set by old-style scrub rules */
 		s->state_flags |= PFSTATE_SCRUB_TCP;
+	if ((r->rule_flag & PFRULE_PFLOW) ||
+	    (nr != NULL && nr->rule_flag & PFRULE_PFLOW))
+		s->state_flags |= PFSTATE_PFLOW;
 
 	s->act.log = pd->act.log & PF_LOG_ALL;
 	s->sync_state = PFSYNC_S_NONE;
@@ -4937,8 +4953,7 @@ pf_create_state(struct pf_krule *r, struct pf_krule *nr, struct pf_krule *a,
 		s->rt = r->rt;
 	}
 
-	s->creation = time_uptime;
-	s->expire = time_uptime;
+	s->creation = s->expire = pf_get_uptime();
 
 	if (sn != NULL)
 		s->src_node = sn;
@@ -5412,7 +5427,7 @@ pf_tcp_track_full(struct pf_kstate **state, struct pfi_kkif *kif,
 			pf_set_protostate(*state, PF_PEER_BOTH, TCPS_TIME_WAIT);
 
 		/* update expire time */
-		(*state)->expire = time_uptime;
+		(*state)->expire = pf_get_uptime();
 		if (src->state >= TCPS_FIN_WAIT_2 &&
 		    dst->state >= TCPS_FIN_WAIT_2)
 			(*state)->timeout = PFTM_TCP_CLOSED;
@@ -5608,7 +5623,7 @@ pf_tcp_track_sloppy(struct pf_kstate **state, struct pf_pdesc *pd, u_short *reas
 		pf_set_protostate(*state, PF_PEER_BOTH, TCPS_TIME_WAIT);
 
 	/* update expire time */
-	(*state)->expire = time_uptime;
+	(*state)->expire = pf_get_uptime();
 	if (src->state >= TCPS_FIN_WAIT_2 &&
 	    dst->state >= TCPS_FIN_WAIT_2)
 		(*state)->timeout = PFTM_TCP_CLOSED;
@@ -5856,7 +5871,7 @@ pf_test_state_udp(struct pf_kstate **state, struct pfi_kkif *kif,
 		pf_set_protostate(*state, pdst, PFUDPS_MULTIPLE);
 
 	/* update expire time */
-	(*state)->expire = time_uptime;
+	(*state)->expire = pf_get_uptime();
 	if (src->state == PFUDPS_MULTIPLE && dst->state == PFUDPS_MULTIPLE)
 		(*state)->timeout = PFTM_UDP_MULTIPLE;
 	else
@@ -5957,7 +5972,7 @@ pf_test_state_sctp(struct pf_kstate **state, struct pfi_kkif *kif,
 			return (PF_DROP);
 	}
 
-	(*state)->expire = time_uptime;
+	(*state)->expire = pf_get_uptime();
 
 	/* translate source/destination address, if necessary */
 	if ((*state)->key[PF_SK_WIRE] != (*state)->key[PF_SK_STACK]) {
@@ -6464,7 +6479,7 @@ pf_test_state_icmp(struct pf_kstate **state, struct pfi_kkif *kif,
 
 		STATE_LOOKUP(kif, &key, *state, pd);
 
-		(*state)->expire = time_uptime;
+		(*state)->expire = pf_get_uptime();
 		(*state)->timeout = PFTM_ICMP_ERROR_REPLY;
 
 		/* translate source/destination address, if necessary */
@@ -7049,7 +7064,7 @@ pf_test_state_other(struct pf_kstate **state, struct pfi_kkif *kif,
 		pf_set_protostate(*state, pdst, PFOTHERS_MULTIPLE);
 
 	/* update expire time */
-	(*state)->expire = time_uptime;
+	(*state)->expire = pf_get_uptime();
 	if (src->state == PFOTHERS_MULTIPLE && dst->state == PFOTHERS_MULTIPLE)
 		(*state)->timeout = PFTM_OTHER_MULTIPLE;
 	else
@@ -8538,6 +8553,13 @@ done:
 
 	SDT_PROBE4(pf, ip, test, done, action, reason, r, s);
 
+	if (s && action != PF_DROP) {
+		if (!s->if_index_in && dir == PF_IN)
+			s->if_index_in = ifp->if_index;
+		else if (!s->if_index_out && dir == PF_OUT)
+			s->if_index_out = ifp->if_index;
+	}
+
 	if (s)
 		PF_STATE_UNLOCK(s);
 
@@ -9088,6 +9110,13 @@ done:
 			REASON_SET(&reason, PFRES_MEMORY);
 		}
 		break;
+	}
+
+	if (s && action != PF_DROP) {
+		if (!s->if_index_in && dir == PF_IN)
+			s->if_index_in = ifp->if_index;
+		else if (!s->if_index_out && dir == PF_OUT)
+			s->if_index_out = ifp->if_index;
 	}
 
 	if (s)
