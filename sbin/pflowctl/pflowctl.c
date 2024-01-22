@@ -47,11 +47,11 @@
 
 static int get(int id);
 
+extern char *__progname;
+
 static void
 usage(void)
 {
-	extern char *__progname;
-
 	fprintf(stderr,
 "usage: %s [-la] [-d id]\n",
 	    __progname);
@@ -340,7 +340,7 @@ get(int id)
 		if (! snl_parse_nlmsg(&ss, hdr, &get_parser, &g))
 			continue;
 
-		printf("pflow%d: version %d domain %d", g.id, g.version, g.obs_dom);
+		printf("pflow%d: version %d domain %u", g.id, g.version, g.obs_dom);
 		print_sockaddr(" src ", &g.src.storage);
 		print_sockaddr(" dst ", &g.dst.storage);
 		printf("\n");
