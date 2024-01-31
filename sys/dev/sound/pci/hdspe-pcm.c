@@ -814,6 +814,9 @@ hdspechan_setspeed(kobj_t obj, void *data, uint32_t speed)
 	if (hdspe_running(sc) == 1)
 		goto end;
 
+	if (sc->force_speed > 0)
+		speed = sc->force_speed;
+
 	/* First look for equal frequency. */
 	for (i = 0; rate_map[i].speed != 0; i++) {
 		if (rate_map[i].speed == speed)
@@ -890,6 +893,9 @@ hdspechan_setblocksize(kobj_t obj, void *data, uint32_t blocksize)
 		blocksize = HDSPE_LAT_BYTES_MIN;
 
 	blocksize /= 4 /* samples */;
+
+	if (sc->force_period > 0)
+		blocksize = sc->force_period;
 
 	/* First look for equal latency. */
 	for (i = 0; latency_map[i].period != 0; i++) {
