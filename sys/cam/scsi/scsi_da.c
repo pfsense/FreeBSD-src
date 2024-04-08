@@ -137,7 +137,7 @@ typedef enum {
 	"\013CAN_RC16"		\
 	"\014PROBED"		\
 	"\015DIRTY"		\
-	"\016ANNOUCNED"		\
+	"\016ANNOUNCED"		\
 	"\017CAN_ATA_DMA"	\
 	"\020CAN_ATA_LOG"	\
 	"\021CAN_ATA_IDLOG"	\
@@ -1393,6 +1393,22 @@ static struct da_quirk_entry da_quirk_table[] =
 		 * 4k optimised & trim only works in 4k requests + 4k aligned
 		 */
 		{ T_DIRECT, SIP_MEDIA_FIXED, "ATA", "Samsung SSD 850*", "*" },
+		/*quirks*/DA_Q_4K
+	},
+	{
+		/*
+		 * Samsung 860 SSDs
+		 * 4k optimised & trim only works in 4k requests + 4k aligned
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "ATA", "Samsung SSD 860*", "*" },
+		/*quirks*/DA_Q_4K
+	},
+	{
+		/*
+		 * Samsung 870 SSDs
+		 * 4k optimised & trim only works in 4k requests + 4k aligned
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "ATA", "Samsung SSD 870*", "*" },
 		/*quirks*/DA_Q_4K
 	},
 	{

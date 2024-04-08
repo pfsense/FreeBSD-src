@@ -159,12 +159,12 @@ arc_call_conduit()
 }
 
 #
-# Filter the output of arc list to remove the warnings as above, as well as any
-# stray escape sequences that are in the list (it interferes with the parsing)
+# Filter the output of arc list to remove the warnings as above, as well as
+# the bolding sequence (the color sequence remains intact).
 #
 arc_list()
 {
-    arc list "$@" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^Warning: '
+    arc list "$@" | grep -v '^Warning: ' | sed -E 's/\x1b\[1m//g;s/\x1b\[m//g'
 }
 
 diff2phid()
@@ -219,7 +219,7 @@ title2diff()
     local title
 
     title=$(echo $1 | sed 's/"/\\"/g')
-    arc_list |
+    arc_list --no-ansi |
         awk -F': ' '{
             if (substr($0, index($0, FS) + length(FS)) == "'"$title"'") {
                 print substr($1, match($1, "D[1-9][0-9]*"))
@@ -364,7 +364,7 @@ build_commit_list()
         _commits=$(git rev-parse "${chash}")
         if ! git cat-file -e "${chash}"'^{commit}' >/dev/null 2>&1; then
             # shellcheck disable=SC2086
-            _commits=$(git rev-list $_commits | tail -r)
+            _commits=$(git rev-list --reverse $_commits)
         fi
         [ -n "$_commits" ] || err "invalid commit ID ${chash}"
         commits="$commits $_commits"
@@ -430,7 +430,7 @@ gitarc__list()
     local chash commit commits diff openrevs title
 
     commits=$(build_commit_list "$@")
-    openrevs=$(arc_list)
+    openrevs=$(arc_list --ansi)
 
     for commit in $commits; do
         chash=$(git show -s --format='%C(auto)%h' "$commit")
@@ -449,7 +449,7 @@ gitarc__list()
             awk -F'D[1-9][0-9]*: ' \
                 '{if ($2 == "'"$(echo $title | sed 's/"/\\"/g')"'") print $0}')
         if [ -z "$diff" ]; then
-            echo "No Review      : $title"
+            echo "No Review            : $title"
         elif [ "$(echo "$diff" | wc -l)" -ne 1 ]; then
             echo -n "Ambiguous Reviews: "
             echo "$diff" | grep -E -o 'D[1-9][0-9]*:' | tr -d ':' \

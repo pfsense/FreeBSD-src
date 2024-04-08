@@ -41,7 +41,7 @@
 			if (a[i] ~ /^package=/) {
 				pkgname=a[i]
 				if ($1 ~ /^\/boot\//) {
-					if ($1 ~ /^\/boot\/dtb\//)
+					if (kernel != "" && $1 ~ /^\/boot\/dtb\//)
 						pkgname="dtb"
 					else
 						pkgname="bootloader"

@@ -74,6 +74,7 @@
 #include <sys/arc.h>
 #include <sys/arc_impl.h>
 #include <sys/ddt.h>
+#include <sys/ddt_impl.h>
 #include <sys/zfeature.h>
 #include <sys/abd.h>
 #include <sys/blkptr.h>
@@ -88,36 +89,10 @@
 #include <libnvpair.h>
 #include <libzutil.h>
 
+#include <libzdb.h>
+
 #include "zdb.h"
 
-#define	ZDB_COMPRESS_NAME(idx) ((idx) < ZIO_COMPRESS_FUNCTIONS ?	\
-	zio_compress_table[(idx)].ci_name : "UNKNOWN")
-#define	ZDB_CHECKSUM_NAME(idx) ((idx) < ZIO_CHECKSUM_FUNCTIONS ?	\
-	zio_checksum_table[(idx)].ci_name : "UNKNOWN")
-#define	ZDB_OT_TYPE(idx) ((idx) < DMU_OT_NUMTYPES ? (idx) :		\
-	(idx) == DMU_OTN_ZAP_DATA || (idx) == DMU_OTN_ZAP_METADATA ?	\
-	DMU_OT_ZAP_OTHER : \
-	(idx) == DMU_OTN_UINT64_DATA || (idx) == DMU_OTN_UINT64_METADATA ? \
-	DMU_OT_UINT64_OTHER : DMU_OT_NUMTYPES)
-
-/* Some platforms require part of inode IDs to be remapped */
-#ifdef __APPLE__
-#define	ZDB_MAP_OBJECT_ID(obj) INO_XNUTOZFS(obj, 2)
-#else
-#define	ZDB_MAP_OBJECT_ID(obj) (obj)
-#endif
-
-static const char *
-zdb_ot_name(dmu_object_type_t type)
-{
-	if (type < DMU_OT_NUMTYPES)
-		return (dmu_ot[type].ot_name);
-	else if ((type & DMU_OT_NEWTYPE) &&
-	    ((type & DMU_OT_BYTESWAP_MASK) < DMU_BSWAP_NUMFUNCS))
-		return (dmu_ot_byteswap[type & DMU_OT_BYTESWAP_MASK].ob_name);
-	else
-		return ("UNKNOWN");
-}
 
 extern int reference_tracking_enable;
 extern int zfs_recover;
@@ -135,35 +110,12 @@ typedef void object_viewer_t(objset_t *, uint64_t, void *data, size_t size);
 static uint64_t *zopt_metaslab = NULL;
 static unsigned zopt_metaslab_args = 0;
 
-typedef struct zopt_object_range {
-	uint64_t zor_obj_start;
-	uint64_t zor_obj_end;
-	uint64_t zor_flags;
-} zopt_object_range_t;
 
 static zopt_object_range_t *zopt_object_ranges = NULL;
 static unsigned zopt_object_args = 0;
 
 static int flagbits[256];
 
-#define	ZOR_FLAG_PLAIN_FILE	0x0001
-#define	ZOR_FLAG_DIRECTORY	0x0002
-#define	ZOR_FLAG_SPACE_MAP	0x0004
-#define	ZOR_FLAG_ZAP		0x0008
-#define	ZOR_FLAG_ALL_TYPES	-1
-#define	ZOR_SUPPORTED_FLAGS	(ZOR_FLAG_PLAIN_FILE	| \
-				ZOR_FLAG_DIRECTORY	| \
-				ZOR_FLAG_SPACE_MAP	| \
-				ZOR_FLAG_ZAP)
-
-#define	ZDB_FLAG_CHECKSUM	0x0001
-#define	ZDB_FLAG_DECOMPRESS	0x0002
-#define	ZDB_FLAG_BSWAP		0x0004
-#define	ZDB_FLAG_GBH		0x0008
-#define	ZDB_FLAG_INDIRECT	0x0010
-#define	ZDB_FLAG_RAW		0x0020
-#define	ZDB_FLAG_PRINT_BLKPTR	0x0040
-#define	ZDB_FLAG_VERBOSE	0x0080
 
 static uint64_t max_inflight_bytes = 256 * 1024 * 1024; /* 256MB */
 static int leaked_objects = 0;
@@ -176,62 +128,7 @@ static void mos_obj_refd_multiple(uint64_t);
 static int dump_bpobj_cb(void *arg, const blkptr_t *bp, boolean_t free,
     dmu_tx_t *tx);
 
-typedef struct sublivelist_verify {
-	/* FREE's that haven't yet matched to an ALLOC, in one sub-livelist */
-	zfs_btree_t sv_pair;
 
-	/* ALLOC's without a matching FREE, accumulates across sub-livelists */
-	zfs_btree_t sv_leftover;
-} sublivelist_verify_t;
-
-static int
-livelist_compare(const void *larg, const void *rarg)
-{
-	const blkptr_t *l = larg;
-	const blkptr_t *r = rarg;
-
-	/* Sort them according to dva[0] */
-	uint64_t l_dva0_vdev, r_dva0_vdev;
-	l_dva0_vdev = DVA_GET_VDEV(&l->blk_dva[0]);
-	r_dva0_vdev = DVA_GET_VDEV(&r->blk_dva[0]);
-	if (l_dva0_vdev < r_dva0_vdev)
-		return (-1);
-	else if (l_dva0_vdev > r_dva0_vdev)
-		return (+1);
-
-	/* if vdevs are equal, sort by offsets. */
-	uint64_t l_dva0_offset;
-	uint64_t r_dva0_offset;
-	l_dva0_offset = DVA_GET_OFFSET(&l->blk_dva[0]);
-	r_dva0_offset = DVA_GET_OFFSET(&r->blk_dva[0]);
-	if (l_dva0_offset < r_dva0_offset) {
-		return (-1);
-	} else if (l_dva0_offset > r_dva0_offset) {
-		return (+1);
-	}
-
-	/*
-	 * Since we're storing blkptrs without cancelling FREE/ALLOC pairs,
-	 * it's possible the offsets are equal. In that case, sort by txg
-	 */
-	if (l->blk_birth < r->blk_birth) {
-		return (-1);
-	} else if (l->blk_birth > r->blk_birth) {
-		return (+1);
-	}
-	return (0);
-}
-
-typedef struct sublivelist_verify_block {
-	dva_t svb_dva;
-
-	/*
-	 * We need this to check if the block marked as allocated
-	 * in the livelist was freed (and potentially reallocated)
-	 * in the metaslab spacemaps at a later TXG.
-	 */
-	uint64_t svb_allocated_txg;
-} sublivelist_verify_block_t;
 
 static void zdb_print_blkptr(const blkptr_t *bp, int flags);
 
@@ -302,7 +199,8 @@ sublivelist_verify_blkptr(void *arg, const blkptr_t *bp, boolean_t free,
 					break;
 				sublivelist_verify_block_t svb = {
 				    .svb_dva = bp->blk_dva[i],
-				    .svb_allocated_txg = bp->blk_birth
+				    .svb_allocated_txg =
+				    BP_GET_LOGICAL_BIRTH(bp)
 				};
 
 				if (zfs_btree_find(&sv->sv_leftover, &svb,
@@ -2008,7 +1906,7 @@ dump_dedup_ratio(const ddt_stat_t *dds)
 }
 
 static void
-dump_ddt(ddt_t *ddt, enum ddt_type type, enum ddt_class class)
+dump_ddt(ddt_t *ddt, ddt_type_t type, ddt_class_t class)
 {
 	char name[DDT_NAMELEN];
 	ddt_entry_t dde;
@@ -2068,8 +1966,10 @@ dump_all_ddts(spa_t *spa)
 
 	for (enum zio_checksum c = 0; c < ZIO_CHECKSUM_FUNCTIONS; c++) {
 		ddt_t *ddt = spa->spa_ddt[c];
-		for (enum ddt_type type = 0; type < DDT_TYPES; type++) {
-			for (enum ddt_class class = 0; class < DDT_CLASSES;
+		if (!ddt)
+			continue;
+		for (ddt_type_t type = 0; type < DDT_TYPES; type++) {
+			for (ddt_class_t class = 0; class < DDT_CLASSES;
 			    class++) {
 				dump_ddt(ddt, type, class);
 			}
@@ -2441,7 +2341,7 @@ snprintf_blkptr_compact(char *blkbuf, size_t buflen, const blkptr_t *bp,
 		    (int)BPE_GET_ETYPE(bp),
 		    (u_longlong_t)BPE_GET_LSIZE(bp),
 		    (u_longlong_t)BPE_GET_PSIZE(bp),
-		    (u_longlong_t)bp->blk_birth);
+		    (u_longlong_t)BP_GET_LOGICAL_BIRTH(bp));
 		return;
 	}
 
@@ -2459,7 +2359,7 @@ snprintf_blkptr_compact(char *blkbuf, size_t buflen, const blkptr_t *bp,
 		    buflen - strlen(blkbuf),
 		    "%llxL B=%llu",
 		    (u_longlong_t)BP_GET_LSIZE(bp),
-		    (u_longlong_t)bp->blk_birth);
+		    (u_longlong_t)BP_GET_LOGICAL_BIRTH(bp));
 	} else {
 		(void) snprintf(blkbuf + strlen(blkbuf),
 		    buflen - strlen(blkbuf),
@@ -2467,8 +2367,8 @@ snprintf_blkptr_compact(char *blkbuf, size_t buflen, const blkptr_t *bp,
 		    (u_longlong_t)BP_GET_LSIZE(bp),
 		    (u_longlong_t)BP_GET_PSIZE(bp),
 		    (u_longlong_t)BP_GET_FILL(bp),
-		    (u_longlong_t)bp->blk_birth,
-		    (u_longlong_t)BP_PHYSICAL_BIRTH(bp));
+		    (u_longlong_t)BP_GET_LOGICAL_BIRTH(bp),
+		    (u_longlong_t)BP_GET_BIRTH(bp));
 		if (bp_freed)
 			(void) snprintf(blkbuf + strlen(blkbuf),
 			    buflen - strlen(blkbuf), " %s", "FREE");
@@ -2518,7 +2418,7 @@ visit_indirect(spa_t *spa, const dnode_phys_t *dnp,
 {
 	int err = 0;
 
-	if (bp->blk_birth == 0)
+	if (BP_GET_LOGICAL_BIRTH(bp) == 0)
 		return (0);
 
 	print_indirect(spa, bp, zb, dnp);
@@ -2706,7 +2606,7 @@ dump_bptree_cb(void *arg, const blkptr_t *bp, dmu_tx_t *tx)
 	(void) arg, (void) tx;
 	char blkbuf[BP_SPRINTF_LEN];
 
-	if (bp->blk_birth != 0) {
+	if (BP_GET_LOGICAL_BIRTH(bp) != 0) {
 		snprintf_blkptr(blkbuf, sizeof (blkbuf), bp);
 		(void) printf("\t%s\n", blkbuf);
 	}
@@ -2747,7 +2647,7 @@ dump_bpobj_cb(void *arg, const blkptr_t *bp, boolean_t bp_freed, dmu_tx_t *tx)
 	(void) arg, (void) tx;
 	char blkbuf[BP_SPRINTF_LEN];
 
-	ASSERT(bp->blk_birth != 0);
+	ASSERT(BP_GET_LOGICAL_BIRTH(bp) != 0);
 	snprintf_blkptr_compact(blkbuf, sizeof (blkbuf), bp, bp_freed);
 	(void) printf("\t%s\n", blkbuf);
 	return (0);
@@ -5889,7 +5789,7 @@ zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	if (zb->zb_level == ZB_DNODE_LEVEL)
 		return (0);
 
-	if (dump_opt['b'] >= 5 && bp->blk_birth > 0) {
+	if (dump_opt['b'] >= 5 && BP_GET_LOGICAL_BIRTH(bp) > 0) {
 		char blkbuf[BP_SPRINTF_LEN];
 		snprintf_blkptr(blkbuf, sizeof (blkbuf), bp);
 		(void) printf("objset %llu object %llu "
@@ -6165,6 +6065,8 @@ zdb_ddt_leak_init(spa_t *spa, zdb_cb_t *zcb)
 			return;
 
 		ASSERT(ddt_phys_total_refcnt(&dde) > 1);
+		ddt_t *ddt = spa->spa_ddt[ddb.ddb_checksum];
+		VERIFY(ddt);
 
 		for (p = 0; p < DDT_PHYS_TYPES; p++, ddp++) {
 			if (ddp->ddp_phys_birth == 0)
@@ -6179,7 +6081,7 @@ zdb_ddt_leak_init(spa_t *spa, zdb_cb_t *zcb)
 				zcb->zcb_dedup_blocks++;
 			}
 		}
-		ddt_t *ddt = spa->spa_ddt[ddb.ddb_checksum];
+
 		ddt_enter(ddt);
 		VERIFY(ddt_lookup(ddt, &blk, B_TRUE) != NULL);
 		ddt_exit(ddt);
@@ -7225,6 +7127,7 @@ dump_block_stats(spa_t *spa)
 }
 
 typedef struct zdb_ddt_entry {
+	/* key must be first for ddt_key_compare */
 	ddt_key_t	zdde_key;
 	uint64_t	zdde_ref_blocks;
 	uint64_t	zdde_ref_lsize;
@@ -7285,7 +7188,7 @@ dump_simulated_ddt(spa_t *spa)
 	ddt_histogram_t ddh_total = {{{0}}};
 	ddt_stat_t dds_total = {0};
 
-	avl_create(&t, ddt_entry_compare,
+	avl_create(&t, ddt_key_compare,
 	    sizeof (zdb_ddt_entry_t), offsetof(zdb_ddt_entry_t, zdde_node));
 
 	spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
@@ -8051,7 +7954,20 @@ dump_mos_leaks(spa_t *spa)
 			for (uint64_t cksum = 0;
 			    cksum < ZIO_CHECKSUM_FUNCTIONS; cksum++) {
 				ddt_t *ddt = spa->spa_ddt[cksum];
+				if (!ddt)
+					continue;
 				mos_obj_refd(ddt->ddt_object[type][class]);
+			}
+		}
+	}
+
+	if (spa->spa_brt != NULL) {
+		brt_t *brt = spa->spa_brt;
+		for (uint64_t vdevid = 0; vdevid < brt->brt_nvdevs; vdevid++) {
+			brt_vdev_t *brtvd = &brt->brt_vdevs[vdevid];
+			if (brtvd != NULL && brtvd->bv_initiated) {
+				mos_obj_refd(brtvd->bv_mos_brtvdev);
+				mos_obj_refd(brtvd->bv_mos_entries);
 			}
 		}
 	}

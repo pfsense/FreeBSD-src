@@ -291,8 +291,7 @@ static int	unp_connect(struct socket *, struct sockaddr *,
 		    struct thread *);
 static int	unp_connectat(int, struct socket *, struct sockaddr *,
 		    struct thread *, bool);
-typedef enum { PRU_CONNECT, PRU_CONNECT2 } conn2_how;
-static void	unp_connect2(struct socket *so, struct socket *so2, conn2_how);
+static void	unp_connect2(struct socket *so, struct socket *so2);
 static void	unp_disconnect(struct unpcb *unp, struct unpcb *unp2);
 static void	unp_dispose(struct socket *so);
 static void	unp_shutdown(struct unpcb *);
@@ -595,8 +594,19 @@ restart:
 	error = mac_vnode_check_create(td->td_ucred, nd.ni_dvp, &nd.ni_cnd,
 	    &vattr);
 #endif
-	if (error == 0)
+	if (error == 0) {
+		/*
+		 * The prior lookup may have left LK_SHARED in cn_lkflags,
+		 * and VOP_CREATE technically only requires the new vnode to
+		 * be locked shared. Most filesystems will return the new vnode
+		 * locked exclusive regardless, but we should explicitly
+		 * specify that here since we require it and assert to that
+		 * effect below.
+		 */
+		nd.ni_cnd.cn_lkflags = (nd.ni_cnd.cn_lkflags & ~LK_SHARED) |
+		    LK_EXCLUSIVE;
 		error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
+	}
 	NDFREE_PNBUF(&nd);
 	if (error) {
 		VOP_VPUT_PAIR(nd.ni_dvp, NULL, true);
@@ -704,7 +714,7 @@ uipc_connect2(struct socket *so1, struct socket *so2)
 	unp2 = so2->so_pcb;
 	KASSERT(unp2 != NULL, ("uipc_connect2: unp2 == NULL"));
 	unp_pcb_lock_pair(unp, unp2);
-	unp_connect2(so1, so2, PRU_CONNECT2);
+	unp_connect2(so1, so2);
 	unp_pcb_unlock_pair(unp, unp2);
 
 	return (0);
@@ -999,8 +1009,8 @@ uipc_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
 	switch (so->so_type) {
 	case SOCK_STREAM:
 		if (control != NULL) {
-			sbappendcontrol_locked(&so2->so_rcv, m,
-			    control, flags);
+			sbappendcontrol_locked(&so2->so_rcv,
+			    m->m_len > 0 ?  m : NULL, control, flags);
 			control = NULL;
 		} else
 			sbappend_locked(&so2->so_rcv, m, flags);
@@ -1440,7 +1450,8 @@ uipc_soreceive_dgram(struct socket *so, struct sockaddr **psa, struct uio *uio,
 	    (m = STAILQ_FIRST(&so->so_rcv.uxdg_mb)) == NULL) {
 		if (so->so_error) {
 			error = so->so_error;
-			so->so_error = 0;
+			if (!(flags & MSG_PEEK))
+				so->so_error = 0;
 			SOCK_RECVBUF_UNLOCK(so);
 			SOCK_IO_RECV_UNLOCK(so);
 			return (error);
@@ -1669,7 +1680,14 @@ uipc_shutdown(struct socket *so, enum shutdown_how how)
 	int error;
 
 	SOCK_LOCK(so);
-	if ((so->so_state &
+	if (SOLISTENING(so)) {
+		if (how != SHUT_WR) {
+			so->so_error = ECONNABORTED;
+			solisten_wakeup(so);    /* unlocks so */
+		} else
+			SOCK_UNLOCK(so);
+		return (ENOTCONN);
+	} else if ((so->so_state &
 	    (SS_ISCONNECTED | SS_ISCONNECTING | SS_ISDISCONNECTING)) == 0) {
 		/*
 		 * POSIX mandates us to just return ENOTCONN when shutdown(2) is
@@ -1691,14 +1709,6 @@ uipc_shutdown(struct socket *so, enum shutdown_how how)
 		}
 	} else
 		error = 0;
-	if (SOLISTENING(so)) {
-		if (how != SHUT_WR) {
-			so->so_error = ECONNABORTED;
-			solisten_wakeup(so);    /* unlocks so */
-		} else
-			SOCK_UNLOCK(so);
-		return (0);
-	}
 	SOCK_UNLOCK(so);
 
 	switch (how) {
@@ -1783,12 +1793,6 @@ uipc_ctloutput(struct socket *so, struct sockopt *sopt)
 			error = sooptcopyout(sopt, &optval, sizeof(optval));
 			break;
 
-		case LOCAL_CONNWAIT:
-			/* Unlocked read. */
-			optval = unp->unp_flags & UNP_CONNWAIT ? 1 : 0;
-			error = sooptcopyout(sopt, &optval, sizeof(optval));
-			break;
-
 		default:
 			error = EOPNOTSUPP;
 			break;
@@ -1799,7 +1803,6 @@ uipc_ctloutput(struct socket *so, struct sockopt *sopt)
 		switch (sopt->sopt_name) {
 		case LOCAL_CREDS:
 		case LOCAL_CREDS_PERSISTENT:
-		case LOCAL_CONNWAIT:
 			error = sooptcopyin(sopt, &optval, sizeof(optval),
 					    sizeof(optval));
 			if (error)
@@ -1826,10 +1829,6 @@ uipc_ctloutput(struct socket *so, struct sockopt *sopt)
 
 			case LOCAL_CREDS_PERSISTENT:
 				OPTSET(UNP_WANTCRED_ALWAYS, UNP_WANTCRED_ONESHOT);
-				break;
-
-			case LOCAL_CONNWAIT:
-				OPTSET(UNP_CONNWAIT, 0);
 				break;
 
 			default:
@@ -2005,7 +2004,7 @@ unp_connectat(int fd, struct socket *so, struct sockaddr *nam,
 	KASSERT(unp2 != NULL && so2 != NULL && unp2->unp_socket == so2 &&
 	    sotounpcb(so2) == unp2,
 	    ("%s: unp2 %p so2 %p", __func__, unp2, so2));
-	unp_connect2(so, so2, PRU_CONNECT);
+	unp_connect2(so, so2);
 	KASSERT((unp->unp_flags & UNP_CONNECTING) != 0,
 	    ("%s: unp %p has UNP_CONNECTING clear", __func__, unp));
 	unp->unp_flags &= ~UNP_CONNECTING;
@@ -2056,7 +2055,7 @@ unp_copy_peercred(struct thread *td, struct unpcb *client_unp,
 }
 
 static void
-unp_connect2(struct socket *so, struct socket *so2, conn2_how req)
+unp_connect2(struct socket *so, struct socket *so2)
 {
 	struct unpcb *unp;
 	struct unpcb *unp2;
@@ -2088,11 +2087,7 @@ unp_connect2(struct socket *so, struct socket *so2, conn2_how req)
 		KASSERT(unp2->unp_conn == NULL,
 		    ("%s: socket %p is already connected", __func__, unp2));
 		unp2->unp_conn = unp;
-		if (req == PRU_CONNECT &&
-		    ((unp->unp_flags | unp2->unp_flags) & UNP_CONNWAIT))
-			soisconnecting(so);
-		else
-			soisconnected(so);
+		soisconnected(so);
 		soisconnected(so2);
 		break;
 
@@ -3216,6 +3211,7 @@ unp_dispose(struct socket *so)
 	struct sockbuf *sb;
 	struct unpcb *unp;
 	struct mbuf *m;
+	int error __diagused;
 
 	MPASS(!SOLISTENING(so));
 
@@ -3227,6 +3223,8 @@ unp_dispose(struct socket *so)
 	/*
 	 * Grab our special mbufs before calling sbrelease().
 	 */
+	error = SOCK_IO_RECV_LOCK(so, SBL_WAIT | SBL_NOINTR);
+	MPASS(!error);
 	SOCK_RECVBUF_LOCK(so);
 	switch (so->so_type) {
 	case SOCK_DGRAM:
@@ -3278,8 +3276,7 @@ unp_dispose(struct socket *so)
 		break;
 	}
 	SOCK_RECVBUF_UNLOCK(so);
-	if (SOCK_IO_RECV_OWNED(so))
-		SOCK_IO_RECV_UNLOCK(so);
+	SOCK_IO_RECV_UNLOCK(so);
 
 	if (m != NULL) {
 		unp_scan(m, unp_freerights);
@@ -3488,10 +3485,6 @@ db_print_unpflags(int unp_flags)
 	}
 	if (unp_flags & UNP_WANTCRED_ONESHOT) {
 		db_printf("%sUNP_WANTCRED_ONESHOT", comma ? ", " : "");
-		comma = 1;
-	}
-	if (unp_flags & UNP_CONNWAIT) {
-		db_printf("%sUNP_CONNWAIT", comma ? ", " : "");
 		comma = 1;
 	}
 	if (unp_flags & UNP_CONNECTING) {

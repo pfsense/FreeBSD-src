@@ -418,6 +418,9 @@ int	pfctl_get_rule(int dev, uint32_t nr, uint32_t ticket,
 int	pfctl_get_clear_rule(int dev, uint32_t nr, uint32_t ticket,
 	    const char *anchor, uint32_t ruleset, struct pfctl_rule *rule,
 	    char *anchor_call, bool clear);
+int	pfctl_get_clear_rule_h(struct pfctl_handle *h, uint32_t nr, uint32_t ticket,
+	    const char *anchor, uint32_t ruleset, struct pfctl_rule *rule,
+	    char *anchor_call, bool clear);
 int	pfctl_add_rule(int dev, const struct pfctl_rule *r,
 	    const char *anchor, const char *anchor_call, uint32_t ticket,
 	    uint32_t pool_ticket);
@@ -443,6 +446,10 @@ int	pfctl_clear_states(int dev, const struct pfctl_kill *kill,
 	    unsigned int *killed);
 int	pfctl_kill_states(int dev, const struct pfctl_kill *kill,
 	    unsigned int *killed);
+int	pfctl_clear_states_h(struct pfctl_handle *h, const struct pfctl_kill *kill,
+	    unsigned int *killed);
+int	pfctl_kill_states_h(struct pfctl_handle *h, const struct pfctl_kill *kill,
+	    unsigned int *killed);
 int	pfctl_clear_rules(int dev, const char *anchorname);
 int	pfctl_clear_nat(int dev, const char *anchorname);
 int	pfctl_clear_eth_rules(int dev, const char *anchorname);
@@ -457,4 +464,6 @@ int     pfctl_table_set_addrs(int dev, struct pfr_table *tbl, struct pfr_addr
 	    int flags);
 int	pfctl_table_get_addrs(int dev, struct pfr_table *tbl, struct pfr_addr
 	    *addr, int *size, int flags);
+int	pfctl_set_statusif(struct pfctl_handle *h, const char *ifname);
+
 #endif

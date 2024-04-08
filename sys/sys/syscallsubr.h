@@ -164,7 +164,7 @@ int	kern_fchmodat(struct thread *td, int fd, const char *path,
 int	kern_fchownat(struct thread *td, int fd, const char *path,
 	    enum uio_seg pathseg, int uid, int gid, int flag);
 int	kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg);
-int	kern_fcntl_freebsd(struct thread *td, int fd, int cmd, long arg);
+int	kern_fcntl_freebsd(struct thread *td, int fd, int cmd, intptr_t arg);
 int	kern_fhopen(struct thread *td, const struct fhandle *u_fhp, int flags);
 int	kern_fhstat(struct thread *td, fhandle_t fh, struct stat *buf);
 int	kern_fhstatfs(struct thread *td, fhandle_t fh, struct statfs *buf);
@@ -362,6 +362,11 @@ int	kern_thr_alloc(struct proc *, int pages, struct thread **);
 int	kern_thr_exit(struct thread *td);
 int	kern_thr_new(struct thread *td, struct thr_param *param);
 int	kern_thr_suspend(struct thread *td, struct timespec *tsp);
+int	kern_timerfd_create(struct thread *td, int clockid, int flags);
+int	kern_timerfd_gettime(struct thread *td, int fd,
+	    struct itimerspec *curr_value);
+int	kern_timerfd_settime(struct thread *td, int fd, int flags,
+	    const struct itimerspec *new_value, struct itimerspec *old_value);
 int	kern_truncate(struct thread *td, const char *path,
 	    enum uio_seg pathseg, off_t length);
 int	kern_funlinkat(struct thread *td, int dfd, const char *path, int fd,

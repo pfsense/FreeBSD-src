@@ -2208,6 +2208,9 @@ extern int			 pf_state_insert(struct pfi_kkif *,
 				    struct pf_kstate *);
 extern struct pf_kstate		*pf_alloc_state(int);
 extern void			 pf_free_state(struct pf_kstate *);
+extern void			 pf_killstates(struct pf_kstate_kill *,
+				    unsigned int *);
+extern unsigned int		 pf_clear_states(const struct pf_kstate_kill *);
 
 static __inline void
 pf_ref_state(struct pf_kstate *s)
@@ -2470,10 +2473,10 @@ void			 pf_init_kruleset(struct pf_kruleset *);
 void			 pf_init_keth(struct pf_keth_ruleset *);
 int			 pf_kanchor_setup(struct pf_krule *,
 			    const struct pf_kruleset *, const char *);
+int			 pf_kanchor_copyout(const struct pf_kruleset *,
+			    const struct pf_krule *, char *);
 int			 pf_kanchor_nvcopyout(const struct pf_kruleset *,
 			    const struct pf_krule *, nvlist_t *);
-int			 pf_kanchor_copyout(const struct pf_kruleset *,
-			    const struct pf_krule *, struct pfioc_rule *);
 void			 pf_kanchor_remove(struct pf_krule *);
 void			 pf_remove_if_empty_kruleset(struct pf_kruleset *);
 struct pf_kruleset	*pf_find_kruleset(const char *);
@@ -2501,6 +2504,7 @@ int			 pf_ioctl_addrule(struct pf_krule *, uint32_t,
 			    pid_t);
 
 void			 pf_krule_free(struct pf_krule *);
+void			 pf_krule_clear_counters(struct pf_krule *);
 #endif
 
 /* The fingerprint functions can be linked into userland programs (tcpdump) */

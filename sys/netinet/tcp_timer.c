@@ -881,6 +881,7 @@ tcp_timer_enter(void *xtp)
 	if (tp_valid) {
 		tcp_bblog_timer(tp, which, TT_PROCESSED, 0);
 		if ((which = tcp_timer_next(tp, &precision)) != TT_N) {
+			MPASS(tp->t_state > TCPS_CLOSED);
 			callout_reset_sbt_on(&tp->t_callout,
 			    tp->t_timers[which], precision, tcp_timer_enter,
 			    tp, inp_to_cpuid(inp), C_ABSOLUTE);
@@ -907,6 +908,7 @@ tcp_timer_activate(struct tcpcb *tp, tt_which which, u_int delta)
 #endif
 
 	INP_WLOCK_ASSERT(inp);
+	MPASS(tp->t_state > TCPS_CLOSED);
 
 	if (delta > 0) {
 		what = TT_STARTING;
@@ -938,8 +940,7 @@ tcp_timer_active(struct tcpcb *tp, tt_which which)
 /*
  * Stop all timers associated with tcpcb.
  *
- * Called only on tcpcb destruction.  The tcpcb shall already be dropped from
- * the pcb lookup database and socket is not losing the last reference.
+ * Called when tcpcb moves to TCPS_CLOSED.
  *
  * XXXGL: unfortunately our callout(9) is not able to fully stop a locked
  * callout even when only two threads are involved: the callout itself and the
@@ -962,6 +963,8 @@ tcp_timer_stop(struct tcpcb *tp)
 
 		stopped = callout_stop(&tp->t_callout);
 		MPASS(stopped == 0);
+		for (tt_which i = 0; i < TT_N; i++)
+			tp->t_timers[i] = SBT_MAX;
 	} else while(__predict_false(callout_stop(&tp->t_callout) == 0)) {
 		INP_WUNLOCK(inp);
 		kern_yield(PRI_UNCHANGED);

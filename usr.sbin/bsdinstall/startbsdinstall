@@ -1,5 +1,8 @@
 #!/bin/sh
 
+BSDCFG_SHARE="/usr/share/bsdconfig"
+. $BSDCFG_SHARE/common.subr || exit 1
+
 : ${BSDDIALOG_OK=0}
 : ${BSDDIALOG_CANCEL=1}
 : ${BSDDIALOG_HELP=2}
@@ -53,7 +56,7 @@ if [ $? -eq 0 ]; then
 else
 	# Serial or other console
 	echo
-	echo "Welcome to pfSense!"
+	echo "Welcome to ${OSNAME}!"
 	echo
 	echo "Please choose the appropriate terminal type for your system."
 	echo "Common console types are:"
@@ -72,13 +75,13 @@ resizewin -z
 
 if [ -f /etc/installerconfig ]; then
 	if [ "$1" != "primary" ]; then
-		bsddialog --backtitle "pfSense Installer" --title "Installing" --msgbox "pfSense is being installed from a script; please use the primary console." 0 0
+		bsddialog --backtitle "${OSNAME} Installer" --title "Installing" --msgbox "${OSNAME} is being installed from a script; please use the primary console." 0 0
 		. "$0"
 	elif bsdinstall script /etc/installerconfig; then
-		bsddialog --backtitle "pfSense Installer" --title "Complete" --no-cancel --ok-label "Reboot" --pause "Installation of pfSense complete! Rebooting in 10 seconds" 10 30 10
+		bsddialog --backtitle "${OSNAME} Installer" --title "Complete" --no-cancel --ok-label "Reboot" --pause "Installation of ${OSNAME} complete! Rebooting in 10 seconds" 10 30 10
 		reboot
 	else
-		bsddialog --backtitle "pfSense Installer" --title "Error" --textbox /tmp/bsdinstall_log 0 0
+		bsddialog --backtitle "${OSNAME} Installer" --title "Error" --textbox /tmp/bsdinstall_log 0 0
 	fi
 	exit 
 fi

@@ -988,6 +988,7 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/cli_root/zpool_add/add_prop_ashift.ksh \
 	functional/cli_root/zpool_add/cleanup.ksh \
 	functional/cli_root/zpool_add/setup.ksh \
+	functional/cli_root/zpool_add/zpool_add--allow-ashift-mismatch.ksh \
 	functional/cli_root/zpool_add/zpool_add_001_pos.ksh \
 	functional/cli_root/zpool_add/zpool_add_002_pos.ksh \
 	functional/cli_root/zpool_add/zpool_add_003_pos.ksh \
@@ -1239,6 +1240,7 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/cli_root/zpool_status/zpool_status_005_pos.ksh \
 	functional/cli_root/zpool_status/zpool_status_006_pos.ksh \
 	functional/cli_root/zpool_status/zpool_status_007_pos.ksh \
+	functional/cli_root/zpool_status/zpool_status_008_pos.ksh \
 	functional/cli_root/zpool_status/zpool_status_features_001_pos.ksh \
 	functional/cli_root/zpool_sync/cleanup.ksh \
 	functional/cli_root/zpool_sync/setup.ksh \
@@ -1394,6 +1396,7 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/compression/setup.ksh \
 	functional/cp_files/cleanup.ksh \
 	functional/cp_files/cp_files_001_pos.ksh \
+	functional/cp_files/cp_files_002_pos.ksh \
 	functional/cp_files/cp_stress.ksh \
 	functional/cp_files/setup.ksh \
 	functional/crtime/cleanup.ksh \
@@ -1445,6 +1448,8 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/events/zed_fd_spill.ksh \
 	functional/events/zed_io_config.ksh \
 	functional/events/zed_rc_filter.ksh \
+	functional/events/zed_slow_io.ksh \
+	functional/events/zed_slow_io_many_vdevs.ksh \
 	functional/exec/cleanup.ksh \
 	functional/exec/exec_001_pos.ksh \
 	functional/exec/exec_002_neg.ksh \

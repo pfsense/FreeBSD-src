@@ -268,6 +268,7 @@ contrib/openzfs/module/zfs/dbuf.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/dbuf_stats.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/dataset_kstats.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/ddt.c		optional zfs compile-with "${ZFS_C}"
+contrib/openzfs/module/zfs/ddt_stats.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/ddt_zap.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/dmu.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/dmu_diff.c		optional zfs compile-with "${ZFS_C}"
@@ -717,12 +718,14 @@ ddb/db_access.c			optional ddb
 ddb/db_break.c			optional ddb
 ddb/db_capture.c		optional ddb
 ddb/db_command.c		optional ddb
+ddb/db_ctf.c			optional ddb
 ddb/db_examine.c		optional ddb
 ddb/db_expr.c			optional ddb
 ddb/db_input.c			optional ddb
 ddb/db_lex.c			optional ddb
 ddb/db_main.c			optional ddb
 ddb/db_output.c			optional ddb
+ddb/db_pprint.c			optional ddb
 ddb/db_print.c			optional ddb
 ddb/db_ps.c			optional ddb
 ddb/db_run.c			optional ddb
@@ -1591,6 +1594,10 @@ dev/drm2/ttm/ttm_execbuf_util.c	optional drm2
 dev/drm2/ttm/ttm_memory.c	optional drm2
 dev/drm2/ttm/ttm_page_alloc.c	optional drm2
 dev/drm2/ttm/ttm_bo_vm.c	optional drm2
+dev/dwc/if_dwc.c		optional dwc fdt
+dev/dwc/if_dwc_if.m		optional dwc fdt
+dev/dwc/dwc1000_core.c		optional dwc fdt
+dev/dwc/dwc1000_dma.c		optional dwc fdt
 dev/efidev/efidev.c		optional efirt
 dev/efidev/efirt.c		optional efirt
 dev/efidev/efirtc.c		optional efirt
@@ -2404,6 +2411,7 @@ dev/mlxfw/mlxfw_mfa2_tlv_multi.c	optional mlxfw \
 dev/mlx/mlx.c			optional mlx
 dev/mlx/mlx_disk.c		optional mlx
 dev/mlx/mlx_pci.c		optional mlx pci
+dev/mmc/host/dwmmc.c		optional dwmmc fdt
 dev/mmc/mmc_subr.c		optional mmc | mmcsd !mmccam
 dev/mmc/mmc.c			optional mmc !mmccam
 dev/mmc/mmcbr_if.m		standard
@@ -3175,7 +3183,7 @@ dev/uart/uart_bus_acpi.c	optional uart acpi
 dev/uart/uart_bus_fdt.c		optional uart fdt
 dev/uart/uart_bus_isa.c		optional uart isa
 dev/uart/uart_bus_pci.c		optional uart pci
-dev/uart/uart_bus_puc.c		optional uart puc
+dev/uart/uart_bus_puc.c		optional uart pci
 dev/uart/uart_bus_scc.c		optional uart scc
 dev/uart/uart_core.c		optional uart
 dev/uart/uart_cpu_acpi.c	optional uart acpi
@@ -3848,7 +3856,7 @@ kern/subr_clock.c		standard
 kern/subr_compressor.c		standard \
 	compile-with "${NORMAL_C} -I$S/contrib/zstd/lib/freebsd"
 kern/subr_coverage.c		optional coverage \
-	compile-with "${NORMAL_C:N-fsanitize*}"
+	compile-with "${NORMAL_C:N-fsanitize*:N-fno-sanitize*}"
 kern/subr_counter.c		standard
 kern/subr_csan.c		optional kcsan \
 	compile-with "${NORMAL_C:N-fsanitize*:N-fstack-protector*}"
@@ -4370,6 +4378,7 @@ netinet/tcp_stacks/rack.c	optional inet tcphpts tcp_rack | inet6 tcphpts tcp_rac
 netinet/tcp_stacks/rack_bbr_common.c	optional inet tcphpts tcp_bbr | inet tcphpts tcp_rack | inet6 tcphpts tcp_bbr | inet6 tcphpts tcp_rack
 netinet/tcp_stacks/sack_filter.c	optional inet tcphpts tcp_bbr | inet tcphpts tcp_rack | inet6 tcphpts tcp_bbr | inet6 tcphpts tcp_rack
 netinet/tcp_stacks/tailq_hash.c	optional inet tcphpts tcp_bbr | inet tcphpts tcp_rack | inet6 tcphpts tcp_bbr | inet6 tcphpts tcp_rack
+netinet/tcp_stacks/rack_pcm.c	optional inet tcphpts tcp_rack | inet6 tcphpts tcp_rack
 netinet/tcp_stats.c		optional stats inet | stats inet6
 netinet/tcp_subr.c		optional inet | inet6
 netinet/tcp_syncache.c		optional inet | inet6

@@ -459,6 +459,8 @@
             atf-sh
             ..
         ..
+        nuageinit
+        ..
         rc
         ..
         rtld-elf
@@ -1137,6 +1139,8 @@
         ..
         lockf
         ..
+        lorder
+        ..
         m4
         ..
         mkimg
@@ -1182,6 +1186,8 @@
         tar
         ..
         tftp
+        ..
+        touch
         ..
         tr
         ..

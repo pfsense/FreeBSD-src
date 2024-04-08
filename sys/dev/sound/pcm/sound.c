@@ -37,7 +37,6 @@
 #include <dev/sound/pcm/ac97.h>
 #include <dev/sound/pcm/vchan.h>
 #include <dev/sound/pcm/dsp.h>
-#include <dev/sound/pcm/sndstat.h>
 #include <dev/sound/version.h>
 #include <sys/limits.h>
 #include <sys/sysctl.h>
@@ -74,13 +73,6 @@ SYSCTL_STRING(_hw_snd, OID_AUTO, version, CTLFLAG_RD, &snd_driver_version,
  * @brief Unit number allocator for syncgroup IDs
  */
 struct unrhdr *pcmsg_unrhdr = NULL;
-
-static int
-sndstat_prepare_pcm(SNDSTAT_PREPARE_PCM_ARGS)
-{
-	SNDSTAT_PREPARE_PCM_BEGIN();
-	SNDSTAT_PREPARE_PCM_END();
-}
 
 void *
 snd_mtxcreate(const char *desc, const char *type)
@@ -390,16 +382,6 @@ pcm_chnref(struct pcm_channel *c, int ref)
 	c->refcount += ref;
 
 	return (c->refcount);
-}
-
-int
-pcm_inprog(struct snddev_info *d, int delta)
-{
-	PCM_LOCKASSERT(d);
-
-	d->inprog += delta;
-
-	return (d->inprog);
 }
 
 static void
@@ -1127,7 +1109,6 @@ pcm_register(device_t dev, void *devinfo, int numplay, int numrec)
 	d->pvchanformat = 0;
 	d->rvchanrate = 0;
 	d->rvchanformat = 0;
-	d->inprog = 0;
 
 	/*
 	 * Create clone manager, disabled by default. Cloning will be
@@ -1159,7 +1140,7 @@ pcm_register(device_t dev, void *devinfo, int numplay, int numrec)
 	if (numplay > 0 || numrec > 0)
 		d->flags |= SD_F_AUTOVCHAN;
 
-	sndstat_register(dev, d->status, sndstat_prepare_pcm);
+	sndstat_register(dev, d->status);
 
 	return 0;
 }
@@ -1181,12 +1162,6 @@ pcm_unregister(device_t dev)
 	PCM_WAIT(d);
 
 	d->flags |= SD_F_DETACHING;
-
-	if (d->inprog != 0) {
-		device_printf(dev, "unregister: operation in progress\n");
-		PCM_UNLOCK(d);
-		return (EBUSY);
-	}
 
 	PCM_ACQUIRE(d);
 	PCM_UNLOCK(d);

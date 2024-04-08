@@ -95,15 +95,16 @@
  *
  * NOTE: With regard to VNETs the general rule is that callers do not set
  * curvnet. Exceptions to this rule include soabort(), sodisconnect(),
- * sofree() (and with that sorele(), sotryfree()), as well as sonewconn(),
- * which are usually called from a pre-set VNET context. sopoll() currently
- * does not need a VNET context to be set.
+ * sofree(), sorele(), sonewconn() and sorflush(), which are usually called
+ * from a pre-set VNET context.  sopoll() currently does not need a VNET
+ * context to be set.
  */
 
 #include <sys/cdefs.h>
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_kern_tls.h"
+#include "opt_ktrace.h"
 #include "opt_sctp.h"
 
 #include <sys/param.h>
@@ -522,8 +523,12 @@ socreate(int dom, struct socket **aso, int type, int proto,
 
 	MPASS(prp->pr_attach);
 
-	if (IN_CAPABILITY_MODE(td) && (prp->pr_flags & PR_CAPATTACH) == 0)
-		return (ECAPMODE);
+	if ((prp->pr_flags & PR_CAPATTACH) == 0) {
+		if (CAP_TRACING(td))
+			ktrcapfail(CAPFAIL_PROTO, &proto);
+		if (IN_CAPABILITY_MODE(td))
+			return (ECAPMODE);
+	}
 
 	if (prison_check_af(cred, prp->pr_domain->dom_family) != 0)
 		return (EPROTONOSUPPORT);
@@ -922,6 +927,10 @@ sopeeloff(struct socket *head)
 	so->so_snd.sb_timeo = head->so_snd.sb_timeo;
 	so->so_rcv.sb_flags |= head->so_rcv.sb_flags & SB_AUTOSIZE;
 	so->so_snd.sb_flags |= head->so_snd.sb_flags & SB_AUTOSIZE;
+	if ((so->so_proto->pr_flags & PR_SOCKBUF) == 0) {
+		so->so_snd.sb_mtx = &so->so_snd_mtx;
+		so->so_rcv.sb_mtx = &so->so_rcv_mtx;
+	}
 
 	soref(so);
 
@@ -1063,8 +1072,10 @@ solisten_proto(struct socket *so, int backlog)
 	sbrcv_timeo = so->so_rcv.sb_timeo;
 	sbsnd_timeo = so->so_snd.sb_timeo;
 
-	sbdestroy(so, SO_SND);
-	sbdestroy(so, SO_RCV);
+	if (!(so->so_proto->pr_flags & PR_SOCKBUF)) {
+		sbdestroy(so, SO_SND);
+		sbdestroy(so, SO_RCV);
+	}
 
 #ifdef INVARIANTS
 	bzero(&so->so_rcv,
@@ -2867,13 +2878,10 @@ soreceive_dgram(struct socket *so, struct sockaddr **psa, struct uio *uio,
 		    ("m->m_type == %d", m->m_type));
 		if (psa != NULL)
 			*psa = sodupsockaddr(mtod(m, struct sockaddr *),
-			    M_NOWAIT);
+			    M_WAITOK);
 		m = m_free(m);
 	}
-	if (m == NULL) {
-		/* XXXRW: Can this happen? */
-		return (0);
-	}
+	KASSERT(m, ("%s: no data or control after soname", __func__));
 
 	/*
 	 * Packet to copyout() is now in 'm' and it is disconnected from the
@@ -2962,6 +2970,42 @@ soshutdown(struct socket *so, enum shutdown_how how)
 	CURVNET_RESTORE();
 
 	return (error);
+}
+
+/*
+ * Used by several pr_shutdown implementations that use generic socket buffers.
+ */
+void
+sorflush(struct socket *so)
+{
+	int error;
+
+	VNET_SO_ASSERT(so);
+
+	/*
+	 * Dislodge threads currently blocked in receive and wait to acquire
+	 * a lock against other simultaneous readers before clearing the
+	 * socket buffer.  Don't let our acquire be interrupted by a signal
+	 * despite any existing socket disposition on interruptable waiting.
+	 *
+	 * The SOCK_IO_RECV_LOCK() is important here as there some pr_soreceive
+	 * methods that read the top of the socket buffer without acquisition
+	 * of the socket buffer mutex, assuming that top of the buffer
+	 * exclusively belongs to the read(2) syscall.  This is handy when
+	 * performing MSG_PEEK.
+	 */
+	socantrcvmore(so);
+
+	error = SOCK_IO_RECV_LOCK(so, SBL_WAIT | SBL_NOINTR);
+	if (error != 0) {
+		KASSERT(SOLISTENING(so),
+		    ("%s: soiolock(%p) failed", __func__, so));
+		return;
+	}
+
+	sbrelease(so, SO_RCV);
+	SOCK_IO_RECV_UNLOCK(so);
+
 }
 
 /*
@@ -4216,34 +4260,6 @@ sotoxsocket(struct socket *so, struct xsocket *xso)
 	}
 }
 
-struct sockbuf *
-so_sockbuf_rcv(struct socket *so)
-{
-
-	return (&so->so_rcv);
-}
-
-struct sockbuf *
-so_sockbuf_snd(struct socket *so)
-{
-
-	return (&so->so_snd);
-}
-
-int
-so_state_get(const struct socket *so)
-{
-
-	return (so->so_state);
-}
-
-void
-so_state_set(struct socket *so, int val)
-{
-
-	so->so_state = val;
-}
-
 int
 so_options_get(const struct socket *so)
 {
@@ -4270,77 +4286,4 @@ so_error_set(struct socket *so, int val)
 {
 
 	so->so_error = val;
-}
-
-int
-so_linger_get(const struct socket *so)
-{
-
-	return (so->so_linger);
-}
-
-void
-so_linger_set(struct socket *so, int val)
-{
-
-	KASSERT(val >= 0 && val <= USHRT_MAX && val <= (INT_MAX / hz),
-	    ("%s: val %d out of range", __func__, val));
-
-	so->so_linger = val;
-}
-
-struct protosw *
-so_protosw_get(const struct socket *so)
-{
-
-	return (so->so_proto);
-}
-
-void
-so_protosw_set(struct socket *so, struct protosw *val)
-{
-
-	so->so_proto = val;
-}
-
-void
-so_sorwakeup(struct socket *so)
-{
-
-	sorwakeup(so);
-}
-
-void
-so_sowwakeup(struct socket *so)
-{
-
-	sowwakeup(so);
-}
-
-void
-so_sorwakeup_locked(struct socket *so)
-{
-
-	sorwakeup_locked(so);
-}
-
-void
-so_sowwakeup_locked(struct socket *so)
-{
-
-	sowwakeup_locked(so);
-}
-
-void
-so_lock(struct socket *so)
-{
-
-	SOCK_LOCK(so);
-}
-
-void
-so_unlock(struct socket *so)
-{
-
-	SOCK_UNLOCK(so);
 }

@@ -271,7 +271,7 @@ sys_readv(struct thread *td, struct readv_args *uap)
 	if (error)
 		return (error);
 	error = kern_readv(td, uap->fd, auio);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -310,7 +310,7 @@ sys_preadv(struct thread *td, struct preadv_args *uap)
 	if (error)
 		return (error);
 	error = kern_preadv(td, uap->fd, auio, uap->offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -473,7 +473,7 @@ sys_writev(struct thread *td, struct writev_args *uap)
 	if (error)
 		return (error);
 	error = kern_writev(td, uap->fd, auio);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -512,7 +512,7 @@ sys_pwritev(struct thread *td, struct pwritev_args *uap)
 	if (error)
 		return (error);
 	error = kern_pwritev(td, uap->fd, auio, uap->offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -577,7 +577,8 @@ dofilewrite(struct thread *td, int fd, struct file *fp, struct uio *auio,
 	cnt -= auio->uio_resid;
 #ifdef KTRACE
 	if (ktruio != NULL) {
-		ktruio->uio_resid = cnt;
+		if (error == 0)
+			ktruio->uio_resid = cnt;
 		ktrgenio(fd, UIO_WRITE, ktruio, error);
 	}
 #endif
@@ -1606,6 +1607,11 @@ kern_poll(struct thread *td, struct pollfd *ufds, u_int nfds,
 	error = kern_poll_kfds(td, kfds, nfds, tsp, set);
 	if (error == 0)
 		error = pollout(td, kfds, ufds, nfds);
+#ifdef KTRACE
+	if (error == 0 && KTRPOINT(td, KTR_STRUCT_ARRAY))
+		ktrstructarray("pollfd", UIO_USERSPACE, ufds, nfds,
+		    sizeof(*ufds));
+#endif
 
 out:
 	if (nfds > nitems(stackfds))

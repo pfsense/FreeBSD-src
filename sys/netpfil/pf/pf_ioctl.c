@@ -227,9 +227,6 @@ struct cdev *pf_dev;
  * XXX - These are new and need to be checked when moveing to a new version
  */
 static void		 pf_clear_all_states(void);
-static unsigned int	 pf_clear_states(const struct pf_kstate_kill *);
-static void		 pf_killstates(struct pf_kstate_kill *,
-			    unsigned int *);
 static int		 pf_killstates_row(struct pf_kstate_kill *,
 			    struct pf_idhash *);
 static int		 pf_killstates_nv(struct pfioc_nv *);
@@ -1867,6 +1864,17 @@ pf_krule_free(struct pf_krule *rule)
 	free(rule, M_PFRULE);
 }
 
+void
+pf_krule_clear_counters(struct pf_krule *rule)
+{
+	pf_counter_u64_zero(&rule->evaluations);
+	for (int i = 0; i < 2; i++) {
+		pf_counter_u64_zero(&rule->packets[i]);
+		pf_counter_u64_zero(&rule->bytes[i]);
+	}
+	counter_u64_zero(rule->states_tot);
+}
+
 static void
 pf_kpooladdr_to_pooladdr(const struct pf_kpooladdr *kpool,
     struct pf_pooladdr *pool)
@@ -3266,14 +3274,9 @@ DIOCADDRULENV_error:
 			ERROUT(ENOSPC);
 		}
 
-		if (clear_counter) {
-			pf_counter_u64_zero(&rule->evaluations);
-			for (int i = 0; i < 2; i++) {
-				pf_counter_u64_zero(&rule->packets[i]);
-				pf_counter_u64_zero(&rule->bytes[i]);
-			}
-			counter_u64_zero(rule->states_tot);
-		}
+		if (clear_counter)
+			pf_krule_clear_counters(rule);
+
 		PF_RULES_WUNLOCK();
 
 		error = copyout(nvlpacked, nv->data, nv->len);
@@ -5938,7 +5941,7 @@ on_error:
 	return (error);
 }
 
-static unsigned int
+unsigned int
 pf_clear_states(const struct pf_kstate_kill *kill)
 {
 	struct pf_state_key_cmp	 match_key;
@@ -6007,7 +6010,7 @@ relock_DIOCCLRSTATES:
 	return (killed);
 }
 
-static void
+void
 pf_killstates(struct pf_kstate_kill *kill, unsigned int *killed)
 {
 	struct pf_kstate	*s;

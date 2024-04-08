@@ -287,9 +287,6 @@ struct snd_mixer;
 #define SND_DEV_DSP_SPDIFOUT	19	/* /dev/dsp_spdifout */
 #define SND_DEV_DSP_SPDIFIN	20	/* /dev/dsp_spdifin  */
 
-#define SND_DEV_LAST		SND_DEV_DSP_SPDIFIN
-#define SND_DEV_MAX		PCMMAXDEV
-
 #define DSP_DEFAULT_SPEED	8000
 
 #define ON		1
@@ -320,7 +317,6 @@ int pcm_chnalloc(struct snddev_info *d, struct pcm_channel **ch, int direction,
     pid_t pid, char *comm, int devunit);
 int pcm_chnrelease(struct pcm_channel *c);
 int pcm_chnref(struct pcm_channel *c, int ref);
-int pcm_inprog(struct snddev_info *d, int delta);
 
 struct pcm_channel *pcm_chn_create(struct snddev_info *d, struct pcm_channel *parent, kobj_class_t cls, int dir, int num, void *devinfo);
 int pcm_chn_destroy(struct pcm_channel *ch);
@@ -345,8 +341,7 @@ void snd_mtxassert(void *m);
 #define	snd_mtxlock(m) mtx_lock(m)
 #define	snd_mtxunlock(m) mtx_unlock(m)
 
-typedef int (*sndstat_handler)(struct sbuf *s, device_t dev, int verbose);
-int sndstat_register(device_t dev, char *str, sndstat_handler handler);
+int sndstat_register(device_t dev, char *str);
 int sndstat_unregister(device_t dev);
 
 /* usage of flags in device config entry (config file) */
@@ -379,7 +374,6 @@ struct snddev_info {
 	struct snd_clone *clones;
 	unsigned devcount, playcount, reccount, pvchancount, rvchancount ;
 	unsigned flags;
-	int inprog;
 	unsigned int bufsz;
 	void *devinfo;
 	device_t dev;
@@ -521,7 +515,7 @@ int	sound_oss_card_info(oss_card_info *);
 		mtx_unlock(&Giant);					\
 	}								\
 } while (0)
-#else /* SND_DIAGNOSTIC */
+#else /* !SND_DIAGNOSTIC */
 #define PCM_WAIT(x)		do {					\
 	PCM_LOCKASSERT(x);						\
 	while ((x)->flags & SD_F_BUSY)					\
@@ -592,7 +586,7 @@ int	sound_oss_card_info(oss_card_info *);
 		mtx_unlock(&Giant);					\
 	}								\
 } while (0)
-#endif /* !SND_DIAGNOSTIC */
+#endif /* SND_DIAGNOSTIC */
 
 #define PCM_GIANT_LEAVE(x)						\
 	PCM_GIANT_EXIT(x);						\

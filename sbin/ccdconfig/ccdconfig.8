@@ -27,7 +27,7 @@
 .\"
 .\" $NetBSD: ccdconfig.8,v 1.4 1996/02/28 01:01:17 thorpej Exp $
 .\"
-.Dd January 24, 2024
+.Dd March 22, 2024
 .Dt CCDCONFIG 8
 .Os
 .Sh NAME
@@ -145,7 +145,7 @@ are exactly the same as you might place in the
 configuration file.
 The first example creates a 4-disk stripe out of
 four scsi disk partitions.
-The stripe uses a 64 sector interleave.
+The stripe uses a 64-sector interleave.
 The second example is an example of a complex stripe/mirror combination.
 It reads as a two disk stripe of da4 and da5 which is mirrored
 to a two disk stripe of da6 and da7.
@@ -176,9 +176,8 @@ ccdconfig -c /dev/ccd0 32 linux /dev/ada0s1 /dev/ada0s2
 .Ed
 .Pp
 When you create a new ccd disk you generally want to
-.Xr fdisk 8
-and
-.Xr disklabel 8
+partition it using
+.Xr gpart 8
 it before doing anything else.
 Beware that changing any ccd parameters: interleave, flags, or the
 device list making up the ccd disk, will usually destroy any prior
@@ -206,8 +205,7 @@ and
 .Sh SEE ALSO
 .Xr dd 1 ,
 .Xr ccd 4 ,
-.Xr disklabel 8 ,
-.Xr fdisk 8 ,
+.Xr gpart 8 ,
 .Xr gvinum 8 ,
 .Xr rc 8
 .Sh HISTORY

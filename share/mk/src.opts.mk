@@ -148,6 +148,7 @@ __DEFAULT_YES_OPTIONS = \
     NLS_CATALOGS \
     NS_CACHING \
     NTP \
+    NUAGEINIT \
     NVME \
     OFED \
     OPENSSL \
@@ -202,9 +203,11 @@ __DEFAULT_NO_OPTIONS = \
     DTRACE_TESTS \
     EXPERIMENTAL \
     HESIOD \
+    LOADER_BIOS_TEXTONLY \
     LOADER_VERBOSE \
     LOADER_VERIEXEC_PASS_MANIFEST \
     LLVM_BINUTILS \
+    LLVM_FULL_DEBUGINFO \
     MALLOC_PRODUCTION \
     OFED_EXTRA \
     OPENLDAP \
@@ -310,6 +313,10 @@ BROKEN_OPTIONS+=LIB32
 # EFI doesn't exist on powerpc (well, officially) and doesn't work on i386
 .if ${__T:Mpowerpc*} || ${__T} == "i386"
 BROKEN_OPTIONS+=EFI
+.endif
+# Bad coupling for libsecure stuff with bearssl and efi, so broken on EFI
+.if ${__T:Mpowerpc*}
+BROKEN_OPTIONS+=BEARSSL		# bearssl brings in secure efi stuff xxx
 .endif
 # OFW is only for powerpc, exclude others
 .if ${__T:Mpowerpc*} == ""

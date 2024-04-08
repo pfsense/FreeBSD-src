@@ -138,7 +138,8 @@ STAILQ_HEAD(tcp_log_stailq, tcp_log_mem);
 #define TCP_TRK_TRACK_FLG_OPEN  0x02	/* End is not valid (open range request) */
 #define TCP_TRK_TRACK_FLG_SEQV  0x04	/* We had a sendfile that touched it  */
 #define TCP_TRK_TRACK_FLG_COMP  0x08	/* Sendfile as placed the last bits (range req only) */
-#define TCP_TRK_TRACK_FLG_FSND	 0x10	/* First send has been done into the seq space */
+#define TCP_TRK_TRACK_FLG_FSND	0x10	/* First send has been done into the seq space */
+#define TCP_TRK_TRACK_FLG_LSND	0x20	/* We were able to set the Last Sent */
 #define MAX_TCP_TRK_REQ 5		/* Max we will have at once */
 
 struct tcp_sendfile_track {
@@ -151,11 +152,14 @@ struct tcp_sendfile_track {
 	uint64_t cspr;		/* Client suggested pace rate */
 	uint64_t sent_at_fs;	/* What was t_sndbytes as we begun sending */
 	uint64_t rxt_at_fs;	/* What was t_snd_rxt_bytes as we begun sending */
+	uint64_t sent_at_ls;	/* Sent value at the last send */
+	uint64_t rxt_at_ls;	/* Retransmit value at the last send */
 	tcp_seq start_seq;	/* First TCP Seq assigned */
 	tcp_seq end_seq;	/* If range req last seq */
 	uint32_t flags;		/* Type of request open etc */
 	uint32_t sbcc_at_s;	/* When we allocate what is the sb_cc */
 	uint32_t hint_maxseg;	/* Client hinted maxseg */
+	uint32_t playout_ms;	/* Client playout ms */
 	uint32_t hybrid_flags;	/* Hybrid flags on this request */
 };
 
@@ -623,6 +627,8 @@ struct tcp_function_block {
 	void	(*tfb_switch_failed)(struct tcpcb *);
 	bool	(*tfb_early_wake_check)(struct tcpcb *);
 	int     (*tfb_compute_pipe)(struct tcpcb *tp);
+	int     (*tfb_stack_info)(struct tcpcb *tp, struct stack_specific_info *);
+	void	(*tfb_inherit)(struct tcpcb *tp, struct inpcb *h_inp);
 	volatile uint32_t tfb_refcnt;
 	uint32_t  tfb_flags;
 	uint8_t	tfb_id;
@@ -788,7 +794,7 @@ tcp_packets_this_ack(struct tcpcb *tp, tcp_seq ack)
 #define	TF_TSO		0x01000000	/* TSO enabled on this connection */
 #define	TF_TOE		0x02000000	/* this connection is offloaded */
 #define	TF_CLOSED	0x04000000	/* close(2) called on socket */
-#define	TF_UNUSED1	0x08000000	/* unused */
+#define TF_SENTSYN      0x08000000      /* At least one syn has been sent */
 #define	TF_LRD		0x10000000	/* Lost Retransmission Detection */
 #define	TF_CONGRECOVERY	0x20000000	/* congestion recovery mode */
 #define	TF_WASCRECOVERY	0x40000000	/* was in congestion recovery */
@@ -805,12 +811,6 @@ tcp_packets_this_ack(struct tcpcb *tp, tcp_seq ack)
 #define	IN_RECOVERY(t_flags) (t_flags & (TF_CONGRECOVERY | TF_FASTRECOVERY))
 #define	ENTER_RECOVERY(t_flags) t_flags |= (TF_CONGRECOVERY | TF_FASTRECOVERY)
 #define	EXIT_RECOVERY(t_flags) t_flags &= ~(TF_CONGRECOVERY | TF_FASTRECOVERY)
-
-#if defined(_KERNEL) && !defined(TCP_RFC7413)
-#define	IS_FASTOPEN(t_flags)		(false)
-#else
-#define	IS_FASTOPEN(t_flags)		(t_flags & TF_FASTOPEN)
-#endif
 
 #define	BYTES_THIS_ACK(tp, th)	(th->th_ack - tp->snd_una)
 
@@ -889,17 +889,6 @@ struct hc_metrics_lite {	/* must stay in sync with hc_metrics */
 	uint32_t	rmx_recvpipe;   /* inbound delay-bandwidth product */
 };
 
-/*
- * Used by tcp_maxmtu() to communicate interface specific features
- * and limits at the time of connection setup.
- */
-struct tcp_ifcap {
-	int	ifcap;
-	u_int	tsomax;
-	u_int	tsomaxsegcount;
-	u_int	tsomaxsegsize;
-};
-
 #ifndef _NETINET_IN_PCB_H_
 struct in_conninfo;
 #endif /* _NETINET_IN_PCB_H_ */
@@ -913,10 +902,10 @@ struct in_conninfo;
  * and thus an "ALPHA" of 0.875.  rttvar has 2 bits to the right of the
  * binary point, and is smoothed with an ALPHA of 0.75.
  */
-#define	TCP_RTT_SCALE		32	/* multiplier for srtt; 3 bits frac. */
-#define	TCP_RTT_SHIFT		5	/* shift for srtt; 3 bits frac. */
-#define	TCP_RTTVAR_SCALE	16	/* multiplier for rttvar; 2 bits */
-#define	TCP_RTTVAR_SHIFT	4	/* shift for rttvar; 2 bits */
+#define	TCP_RTT_SCALE		32	/* multiplier for srtt; 5 bits frac. */
+#define	TCP_RTT_SHIFT		5	/* shift for srtt; 5 bits frac. */
+#define	TCP_RTTVAR_SCALE	16	/* multiplier for rttvar; 4 bits */
+#define	TCP_RTTVAR_SHIFT	4	/* shift for rttvar; 4 bits */
 #define	TCP_DELTA_SHIFT		2	/* see tcp_input.c */
 
 /*
@@ -1432,8 +1421,19 @@ extern int32_t tcp_attack_on_turns_on_logging;
 extern uint32_t tcp_ack_war_time_window;
 extern uint32_t tcp_ack_war_cnt;
 
+/*
+ * Used by tcp_maxmtu() to communicate interface specific features
+ * and limits at the time of connection setup.
+ */
+struct tcp_ifcap {
+	int	ifcap;
+	u_int	tsomax;
+	u_int	tsomaxsegcount;
+	u_int	tsomaxsegsize;
+};
 uint32_t tcp_maxmtu(struct in_conninfo *, struct tcp_ifcap *);
 uint32_t tcp_maxmtu6(struct in_conninfo *, struct tcp_ifcap *);
+
 void	 tcp6_use_min_mtu(struct tcpcb *);
 u_int	 tcp_maxseg(const struct tcpcb *);
 u_int	 tcp_fixed_maxseg(const struct tcpcb *);
@@ -1501,6 +1501,8 @@ void	 tcp_sndbuf_autoscale(struct tcpcb *, struct socket *, uint32_t);
 int	 tcp_stats_sample_rollthedice(struct tcpcb *tp, void *seed_bytes,
     size_t seed_len);
 int tcp_can_enable_pacing(void);
+int tcp_incr_dgp_pacing_cnt(void);
+void tcp_dec_dgp_pacing_cnt(void);
 void tcp_decrement_paced_conn(void);
 void tcp_change_time_units(struct tcpcb *, int);
 void tcp_handle_orphaned_packets(struct tcpcb *);

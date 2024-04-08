@@ -397,6 +397,7 @@ SUBDIR=	\
 	unionfs \
 	usb \
 	${_vesa} \
+	${_vf_i2c} \
 	virtio \
 	vge \
 	${_viawd} \
@@ -686,6 +687,7 @@ _dpaa2=		dpaa2
 _sff=		sff
 _em=		em
 _hyperv=  hyperv
+_vf_i2c=	vf_i2c
 
 .if !empty(OPT_FDT)
 _allwinner=	allwinner
@@ -841,7 +843,9 @@ _sgx=		sgx
 _sgx_linux=	sgx_linux
 _smartpqi=	smartpqi
 _p2sb=		p2sb
+.endif
 
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64"
 .if ${MK_BHYVE} != "no" || defined(ALL_MODULES)
 .if ${KERN_OPTS:MSMP}
 _vmm=		vmm

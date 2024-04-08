@@ -2,9 +2,10 @@ name: Cross-build Kernel
 
 on:
   push:
-    branches: [ main, 'stable/13' ]
+    branches: [ main, 'stable/14', 'stable/13' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,7 +38,7 @@ jobs:
           - target_arch: aarch64
             target: arm64
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: install packages (Ubuntu)
         if: runner.os == 'Linux'
         run: |

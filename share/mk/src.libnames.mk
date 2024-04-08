@@ -43,7 +43,9 @@ _INTERNALLIBS=	\
 		bsnmptools \
 		c_nossp_pic \
 		cron \
+		diff \
 		elftc \
+		fdt \
 		fifolog \
 		ifconfig \
 		ipf \
@@ -202,6 +204,7 @@ _LIBRARIES=	\
 		stats \
 		stdthreads \
 		supcplusplus \
+		sys \
 		sysdecode \
 		tacplus \
 		termcapw \
@@ -222,6 +225,7 @@ _LIBRARIES=	\
 		y \
 		ypclnt \
 		z \
+		zdb \
 		zfs_core \
 		zfs \
 		zfsbootenv \
@@ -392,7 +396,7 @@ _DP_xo=		util
 _DP_ztest=	geom m nvpair umem zpool pthread avl zfs_core spl zutil zfs uutil icp
 # The libc dependencies are not strictly needed but are defined to make the
 # assert happy.
-_DP_c=		compiler_rt
+_DP_c=		compiler_rt sys
 # Use libssp_nonshared only on i386 and power*.  Other archs emit direct calls
 # to __stack_chk_fail, not __stack_chk_fail_local provided by libssp_nonshared.
 .if ${MK_SSP} != "no" && \
@@ -401,6 +405,17 @@ _DP_c+=		ssp_nonshared
 .endif
 _DP_stats=	sbuf pthread
 _DP_stdthreads=	pthread
+_DP_sys=	compiler_rt
+# Use libssp_nonshared only on i386 and power*.  Other archs emit direct calls
+# to __stack_chk_fail, not __stack_chk_fail_local provided by libssp_nonshared.
+.if ${MK_SSP} != "no" && \
+    (${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH:Mpower*} != "")
+_DP_sys+=	ssp_nonshared
+.endif
+.if !defined(BOOTSTRAPPING)
+_DP_thr=	c sys
+_DP_pthread=	${_DP_thr}
+.endif
 _DP_tacplus=	md pam
 _DP_ncursesw=	tinfow
 _DP_formw=	ncursesw
@@ -530,8 +545,14 @@ LDADD+=		${LDADD_${_l}}
 
 _LIB_OBJTOP?=	${OBJTOP}
 # INTERNALLIB definitions.
+LIBDIFFDIR=	${_LIB_OBJTOP}/lib/libdiff
+LIBDIFF?=	${LIBDIFFDIR}/libdiff${PIE_SUFFIX}.a
+
 LIBELFTCDIR=	${_LIB_OBJTOP}/lib/libelftc
 LIBELFTC?=	${LIBELFTCDIR}/libelftc${PIE_SUFFIX}.a
+
+LIBFDTDIR=	${_LIB_OBJTOP}/lib/libfdt
+LIBFDT?=	${LIBFDTDIR}/libfdt${PIE_SUFFIX}.a
 
 LIBLUADIR=	${_LIB_OBJTOP}/lib/liblua
 LIBLUA?=	${LIBLUADIR}/liblua${PIE_SUFFIX}.a
@@ -553,6 +574,9 @@ LIBSMDB?=	${LIBSMDBDIR}/libsmdb${PIE_SUFFIX}.a
 
 LIBSMUTILDIR=	${_LIB_OBJTOP}/lib/libsmutil
 LIBSMUTIL?=	${LIBSMUTILDIR}/libsmutil${PIE_SUFFIX}.a
+
+LIBSYSDIR=	${_LIB_OBJTOP}/lib/libsys
+LIBSYS?=	${LIBSYSDIR}/libsys${PIE_SUFFIX}.a
 
 LIBNETBSDDIR?=	${_LIB_OBJTOP}/lib/libnetbsd
 LIBNETBSD?=	${LIBNETBSDDIR}/libnetbsd${PIE_SUFFIX}.a
@@ -672,6 +696,8 @@ LIBNVPAIRDIR=	${_LIB_OBJTOP}/cddl/lib/libnvpair
 LIBNVPAIR?=	${LIBNVPAIRDIR}/libnvpair${PIE_SUFFIX}.a
 LIBUMEMDIR=	${_LIB_OBJTOP}/cddl/lib/libumem
 LIBUUTILDIR=	${_LIB_OBJTOP}/cddl/lib/libuutil
+LIBZDBDIR=	${_LIB_OBJTOP}/cddl/lib/libzdb
+LIBZDB?=	${LIBZDBDIR}/libzdb${PIE_SUFFIX}.a
 LIBZFSDIR=	${_LIB_OBJTOP}/cddl/lib/libzfs
 LIBZFS?=	${LIBZFSDIR}/libzfs${PIE_SUFFIX}.a
 LIBZFS_COREDIR=	${_LIB_OBJTOP}/cddl/lib/libzfs_core
