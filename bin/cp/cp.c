@@ -260,22 +260,6 @@ main(int argc, char *argv[])
 	    &to_stat)));
 }
 
-/* Does the right thing based on -R + -H/-L/-P */
-static int
-copy_stat(const char *path, struct stat *sb)
-{
-
-	/*
-	 * For -R -H/-P, we need to lstat() instead; copy() cares about the link
-	 * itself rather than the target if we're not following links during the
-	 * traversal.
-	 */
-	if (!Rflag || Lflag)
-		return (stat(path, sb));
-	return (lstat(path, sb));
-}
-
-
 static int
 copy(char *argv[], enum op type, int fts_options, struct stat *root_stat)
 {
@@ -303,8 +287,7 @@ copy(char *argv[], enum op type, int fts_options, struct stat *root_stat)
 		case FTS_NS:
 		case FTS_DNR:
 		case FTS_ERR:
-			warnx("%s: %s",
-			    curr->fts_path, strerror(curr->fts_errno));
+			warnc(curr->fts_errno, "%s", curr->fts_path);
 			badcp = rval = 1;
 			continue;
 		case FTS_DC:			/* Warn, continue. */
@@ -403,7 +386,6 @@ copy(char *argv[], enum op type, int fts_options, struct stat *root_stat)
 					continue;
 				}
 
-
 				if (asprintf(&recurse_path, "%s/%s", to.p_path,
 				    rootname) == -1)
 					err(1, "asprintf");
@@ -452,39 +434,36 @@ copy(char *argv[], enum op type, int fts_options, struct stat *root_stat)
 			continue;
 		}
 
-		/* Not an error but need to remember it happened. */
-		if (copy_stat(to.p_path, &to_stat) == -1)
-			dne = 1;
-		else {
-			if (to_stat.st_dev == curr->fts_statp->st_dev &&
-			    to_stat.st_ino == curr->fts_statp->st_ino) {
-				warnx("%s and %s are identical (not copied).",
-				    to.p_path, curr->fts_path);
-				badcp = rval = 1;
-				if (S_ISDIR(curr->fts_statp->st_mode))
-					(void)fts_set(ftsp, curr, FTS_SKIP);
-				continue;
-			}
-			if (!S_ISDIR(curr->fts_statp->st_mode) &&
-			    S_ISDIR(to_stat.st_mode)) {
-				warnx("cannot overwrite directory %s with "
-				    "non-directory %s",
-				    to.p_path, curr->fts_path);
-				badcp = rval = 1;
-				continue;
-			}
-			dne = 0;
+		/* Check if source and destination are identical. */
+		if (stat(to.p_path, &to_stat) == 0 &&
+		    to_stat.st_dev == curr->fts_statp->st_dev &&
+		    to_stat.st_ino == curr->fts_statp->st_ino) {
+			warnx("%s and %s are identical (not copied).",
+			    to.p_path, curr->fts_path);
+			badcp = rval = 1;
+			if (S_ISDIR(curr->fts_statp->st_mode))
+				(void)fts_set(ftsp, curr, FTS_SKIP);
+			continue;
 		}
+
+		/* Not an error but need to remember it happened. */
+		dne = lstat(to.p_path, &to_stat) != 0;
 
 		switch (curr->fts_statp->st_mode & S_IFMT) {
 		case S_IFLNK:
-			/* Catch special case of a non-dangling symlink. */
 			if ((fts_options & FTS_LOGICAL) ||
 			    ((fts_options & FTS_COMFOLLOW) &&
 			    curr->fts_level == 0)) {
+				/*
+				 * We asked FTS to follow links but got
+				 * here anyway, which means the target is
+				 * nonexistent or inaccessible.  Let
+				 * copy_file() deal with the error.
+				 */
 				if (copy_file(curr, dne))
 					badcp = rval = 1;
-			} else {	
+			} else {
+				/* Copy the link. */
 				if (copy_link(curr, !dne))
 					badcp = rval = 1;
 			}

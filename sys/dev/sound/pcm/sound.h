@@ -88,8 +88,6 @@ struct snd_mixer;
 #include <dev/sound/pcm/feeder.h>
 #include <dev/sound/pcm/mixer.h>
 #include <dev/sound/pcm/dsp.h>
-#include <dev/sound/clone.h>
-#include <dev/sound/unit.h>
 
 #define	PCM_SOFTC_SIZE	(sizeof(struct snddev_info))
 
@@ -100,26 +98,6 @@ struct snd_mixer;
 #define SOUND_MINVER	SOUND_MODVER
 #define SOUND_PREFVER	SOUND_MODVER
 #define SOUND_MAXVER	SOUND_MODVER
-
-/*
- * We're abusing the fact that MAXMINOR still have enough room
- * for our bit twiddling and nobody ever need 512 unique soundcards,
- * 32 unique device types and 1024 unique cloneable devices for the
- * next 100 years...
- */
-
-#define PCMMAXUNIT		(snd_max_u())
-#define PCMMAXDEV		(snd_max_d())
-#define PCMMAXCHAN		(snd_max_c())
-
-#define PCMMAXCLONE		PCMMAXCHAN
-
-#define PCMUNIT(x)		(snd_unit2u(dev2unit(x)))
-#define PCMDEV(x)		(snd_unit2d(dev2unit(x)))
-#define PCMCHAN(x)		(snd_unit2c(dev2unit(x)))
-
-/* XXX unit2minor compat */
-#define PCMMINOR(x)	(x)
 
 /*
  * By design, limit possible channels for each direction.
@@ -177,6 +155,9 @@ struct snd_mixer;
 				 ((x)->flags & SD_F_REGISTERED))
 
 #define	PCM_DETACHING(x)	((x)->flags & SD_F_DETACHING)
+
+#define	PCM_CHANCOUNT(d)	\
+	(d->playcount + d->pvchancount + d->reccount + d->rvchancount)
 
 /* many variables should be reduced to a range. Here define a macro */
 #define RANGE(var, low, high) (var) = \
@@ -314,12 +295,9 @@ SYSCTL_DECL(_hw_snd);
 
 int pcm_setvchans(struct snddev_info *d, int direction, int newcnt, int num);
 int pcm_chnalloc(struct snddev_info *d, struct pcm_channel **ch, int direction,
-    pid_t pid, char *comm, int devunit);
-int pcm_chnrelease(struct pcm_channel *c);
-int pcm_chnref(struct pcm_channel *c, int ref);
+    pid_t pid, char *comm);
 
 struct pcm_channel *pcm_chn_create(struct snddev_info *d, struct pcm_channel *parent, kobj_class_t cls, int dir, int num, void *devinfo);
-int pcm_chn_destroy(struct pcm_channel *ch);
 int pcm_chn_add(struct snddev_info *d, struct pcm_channel *ch);
 int pcm_chn_remove(struct snddev_info *d, struct pcm_channel *ch);
 
@@ -344,14 +322,6 @@ void snd_mtxassert(void *m);
 int sndstat_register(device_t dev, char *str);
 int sndstat_unregister(device_t dev);
 
-/* usage of flags in device config entry (config file) */
-#define DV_F_DRQ_MASK	0x00000007	/* mask for secondary drq */
-#define	DV_F_DUAL_DMA	0x00000010	/* set to use secondary dma channel */
-
-/* ought to be made obsolete but still used by mss */
-#define	DV_F_DEV_MASK	0x0000ff00	/* force device type/class */
-#define	DV_F_DEV_SHIFT	8		/* force device type/class */
-
 /*
  * this is rather kludgey- we need to duplicate these struct def'ns from sound.c
  * so that the macro versions of pcm_{,un}lock can dereference them.
@@ -370,9 +340,7 @@ struct snddev_info {
 			} opened;
 		} pcm;
 	} channels;
-	TAILQ_HEAD(dsp_cdevinfo_linkhead, dsp_cdevinfo) dsp_cdevinfo_pool;
-	struct snd_clone *clones;
-	unsigned devcount, playcount, reccount, pvchancount, rvchancount ;
+	unsigned playcount, reccount, pvchancount, rvchancount;
 	unsigned flags;
 	unsigned int bufsz;
 	void *devinfo;
@@ -380,6 +348,7 @@ struct snddev_info {
 	char status[SND_STATUSLEN];
 	struct mtx *lock;
 	struct cdev *mixer_dev;
+	struct cdev *dsp_dev;
 	uint32_t pvchanrate, pvchanformat;
 	uint32_t rvchanrate, rvchanformat;
 	int32_t eqpreamp;

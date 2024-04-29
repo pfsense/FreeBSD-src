@@ -17,7 +17,6 @@ CONFS=	DAEMON \
 	cfumass \
 	cleanvar \
 	cleartmp \
-	cron \
 	ctld \
 	ddb \
 	defaultroute \
@@ -129,6 +128,10 @@ CONFGROUPS+=		RESOLVCONF
 RESOLVCONF=		resolv
 RESOLVCONFPACKAGE=	resolvconf
 
+CONFGROUPS+=		CRON
+CRON+=			cron
+CRONPACKAGE=		cron
+
 .if ${MK_NIS} != "no"
 CONFS+=	ypbind \
 	ypldap \
@@ -164,7 +167,7 @@ APMPACKAGE=	apm
 CONFGROUPS+=	AUDIT
 AUDIT+=		auditd
 AUDIT+=		auditdistd
-AUDITPACKAGE=	rc
+AUDITPACKAGE=	audit
 .endif
 
 .if ${MK_AUTOFS} != "no"
@@ -257,7 +260,9 @@ CONSOLEPACKAGE=	console-tools
 .endif
 
 .if ${MK_LPR} != "no"
-CONFS+=		lpd
+CONFGROUPS+=	LP
+LP+=		lpd
+LPPACKAGE=	lp
 .endif
 
 .if ${MK_KERBEROS} != "no"

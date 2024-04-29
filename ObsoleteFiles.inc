@@ -51,7 +51,13 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-# 2024mmdd: new clang import which bumps version from 17 to 18
+# 20240422: remove improperly installed libcxxrt.so.1
+MOVED_LIBS+=usr/lib/libcxxrt.so.1
+
+# 20240414: unix_socketpair_test renamed
+OLD_FILES+=usr/tests/sys/kern/unix_socketpair_test
+
+# 20240406: new clang import which bumps version from 17 to 18
 OLD_FILES+=usr/lib/clang/17/include/__clang_cuda_builtin_vars.h
 OLD_FILES+=usr/lib/clang/17/include/__clang_cuda_cmath.h
 OLD_FILES+=usr/lib/clang/17/include/__clang_cuda_complex_builtins.h
@@ -325,6 +331,7 @@ OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_cxx-powerpc64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_cxx-powerpc64le.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_cxx-riscv64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_cxx-x86_64.a
+OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-i386.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-powerpc64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-powerpc64le.a
@@ -343,6 +350,7 @@ OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.dd-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.dd-x86_64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer-x86_64.a
+OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer_interceptors-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer_interceptors-x86_64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer_no_main-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.fuzzer_no_main-x86_64.a
@@ -442,7 +450,7 @@ OLD_FILES+=usr/lib/clang/17/share/msan_ignorelist.txt
 OLD_DIRS+=usr/lib/clang/17/share
 OLD_DIRS+=usr/lib/clang/17
 
-# 2024mmdd: new libc++ import which bumps version from 17 to 18
+# 20240406: new libc++ import which bumps version from 17 to 18
 OLD_FILES+=usr/include/c++/v1/__pstl/internal/algorithm_fwd.h
 OLD_FILES+=usr/include/c++/v1/__pstl/internal/algorithm_impl.h
 OLD_FILES+=usr/include/c++/v1/__pstl/internal/execution_defs.h

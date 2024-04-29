@@ -248,6 +248,7 @@ main(int argc, char *argv[])
 			if (e != NULL) {
 				errx(6, "invalid restart delay: %s", e);
 			}
+			state.mode = MODE_SUPERVISE;
 			break;
 		case 's':
 			state.syslog_priority = get_log_mapping(optarg,
@@ -275,7 +276,7 @@ main(int argc, char *argv[])
 			break;
 		case 'h':
 			usage(0);
-			__builtin_unreachable();
+			__unreachable();
 		default:
 			usage(1);
 		}

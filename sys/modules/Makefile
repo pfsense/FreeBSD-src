@@ -20,6 +20,7 @@ SUBDIR=	\
 	accf_data \
 	accf_dns \
 	accf_http \
+	accf_tls \
 	acl_nfs4 \
 	acl_posix1e \
 	${_acpi} \
@@ -154,6 +155,7 @@ SUBDIR=	\
 	if_edsc \
 	${_if_enc} \
 	if_epair \
+	${_genet} \
 	${_if_gif} \
 	${_if_gre} \
 	${_if_me} \
@@ -290,9 +292,9 @@ SUBDIR=	\
 	nmdm \
 	nullfs \
 	${_ntb} \
-	${_nvd} \
+	nvd \
 	${_nvdimm} \
-	${_nvme} \
+	nvme \
 	${_nvram} \
 	oce \
 	${_ocs_fc} \
@@ -641,6 +643,11 @@ _cxgbe=		cxgbe
 _mpi3mr=mpi3mr
 .endif
 
+# Specific to the Raspberry Pi.
+.if ${MACHINE_CPUARCH} == "aarch64"
+_genet=		genet
+.endif
+
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "aarch64" || \
 	${MACHINE_ARCH:Mpowerpc64*}
 _ice=		ice
@@ -795,8 +802,6 @@ _iwmfw=		iwmfw
 _iwnfw=		iwnfw
 .endif
 _nfe=		nfe
-_nvd=		nvd
-_nvme=		nvme
 _nvram=		nvram
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
 _padlock=	padlock
@@ -880,8 +885,6 @@ _cfi=		cfi
 _cpufreq=	cpufreq
 _exca=		exca
 _ffec=		ffec
-_nvd=		nvd
-_nvme=		nvme
 .endif
 
 .if ${MACHINE_ARCH:Mpowerpc64*} != ""
