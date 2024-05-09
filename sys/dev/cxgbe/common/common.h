@@ -402,7 +402,9 @@ struct adapter_params {
 	unsigned int max_ordird_qp;
 	unsigned int max_ird_adapter;
 
-	uint32_t mps_bg_map;	/* rx buffer group map for all ports (upto 4) */
+	/* These values are for all ports (8b/port, upto 4 ports) */
+	uint32_t mps_bg_map;	/* MPS rx buffer group map */
+	uint32_t tp_ch_map;	/* TPCHMAP from firmware */
 
 	bool ulptx_memwrite_dsgl;	/* use of T5 DSGL allowed */
 	bool fr_nsmr_tpte_wr_support;	/* FW support for FR_NSMR_TPTE_WR */
@@ -618,7 +620,6 @@ struct fw_filter_wr;
 
 void t4_intr_enable(struct adapter *adapter);
 void t4_intr_disable(struct adapter *adapter);
-void t4_intr_clear(struct adapter *adapter);
 bool t4_slow_intr_handler(struct adapter *adapter, bool verbose);
 
 int t4_hash_mac_addr(const u8 *addr);
@@ -722,6 +723,7 @@ int t4_set_vf_mac(struct adapter *adapter, unsigned int pf, unsigned int vf,
 unsigned int t4_get_regs_len(struct adapter *adapter);
 void t4_get_regs(struct adapter *adap, u8 *buf, size_t buf_size);
 
+u32 t4_port_reg(struct adapter *adap, u8 port, u32 reg);
 const char *t4_get_port_type_description(enum fw_port_type port_type);
 void t4_get_port_stats(struct adapter *adap, int idx, struct port_stats *p);
 void t4_get_port_stats_offset(struct adapter *adap, int idx,

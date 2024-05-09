@@ -1029,6 +1029,7 @@ device		wg
 # TCP_BLACKBOX enables enhanced TCP event logging.
 #
 # TCP_HHOOK enables the hhook(9) framework hooks for the TCP stack.
+# SOCKET_HHOOK enables the hhook(9) framework hooks for socket operations.
 #
 # ROUTE_MPATH provides support for multipath routing.
 #
@@ -1050,6 +1051,7 @@ options 	PF_DEFAULT_TO_DROP	#drop everything by default
 options 	TCPPCAP
 options 	TCP_BLACKBOX
 options 	TCP_HHOOK
+options		SOCKET_HHOOK
 options 	ROUTE_MPATH
 
 # The MBUF_STRESS_TEST option enables options which create
@@ -1676,11 +1678,17 @@ device		mrsas		# LSI/Avago MegaRAID SAS/SATA, 6Gb/s and 12Gb/s
 # NVM Express
 #
 # nvme:	PCI-express NVM Express host controllers
+# nvmf:	NVM Express over Fabrics host
+# nvmft: NVM Express over Fabrics CAM Target Layer frontend
+# nvmf_tcp: TCP transport for NVM Express over Fabrics
 # nda:	CAM NVMe disk driver
 # nvd:	non-CAM NVMe disk driver
 
-device		nvme		# base NVMe driver
+device		nvme		# PCI-express NVMe host driver
 options 	NVME_USE_NVD=1	# Use nvd(4) instead of the CAM nda(4) driver
+device		nvmf		# NVMeoF host driver
+device		nvmft		# NVMeoF ctl(4) frontend
+device		nvmf_tcp	# NVMeoF TCP transport
 device		nda		# NVMe direct access devices (aka disks)
 device		nvd		# expose NVMe namespaces as disks, depends on nvme
 

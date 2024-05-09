@@ -1793,6 +1793,7 @@ tcpip_maketemplate(struct inpcb *inp)
  *
  * NOTE: If m != NULL, then th must point to *inside* the mbuf.
  */
+
 void
 tcp_respond(struct tcpcb *tp, void *ipgen, struct tcphdr *th, struct mbuf *m,
     tcp_seq ack, tcp_seq seq, uint16_t flags)
@@ -3320,8 +3321,19 @@ tcp_mtudisc(struct inpcb *inp, int mtuoffer)
 	so = inp->inp_socket;
 	SOCKBUF_LOCK(&so->so_snd);
 	/* If the mss is larger than the socket buffer, decrease the mss. */
-	if (so->so_snd.sb_hiwat < tp->t_maxseg)
+	if (so->so_snd.sb_hiwat < tp->t_maxseg) {
 		tp->t_maxseg = so->so_snd.sb_hiwat;
+		if (tp->t_maxseg < V_tcp_mssdflt) {
+			/*
+			 * The MSS is so small we should not process incoming
+			 * SACK's since we are subject to attack in such a
+			 * case.
+			 */
+			tp->t_flags2 |= TF2_PROC_SACK_PROHIBIT;
+		} else {
+			tp->t_flags2 &= ~TF2_PROC_SACK_PROHIBIT;
+		}
+	}
 	SOCKBUF_UNLOCK(&so->so_snd);
 
 	TCPSTAT_INC(tcps_mturesent);
@@ -3454,8 +3466,19 @@ tcp6_use_min_mtu(struct tcpcb *tp)
 
 		opt = inp->in6p_outputopts;
 		if (opt != NULL && opt->ip6po_minmtu == IP6PO_MINMTU_ALL &&
-		    tp->t_maxseg > TCP6_MSS)
+		    tp->t_maxseg > TCP6_MSS) {
 			tp->t_maxseg = TCP6_MSS;
+			if (tp->t_maxseg < V_tcp_mssdflt) {
+				/*
+				 * The MSS is so small we should not process incoming
+				 * SACK's since we are subject to attack in such a
+				 * case.
+				 */
+				tp->t_flags2 |= TF2_PROC_SACK_PROHIBIT;
+			} else {
+				tp->t_flags2 &= ~TF2_PROC_SACK_PROHIBIT;
+			}
+		}
 	}
 }
 #endif /* INET6 */
@@ -3507,7 +3530,6 @@ tcp_maxseg(const struct tcpcb *tp)
 		if (tp->t_flags & TF_SACK_PERMIT)
 			optlen += PADTCPOLEN(TCPOLEN_SACK_PERMITTED);
 	}
-#undef PAD
 	optlen = min(optlen, TCP_MAXOLEN);
 	return (tp->t_maxseg - optlen);
 }
@@ -3529,7 +3551,6 @@ tcp_fixed_maxseg(const struct tcpcb *tp)
 	 * for cc modules to figure out what the modulo of the
 	 * cwnd should be.
 	 */
-#define	PAD(len)	((((len) / 4) + !!((len) % 4)) * 4)
 	if (TCPS_HAVEESTABLISHED(tp->t_state)) {
 		if (tp->t_flags & TF_RCVD_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
@@ -3537,23 +3558,22 @@ tcp_fixed_maxseg(const struct tcpcb *tp)
 			optlen = 0;
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 	} else {
 		if (tp->t_flags & TF_REQ_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
 		else
-			optlen = PAD(TCPOLEN_MAXSEG);
+			optlen = PADTCPOLEN(TCPOLEN_MAXSEG);
 		if (tp->t_flags & TF_REQ_SCALE)
-			optlen += PAD(TCPOLEN_WINDOW);
+			optlen += PADTCPOLEN(TCPOLEN_WINDOW);
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 		if (tp->t_flags & TF_SACK_PERMIT)
-			optlen += PAD(TCPOLEN_SACK_PERMITTED);
+			optlen += PADTCPOLEN(TCPOLEN_SACK_PERMITTED);
 	}
-#undef PAD
 	optlen = min(optlen, TCP_MAXOLEN);
 	return (tp->t_maxseg - optlen);
 }

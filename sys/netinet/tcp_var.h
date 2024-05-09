@@ -846,6 +846,7 @@ tcp_packets_this_ack(struct tcpcb *tp, tcp_seq ack)
 #define	TF2_MBUF_QUEUE_READY	0x00020000 /* Inputs can be queued */
 #define	TF2_DONT_SACK_QUEUE	0x00040000 /* Don't wake on sack */
 #define	TF2_CANNOT_DO_ECN	0x00080000 /* The stack does not do ECN */
+#define TF2_PROC_SACK_PROHIBIT	0x00100000 /* Due to small MSS size do not process sack's */
 
 /*
  * Structure to hold TCP options that are only used during segment
@@ -1029,6 +1030,7 @@ struct	tcpstat {
 	/* SACK related stats */
 	uint64_t tcps_sack_recovery_episode; /* SACK recovery episodes */
 	uint64_t tcps_sack_rexmits;	    /* SACK rexmit segments   */
+	uint64_t tcps_sack_rexmits_tso;	    /* SACK rexmit TSO chunks */
 	uint64_t tcps_sack_rexmit_bytes;    /* SACK rexmit bytes      */
 	uint64_t tcps_sack_rcv_blocks;	    /* SACK blocks (options) received */
 	uint64_t tcps_sack_send_blocks;	    /* SACK blocks (options) sent     */
@@ -1087,7 +1089,7 @@ struct	tcpstat {
 	uint64_t tcps_tlpresend_bytes;	/* number of bytes resent by tlp */
 
 
-	uint64_t _pad[4];		/* 4 TBD placeholder for STABLE */
+	uint64_t _pad[3];		/* 3 TBD placeholder for STABLE */
 };
 
 #define	tcps_rcvmemdrop	tcps_rcvreassfull	/* compat */
@@ -1290,6 +1292,7 @@ VNET_DECLARE(int, tcp_retries);
 VNET_DECLARE(int, tcp_sack_globalholes);
 VNET_DECLARE(int, tcp_sack_globalmaxholes);
 VNET_DECLARE(int, tcp_sack_maxholes);
+VNET_DECLARE(int, tcp_sack_tso);
 VNET_DECLARE(int, tcp_sc_rst_sock_fail);
 VNET_DECLARE(int, tcp_sendspace);
 VNET_DECLARE(int, tcp_udp_tunneling_overhead);
@@ -1336,6 +1339,7 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcp_sack_globalholes		VNET(tcp_sack_globalholes)
 #define	V_tcp_sack_globalmaxholes	VNET(tcp_sack_globalmaxholes)
 #define	V_tcp_sack_maxholes		VNET(tcp_sack_maxholes)
+#define	V_tcp_sack_tso			VNET(tcp_sack_tso)
 #define	V_tcp_sc_rst_sock_fail		VNET(tcp_sc_rst_sock_fail)
 #define	V_tcp_sendspace			VNET(tcp_sendspace)
 #define	V_tcp_udp_tunneling_overhead	VNET(tcp_udp_tunneling_overhead)

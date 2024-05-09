@@ -108,6 +108,8 @@ cam/ctl/ctl_frontend_cam_sim.c	optional ctl
 cam/ctl/ctl_frontend_ioctl.c	optional ctl
 cam/ctl/ctl_frontend_iscsi.c	optional ctl cfiscsi
 cam/ctl/ctl_ha.c		optional ctl
+cam/ctl/ctl_nvme_all.c		optional ctl
+cam/ctl/ctl_nvme_cmd_table.c	optional ctl
 cam/ctl/ctl_scsi_all.c		optional ctl
 cam/ctl/ctl_tpc.c		optional ctl
 cam/ctl/ctl_tpc_local.c		optional ctl
@@ -701,15 +703,15 @@ crypto/openssl/ossl_sha1.c	optional ossl
 crypto/openssl/ossl_sha256.c	optional ossl
 crypto/openssl/ossl_sha512.c	optional ossl
 crypto/rc4/rc4.c		optional netgraph_mppc_encryption
-crypto/rijndael/rijndael-alg-fst.c optional crypto | ekcd | geom_bde | \
+crypto/rijndael/rijndael-alg-fst.c optional crypto | ekcd | \
 	!random_loadable | wlan_ccmp
-crypto/rijndael/rijndael-api-fst.c optional ekcd | geom_bde | !random_loadable
+crypto/rijndael/rijndael-api-fst.c optional ekcd | !random_loadable
 crypto/rijndael/rijndael-api.c	optional crypto | wlan_ccmp
 crypto/sha1.c			optional carp | crypto | ether | \
 	netgraph_mppc_encryption | sctp
-crypto/sha2/sha256c.c		optional crypto | ekcd | geom_bde | \
+crypto/sha2/sha256c.c		optional crypto | ekcd | \
 	!random_loadable | sctp | zfs
-crypto/sha2/sha512c.c		optional crypto | geom_bde | zfs
+crypto/sha2/sha512c.c		optional crypto | zfs
 crypto/skein/skein.c		optional crypto | zfs
 crypto/skein/skein_block.c	optional crypto | zfs
 crypto/siphash/siphash.c	optional inet | inet6 | wg
@@ -2534,6 +2536,19 @@ dev/nvme/nvme_test.c		optional nvme
 dev/nvme/nvme_util.c		optional nvme
 dev/nvmem/nvmem.c		optional nvmem fdt
 dev/nvmem/nvmem_if.m		optional nvmem
+dev/nvmf/controller/ctl_frontend_nvmf.c		optional nvmft
+dev/nvmf/controller/nvmft_controller.c		optional nvmft
+dev/nvmf/controller/nvmft_subr.c		optional nvmft
+dev/nvmf/controller/nvmft_qpair.c		optional nvmft
+dev/nvmf/host/nvmf.c		optional nvmf
+dev/nvmf/host/nvmf_aer.c	optional nvmf
+dev/nvmf/host/nvmf_cmd.c	optional nvmf
+dev/nvmf/host/nvmf_ctldev.c	optional nvmf
+dev/nvmf/host/nvmf_ns.c		optional nvmf
+dev/nvmf/host/nvmf_qpair.c	optional nvmf
+dev/nvmf/host/nvmf_sim.c	optional nvmf
+dev/nvmf/nvmf_tcp.c		optional nvmf_tcp
+dev/nvmf/nvmf_transport.c	optional nvmf | optional nvmft
 dev/oce/oce_hw.c		optional oce pci
 dev/oce/oce_if.c		optional oce pci
 dev/oce/oce_mbox.c		optional oce pci
@@ -3180,6 +3195,13 @@ dev/syscons/warp/warp_saver.c	optional warp_saver
 dev/tcp_log/tcp_log_dev.c	optional tcp_blackbox inet | tcp_blackbox inet6
 dev/tdfx/tdfx_pci.c		optional tdfx pci
 dev/ti/if_ti.c			optional ti pci
+dev/tpm/tpm20.c			optional	tpm
+dev/tpm/tpm_bus.c		optional tpm acpi
+dev/tpm/tpm_if.m		optional tpm
+dev/tpm/tpm_spibus.c		optional tpm spibus fdt
+dev/tpm/tpm_tis_acpi.c		optional tpm acpi
+dev/tpm/tpm_tis_core.c		optional tpm
+dev/tpm/tpm_tis_spibus.c	optional tpm spibus fdt
 dev/tws/tws.c			optional tws
 dev/tws/tws_cam.c		optional tws
 dev/tws/tws_hdm.c		optional tws
@@ -3609,10 +3631,6 @@ gdb/gdb_cons.c			optional gdb
 gdb/gdb_main.c			optional gdb
 gdb/gdb_packet.c		optional gdb
 gdb/netgdb.c			optional ddb debugnet gdb netgdb inet
-geom/bde/g_bde.c		optional geom_bde
-geom/bde/g_bde_crypt.c		optional geom_bde
-geom/bde/g_bde_lock.c		optional geom_bde
-geom/bde/g_bde_work.c		optional geom_bde
 geom/cache/g_cache.c		optional geom_cache
 geom/concat/g_concat.c		optional geom_concat
 geom/eli/g_eli.c		optional geom_eli
