@@ -19,7 +19,7 @@ bhnd_nvram_map_data.h		optional bhnd				   \
 	no-obj no-implicit-rule before-depend				   \
 	clean		"bhnd_nvram_map_data.h"
 fdt_static_dtb.h		optional fdt fdt_dtb_static \
-	compile-with "sh -c 'MACHINE=${MACHINE} $S/tools/fdt/make_dtbh.sh ${FDT_DTS_FILE} ${.CURDIR}'" \
+	compile-with "sh -c 'MACHINE=${MACHINE} $S/tools/fdt/make_dtbh.sh ${FDT_DTS_FILE} ${.OBJDIR}'" \
 	dependency	"${FDT_DTS_FILE:T:R}.dtb" \
 	no-obj no-implicit-rule before-depend \
 	clean		"fdt_static_dtb.h"
@@ -3116,6 +3116,8 @@ dev/sound/pci/hda/hdaa_patches.c	optional snd_hda pci
 dev/sound/pci/hda/hdac.c	optional snd_hda pci
 dev/sound/pci/hda/hdac_if.m	optional snd_hda pci
 dev/sound/pci/hda/hdacc.c	optional snd_hda pci
+dev/sound/pci/hdsp.c		optional snd_hdsp pci
+dev/sound/pci/hdsp-pcm.c	optional snd_hdsp pci
 dev/sound/pci/hdspe.c		optional snd_hdspe pci
 dev/sound/pci/hdspe-pcm.c	optional snd_hdspe pci
 dev/sound/pcm/ac97.c		optional sound

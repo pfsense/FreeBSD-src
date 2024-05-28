@@ -1334,9 +1334,8 @@ nvme_ctrlr_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int flag,
 	case NVME_GET_NSID:
 	{
 		struct nvme_get_nsid *gnsid = (struct nvme_get_nsid *)arg;
-		strncpy(gnsid->cdev, device_get_nameunit(ctrlr->dev),
+		strlcpy(gnsid->cdev, device_get_nameunit(ctrlr->dev),
 		    sizeof(gnsid->cdev));
-		gnsid->cdev[sizeof(gnsid->cdev) - 1] = '\0';
 		gnsid->nsid = 0;
 		break;
 	}
@@ -1442,6 +1441,8 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 
 	ctrlr->enable_aborts = 0;
 	TUNABLE_INT_FETCH("hw.nvme.enable_aborts", &ctrlr->enable_aborts);
+
+	ctrlr->alignment_splits = counter_u64_alloc(M_WAITOK);
 
 	/* Cap transfers by the maximum addressable by page-sized PRP (4KB pages -> 2MB). */
 	ctrlr->max_xfer_size = MIN(maxphys, (ctrlr->page_size / 8 * ctrlr->page_size));
@@ -1561,6 +1562,9 @@ noadminq:
 	    ctrlr->resource_id, ctrlr->resource);
 
 nores:
+	if (ctrlr->alignment_splits)
+		counter_u64_free(ctrlr->alignment_splits);
+
 	mtx_destroy(&ctrlr->lock);
 }
 
