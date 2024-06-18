@@ -779,6 +779,7 @@ vendor TRIPPLITE	0x2478	Tripp-Lite
 vendor NORELSYS	0x2537	NOREL Systems Ltd.
 vendor TENDA2		0x2604	Tenda
 vendor HIROSE		0x2631	Hirose Electric
+vendor XIAOMI		0x2717	Xiaomi
 vendor NHJ		0x2770	NHJ
 vendor THINGM		0x27b8	ThingM
 vendor PERASO		0x2932	Peraso Technologies, Inc.
@@ -1063,6 +1064,7 @@ product ALCOR AU6390	0x6390	AU6390 USB-IDE converter
 product ALINK DWM652U5		0xce16	DWM-652
 product ALINK 3G		0x9000	3G modem
 product ALINK SIM7600E		0x9001	LTE modem
+product ALINK SIM7600G		0x9011	LTE modem
 product ALINK 3GU		0x9200	3G modem
 
 /* Altec Lansing products */
@@ -4965,6 +4967,9 @@ product WISTRONNEWEB AR5523_2_NF	0x0829	AR5523 (no firmware)
 
 /* Xerox products */
 product XEROX WCM15		0xffef	WorkCenter M15
+
+/* Xiaomi products */
+product XIAOMI MT7601U		0x4106	MT7601U
 
 /* Xirlink products */
 product XIRLINK PCCAM		0x8080	IBM PC Camera

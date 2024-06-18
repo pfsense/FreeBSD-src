@@ -442,8 +442,7 @@ SUBDIR+=	dtrace
 SUBDIR+=	opensolaris
 .endif
 
-# Requires bus_space_read_8
-.if ${MACHINE_ARCH} != "i386"
+.if !${MACHINE_ABI:Mlong32}
 _bnxt=		bnxt
 .endif
 

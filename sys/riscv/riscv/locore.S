@@ -34,7 +34,6 @@
 
 #include "assym.inc"
 
-#include <sys/syscall.h>
 #include <machine/asm.h>
 #include <machine/param.h>
 #include <machine/trap.h>
@@ -198,7 +197,11 @@ pagetables:
 
 	/* Page tables END */
 
-	/* Setup supervisor trap vector */
+	/*
+	 * Set the supervisor trap vector temporarily. Enabling virtual memory
+	 * may generate a page fault. We simply wish to continue onwards, so
+	 * have the trap deliver us to 'va'.
+	 */
 2:
 	lla	t0, va
 	sub	t0, t0, s9
@@ -222,7 +225,7 @@ va:
 	lla	gp, __global_pointer$
 .option pop
 
-	/* Setup supervisor trap vector */
+	/* Set the trap vector to the real handler. */
 	la	t0, cpu_exception_handler
 	csrw	stvec, t0
 
@@ -290,30 +293,6 @@ initstack:
 	.space  (PAGE_SIZE * KSTACK_PAGES)
 initstack_end:
 
-ENTRY(sigcode)
-	mv	a0, sp
-	addi	a0, a0, SF_UC
-
-1:
-	li	t0, SYS_sigreturn
-	ecall
-
-	/* sigreturn failed, exit */
-	li	t0, SYS_exit
-	ecall
-
-	j	1b
-END(sigcode)
-	/* This may be copied to the stack, keep it 16-byte aligned */
-	.align	3
-esigcode:
-
-	.data
-	.align	3
-	.global	szsigcode
-szsigcode:
-	.quad	esigcode - sigcode
-
 	.align	12
 pagetable_l1:
 	.space	PAGE_SIZE
@@ -367,7 +346,11 @@ ENTRY(mpentry)
 	/* Get the kernel's load address */
 	jal	get_physmem
 
-	/* Setup supervisor trap vector */
+	/*
+	 * Set the supervisor trap vector temporarily. Enabling virtual memory
+	 * may generate a page fault. We simply wish to continue onwards, so
+	 * have the trap deliver us to 'mpva'.
+	 */
 	lla	t0, mpva
 	sub	t0, t0, s9
 	li	t1, KERNBASE
@@ -390,7 +373,7 @@ mpva:
 	lla	gp, __global_pointer$
 .option pop
 
-	/* Setup supervisor trap vector */
+	/* Set the trap vector to the real handler. */
 	la	t0, cpu_exception_handler
 	csrw	stvec, t0
 

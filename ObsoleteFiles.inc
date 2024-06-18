@@ -51,6 +51,9 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20240527: csh: Remove hardlink /.cshrc
+OLD_FILES+=.cshrc
+
 # 20240511: move file system driver manuals to section four
 OLD_FILES+=usr/share/man/man5/autofs.5.gz
 OLD_FILES+=usr/share/man/man5/cd9660.5.gz
@@ -367,6 +370,7 @@ OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-i386.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-powerpc64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-powerpc64le.a
+OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-riscv64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.asan_static-x86_64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.cfi-aarch64.a
 OLD_FILES+=usr/lib/clang/17/lib/freebsd/libclang_rt.cfi-arm.a

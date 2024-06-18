@@ -1327,11 +1327,14 @@ dev/bhnd/siba/siba_bhndb.c		optional siba bhnd bhndb
 dev/bhnd/siba/siba_erom.c		optional siba bhnd
 dev/bhnd/siba/siba_subr.c		optional siba bhnd
 #
-dev/bnxt/bnxt_hwrm.c		optional bnxt iflib pci
-dev/bnxt/bnxt_mgmt.c		optional bnxt iflib pci
-dev/bnxt/bnxt_sysctl.c		optional bnxt iflib pci
-dev/bnxt/bnxt_txrx.c		optional bnxt iflib pci
-dev/bnxt/if_bnxt.c		optional bnxt iflib pci
+dev/bnxt/bnxt_en/bnxt_auxbus_compat.c	optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_dcb.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_hwrm.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_mgmt.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_sysctl.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_txrx.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/bnxt_ulp.c		optional bnxt iflib pci compile-with "${BNXT_C}"
+dev/bnxt/bnxt_en/if_bnxt.c		optional bnxt iflib pci compile-with "${BNXT_C}"
 dev/bwi/bwimac.c		optional bwi
 dev/bwi/bwiphy.c		optional bwi
 dev/bwi/bwirf.c			optional bwi
@@ -3213,7 +3216,7 @@ dev/uart/uart_bus_acpi.c	optional uart acpi
 dev/uart/uart_bus_fdt.c		optional uart fdt
 dev/uart/uart_bus_isa.c		optional uart isa
 dev/uart/uart_bus_pci.c		optional uart pci
-dev/uart/uart_bus_puc.c		optional uart pci
+dev/uart/uart_bus_puc.c		optional uart puc
 dev/uart/uart_bus_scc.c		optional uart scc
 dev/uart/uart_core.c		optional uart
 dev/uart/uart_cpu_acpi.c	optional uart acpi
@@ -3245,8 +3248,6 @@ dev/usb/controller/uhci.c		optional uhci
 dev/usb/controller/uhci_pci.c		optional uhci pci
 dev/usb/controller/xhci.c		optional xhci
 dev/usb/controller/xhci_pci.c		optional xhci pci
-dev/usb/controller/saf1761_otg.c	optional saf1761otg
-dev/usb/controller/saf1761_otg_fdt.c	optional saf1761otg fdt
 dev/usb/controller/uss820dci.c		optional uss820dci
 dev/usb/controller/usb_controller.c	optional usb
 #

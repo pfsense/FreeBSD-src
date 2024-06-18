@@ -180,6 +180,7 @@
 #define	__aligned(x)	__attribute__((__aligned__(x)))
 #define	__section(x)	__attribute__((__section__(x)))
 #endif
+#define	__writeonly	__unused
 #if __GNUC_PREREQ__(4, 3) || __has_attribute(__alloc_size__)
 #define	__alloc_size(x)	__attribute__((__alloc_size__(x)))
 #define	__alloc_size2(n, x)	__attribute__((__alloc_size__(n, x)))
@@ -638,10 +639,13 @@
  *					and the omnibus ISO/IEC 9945-1: 1996
  *					(1003.1 Issue 5, Single	Unix Spec v2, Unix 95)
  *  _POSIX_C_SOURCE == 200112		1003.1-2001 (1003.1 Issue 6, Unix 03)
+ *					with _XOPEN_SOURCE=600
  *  _POSIX_C_SOURCE == 200809		1003.1-2008 (1003.1 Issue 7)
  *					IEEE Std 1003.1-2017 (Rev of 1003.1-2008) is
- *					1003.1-2008 with two TCs applied with
- *					_POSIX_C_SOURCE=200809 and _XOPEN_SOURCE=700
+ *					1003.1-2008 with two TCs applied and
+ *					_XOPEN_SOURCE=700
+ * _POSIX_C_SOURCE == 202405		1003.1-2004 (1003.1 Issue 8), IEEE Std 1003.1-2024
+ * 					with _XOPEN_SOURCE=800
  *
  * In addition, the X/Open Portability Guide, which is now the Single UNIX
  * Specification, defines a feature-test macro which indicates the version of

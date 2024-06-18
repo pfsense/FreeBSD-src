@@ -632,6 +632,7 @@ pmap_bootstrap(vm_offset_t l1pt, vm_paddr_t kernstart, vm_size_t kernlen)
 
 	/* Set this early so we can use the pagetable walking functions */
 	kernel_pmap_store.pm_top = (pd_entry_t *)l1pt;
+	kernel_pmap_store.pm_stage = PM_STAGE1;
 	PMAP_LOCK_INIT(kernel_pmap);
 	TAILQ_INIT(&kernel_pmap->pm_pvchunk);
 	vm_radix_init(&kernel_pmap->pm_root);
@@ -1324,6 +1325,7 @@ pmap_pinit0(pmap_t pmap)
 {
 	PMAP_LOCK_INIT(pmap);
 	bzero(&pmap->pm_stats, sizeof(pmap->pm_stats));
+	pmap->pm_stage = PM_STAGE1;
 	pmap->pm_top = kernel_pmap->pm_top;
 	pmap->pm_satp = pmap_satp_mode() |
 	    (vtophys(pmap->pm_top) >> PAGE_SHIFT);
@@ -1334,22 +1336,34 @@ pmap_pinit0(pmap_t pmap)
 }
 
 int
-pmap_pinit(pmap_t pmap)
+pmap_pinit_stage(pmap_t pmap, enum pmap_stage stage)
 {
 	vm_paddr_t topphys;
-	vm_page_t mtop;
+	vm_page_t m;
 	size_t i;
 
-	mtop = vm_page_alloc_noobj(VM_ALLOC_WIRED | VM_ALLOC_ZERO |
-	    VM_ALLOC_WAITOK);
+	/*
+	 * Top directory is 4 pages in hypervisor case.
+	 * Current address space layout makes 3 of them unused.
+	 */
+	if (stage == PM_STAGE1)
+		m = vm_page_alloc_noobj(VM_ALLOC_WIRED | VM_ALLOC_ZERO |
+		    VM_ALLOC_WAITOK);
+	else
+		m = vm_page_alloc_noobj_contig(VM_ALLOC_WIRED | VM_ALLOC_ZERO,
+		    4, 0, ~0ul, L2_SIZE, 0, VM_MEMATTR_DEFAULT);
 
-	topphys = VM_PAGE_TO_PHYS(mtop);
+	topphys = VM_PAGE_TO_PHYS(m);
 	pmap->pm_top = (pd_entry_t *)PHYS_TO_DMAP(topphys);
 	pmap->pm_satp = pmap_satp_mode() | (topphys >> PAGE_SHIFT);
+	pmap->pm_stage = stage;
 
 	bzero(&pmap->pm_stats, sizeof(pmap->pm_stats));
 
 	CPU_ZERO(&pmap->pm_active);
+
+	if (stage == PM_STAGE2)
+		goto finish;
 
 	if (pmap_mode == PMAP_MODE_SV39) {
 		/*
@@ -1371,10 +1385,18 @@ pmap_pinit(pmap_t pmap)
 		pmap->pm_top[i] = kernel_pmap->pm_top[i];
 	}
 
+finish:
 	TAILQ_INIT(&pmap->pm_pvchunk);
 	vm_radix_init(&pmap->pm_root);
 
 	return (1);
+}
+
+int
+pmap_pinit(pmap_t pmap)
+{
+
+	return (pmap_pinit_stage(pmap, PM_STAGE1));
 }
 
 /*
@@ -1609,6 +1631,8 @@ void
 pmap_release(pmap_t pmap)
 {
 	vm_page_t m;
+	int npages;
+	int i;
 
 	KASSERT(pmap->pm_stats.resident_count == 0,
 	    ("pmap_release: pmap resident count %ld != 0",
@@ -1616,15 +1640,23 @@ pmap_release(pmap_t pmap)
 	KASSERT(CPU_EMPTY(&pmap->pm_active),
 	    ("releasing active pmap %p", pmap));
 
+	if (pmap->pm_stage == PM_STAGE2)
+		goto finish;
+
 	if (pmap_mode == PMAP_MODE_SV39) {
 		mtx_lock(&allpmaps_lock);
 		LIST_REMOVE(pmap, pm_list);
 		mtx_unlock(&allpmaps_lock);
 	}
 
+finish:
+	npages = pmap->pm_stage == PM_STAGE2 ? 4 : 1;
 	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((vm_offset_t)pmap->pm_top));
-	vm_page_unwire_noq(m);
-	vm_page_free(m);
+	for (i = 0; i < npages; i++) {
+		vm_page_unwire_noq(m);
+		vm_page_free(m);
+		m++;
+	}
 }
 
 static int
@@ -2879,14 +2911,13 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
     u_int flags, int8_t psind)
 {
 	struct rwlock *lock;
-	pd_entry_t *l1, *l2, l2e;
+	pd_entry_t *l2, l2e;
 	pt_entry_t new_l3, orig_l3;
 	pt_entry_t *l3;
 	pv_entry_t pv;
-	vm_paddr_t opa, pa, l2_pa, l3_pa;
-	vm_page_t mpte, om, l2_m, l3_m;
-	pt_entry_t entry;
-	pn_t l2_pn, l3_pn, pn;
+	vm_paddr_t opa, pa;
+	vm_page_t mpte, om;
+	pn_t pn;
 	int rv;
 	bool nosleep;
 
@@ -2958,39 +2989,7 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		}
 		l3 = pmap_l3(pmap, va);
 	} else {
-		l3 = pmap_l3(pmap, va);
-		/* TODO: This is not optimal, but should mostly work */
-		if (l3 == NULL) {
-			if (l2 == NULL) {
-				l2_m = vm_page_alloc_noobj(VM_ALLOC_WIRED |
-				    VM_ALLOC_ZERO);
-				if (l2_m == NULL)
-					panic("pmap_enter: l2 pte_m == NULL");
-
-				l2_pa = VM_PAGE_TO_PHYS(l2_m);
-				l2_pn = (l2_pa / PAGE_SIZE);
-
-				l1 = pmap_l1(pmap, va);
-				entry = (PTE_V);
-				entry |= (l2_pn << PTE_PPN0_S);
-				pmap_store(l1, entry);
-				pmap_distribute_l1(pmap, pmap_l1_index(va), entry);
-				l2 = pmap_l1_to_l2(l1, va);
-			}
-
-			l3_m = vm_page_alloc_noobj(VM_ALLOC_WIRED |
-			    VM_ALLOC_ZERO);
-			if (l3_m == NULL)
-				panic("pmap_enter: l3 pte_m == NULL");
-
-			l3_pa = VM_PAGE_TO_PHYS(l3_m);
-			l3_pn = (l3_pa / PAGE_SIZE);
-			entry = (PTE_V);
-			entry |= (l3_pn << PTE_PPN0_S);
-			pmap_store(l2, entry);
-			l3 = pmap_l2_to_l3(l2, va);
-		}
-		pmap_invalidate_page(pmap, va);
+		panic("pmap_enter: missing L3 table for kernel va %#lx", va);
 	}
 
 	orig_l3 = pmap_load(l3);
@@ -3139,6 +3138,28 @@ out:
 }
 
 /*
+ * Release a page table page reference after a failed attempt to create a
+ * mapping.
+ */
+static void
+pmap_abort_ptp(pmap_t pmap, vm_offset_t va, vm_page_t l2pg)
+{
+	struct spglist free;
+
+	SLIST_INIT(&free);
+	if (pmap_unwire_ptp(pmap, va, l2pg, &free)) {
+		/*
+		 * Although "va" is not mapped, paging-structure
+		 * caches could nonetheless have entries that
+		 * refer to the freed page table pages.
+		 * Invalidate those entries.
+		 */
+		pmap_invalidate_page(pmap, va);
+		vm_page_free_pages_toq(&free, true);
+	}
+}
+
+/*
  * Tries to create a read- and/or execute-only 2MB page mapping.  Returns
  * KERN_SUCCESS if the mapping was created.  Otherwise, returns an error
  * value.  See pmap_enter_l2() for the possible error values when "no sleep",
@@ -3270,12 +3291,14 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 	if ((new_l2 & PTE_SW_WIRED) != 0 && pmap != kernel_pmap) {
 		uwptpg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
 		if (uwptpg == NULL) {
+			pmap_abort_ptp(pmap, va, l2pg);
 			return (KERN_RESOURCE_SHORTAGE);
 		}
 		uwptpg->pindex = pmap_l2_pindex(va);
 		if (pmap_insert_pt_page(pmap, uwptpg, true, false)) {
 			vm_page_unwire_noq(uwptpg);
 			vm_page_free(uwptpg);
+			pmap_abort_ptp(pmap, va, l2pg);
 			return (KERN_RESOURCE_SHORTAGE);
 		}
 		pmap_resident_count_inc(pmap, 1);
@@ -3286,17 +3309,7 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 		 * Abort this mapping if its PV entry could not be created.
 		 */
 		if (!pmap_pv_insert_l2(pmap, va, new_l2, flags, lockp)) {
-			SLIST_INIT(&free);
-			if (pmap_unwire_ptp(pmap, va, l2pg, &free)) {
-				/*
-				 * Although "va" is not mapped, paging-structure
-				 * caches could nonetheless have entries that
-				 * refer to the freed page table pages.
-				 * Invalidate those entries.
-				 */
-				pmap_invalidate_page(pmap, va);
-				vm_page_free_pages_toq(&free, true);
-			}
+			pmap_abort_ptp(pmap, va, l2pg);
 			if (uwptpg != NULL) {
 				mt = pmap_remove_pt_page(pmap, va);
 				KASSERT(mt == uwptpg,
@@ -3519,7 +3532,8 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	 * If both the PTP and the reservation are fully populated, then attempt
 	 * promotion.
 	 */
-	if ((mpte == NULL || mpte->ref_count == Ln_ENTRIES) &&
+	if ((prot & VM_PROT_NO_PROMOTE) == 0 &&
+	    (mpte == NULL || mpte->ref_count == Ln_ENTRIES) &&
 	    (m->flags & PG_FICTITIOUS) == 0 &&
 	    vm_reserv_level_iffullpop(m) == 0) {
 		if (l2 == NULL)
@@ -5016,7 +5030,7 @@ sysctl_kmaps(SYSCTL_HANDLER_ARGS)
 {
 	struct pmap_kernel_map_range range;
 	struct sbuf sbuf, *sb;
-	pd_entry_t l1e, *l2, l2e;
+	pd_entry_t *l1, l1e, *l2, l2e;
 	pt_entry_t *l3, l3e;
 	vm_offset_t sva;
 	vm_paddr_t pa;
@@ -5043,7 +5057,8 @@ sysctl_kmaps(SYSCTL_HANDLER_ARGS)
 		else if (i == pmap_l1_index(VM_MIN_KERNEL_ADDRESS))
 			sbuf_printf(sb, "\nKernel map:\n");
 
-		l1e = kernel_pmap->pm_top[i];
+		l1 = pmap_l1(kernel_pmap, sva);
+		l1e = pmap_load(l1);
 		if ((l1e & PTE_V) == 0) {
 			sysctl_kmaps_dump(sb, &range, sva);
 			sva += L1_SIZE;
