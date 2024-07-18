@@ -140,7 +140,7 @@ main(int argc, char **argv)
 	}
 
 	/* Parse */
-	if (sscanf(data, "\033[%hu;%huR", &w.ws_row, &w.ws_col) != 2) {
+	if (sscanf(data, " \033[%hu;%huR", &w.ws_row, &w.ws_col) != 2) {
 		error = 1;
 		warnx("unable to parse response");
 		goto out;
