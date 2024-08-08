@@ -35,6 +35,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/smp.h>
 #include <sys/sysctl.h>
 
 #ifdef FDT
@@ -208,9 +209,9 @@ netgate_identify(driver_t *driver, device_t parent)
 static int
 netgate_probe(device_t dev)
 {
-	int cpu, i;
+	int i;
 	size_t len;
-	char *bios, *boardname, *boardpn, *chassis, *cpustr, *fdt, *maker;
+	char *bios, *boardname, *boardpn, *chassis, *fdt, *maker;
 	char *model, *planar, *prod, *vm;
 	struct netgate_softc *sc;
 
@@ -225,14 +226,6 @@ netgate_probe(device_t dev)
 		free(model, M_DEVBUF);
 		model = NULL;
 	}
-	/* hw.ncpu */
-	len = NETGATE_BUFSZ;
-	cpustr = malloc(len, M_DEVBUF, M_WAITOK);
-	memset(cpustr, 0, len);
-	if (kernel_sysctlbyname(curthread, "hw.ncpu", cpustr, &len, NULL,
-	    0, NULL, 0) == 0)
-		cpu = strtol(cpustr, NULL, 10);
-	free(cpustr, M_DEVBUF);
 	/* kern.vm_guest */
 	len = NETGATE_BUFSZ;
 	vm = malloc(len, M_DEVBUF, M_WAITOK);
@@ -381,7 +374,7 @@ netgate_probe(device_t dev)
 		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
 		    ng_ids[i].cpu > 0 &&
 		    prod != NULL &&
-		    ng_ids[i].cpu == cpu &&
+		    ng_ids[i].cpu == mp_ncpus &&
 		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
 			netgate_model = ng_ids[i].id;
 			break;
