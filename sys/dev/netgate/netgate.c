@@ -207,9 +207,367 @@ netgate_identify(driver_t *driver, device_t parent)
 }
 
 static int
-netgate_probe(device_t dev)
+netgate_maker(const char *maker)
 {
 	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* VM - Maker */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    maker != NULL &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_vm_guest(const char *vm)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* VM - kern.vm_guest */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm != NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    vm != NULL &&
+		    strncmp(vm, ng_ids[i].vm, strlen(ng_ids[i].vm)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_vm_bios(const char *bios)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* VM - BIOS */
+		if (ng_ids[i].bios != NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    bios != NULL &&
+		    strstr(bios, ng_ids[i].bios) != NULL)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_prod_maker_chassis(const char *prod, const char *maker,
+    const char *chassis)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product, Maker and Chassis Tag */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis != NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    chassis != NULL && maker != NULL && prod != NULL &&
+		    strncmp(chassis, ng_ids[i].chassis, strlen(ng_ids[i].chassis)) == 0 &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_prod_maker_bios(const char *prod, const char *maker, const char *bios)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product, Maker and Bios */
+		if (ng_ids[i].bios != NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    bios != NULL && maker != NULL && prod != NULL &&
+		    strstr(bios, ng_ids[i].bios) != NULL &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_product_maker(const char *prod, const char *maker)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product and Maker */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    maker != NULL && prod != NULL &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_planar_maker(const char *planar, const char *maker)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Planar and Maker */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker != NULL && ng_ids[i].planar != NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    maker != NULL && planar != NULL &&
+		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
+		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_product_model(const char *prod, const char *model)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product and hw.model */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel != NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    model != NULL && prod != NULL &&
+		    strstr(model, ng_ids[i].hwmodel) != NULL &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_product_ncpu(const char *prod)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product and hw.ncpu */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu > 0 &&
+		    prod != NULL &&
+		    ng_ids[i].cpu == mp_ncpus &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_model_uboot_board(const char *model, const char *boardpn)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* hw.model and U-boot board PN */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn != NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel != NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    boardpn != NULL && model != NULL &&
+		    strncmp(boardpn, ng_ids[i].boardpn, strlen(ng_ids[i].boardpn)) == 0 &&
+		    strncmp(model, ng_ids[i].hwmodel, strlen(ng_ids[i].hwmodel)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_uboot_boardname(const char *boardname)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* U-boot board Name */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname != NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    boardname != NULL &&
+		    strncmp(boardname, ng_ids[i].boardname,
+		      strlen(ng_ids[i].boardname)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+#ifdef FDT
+static int
+netgate_prod_fdt_model(const char *prod, const char *fdt)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product and FDT model */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt != NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    fdt != NULL && prod != NULL &&
+		    strncmp(fdt, ng_ids[i].fdt, strlen(ng_ids[i].fdt)) == 0 &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+#endif
+
+static int
+netgate_product(const char *prod)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Product */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    prod != NULL &&
+		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_planar(const char *planar)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Planar */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis == NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar != NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    planar != NULL &&
+		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_chassis(const char *chassis)
+{
+	int i;
+
+	for (i = 0; i < nitems(ng_ids); i++) {
+		/* Chassis */
+		if (ng_ids[i].bios == NULL &&
+		    ng_ids[i].boardname == NULL &&
+		    ng_ids[i].boardpn == NULL &&
+		    ng_ids[i].chassis != NULL &&
+		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
+		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
+		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
+		    ng_ids[i].cpu == 0 &&
+		    chassis != NULL &&
+		    strncmp(chassis, ng_ids[i].chassis, strlen(ng_ids[i].chassis)) == 0)
+			return (ng_ids[i].id);
+	}
+
+	return (NETGATE_UNKNOWN);
+}
+
+static int
+netgate_probe(device_t dev)
+{
 	size_t len;
 	char *bios, *boardname, *boardpn, *chassis, *fdt, *maker;
 	char *model, *planar, *prod, *vm;
@@ -243,232 +601,69 @@ netgate_probe(device_t dev)
 	prod = kern_getenv("smbios.system.product");
 	boardpn = kern_getenv("uboot.boardpn");
 	boardname = kern_getenv("uboot.board_name");
-	for (i = 0; i < nitems(ng_ids); i++) {
 
-		/* VM - Maker */
-		if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    maker != NULL &&
-		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* VM - kern.vm_guest */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm != NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    vm != NULL &&
-		    strncmp(vm, ng_ids[i].vm, strlen(ng_ids[i].vm)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* VM - BIOS */
-		} else if (ng_ids[i].bios != NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    bios != NULL &&
-		    strstr(bios, ng_ids[i].bios) != NULL) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Product, Maker and Chassis Tag */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis != NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    chassis != NULL && maker != NULL && prod != NULL &&
-		    strncmp(chassis, ng_ids[i].chassis, strlen(ng_ids[i].chassis)) == 0 &&
-		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Product, Maker and Bios */
-		} else if (ng_ids[i].bios != NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    bios != NULL && maker != NULL && prod != NULL &&
-		    strstr(bios, ng_ids[i].bios) != NULL &&
-		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Product and Maker */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker != NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    maker != NULL && prod != NULL &&
-		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Planar and Maker */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker != NULL && ng_ids[i].planar != NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    maker != NULL && planar != NULL &&
-		    strncmp(maker, ng_ids[i].maker, strlen(ng_ids[i].maker)) == 0 &&
-		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Product and hw.model */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel != NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    model != NULL && prod != NULL &&
-		    strstr(model, ng_ids[i].hwmodel) != NULL &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Product and hw.ncpu */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu > 0 &&
-		    prod != NULL &&
-		    ng_ids[i].cpu == mp_ncpus &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* hw.model and U-boot board PN */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn != NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel != NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    boardpn != NULL && model != NULL &&
-		    strncmp(boardpn, ng_ids[i].boardpn, strlen(ng_ids[i].boardpn)) == 0 &&
-		    strncmp(model, ng_ids[i].hwmodel, strlen(ng_ids[i].hwmodel)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* U-boot board Name */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname != NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    boardname != NULL &&
-		    strncmp(boardname, ng_ids[i].boardname,
-		      strlen(ng_ids[i].boardname)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
+	/* VM - Maker */
+	if (maker != NULL)
+		netgate_model = netgate_maker(maker);
+	/* VM - kern.vm_guest */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    vm != NULL)
+		netgate_model = netgate_vm_guest(vm);
+	/* VM - BIOS */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    bios != NULL)
+		netgate_model = netgate_vm_bios(bios);
+	/* Product, Maker and Chassis Tag */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    chassis != NULL && maker != NULL && prod != NULL)
+		netgate_model = netgate_prod_maker_chassis(prod, maker, chassis);
+	/* Product, Maker and Bios */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    bios != NULL && maker != NULL && prod != NULL)
+		netgate_model = netgate_prod_maker_bios(prod, maker, bios);
+	/* Product and Maker */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    maker != NULL && prod != NULL)
+		netgate_model = netgate_product_maker(prod, maker);
+	/* Planar and Maker */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    maker != NULL && planar != NULL)
+		netgate_model = netgate_planar_maker(planar, maker);
+	/* Product and hw.model */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    model != NULL && prod != NULL)
+		netgate_model = netgate_product_model(prod, model);
+	/* Product and hw.ncpu */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    prod != NULL)
+		netgate_model = netgate_product_ncpu(prod);
+	/* hw.model and U-boot board PN */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    boardpn != NULL && model != NULL)
+		netgate_model = netgate_model_uboot_board(model, boardpn);
+	/* U-boot board Name */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    boardname != NULL)
+		netgate_model = netgate_uboot_boardname(boardname);
 #ifdef FDT
-		/* Product and FDT model */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt != NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    fdt != NULL && prod != NULL &&
-		    strncmp(fdt, ng_ids[i].fdt, strlen(ng_ids[i].fdt)) == 0 &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
+	/* Product and FDT model */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    fdt != NULL && prod != NULL)
+		netgate_model = netgate_prod_fdt_model(prod, fdt);
 #endif
+	/* Product */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    prod != NULL)
+		netgate_model = netgate_product(prod);
+	/* Planar */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    planar != NULL)
+		netgate_model = netgate_planar(planar);
+	/* Chassis */
+	if (netgate_model == NETGATE_UNKNOWN &&
+	    chassis != NULL)
+		netgate_model = netgate_chassis(chassis);
 
-		/* Product */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod != NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    prod != NULL &&
-		    strncmp(prod, ng_ids[i].prod, strlen(ng_ids[i].prod)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Planar */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis == NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar != NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    planar != NULL &&
-		    strncmp(planar, ng_ids[i].planar, strlen(ng_ids[i].planar)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-
-		/* Chassis */
-		} else if (ng_ids[i].bios == NULL &&
-		    ng_ids[i].boardname == NULL &&
-		    ng_ids[i].boardpn == NULL &&
-		    ng_ids[i].chassis != NULL &&
-		    ng_ids[i].fdt == NULL && ng_ids[i].hwmodel == NULL &&
-		    ng_ids[i].maker == NULL && ng_ids[i].planar == NULL &&
-		    ng_ids[i].prod == NULL && ng_ids[i].vm == NULL &&
-		    ng_ids[i].cpu == 0 &&
-		    chassis != NULL &&
-		    strncmp(chassis, ng_ids[i].chassis, strlen(ng_ids[i].chassis)) == 0) {
-			netgate_model = ng_ids[i].id;
-			break;
-		}
-	}
 	if (bios != NULL)
 		freeenv(bios);
 	if (boardname != NULL)
