@@ -711,6 +711,8 @@ netgate_attach(device_t dev)
 	SYSCTL_ADD_STRING(ctx, child, OID_AUTO, "desc", CTLFLAG_RD,
 	    sc->sc_desc_str, sizeof(sc->sc_desc_str), "Device description");
 
+	device_printf(dev, "version: %s\n", NETGATE_MOD_VER);
+
 	return (0);
 }
 
