@@ -1218,6 +1218,14 @@ __rw_wunlock_hard(volatile uintptr_t *c, uintptr_t v LOCK_FILE_LINE_ARG_DEF)
 		return;
 
 	rw = rwlock2rw(c);
+	if (__predict_false(v == RW_UNLOCKED)) {
+		v = RW_READ_VALUE(rw);
+		if (v == RW_UNLOCKED) {
+			panic("unlocking an unlocked rwlock %p\n", rw);
+		}
+		printf("%s: had to re-read rwlock %p\n", __func__, rw);
+	}
+
 	if (__predict_false(v == tid))
 		v = RW_READ_VALUE(rw);
 
