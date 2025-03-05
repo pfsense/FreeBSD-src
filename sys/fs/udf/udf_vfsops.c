@@ -234,28 +234,41 @@ udf_mount(struct mount *mp)
 		return (error);
 	}
 
+	if (atomic_cmpset_acq_ptr((uintptr_t *)&devvp->v_rdev->si_mountpt, 0,
+		(uintptr_t)mp) == 0) {
+		vput(devvp);
+		return (EBUSY);
+	}
+
 	if ((error = udf_mountfs(devvp, mp))) {
+		atomic_store_rel_ptr((uintptr_t *)&devvp->v_rdev->si_mountpt, 0);
 		vrele(devvp);
-		return (error);
+		goto out_err;
 	}
 
 	imp = VFSTOUDFFS(mp);
 
 	udf_flags = NULL;
 	error = vfs_getopt(opts, "flags", (void **)&udf_flags, &len);
-	if (error || len != sizeof(int))
-		return (EINVAL);
+	if (error || len != sizeof(int)) {
+		error = EINVAL;
+		goto out_err;
+	}
 	imp->im_flags = *udf_flags;
 
 	if (imp->im_flags & UDFMNT_KICONV && udf_iconv) {
 		cs_disk = NULL;
 		error = vfs_getopt(opts, "cs_disk", (void **)&cs_disk, &len);
-		if (!error && cs_disk[len - 1] != '\0')
-			return (EINVAL);
+		if (!error && cs_disk[len - 1] != '\0') {
+			error = EINVAL;
+			goto out_err;
+		}
 		cs_local = NULL;
 		error = vfs_getopt(opts, "cs_local", (void **)&cs_local, &len);
-		if (!error && cs_local[len - 1] != '\0')
-			return (EINVAL);
+		if (!error && cs_local[len - 1] != '\0') {
+			error = EINVAL;
+			goto out_err;
+		}
 		udf_iconv->open(cs_local, cs_disk, &imp->im_d2l);
 #if 0
 		udf_iconv->open(cs_disk, cs_local, &imp->im_l2d);
@@ -264,7 +277,12 @@ udf_mount(struct mount *mp)
 
 	vfs_mountedfrom(mp, fspec);
 	return 0;
-};
+out_err:
+	/*
+	 * XXXMJG: this was always incorrectly returning the error.
+	 */
+	return error;
+}
 
 /*
  * Check the descriptor tag for both the correct id and correct checksum.
@@ -531,6 +549,8 @@ udf_unmount(struct mount *mp, int mntflags)
 	g_vfs_close(udfmp->im_cp);
 	g_topology_unlock();
 	vrele(udfmp->im_devvp);
+
+	atomic_store_rel_ptr((uintptr_t *)&udfmp->im_dev->si_mountpt, 0);
 	dev_rel(udfmp->im_dev);
 
 	if (udfmp->s_table != NULL)
