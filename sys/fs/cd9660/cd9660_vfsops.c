@@ -185,9 +185,17 @@ cd9660_mount(struct mount *mp)
 	}
 
 	if ((mp->mnt_flag & MNT_UPDATE) == 0) {
+		if (atomic_cmpset_acq_ptr((uintptr_t *)&devvp->v_rdev->si_mountpt, 0,
+		    (uintptr_t)mp) == 0) {
+			vput(devvp);
+			return (EBUSY);
+		}
+
 		error = iso_mountfs(devvp, mp);
-		if (error)
+		if (error) {
+			atomic_store_rel_ptr((uintptr_t *)&devvp->v_rdev->si_mountpt, 0);
 			vrele(devvp);
+		}
 	} else {
 		if (devvp != imp->im_devvp)
 			error = EINVAL;	/* needs translation */
@@ -545,6 +553,7 @@ cd9660_unmount(struct mount *mp, int mntflags)
 	g_vfs_close(isomp->im_cp);
 	g_topology_unlock();
 	vrele(isomp->im_devvp);
+	atomic_store_rel_ptr((uintptr_t *)&isomp->im_dev->si_mountpt, 0);
 	dev_rel(isomp->im_dev);
 	free(isomp, M_ISOFSMNT);
 	mp->mnt_data = NULL;
