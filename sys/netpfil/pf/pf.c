@@ -8966,7 +8966,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 		return;
 
 	if (pd->dir == PF_IN && !skip_test) {
-		if (in_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
+		if (in_ifnet_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
 			return;
 		if (pf_test(AF_INET, PF_OUT, PFIL_FWD, ifp, &m0, inp,
 		    &pd->act) != PF_PASS) {
