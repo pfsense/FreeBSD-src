@@ -20,6 +20,7 @@ dev/usb/controller/generic_usb_if.m		optional ohci fdt
 dev/usb/controller/generic_xhci.c		optional xhci
 dev/usb/controller/generic_xhci_fdt.c		optional xhci fdt
 dev/vmm/vmm_dev.c		optional	vmm
+dev/vmm/vmm_mem.c		optional	vmm
 dev/vmm/vmm_stat.c		optional	vmm
 dev/xilinx/axi_quad_spi.c	optional	xilinx_spi
 dev/xilinx/axidma.c		optional	axidma xdma
@@ -29,6 +30,7 @@ kern/msi_if.m			standard
 kern/pic_if.m			standard
 kern/subr_devmap.c		standard
 kern/subr_dummy_vdso_tc.c	standard
+kern/subr_efi_map.c		standard
 kern/subr_intr.c		standard
 kern/subr_physmem.c		standard
 libkern/bcopy.c			standard
@@ -86,6 +88,7 @@ riscv/riscv/vm_machdep.c	standard
 riscv/vmm/vmm.c					optional	vmm
 riscv/vmm/vmm_aplic.c				optional	vmm
 riscv/vmm/vmm_dev_machdep.c			optional	vmm
+riscv/vmm/vmm_fence.c				optional	vmm
 riscv/vmm/vmm_instruction_emul.c		optional	vmm
 riscv/vmm/vmm_riscv.c				optional	vmm
 riscv/vmm/vmm_sbi.c				optional	vmm

@@ -218,6 +218,7 @@
    the CoreFoundation framework. */
 /* #undef HAVE_CFPREFERENCESCOPYAPPVALUE */
 
+/* check_disk_change() exists */
 /* #undef HAVE_CHECK_DISK_CHANGE */
 
 /* copy_splice_read exists */
@@ -253,6 +254,9 @@
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1
+
+/* dops->d_revalidate() takes 4 args */
+/* #undef HAVE_D_REVALIDATE_4ARGS */
 
 /* Define to 1 if you have the 'execvpe' function. */
 #define HAVE_EXECVPE 1
@@ -400,6 +404,9 @@
 
 /* iops->symlink() takes struct user_namespace* */
 /* #undef HAVE_IOPS_SYMLINK_USERNS */
+
+/* iov_iter_get_pages2() is available */
+/* #undef HAVE_IOV_ITER_GET_PAGES2 */
 
 /* iov_iter_type() is available */
 /* #undef HAVE_IOV_ITER_TYPE */
@@ -787,7 +794,7 @@
 /* #undef ZFS_DEVICE_MINOR */
 
 /* Define the project alias string. */
-#define ZFS_META_ALIAS "zfs-2.3.99-158-FreeBSD_gfae4c664a"
+#define ZFS_META_ALIAS "zfs-2.3.99-263-FreeBSD_g4abc21b28"
 
 /* Define the project author. */
 #define ZFS_META_AUTHOR "OpenZFS"
@@ -817,7 +824,7 @@
 #define ZFS_META_NAME "zfs"
 
 /* Define the project release. */
-#define ZFS_META_RELEASE "158-FreeBSD_gfae4c664a"
+#define ZFS_META_RELEASE "263-FreeBSD_g4abc21b28"
 
 /* Define the project version. */
 #define ZFS_META_VERSION "2.3.99"

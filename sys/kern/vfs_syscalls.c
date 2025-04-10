@@ -1435,6 +1435,10 @@ restart:
 			vput(nd.ni_dvp);
 		vrele(vp);
 		return (EEXIST);
+	} else if ((vn_irflag_read(nd.ni_dvp) & VIRF_NAMEDDIR) != 0) {
+		NDFREE_PNBUF(&nd);
+		vput(nd.ni_dvp);
+		return (EINVAL);
 	} else {
 		VATTR_NULL(&vattr);
 		vattr.va_mode = (mode & ALLPERMS) &
@@ -1542,6 +1546,11 @@ restart:
 			vput(nd.ni_dvp);
 		vrele(nd.ni_vp);
 		return (EEXIST);
+	}
+	if ((vn_irflag_read(nd.ni_dvp) & VIRF_NAMEDDIR) != 0) {
+		NDFREE_PNBUF(&nd);
+		vput(nd.ni_dvp);
+		return (EINVAL);
 	}
 	if (vn_start_write(nd.ni_dvp, &mp, V_NOWAIT) != 0) {
 		NDFREE_PNBUF(&nd);
@@ -1688,6 +1697,10 @@ kern_linkat_vp(struct thread *td, struct vnode *vp, int fd, const char *path,
 		vrele(vp);
 		return (EPERM);		/* POSIX */
 	}
+	if ((vn_irflag_read(vp) & (VIRF_NAMEDDIR | VIRF_NAMEDATTR)) != 0) {
+		vrele(vp);
+		return (EINVAL);
+	}
 	NDINIT_ATRIGHTS(&nd, CREATE,
 	    LOCKPARENT | AUDITVNODE2 | NOCACHE, segflag, path, fd,
 	    &cap_linkat_target_rights);
@@ -1828,6 +1841,10 @@ restart:
 		if ((error = vn_start_write(NULL, &mp, V_XSLEEP | V_PCATCH)) != 0)
 			goto out;
 		goto restart;
+	}
+	if ((vn_irflag_read(nd.ni_dvp) & VIRF_NAMEDDIR) != 0) {
+		error = EINVAL;
+		goto out;
 	}
 	VATTR_NULL(&vattr);
 	vattr.va_mode = ACCESSPERMS &~ td->td_proc->p_pd->pd_cmask;
@@ -2034,7 +2051,6 @@ restart:
 		if (error != 0)
 			goto out;
 #endif
-		vfs_notify_upper(vp, VFS_NOTIFY_UPPER_UNLINK);
 		error = VOP_REMOVE(nd.ni_dvp, vp, &nd.ni_cnd);
 #ifdef MAC
 out:
@@ -3722,6 +3738,7 @@ kern_renameat(struct thread *td, int oldfd, const char *old, int newfd,
 	struct nameidata fromnd, tond;
 	uint64_t tondflags;
 	int error;
+	short irflag;
 
 again:
 	bwillwrite();
@@ -3773,6 +3790,12 @@ again:
 		if (error != 0)
 			return (error);
 		goto again;
+	}
+	irflag = vn_irflag_read(fvp);
+	if (((irflag & VIRF_NAMEDATTR) != 0 && tdvp != fromnd.ni_dvp) ||
+	    (irflag & VIRF_NAMEDDIR) != 0) {
+		error = EINVAL;
+		goto out;
 	}
 	if (tvp != NULL) {
 		if (fvp->v_type == VDIR && tvp->v_type != VDIR) {
@@ -3893,6 +3916,10 @@ restart:
 			return (error);
 		goto restart;
 	}
+	if ((vn_irflag_read(nd.ni_dvp) & VIRF_NAMEDDIR) != 0) {
+		error = EINVAL;
+		goto out;
+	}
 	VATTR_NULL(&vattr);
 	vattr.va_type = VDIR;
 	vattr.va_mode = (mode & ACCESSPERMS) &~ td->td_proc->p_pd->pd_cmask;
@@ -3903,9 +3930,7 @@ restart:
 		goto out;
 #endif
 	error = VOP_MKDIR(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
-#ifdef MAC
 out:
-#endif
 	NDFREE_PNBUF(&nd);
 	VOP_VPUT_PAIR(nd.ni_dvp, error == 0 ? &nd.ni_vp : NULL, true);
 	vn_finished_write(mp);
@@ -4002,7 +4027,6 @@ restart:
 			goto fdout;
 		goto restart;
 	}
-	vfs_notify_upper(vp, VFS_NOTIFY_UPPER_UNLINK);
 	error = VOP_RMDIR(nd.ni_dvp, nd.ni_vp, &nd.ni_cnd);
 	vn_finished_write(mp);
 out:
@@ -4631,6 +4655,7 @@ kern_fhopen(struct thread *td, const struct fhandle *u_fhp, int flags)
 	struct file *fp;
 	int fmode, error;
 	int indx;
+	bool named_attr;
 
 	error = priv_check(td, PRIV_VFS_FHOPEN);
 	if (error != 0)
@@ -4652,6 +4677,19 @@ kern_fhopen(struct thread *td, const struct fhandle *u_fhp, int flags)
 	vfs_unbusy(mp);
 	if (error != 0)
 		return (error);
+
+	/*
+	 * Check to see if the file handle refers to a named attribute
+	 * directory or attribute.  If it does, the O_NAMEDATTR flag
+	 * must have been specified.
+	 */
+	named_attr = (vn_irflag_read(vp) &
+	    (VIRF_NAMEDDIR | VIRF_NAMEDATTR)) != 0;
+	if ((named_attr && (fmode & O_NAMEDATTR) == 0) ||
+	    (!named_attr && (fmode & O_NAMEDATTR) != 0)) {
+		vput(vp);
+		return (ENOATTR);
+	}
 
 	error = falloc_noinstall(td, &fp);
 	if (error != 0) {
@@ -4942,16 +4980,17 @@ int
 kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
     off_t *outoffp, size_t len, unsigned int flags)
 {
-	struct file *infp, *outfp;
+	struct file *infp, *infp1, *outfp, *outfp1;
 	struct vnode *invp, *outvp;
 	int error;
 	size_t retlen;
 	void *rl_rcookie, *rl_wcookie;
-	off_t savinoff, savoutoff;
+	off_t inoff, outoff, savinoff, savoutoff;
+	bool foffsets_locked;
 
 	infp = outfp = NULL;
 	rl_rcookie = rl_wcookie = NULL;
-	savinoff = -1;
+	foffsets_locked = false;
 	error = 0;
 	retlen = 0;
 
@@ -4993,13 +5032,35 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 		goto out;
 	}
 
-	/* Set the offset pointers to the correct place. */
-	if (inoffp == NULL)
-		inoffp = &infp->f_offset;
-	if (outoffp == NULL)
-		outoffp = &outfp->f_offset;
-	savinoff = *inoffp;
-	savoutoff = *outoffp;
+	/*
+	 * Figure out which file offsets we're reading from and writing to.
+	 * If the offsets come from the file descriptions, we need to lock them,
+	 * and locking both offsets requires a loop to avoid deadlocks.
+	 */
+	infp1 = outfp1 = NULL;
+	if (inoffp != NULL)
+		inoff = *inoffp;
+	else
+		infp1 = infp;
+	if (outoffp != NULL)
+		outoff = *outoffp;
+	else
+		outfp1 = outfp;
+	if (infp1 != NULL || outfp1 != NULL) {
+		if (infp1 == outfp1) {
+			/*
+			 * Overlapping ranges are not allowed.  A more thorough
+			 * check appears below, but we must not lock the same
+			 * offset twice.
+			 */
+			error = EINVAL;
+			goto out;
+		}
+		foffset_lock_pair(infp1, &inoff, outfp1, &outoff, 0);
+		foffsets_locked = true;
+	}
+	savinoff = inoff;
+	savoutoff = outoff;
 
 	invp = infp->f_vnode;
 	outvp = outfp->f_vnode;
@@ -5015,12 +5076,21 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 		goto out;
 
 	/*
+	 * Make sure that the ranges we check and lock below are valid.  Note
+	 * that len is clamped to SSIZE_MAX above.
+	 */
+	if (inoff < 0 || outoff < 0) {
+		error = EINVAL;
+		goto out;
+	}
+
+	/*
 	 * If infp and outfp refer to the same file, the byte ranges cannot
 	 * overlap.
 	 */
 	if (invp == outvp) {
-		if ((savinoff <= savoutoff && savinoff + len > savoutoff) ||
-		    (savinoff > savoutoff && savoutoff + len > savinoff)) {
+		if ((inoff <= outoff && inoff + len > outoff) ||
+		    (inoff > outoff && outoff + len > inoff)) {
 			error = EINVAL;
 			goto out;
 		}
@@ -5029,28 +5099,36 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 
 	/* Range lock the byte ranges for both invp and outvp. */
 	for (;;) {
-		rl_wcookie = vn_rangelock_wlock(outvp, *outoffp, *outoffp +
-		    len);
-		rl_rcookie = vn_rangelock_tryrlock(invp, *inoffp, *inoffp +
-		    len);
+		rl_wcookie = vn_rangelock_wlock(outvp, outoff, outoff + len);
+		rl_rcookie = vn_rangelock_tryrlock(invp, inoff, inoff + len);
 		if (rl_rcookie != NULL)
 			break;
 		vn_rangelock_unlock(outvp, rl_wcookie);
-		rl_rcookie = vn_rangelock_rlock(invp, *inoffp, *inoffp + len);
+		rl_rcookie = vn_rangelock_rlock(invp, inoff, inoff + len);
 		vn_rangelock_unlock(invp, rl_rcookie);
 	}
 
 	retlen = len;
-	error = vn_copy_file_range(invp, inoffp, outvp, outoffp, &retlen,
+	error = vn_copy_file_range(invp, &inoff, outvp, &outoff, &retlen,
 	    flags, infp->f_cred, outfp->f_cred, td);
 out:
 	if (rl_rcookie != NULL)
 		vn_rangelock_unlock(invp, rl_rcookie);
 	if (rl_wcookie != NULL)
 		vn_rangelock_unlock(outvp, rl_wcookie);
-	if (savinoff != -1 && (error == EINTR || error == ERESTART)) {
-		*inoffp = savinoff;
-		*outoffp = savoutoff;
+	if (foffsets_locked) {
+		if (error == EINTR || error == ERESTART) {
+			inoff = savinoff;
+			outoff = savoutoff;
+		}
+		if (inoffp == NULL)
+			foffset_unlock(infp, inoff, 0);
+		else
+			*inoffp = inoff;
+		if (outoffp == NULL)
+			foffset_unlock(outfp, outoff, 0);
+		else
+			*outoffp = outoff;
 	}
 	if (outfp != NULL)
 		fdrop(outfp, td);

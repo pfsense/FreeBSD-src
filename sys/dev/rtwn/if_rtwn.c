@@ -298,6 +298,11 @@ rtwn_attach(struct rtwn_softc *sc)
 	sc->sc_node_free = ic->ic_node_free;
 	ic->ic_node_free = rtwn_node_free;
 
+	/* Note: this has to happen AFTER ieee80211_ifattach() */
+	ieee80211_set_software_ciphers(ic, IEEE80211_CRYPTO_WEP |
+	    IEEE80211_CRYPTO_TKIP | IEEE80211_CRYPTO_AES_CCM |
+	    IEEE80211_CRYPTO_AES_GCM_128);
+
 	rtwn_postattach(sc);
 	rtwn_radiotap_attach(sc);
 
@@ -1308,12 +1313,14 @@ rtwn_calc_basicrates(struct rtwn_softc *sc)
 		ieee80211_free_node(ni);
 	}
 
-
-	if (basicrates == 0)
+	if (basicrates == 0) {
+		device_printf(sc->sc_dev,
+		    "WARNING: no configured basic rates!\n");
 		return;
+	}
 
-	/* XXX also set initial RTS rate? */
 	rtwn_set_basicrates(sc, basicrates);
+	rtwn_set_rts_rate(sc, basicrates);
 }
 
 static int

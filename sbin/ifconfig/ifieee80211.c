@@ -133,8 +133,8 @@
 #define	IEEE80211_FVHT_VHT	0x000000001	/* CONF: VHT supported */
 #define	IEEE80211_FVHT_USEVHT40	0x000000002	/* CONF: Use VHT40 */
 #define	IEEE80211_FVHT_USEVHT80	0x000000004	/* CONF: Use VHT80 */
-#define	IEEE80211_FVHT_USEVHT160 0x000000008	/* CONF: Use VHT160 */
-#define	IEEE80211_FVHT_USEVHT80P80 0x000000010	/* CONF: Use VHT 80+80 */
+#define	IEEE80211_FVHT_USEVHT80P80 0x000000008	/* CONF: Use VHT 80+80 */
+#define	IEEE80211_FVHT_USEVHT160 0x000000010	/* CONF: Use VHT160 */
 #define	IEEE80211_FVHT_STBC_TX  0x00000020	/* CONF: STBC tx enabled */
 #define	IEEE80211_FVHT_STBC_RX  0x00000040	/* CONF: STBC rx enabled */
 #endif
@@ -3136,6 +3136,12 @@ rsn_cipher(const u_int8_t *sel)
 		return "AES-CCMP";
 	case RSN_SEL(RSN_CSE_WRAP):
 		return "AES-OCB";
+	case RSN_SEL(RSN_CSE_GCMP_128):
+		return "AES-GCMP";
+	case RSN_SEL(RSN_CSE_CCMP_256):
+		return "AES-CCMP-256";
+	case RSN_SEL(RSN_CSE_GCMP_256):
+		return "AES-GCMP-256";
 	}
 	return "?";
 #undef WPA_SEL
@@ -3152,6 +3158,10 @@ rsn_keymgmt(const u_int8_t *sel)
 		return "8021X-UNSPEC";
 	case RSN_SEL(RSN_ASE_8021X_PSK):
 		return "8021X-PSK";
+	case RSN_SEL(RSN_ASE_8021X_UNSPEC_SHA256):
+		return "8021X-UNSPEC-SHA256";
+	case RSN_SEL(RSN_ASE_8021X_PSK_SHA256):
+		return "8021X-PSK-256";
 	case RSN_SEL(RSN_ASE_NONE):
 		return "NONE";
 	}

@@ -69,7 +69,6 @@ struct nlpcb {
 	bool			nl_need_thread_setup;
 	struct taskqueue	*nl_taskqueue;
 	struct task		nl_task;
-	struct ucred		*nl_cred; /* Copy of nl_socket->so_cred */
 	uint64_t		nl_dropped_bytes;
 	uint64_t		nl_dropped_messages;
         CK_LIST_ENTRY(nlpcb)    nl_next;
@@ -102,16 +101,12 @@ struct nl_control {
 	CK_LIST_ENTRY(nl_control)		ctl_next;
 	struct rmlock				ctl_lock;
 };
-VNET_DECLARE(struct nl_control *, nl_ctl);
+VNET_DECLARE(struct nl_control, nl_ctl);
 #define	V_nl_ctl	VNET(nl_ctl)
-
 
 struct sockaddr_nl;
 struct sockaddr;
 struct nlmsghdr;
-
-/* netlink_module.c */
-struct nl_control *vnet_nl_ctl_init(void);
 
 int nl_verify_proto(int proto);
 const char *nl_get_proto_name(int proto);
@@ -126,6 +121,7 @@ extern struct nl_proto_handler *nl_handlers;
 
 /* netlink_domain.c */
 bool nl_send_group(struct nl_writer *);
+void nl_clear_group(u_int);
 void nl_osd_register(void);
 void nl_osd_unregister(void);
 void nl_set_thread_nlp(struct thread *td, struct nlpcb *nlp);
@@ -142,25 +138,6 @@ void nl_process_receive_locked(struct nlpcb *nlp);
 void nl_set_source_metadata(struct mbuf *m, int num_messages);
 struct nl_buf *nl_buf_alloc(size_t len, int mflag);
 void nl_buf_free(struct nl_buf *nb);
-
-/* netlink_generic.c */
-struct genl_family {
-	const char	*family_name;
-	uint16_t	family_hdrsize;
-	uint16_t	family_version;
-	uint16_t	family_attr_max;
-	uint16_t	family_cmd_size;
-	uint16_t	family_num_groups;
-	struct genl_cmd	*family_cmds;
-};
-
-struct genl_group {
-	struct genl_family	*group_family;
-	const char		*group_name;
-};
-
-struct genl_family *genl_get_family(uint16_t family_id);
-struct genl_group *genl_get_group(uint32_t group_id);
 
 #define	MAX_FAMILIES	20
 #define	MAX_GROUPS	64

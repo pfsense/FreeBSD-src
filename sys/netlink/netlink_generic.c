@@ -47,8 +47,65 @@
 #include <netlink/netlink_debug.h>
 _DECLARE_DEBUG(LOG_INFO);
 
-static int dump_family(struct nlmsghdr *hdr, struct genlmsghdr *ghdr,
-    const struct genl_family *gf, struct nl_writer *nw);
+static int nlctrl_handle_getfamily(struct nlmsghdr *, struct nl_pstate *);
+
+static struct genl_cmd nlctrl_cmds[] = {
+	[CTRL_CMD_GETFAMILY] = {
+		.cmd_num = CTRL_CMD_GETFAMILY,
+		.cmd_name = "GETFAMILY",
+		.cmd_cb = nlctrl_handle_getfamily,
+		.cmd_flags = GENL_CMD_CAP_DO | GENL_CMD_CAP_DUMP |
+		    GENL_CMD_CAP_HASPOL,
+	},
+};
+
+static struct genl_family {
+	const char	*family_name;
+	uint16_t	family_hdrsize;
+	uint16_t	family_version;
+	uint16_t	family_attr_max;
+	uint16_t	family_cmd_size;
+	uint16_t	family_num_groups;
+	struct genl_cmd	*family_cmds;
+} families[MAX_FAMILIES] = {
+	[CTRL_FAMILY_ID] = {
+		.family_name = CTRL_FAMILY_NAME,
+		.family_hdrsize = 0,
+		.family_version = 2,
+		.family_attr_max = CTRL_ATTR_MAX,
+		.family_cmd_size = CTRL_CMD_GETFAMILY + 1,
+		.family_cmds = nlctrl_cmds,
+		.family_num_groups = 1,
+	},
+};
+
+static struct genl_group {
+	struct genl_family	*group_family;
+	const char		*group_name;
+} groups[MAX_GROUPS] = {
+	[CTRL_GROUP_ID] = {
+		.group_family = &families[CTRL_FAMILY_ID],
+		.group_name = CTRL_GROUP_NAME,
+	},
+};
+
+static inline struct genl_family *
+genl_family(uint16_t family_id)
+{
+	struct genl_family *gf;
+
+	gf = &families[family_id - GENL_MIN_ID];
+	KASSERT(family_id - GENL_MIN_ID < MAX_FAMILIES &&
+	    gf->family_name != NULL, ("family %u does not exist", family_id));
+	return (gf);
+}
+
+static inline uint16_t
+genl_family_id(const struct genl_family *gf)
+{
+	MPASS(gf >= &families[0] && gf < &families[MAX_FAMILIES]);
+	return ((uint16_t)(gf - &families[0]) + GENL_MIN_ID);
+}
 
 /*
  * Handler called by netlink subsystem when matching netlink message is received
@@ -57,20 +114,24 @@ static int
 genl_handle_message(struct nlmsghdr *hdr, struct nl_pstate *npt)
 {
 	struct nlpcb *nlp = npt->nlp;
-	struct genl_family *gf = NULL;
+	struct genl_family *gf;
+	uint16_t family_id;
 	int error = 0;
-
-	int family_id = (int)hdr->nlmsg_type - GENL_MIN_ID;
-
-	if (__predict_false(family_id < 0 || (gf = genl_get_family(family_id)) == NULL)) {
-		NLP_LOG(LOG_DEBUG, nlp, "invalid message type: %d", hdr->nlmsg_type);
-		return (ENOTSUP);
-	}
 
 	if (__predict_false(hdr->nlmsg_len < sizeof(struct nlmsghdr) +
 	    GENL_HDRLEN)) {
-		NLP_LOG(LOG_DEBUG, nlp, "invalid message size: %d", hdr->nlmsg_len);
+		NLP_LOG(LOG_DEBUG, nlp, "invalid message size: %d",
+		    hdr->nlmsg_len);
 		return (EINVAL);
+	}
+
+	family_id = hdr->nlmsg_type - GENL_MIN_ID;
+	gf = &families[family_id];
+	if (__predict_false(family_id >= MAX_FAMILIES ||
+	    gf->family_name == NULL)) {
+		NLP_LOG(LOG_DEBUG, nlp, "invalid message type: %d",
+		    hdr->nlmsg_type);
+		return (ENOTSUP);
 	}
 
 	struct genlmsghdr *ghdr = (struct genlmsghdr *)(hdr + 1);
@@ -119,7 +180,7 @@ dump_family(struct nlmsghdr *hdr, struct genlmsghdr *ghdr,
 	ghdr_new->reserved = 0;
 
         nlattr_add_string(nw, CTRL_ATTR_FAMILY_NAME, gf->family_name);
-        nlattr_add_u16(nw, CTRL_ATTR_FAMILY_ID, genl_get_family_id(gf));
+        nlattr_add_u16(nw, CTRL_ATTR_FAMILY_ID, genl_family_id(gf));
         nlattr_add_u32(nw, CTRL_ATTR_VERSION, gf->family_version);
         nlattr_add_u32(nw, CTRL_ATTR_HDRSIZE, gf->family_hdrsize);
         nlattr_add_u32(nw, CTRL_ATTR_MAXATTR, gf->family_attr_max);
@@ -146,9 +207,10 @@ dump_family(struct nlmsghdr *hdr, struct genlmsghdr *ghdr,
 		int off = nlattr_add_nested(nw, CTRL_ATTR_MCAST_GROUPS);
 		if (off == 0)
 			goto enomem;
-		for (int i = 0, cnt = 0; i < MAX_GROUPS; i++) {
-			struct genl_group *gg = genl_get_group(i);
-			if (gg == NULL || gg->group_family != gf)
+		for (u_int i = 0, cnt = 0; i < MAX_GROUPS; i++) {
+			struct genl_group *gg = &groups[i];
+
+			if (gg->group_family != gf)
 				continue;
 
 			int cmd_off = nlattr_add_nested(nw, ++cnt);
@@ -168,14 +230,9 @@ enomem:
 	return (ENOMEM);
 }
 
-
-/* Declare ourself as a user */
-static void nlctrl_notify(void *arg, const struct genl_family *gf, int action);
-static eventhandler_tag family_event_tag;
-
 struct nl_parsed_family {
-	uint32_t	family_id;
 	char		*family_name;
+	uint16_t	family_id;
 	uint8_t		version;
 };
 
@@ -193,18 +250,6 @@ static struct nlattr_parser nla_p_generic[] = {
 #undef _OUT
 NL_DECLARE_PARSER(genl_parser, struct genlmsghdr, nlf_p_generic, nla_p_generic);
 
-static bool
-match_family(const struct genl_family *gf, const struct nl_parsed_family *attrs)
-{
-	if (gf->family_name == NULL)
-		return (false);
-	if (attrs->family_id != 0 && attrs->family_id != genl_get_family_id(gf))
-		return (false);
-	if (attrs->family_name != NULL && strcmp(attrs->family_name, gf->family_name))
-		return (false);
-	return (true);
-}
-
 static int
 nlctrl_handle_getfamily(struct nlmsghdr *hdr, struct nl_pstate *npt)
 {
@@ -220,21 +265,27 @@ nlctrl_handle_getfamily(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	};
 
 	if (attrs.family_id != 0 || attrs.family_name != NULL) {
-		/* Resolve request */
-		for (int i = 0; i < MAX_FAMILIES; i++) {
-			struct genl_family *gf = genl_get_family(i);
-			if (gf != NULL && match_family(gf, &attrs)) {
-				error = dump_family(hdr, &ghdr, gf, npt->nw);
-				return (error);
-			}
+		for (u_int i = 0; i < MAX_FAMILIES; i++) {
+			struct genl_family *gf = &families[i];
+
+			if (gf->family_name == NULL)
+				continue;
+			if (attrs.family_id != 0 &&
+			    attrs.family_id != genl_family_id(gf))
+				continue;
+			if (attrs.family_name != NULL &&
+			    strcmp(attrs.family_name, gf->family_name) != 0)
+				continue;
+			return (dump_family(hdr, &ghdr, gf, npt->nw));
 		}
 		return (ENOENT);
 	}
 
 	hdr->nlmsg_flags = hdr->nlmsg_flags | NLM_F_MULTI;
-	for (int i = 0; i < MAX_FAMILIES; i++) {
-		struct genl_family *gf = genl_get_family(i);
-		if (gf != NULL && match_family(gf, &attrs)) {
+	for (u_int i = 0; i < MAX_FAMILIES; i++) {
+		struct genl_family *gf = &families[i];
+
+		if (gf->family_name != NULL) {
 			error = dump_family(hdr, &ghdr, gf, npt->nw);
 			if (error != 0)
 				break;
@@ -250,12 +301,15 @@ nlctrl_handle_getfamily(struct nlmsghdr *hdr, struct nl_pstate *npt)
 }
 
 static void
-nlctrl_notify(void *arg __unused, const struct genl_family *gf, int cmd)
+nlctrl_notify(void *arg __unused, const char *family_name __unused,
+    uint16_t family_id, u_int cmd)
 {
 	struct nlmsghdr hdr = {.nlmsg_type = NETLINK_GENERIC };
 	struct genlmsghdr ghdr = { .cmd = cmd };
+	struct genl_family *gf;
 	struct nl_writer nw;
 
+	gf = genl_family(family_id);
 	if (!nl_writer_group(&nw, NLMSG_SMALL, NETLINK_GENERIC, CTRL_GROUP_ID,
 	    0, false)) {
 		NL_LOG(LOG_DEBUG, "error allocating group writer");
@@ -267,6 +321,7 @@ nlctrl_notify(void *arg __unused, const struct genl_family *gf, int cmd)
 }
 
 static const struct nlhdr_parser *all_parsers[] = { &genl_parser };
+static eventhandler_tag family_event_tag;
 
 static void
 genl_load_all(void *u __unused)
@@ -299,59 +354,6 @@ SX_SYSINIT(genl_lock, &sx_lock, "genetlink lock");
 #define	GENL_ASSERT_LOCKED()	sx_assert(&sx_lock, SA_LOCKED)
 #define	GENL_ASSERT_XLOCKED()	sx_assert(&sx_lock, SA_XLOCKED)
 
-static struct genl_cmd nlctrl_cmds[] = {
-	[CTRL_CMD_GETFAMILY] = {
-		.cmd_num = CTRL_CMD_GETFAMILY,
-		.cmd_name = "GETFAMILY",
-		.cmd_cb = nlctrl_handle_getfamily,
-		.cmd_flags = GENL_CMD_CAP_DO | GENL_CMD_CAP_DUMP |
-		    GENL_CMD_CAP_HASPOL,
-	},
-};
-
-static struct genl_family families[MAX_FAMILIES] = {
-	[CTRL_FAMILY_ID] = {
-		.family_name = CTRL_FAMILY_NAME,
-		.family_hdrsize = 0,
-		.family_version = 2,
-		.family_attr_max = CTRL_ATTR_MAX,
-		.family_cmd_size = CTRL_CMD_GETFAMILY + 1,
-		.family_cmds = nlctrl_cmds,
-		.family_num_groups = 1,
-	},
-}
-;
-static struct genl_group groups[MAX_GROUPS] = {
-	[CTRL_GROUP_ID] = {
-		.group_family = &families[CTRL_FAMILY_ID],
-		.group_name = CTRL_GROUP_NAME,
-	},
-};
-
-static struct genl_family *
-find_family(const char *family_name)
-{
-	GENL_ASSERT_LOCKED();
-	for (u_int i = 0; i < MAX_FAMILIES; i++)
-		if (families[i].family_name != NULL &&
-		    strcmp(families[i].family_name, family_name) == 0)
-			return (&families[i]);
-
-	return (NULL);
-}
-
-static struct genl_family *
-find_empty_family_id(const char *family_name)
-{
-	GENL_ASSERT_LOCKED();
-	/* Microoptimization: index 0 is reserved for the control family */
-	for (u_int i = 1; i < MAX_FAMILIES; i++)
-		if (families[i].family_name == NULL)
-			return (&families[i]);
-
-	return (NULL);
-}
-
 uint16_t
 genl_register_family(const char *family_name, size_t hdrsize,
     uint16_t family_version, uint16_t max_attr_idx)
@@ -359,13 +361,21 @@ genl_register_family(const char *family_name, size_t hdrsize,
 	struct genl_family *gf;
 	uint16_t family_id;
 
-	GENL_LOCK();
-	if (find_family(family_name) != NULL) {
-		GENL_UNLOCK();
-		return (0);
-	}
+	MPASS(family_name != NULL);
 
-	gf = find_empty_family_id(family_name);
+	GENL_LOCK();
+	for (u_int i = 0; i < MAX_FAMILIES; i++)
+		if (families[i].family_name != NULL &&
+		    strcmp(families[i].family_name, family_name) == 0)
+			return (0);
+
+	/* Microoptimization: index 0 is reserved for the control family. */
+	gf = NULL;
+	for (u_int i = 1; i < MAX_FAMILIES; i++)
+		if (families[i].family_name == NULL) {
+			gf = &families[i];
+			break;
+		}
 	KASSERT(gf, ("%s: maximum of %u generic netlink families allocated",
 	    __func__, MAX_FAMILIES));
 
@@ -375,30 +385,27 @@ genl_register_family(const char *family_name, size_t hdrsize,
 	    .family_hdrsize = hdrsize,
 	    .family_attr_max = max_attr_idx,
 	};
-	family_id = genl_get_family_id(gf);
+	family_id = genl_family_id(gf);
 	GENL_UNLOCK();
 
 	NL_LOG(LOG_DEBUG2, "Registered family %s id %d", gf->family_name,
 	    family_id);
-	EVENTHANDLER_INVOKE(genl_family_event, gf, CTRL_CMD_NEWFAMILY);
+	EVENTHANDLER_INVOKE(genl_family_event, gf->family_name, family_id,
+	    CTRL_CMD_NEWFAMILY);
 
 	return (family_id);
 }
 
-static void
-free_family(struct genl_family *gf)
+void
+genl_unregister_family(uint16_t family_id)
 {
-	if (gf->family_cmds != NULL)
-		free(gf->family_cmds, M_NETLINK);
-}
+	struct genl_family *gf;
 
-/*
- * unregister groups of a given family
- */
-static void
-unregister_groups(const struct genl_family *gf)
-{
+	GENL_LOCK();
+	gf = genl_family(family_id);
 
+	EVENTHANDLER_INVOKE(genl_family_event, gf->family_name,
+	    family_id, CTRL_CMD_DELFAMILY);
 	for (u_int i = 0; i < MAX_GROUPS; i++) {
 		struct genl_group *gg = &groups[i];
 		if (gg->group_family == gf && gg->group_name != NULL) {
@@ -406,44 +413,21 @@ unregister_groups(const struct genl_family *gf)
 			gg->group_name = NULL;
 		}
 	}
-}
-
-/*
- * Can sleep, I guess
- */
-bool
-genl_unregister_family(const char *family_name)
-{
-	bool found = false;
-
-	GENL_LOCK();
-	struct genl_family *gf = find_family(family_name);
-
-	if (gf != NULL) {
-		EVENTHANDLER_INVOKE(genl_family_event, gf, CTRL_CMD_DELFAMILY);
-		found = true;
-		unregister_groups(gf);
-		/* TODO: zero pointer first */
-		free_family(gf);
-		bzero(gf, sizeof(*gf));
-	}
+	if (gf->family_cmds != NULL)
+		free(gf->family_cmds, M_NETLINK);
+	bzero(gf, sizeof(*gf));
 	GENL_UNLOCK();
-
-	return (found);
 }
 
 bool
-genl_register_cmds(const char *family_name, const struct genl_cmd *cmds,
-    int count)
+genl_register_cmds(uint16_t family_id, const struct genl_cmd *cmds,
+    u_int count)
 {
 	struct genl_family *gf;
 	uint16_t cmd_size;
 
 	GENL_LOCK();
-	if ((gf = find_family(family_name)) == NULL) {
-		GENL_UNLOCK();
-		return (false);
-	}
+	gf = genl_family(family_id);
 
 	cmd_size = gf->family_cmd_size;
 
@@ -480,33 +464,23 @@ genl_register_cmds(const char *family_name, const struct genl_cmd *cmds,
 	return (true);
 }
 
-static struct genl_group *
-find_group(const struct genl_family *gf, const char *group_name)
-{
-	for (u_int i = 0; i < MAX_GROUPS; i++) {
-		struct genl_group *gg = &groups[i];
-		if (gg->group_family == gf &&
-		    !strcmp(gg->group_name, group_name))
-			return (gg);
-	}
-	return (NULL);
-}
-
 uint32_t
-genl_register_group(const char *family_name, const char *group_name)
+genl_register_group(uint16_t family_id, const char *group_name)
 {
 	struct genl_family *gf;
 	uint32_t group_id = 0;
 
-	MPASS(family_name != NULL);
 	MPASS(group_name != NULL);
 
 	GENL_LOCK();
-	if ((gf = find_family(family_name)) == NULL ||
-	    find_group(gf, group_name) != NULL) {
-		GENL_UNLOCK();
-		return (0);
-	}
+	gf = genl_family(family_id);
+
+	for (u_int i = 0; i < MAX_GROUPS; i++)
+		if (groups[i].group_family == gf &&
+		    strcmp(groups[i].group_name, group_name) == 0) {
+			GENL_UNLOCK();
+			return (0);
+		}
 
 	/* Microoptimization: index 0 is reserved for the control family */
 	for (u_int i = 1; i < MAX_GROUPS; i++) {
@@ -524,28 +498,28 @@ genl_register_group(const char *family_name, const char *group_name)
 	return (group_id);
 }
 
-/* accessors */
-struct genl_family *
-genl_get_family(uint16_t family_id)
+void
+genl_unregister_group(uint16_t family_id, uint32_t group_id)
 {
-	return ((family_id < MAX_FAMILIES) ? &families[family_id] : NULL);
-}
+	struct genl_family *gf;
+	struct genl_group *gg;
 
-const char *
-genl_get_family_name(const struct genl_family *gf)
-{
-	return (gf->family_name);
-}
+	MPASS(group_id > MIN_GROUP_NUM &&
+	    group_id < MIN_GROUP_NUM + MAX_GROUPS);
 
-uint16_t
-genl_get_family_id(const struct genl_family *gf)
-{
-	MPASS(gf >= &families[0] && gf < &families[MAX_FAMILIES]);
-	return ((uint16_t)(gf - &families[0]) + GENL_MIN_ID);
-}
+	nl_clear_group(group_id);
 
-struct genl_group *
-genl_get_group(uint32_t group_id)
-{
-	return ((group_id < MAX_GROUPS) ? &groups[group_id] : NULL);
+	group_id -= MIN_GROUP_NUM;
+
+	GENL_LOCK();
+	gf = genl_family(family_id);
+	gg = &groups[group_id];
+
+	MPASS(gg->group_family == gf);
+	MPASS(gf->family_num_groups > 0);
+
+	gf->family_num_groups--;
+	gg->group_family = NULL;
+	gg->group_name = NULL;
+	GENL_UNLOCK();
 }

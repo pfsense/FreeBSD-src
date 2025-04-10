@@ -208,6 +208,11 @@ open2nameif(int fmode, u_int vn_open_flags)
 		res |= OPENREAD;
 	if ((fmode & FWRITE) != 0)
 		res |= OPENWRITE;
+	if ((fmode & O_NAMEDATTR) != 0) {
+		res |= OPENNAMED;
+		if ((fmode & O_CREAT) != 0)
+			res |= CREATENAMED;
+	}
 	if ((vn_open_flags & VN_OPEN_NOAUDIT) == 0)
 		res |= AUDITVNODE1;
 	if ((vn_open_flags & VN_OPEN_NOCAPCHECK) != 0)
@@ -261,6 +266,19 @@ restart:
 		if ((error = namei(ndp)) != 0)
 			return (error);
 		if (ndp->ni_vp == NULL) {
+			if ((fmode & O_NAMEDATTR) != 0) {
+				if ((ndp->ni_dvp->v_mount->mnt_flag &
+				     MNT_NAMEDATTR) == 0)
+					error = EINVAL;
+				else if ((vn_irflag_read(ndp->ni_dvp) &
+				     VIRF_NAMEDDIR) == 0)
+					error = ENOENT;
+				if (error != 0) {
+					vp = ndp->ni_dvp;
+					ndp->ni_dvp = NULL;
+					goto bad;
+				}
+			}
 			VATTR_NULL(vap);
 			vap->va_type = VREG;
 			vap->va_mode = cmode;
@@ -315,7 +333,21 @@ restart:
 				error = EEXIST;
 				goto bad;
 			}
-			if (vp->v_type == VDIR) {
+			if ((fmode & O_NAMEDATTR) != 0) {
+				short irflag;
+
+				irflag = vn_irflag_read(vp);
+				if ((vp->v_mount->mnt_flag &
+				     MNT_NAMEDATTR) == 0 ||
+				    ((irflag & VIRF_NAMEDATTR) != 0 &&
+				    vp->v_type != VREG))
+					error = EINVAL;
+				else if ((irflag & (VIRF_NAMEDDIR |
+				    VIRF_NAMEDATTR)) == 0)
+					error = ENOATTR;
+				if (error != 0)
+					goto bad;
+			} else if (vp->v_type == VDIR) {
 				error = EISDIR;
 				goto bad;
 			}
@@ -331,6 +363,11 @@ restart:
 		if ((error = namei(ndp)) != 0)
 			return (error);
 		vp = ndp->ni_vp;
+		if ((fmode & O_NAMEDATTR) != 0 && (vp->v_mount->mnt_flag &
+		     MNT_NAMEDATTR) == 0) {
+			error = EINVAL;
+			goto bad;
+		}
 	}
 	error = vn_open_vnode(vp, fmode, cred, curthread, fp);
 	if (first_open) {
@@ -891,6 +928,26 @@ foffset_read(struct file *fp)
 	return (foffset_lock(fp, FOF_NOLOCK));
 }
 #endif
+
+void
+foffset_lock_pair(struct file *fp1, off_t *off1p, struct file *fp2, off_t *off2p,
+    int flags)
+{
+	KASSERT(fp1 != fp2, ("foffset_lock_pair: fp1 == fp2"));
+
+	/* Lock in a consistent order to avoid deadlock. */
+	if ((uintptr_t)fp1 > (uintptr_t)fp2) {
+		struct file *tmpfp;
+		off_t *tmpoffp;
+
+		tmpfp = fp1, fp1 = fp2, fp2 = tmpfp;
+		tmpoffp = off1p, off1p = off2p, off2p = tmpoffp;
+	}
+	if (fp1 != NULL)
+		*off1p = foffset_lock(fp1, flags);
+	if (fp2 != NULL)
+		*off2p = foffset_lock(fp2, flags);
+}
 
 void
 foffset_lock_uio(struct file *fp, struct uio *uio, int flags)

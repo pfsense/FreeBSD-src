@@ -4,7 +4,6 @@
 #
 
 AARCH64_STRING_FUNCS= \
-	memchr \
 	memcmp \
 	memcpy \
 	memmove \
@@ -19,6 +18,7 @@ AARCH64_STRING_FUNCS= \
 
 # SIMD-enhanced routines not derived from Arm's code
 MDSRCS+= \
+	memchr.S \
 	strcmp.S \
 	strspn.S \
 	strcspn.S \
@@ -54,3 +54,7 @@ CLEANFILES+=	${FUNC}.S
 MDSRCS+=	${FUNC}.S
 CFLAGS.${FUNC}.S+=-I${SRCTOP}/contrib/arm-optimized-routines/string
 .endfor
+
+# memchr.S is a wrapper in the src tree for the implementation from
+# arm-optimized-routines
+CFLAGS.memchr.S+=-I${SRCTOP}/contrib/arm-optimized-routines/string

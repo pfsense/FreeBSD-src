@@ -207,7 +207,6 @@ contrib/openzfs/module/os/freebsd/zfs/hkdf.c		optional zfs compile-with "${ZFS_C
 contrib/openzfs/module/os/freebsd/zfs/kmod_core.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/spa_os.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/sysctl_os.c		optional zfs compile-with "${ZFS_C}  -include $S/modules/zfs/zfs_config.h"
-contrib/openzfs/module/os/freebsd/zfs/vdev_file.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/vdev_label_os.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/vdev_geom.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/zfs_acl.c		optional zfs compile-with "${ZFS_C}"
@@ -332,6 +331,7 @@ contrib/openzfs/module/zfs/unique.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev_draid.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev_draid_rand.c		optional zfs compile-with "${ZFS_C}"
+contrib/openzfs/module/zfs/vdev_file.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev_indirect.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev_indirect_births.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev_indirect_mapping.c		optional zfs compile-with "${ZFS_C}"
@@ -1710,6 +1710,7 @@ dev/flash/at45d.c		optional at45d
 dev/flash/cqspi.c		optional cqspi fdt xdma
 dev/flash/mx25l.c		optional mx25l
 dev/flash/n25q.c		optional n25q fdt
+dev/flash/w25n.c		optional w25n fdt
 dev/flash/qspi_if.m		optional cqspi fdt | n25q fdt
 dev/fxp/if_fxp.c		optional fxp
 dev/fxp/inphy.c			optional fxp
@@ -2426,6 +2427,7 @@ dev/mmc/mmc.c			optional mmc !mmccam
 dev/mmc/mmcbr_if.m		standard
 dev/mmc/mmcbus_if.m		standard
 dev/mmc/mmcsd.c			optional mmcsd !mmccam
+dev/mmc/mmcspi.c		optional mmcsd spibus !mmccam fdt
 dev/mmc/mmc_fdt_helpers.c	optional mmc regulator clk fdt | mmccam regulator clk fdt
 dev/mmc/mmc_helpers.c		optional mmc gpio regulator clk | mmccam gpio regulator clk
 dev/mmc/mmc_pwrseq.c		optional mmc clk regulator fdt | mmccam clk regulator fdt
@@ -3294,6 +3296,7 @@ dev/usb/net/if_muge.c		optional muge
 dev/usb/net/if_rue.c		optional rue
 dev/usb/net/if_smsc.c		optional smsc
 dev/usb/net/if_udav.c		optional udav
+dev/usb/net/if_umb.c		optional umb
 dev/usb/net/if_ure.c		optional ure
 dev/usb/net/if_usie.c		optional usie
 dev/usb/net/if_urndis.c		optional urndis
@@ -3714,21 +3717,6 @@ geom/uzip/g_uzip_wrkthr.c	optional geom_uzip
 geom/uzip/g_uzip_zlib.c		optional geom_uzip
 geom/uzip/g_uzip_zstd.c		optional geom_uzip zstdio \
 	compile-with "${NORMAL_C} -I$S/contrib/zstd/lib/freebsd"
-geom/vinum/geom_vinum.c		optional geom_vinum
-geom/vinum/geom_vinum_create.c	optional geom_vinum
-geom/vinum/geom_vinum_drive.c	optional geom_vinum
-geom/vinum/geom_vinum_plex.c	optional geom_vinum
-geom/vinum/geom_vinum_volume.c	optional geom_vinum
-geom/vinum/geom_vinum_subr.c	optional geom_vinum
-geom/vinum/geom_vinum_raid5.c	optional geom_vinum
-geom/vinum/geom_vinum_share.c	optional geom_vinum
-geom/vinum/geom_vinum_list.c	optional geom_vinum
-geom/vinum/geom_vinum_rm.c	optional geom_vinum
-geom/vinum/geom_vinum_init.c	optional geom_vinum
-geom/vinum/geom_vinum_state.c	optional geom_vinum
-geom/vinum/geom_vinum_rename.c	optional geom_vinum
-geom/vinum/geom_vinum_move.c	optional geom_vinum
-geom/vinum/geom_vinum_events.c	optional geom_vinum
 geom/virstor/binstream.c	optional geom_virstor
 geom/virstor/g_virstor.c	optional geom_virstor
 geom/virstor/g_virstor_md.c	optional geom_virstor
@@ -3806,6 +3794,7 @@ kern/kern_hhook.c		standard
 kern/kern_idle.c		standard
 kern/kern_intr.c		standard
 kern/kern_jail.c		standard
+kern/kern_jailmeta.c		standard
 kern/kern_kcov.c		optional kcov			\
 	compile-with "${NOSAN_C} ${MSAN_CFLAGS}"
 kern/kern_khelp.c		standard
@@ -4215,6 +4204,8 @@ net80211/ieee80211_amrr.c	optional wlan | wlan_amrr
 net80211/ieee80211_crypto.c	optional wlan \
 	compile-with "${NORMAL_C} -Wno-unused-function"
 net80211/ieee80211_crypto_ccmp.c optional wlan wlan_ccmp
+net80211/ieee80211_crypto_gcmp.c optional wlan wlan_gcmp
+net80211/ieee80211_crypto_gcm.c	optional wlan wlan_gcmp
 net80211/ieee80211_crypto_none.c optional wlan
 net80211/ieee80211_crypto_tkip.c optional wlan wlan_tkip
 net80211/ieee80211_crypto_wep.c	optional wlan wlan_wep
@@ -4401,8 +4392,6 @@ netinet/tcp_output.c		optional inet | inet6
 netinet/tcp_offload.c		optional tcp_offload inet | tcp_offload inet6
 netinet/tcp_hpts.c		optional tcphpts inet | tcphpts inet6
 netinet/tcp_ratelimit.c		optional ratelimit inet | ratelimit inet6
-netinet/tcp_pcap.c		optional inet tcppcap | inet6 tcppcap \
-	compile-with "${NORMAL_C} ${NO_WNONNULL}"
 netinet/tcp_reass.c		optional inet | inet6
 netinet/tcp_sack.c		optional inet | inet6
 netinet/tcp_stacks/bbr.c	optional inet tcphpts tcp_bbr | inet6 tcphpts tcp_bbr \
@@ -5117,6 +5106,7 @@ rpc/auth_unix.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/authunix_prot.c		optional krpc | nfslockd | nfscl | nfsd
 rpc/clnt_bck.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/clnt_dg.c			optional krpc | nfslockd | nfscl | nfsd
+rpc/clnt_nl.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/clnt_rc.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/clnt_vc.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/getnetconfig.c		optional krpc | nfslockd | nfscl | nfsd
