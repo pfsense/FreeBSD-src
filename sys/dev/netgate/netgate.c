@@ -663,6 +663,10 @@ netgate_probe(device_t dev)
 	if (netgate_model == NETGATE_UNKNOWN &&
 	    chassis != NULL)
 		netgate_model = netgate_chassis(chassis);
+	/* QEMU with Chassis */
+	if (netgate_model == NETGATE_VM_QEMU &&
+	    chassis != NULL)
+		netgate_model = netgate_chassis(chassis);	
 
 	if (bios != NULL)
 		freeenv(bios);
