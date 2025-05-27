@@ -7,7 +7,7 @@
 .endif
 
 .if !target(__<src.libnames.mk>__)
-__<src.libnames.mk>__:
+__<src.libnames.mk>__:	.NOTMAIN
 
 .include <src.opts.mk>
 
@@ -701,6 +701,9 @@ LIBWPAWPS?=	${LIBWPAWPSDIR}/libwpawps${PIE_SUFFIX}.a
 
 LIBC_NOSSP_PICDIR=	${_LIB_OBJTOP}/lib/libc
 LIBC_NOSSP_PIC?=	${LIBC_NOSSP_PICDIR}/libc_nossp_pic.a
+
+LIBSYS_PICDIR=	${_LIB_OBJTOP}/lib/libsys
+LIBSYS_PIC?=	${LIBSYS_PICDIR}/libsys_pic.a
 
 # Define a directory for each library.  This is useful for adding -L in when
 # not using a --sysroot or for meta mode bootstrapping when there is no

@@ -603,16 +603,16 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 
 	/* Non terminal fragments must have more fragments flag. */
 	if (frent->fe_off + frent->fe_len < total && !frent->fe_mff)
-		goto bad_fragment;
+		goto free_ipv6_fragment;
 
 	/* Check if we saw the last fragment already. */
 	if (!TAILQ_LAST(&frag->fr_queue, pf_fragq)->fe_mff) {
 		if (frent->fe_off + frent->fe_len > total ||
 		    (frent->fe_off + frent->fe_len == total && frent->fe_mff))
-			goto bad_fragment;
+			goto free_ipv6_fragment;
 	} else {
 		if (frent->fe_off + frent->fe_len == total && !frent->fe_mff)
-			goto bad_fragment;
+			goto free_ipv6_fragment;
 	}
 
 	/* Find neighbors for newly inserted fragment */
@@ -680,6 +680,9 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 
 	return (frag);
 
+free_ipv6_fragment:
+	if (frag->fr_af == AF_INET)
+		goto bad_fragment;
 free_fragment:
 	/*
 	 * RFC 5722, Errata 3089:  When reassembling an IPv6 datagram, if one
@@ -1493,7 +1496,7 @@ pf_normalize_tcp_init(struct pf_pdesc *pd, struct tcphdr *th,
 					src->scrub->pfss_flags |=
 					    PFSS_TIMESTAMP;
 					src->scrub->pfss_ts_mod =
-					    htonl(arc4random());
+					    arc4random();
 
 					/* note PFSS_PAWS not set yet */
 					memcpy(&tsval, &opt[2],
@@ -1633,14 +1636,11 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd,
 					    (src->scrub->pfss_flags &
 					    PFSS_TIMESTAMP)) {
 						tsval = ntohl(tsval);
-						pf_patch_32_unaligned(pd->m,
-						    &th->th_sum,
+						copyback += pf_patch_32(pd,
 						    &opt[2],
 						    htonl(tsval +
 						    src->scrub->pfss_ts_mod),
-						    PF_ALGNMNT(startoff),
-						    0);
-						copyback = 1;
+						    PF_ALGNMNT(startoff));
 					}
 
 					/* Modulate TS reply iff valid (!0) */
@@ -1651,13 +1651,10 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd,
 					    PFSS_TIMESTAMP)) {
 						tsecr = ntohl(tsecr)
 						    - dst->scrub->pfss_ts_mod;
-						pf_patch_32_unaligned(pd->m,
-						    &th->th_sum,
+						copyback += pf_patch_32(pd,
 						    &opt[6],
 						    htonl(tsecr),
-						    PF_ALGNMNT(startoff),
-						    0);
-						copyback = 1;
+						    PF_ALGNMNT(startoff));
 					}
 					got_ts = 1;
 				}
@@ -1978,11 +1975,9 @@ pf_normalize_mss(struct pf_pdesc *pd)
 		case TCPOPT_MAXSEG:
 			mss = (u_int16_t *)(optp + 2);
 			if ((ntohs(*mss)) > pd->act.max_mss) {
-				pf_patch_16_unaligned(pd->m,
-				    &th->th_sum,
+				pf_patch_16(pd,
 				    mss, htons(pd->act.max_mss),
-				    PF_ALGNMNT(startoff),
-				    0);
+				    PF_ALGNMNT(startoff));
 				m_copyback(pd->m, pd->off + sizeof(*th),
 				    thoff - sizeof(*th), opts);
 				m_copyback(pd->m, pd->off, sizeof(*th), (caddr_t)th);

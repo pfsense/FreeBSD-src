@@ -817,6 +817,7 @@ TMAKE=		\
 # TOOLS_PREFIX set in BMAKE
 XMAKE=		${BMAKE} \
 		TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
+		MK_CLANG=${MK_CLANG_BOOTSTRAP} \
 		MK_LLDB=no \
 		MK_LLVM_BINUTILS=no \
 		MK_TESTS=no
@@ -1673,8 +1674,8 @@ buildetc: .MAKE .PHONY
 	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 _legacy
 	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 _bootstrap-tools \
 	    MK_CROSS_COMPILER=no MK_TOOLCHAIN=no
-	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 _obj \
-	    SUBDIR_OVERRIDE=etc
+	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 _obj
+	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 buildconfig
 	${_+_}cd ${.CURDIR}; ${MAKE} -f Makefile.inc1 everything \
 	    SUBDIR_OVERRIDE=etc
 
@@ -1937,7 +1938,6 @@ distributekernel distributekernel.debug: .PHONY
 .endif
 
 packagekernel: .PHONY
-.if defined(NO_ROOT)
 .if !defined(NO_INSTALLKERNEL)
 	cd ${DESTDIR}/${DISTDIR}/kernel; \
 	    ${TAR_CMD} cvf - --exclude '*.debug' \
@@ -1963,30 +1963,6 @@ packagekernel: .PHONY
 	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.${_kernel}-dbg.txz
 .endif
 .endfor
-.endif
-.else
-.if !defined(NO_INSTALLKERNEL)
-	cd ${DESTDIR}/${DISTDIR}/kernel; \
-	    ${TAR_CMD} cvf - --exclude '*.debug' . | \
-	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.txz
-.endif
-.if ${MK_DEBUG_FILES} != "no"
-	cd ${DESTDIR}/${DISTDIR}/kernel; \
-	    ${TAR_CMD} cvf - --include '*/*/*.debug' $$(eval find .) | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel-dbg.txz
-.endif
-.if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
-.for _kernel in ${BUILDKERNELS:[2..-1]}
-	cd ${DESTDIR}/${DISTDIR}/kernel.${_kernel}; \
-	    ${TAR_CMD} cvf - --exclude '*.debug' . | \
-	    ${XZ_CMD} > ${PACKAGEDIR}/kernel.${_kernel}.txz
-.if ${MK_DEBUG_FILES} != "no"
-	cd ${DESTDIR}/${DISTDIR}/kernel.${_kernel}; \
-	    ${TAR_CMD} cvf - --include '*/*/*.debug' $$(eval find .) | \
-	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel.${_kernel}-dbg.txz
-.endif
-.endfor
-.endif
 .endif
 
 stagekernel: .PHONY
@@ -2910,14 +2886,14 @@ _dtrace_tools= cddl/lib/libctf cddl/lib/libspl cddl/usr.bin/ctfconvert \
 .endif
 
 .if ${MK_ELFTOOLCHAIN_BOOTSTRAP} != "no"
-# Some bespoke tools from or based on ELF Tool Chain.  objcopy (elfcopy) is
-# included because llvm-objcopy is currently not capable of translating ELF to
-# PE32+, which is required for EFI boot programs.
+# Some bespoke tools from or based on ELF Tool Chain.  elfcopy is included
+# because llvm-objcopy is currently not capable of translating ELF to PE32+,
+# which is required for EFI boot programs.
 _elftctools=	lib/libelftc \
 		lib/libpe \
+		usr.bin/elfcopy \
 		usr.bin/elfctl \
-		usr.bin/elfdump \
-		usr.bin/objcopy
+		usr.bin/elfdump
 # If we're given an XNM we don't need to build standard binary utilities.
 .if ${XNM:M/*} == ""
 _elftctools+=	usr.bin/nm \
@@ -2930,7 +2906,7 @@ _elftctools+=	usr.bin/addr2line
 .endif
 
 .if ${MK_CLANG_BOOTSTRAP} != "no"
-_clang=		usr.bin/clang
+_clang=		usr.bin/clang/clang
 .endif
 .if ${MK_LLD_BOOTSTRAP} != "no"
 _lld=		usr.bin/clang/lld
@@ -3011,7 +2987,7 @@ NXBDIRS+= \
     usr.bin/cmp \
     usr.bin/diff \
     usr.bin/dirname \
-    usr.bin/objcopy \
+    usr.bin/elfcopy \
     usr.bin/env \
     usr.bin/fetch \
     usr.bin/find \

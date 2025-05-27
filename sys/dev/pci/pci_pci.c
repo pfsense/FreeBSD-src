@@ -930,7 +930,8 @@ pcib_hotplug_inserted(struct pcib_softc *sc)
 		return (false);
 
 	/* A power fault implicitly turns off power to the slot. */
-	if (sc->pcie_slot_sta & PCIEM_SLOT_STA_PFD)
+	if (sc->pcie_slot_cap & PCIEM_SLOT_CAP_PCP &&
+	    sc->pcie_slot_sta & PCIEM_SLOT_STA_PFD)
 		return (false);
 
 	/* If the MRL is disengaged, the slot is powered off. */
@@ -1297,6 +1298,7 @@ pcib_setup_hotplug(struct pcib_softc *sc)
 
 	/* Clear any events previously pending. */
 	pcie_write_config(dev, PCIER_SLOT_STA, sc->pcie_slot_sta, 2);
+	sc->pcie_slot_sta = pcie_read_config(dev, PCIER_SLOT_STA, 2);
 
 	/* Enable HotPlug events. */
 	mask = PCIEM_SLOT_CTL_DLLSCE | PCIEM_SLOT_CTL_HPIE |

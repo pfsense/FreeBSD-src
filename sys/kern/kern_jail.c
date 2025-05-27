@@ -231,6 +231,7 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 	{"allow.extattr", "allow.noextattr", PR_ALLOW_EXTATTR},
 	{"allow.adjtime", "allow.noadjtime", PR_ALLOW_ADJTIME},
 	{"allow.settime", "allow.nosettime", PR_ALLOW_SETTIME},
+	{"allow.routing", "allow.norouting", PR_ALLOW_ROUTING},
 };
 static unsigned pr_allow_all = PR_ALLOW_ALL_STATIC;
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
@@ -4218,8 +4219,19 @@ prison_priv_check(struct ucred *cred, int priv)
 		 * Conditionally allow privileged process in the jail set
 		 * machine time.
 		 */
+	case PRIV_SETTIMEOFDAY:
 	case PRIV_CLOCK_SETTIME:
 		if (cred->cr_prison->pr_allow & PR_ALLOW_SETTIME)
+			return (0);
+		else
+			return (EPERM);
+
+		/*
+		 * Conditionally allow privileged process in the jail to modify
+		 * the routing table.
+		 */
+	case PRIV_NET_ROUTE:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_ROUTING)
 			return (0);
 		else
 			return (EPERM);
@@ -4692,6 +4704,8 @@ SYSCTL_JAIL_PARAM(_allow, adjtime, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may adjust system time");
 SYSCTL_JAIL_PARAM(_allow, settime, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may set system time");
+SYSCTL_JAIL_PARAM(_allow, routing, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may modify routing table");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,

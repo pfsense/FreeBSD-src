@@ -38,7 +38,6 @@
 #include <sys/cons.h>
 #include <sys/cpu.h>
 #include <sys/csan.h>
-#include <sys/devmap.h>
 #include <sys/efi.h>
 #include <sys/efi_map.h>
 #include <sys/exec.h>
@@ -502,16 +501,18 @@ efi_early_map(vm_offset_t va)
 
 
 /*
- * When booted via kboot, the prior kernel will pass in reserved memory areas in
- * a EFI config table. We need to find that table and walk through it excluding
- * the memory ranges in it. btw, this is called too early for the printf to do
- * anything since msgbufp isn't initialized, let alone a console...
+ * When booted via kexec from Linux, the prior kernel will pass in reserved
+ * memory areas in an EFI config table. We need to find that table and walk
+ * through it excluding the memory ranges in it. btw, this is called too early
+ * for the printf to do anything (unless EARLY_PRINTF is defined) since msgbufp
+ * isn't initialized, let alone a console, but breakpoints in printf help
+ * diagnose rare failures.
  */
 static void
 exclude_efi_memreserve(vm_paddr_t efi_systbl_phys)
 {
 	struct efi_systbl *systbl;
-	struct uuid efi_memreserve = LINUX_EFI_MEMRESERVE_TABLE;
+	efi_guid_t efi_memreserve = LINUX_EFI_MEMRESERVE_TABLE;
 
 	systbl = (struct efi_systbl *)PHYS_TO_DMAP(efi_systbl_phys);
 	if (systbl == NULL) {
@@ -540,7 +541,7 @@ exclude_efi_memreserve(vm_paddr_t efi_systbl_phys)
 		cfgtbl = efi_early_map(systbl->st_cfgtbl + i * sizeof(*cfgtbl));
 		if (cfgtbl == NULL)
 			panic("Can't map the config table entry %d\n", i);
-		if (memcmp(&cfgtbl->ct_uuid, &efi_memreserve, sizeof(struct uuid)) != 0)
+		if (memcmp(&cfgtbl->ct_guid, &efi_memreserve, sizeof(efi_guid_t)) != 0)
 			continue;
 
 		/*
@@ -813,14 +814,29 @@ initarm(struct arm64_bootparams *abp)
 
 	cache_setup();
 
-	/* Bootstrap enough of pmap  to enter the kernel proper */
-	pmap_bootstrap(lastaddr - KERNBASE);
-	/* Exclude entries needed in the DMAP region, but not phys_avail */
+	/*
+	 * Perform a staged bootstrap of virtual memory.
+	 *
+	 * - First we create the DMAP region. This allows it to be used in
+	 *   later bootstrapping.
+	 * - Next exclude memory that is needed in the DMAP region, but must
+	 *   not be used by FreeBSD.
+	 * - Lastly complete the bootstrapping. It may use the physical
+	 *   memory map so any excluded memory must be marked as such before
+	 *   pmap_bootstrap() is called.
+	 */
+	pmap_bootstrap_dmap(lastaddr - KERNBASE);
+	/*
+	 * Exclude EFI entries needed in the DMAP, e.g. EFI_MD_TYPE_RECLAIM
+	 * may contain the ACPI tables but shouldn't be used by the kernel
+	 */
 	if (efihdr != NULL)
 		efi_map_exclude_entries(efihdr);
 	/*  Do the same for reserve entries in the EFI MEMRESERVE table */
 	if (efi_systbl_phys != 0)
 		exclude_efi_memreserve(efi_systbl_phys);
+	/* Continue bootstrapping pmap */
+	pmap_bootstrap();
 
 	/*
 	 * We carefully bootstrap the sanitizer map after we've excluded
@@ -834,8 +850,6 @@ initarm(struct arm64_bootparams *abp)
 #endif
 
 	physmem_init_kernel_globals();
-
-	devmap_bootstrap();
 
 	valid = bus_probe();
 

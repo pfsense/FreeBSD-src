@@ -182,63 +182,21 @@ auth_find(const struct auth_group *ag, const char *user)
 }
 
 static void
-auth_check_secret_length(struct auth *auth)
+auth_check_secret_length(const struct auth_group *ag, const char *user,
+    const char *secret, const char *secret_type)
 {
 	size_t len;
 
-	len = strlen(auth->a_secret);
+	len = strlen(secret);
 	if (len > 16) {
-		if (auth->a_auth_group->ag_name != NULL)
-			log_warnx("secret for user \"%s\", auth-group \"%s\", "
-			    "is too long; it should be at most 16 characters "
-			    "long", auth->a_user, auth->a_auth_group->ag_name);
-		else
-			log_warnx("secret for user \"%s\", target \"%s\", "
-			    "is too long; it should be at most 16 characters "
-			    "long", auth->a_user,
-			    auth->a_auth_group->ag_target->t_name);
+		log_warnx("%s for user \"%s\", %s, is too long; it should be "
+		    "at most 16 characters long", secret_type, user,
+		    ag->ag_label);
 	}
 	if (len < 12) {
-		if (auth->a_auth_group->ag_name != NULL)
-			log_warnx("secret for user \"%s\", auth-group \"%s\", "
-			    "is too short; it should be at least 12 characters "
-			    "long", auth->a_user,
-			    auth->a_auth_group->ag_name);
-		else
-			log_warnx("secret for user \"%s\", target \"%s\", "
-			    "is too short; it should be at least 12 characters "
-			    "long", auth->a_user,
-			    auth->a_auth_group->ag_target->t_name);
-	}
-
-	if (auth->a_mutual_secret != NULL) {
-		len = strlen(auth->a_mutual_secret);
-		if (len > 16) {
-			if (auth->a_auth_group->ag_name != NULL)
-				log_warnx("mutual secret for user \"%s\", "
-				    "auth-group \"%s\", is too long; it should "
-				    "be at most 16 characters long",
-				    auth->a_user, auth->a_auth_group->ag_name);
-			else
-				log_warnx("mutual secret for user \"%s\", "
-				    "target \"%s\", is too long; it should "
-				    "be at most 16 characters long",
-				    auth->a_user,
-				    auth->a_auth_group->ag_target->t_name);
-		}
-		if (len < 12) {
-			if (auth->a_auth_group->ag_name != NULL)
-				log_warnx("mutual secret for user \"%s\", "
-				    "auth-group \"%s\", is too short; it "
-				    "should be at least 12 characters long",
-				    auth->a_user, auth->a_auth_group->ag_name);
-			else
-				log_warnx("mutual secret for user \"%s\", "
-				    "target \"%s\", is too short; it should be "
-				    "at least 12 characters long",
-				    auth->a_user,
-				    auth->a_auth_group->ag_target->t_name);
-		}
+		log_warnx("%s for user \"%s\", %s, is too short; it should be "
+		    "at least 12 characters long", secret_type, user,
+		    ag->ag_label);
 	}
 }
 
@@ -251,21 +209,16 @@ auth_new_chap(struct auth_group *ag, const char *user,
 	if (ag->ag_type == AG_TYPE_UNKNOWN)
 		ag->ag_type = AG_TYPE_CHAP;
 	if (ag->ag_type != AG_TYPE_CHAP) {
-		if (ag->ag_name != NULL)
-			log_warnx("cannot mix \"chap\" authentication with "
-			    "other types for auth-group \"%s\"", ag->ag_name);
-		else
-			log_warnx("cannot mix \"chap\" authentication with "
-			    "other types for target \"%s\"",
-			    ag->ag_target->t_name);
+		log_warnx("cannot mix \"chap\" authentication with "
+		    "other types for %s", ag->ag_label);
 		return (false);
 	}
+
+	auth_check_secret_length(ag, user, secret, "secret");
 
 	auth = auth_new(ag);
 	auth->a_user = checked_strdup(user);
 	auth->a_secret = checked_strdup(secret);
-
-	auth_check_secret_length(auth);
 
 	return (true);
 }
@@ -279,24 +232,19 @@ auth_new_chap_mutual(struct auth_group *ag, const char *user,
 	if (ag->ag_type == AG_TYPE_UNKNOWN)
 		ag->ag_type = AG_TYPE_CHAP_MUTUAL;
 	if (ag->ag_type != AG_TYPE_CHAP_MUTUAL) {
-		if (ag->ag_name != NULL)
-			log_warnx("cannot mix \"chap-mutual\" authentication "
-			    "with other types for auth-group \"%s\"",
-			    ag->ag_name);
-		else
-			log_warnx("cannot mix \"chap-mutual\" authentication "
-			    "with other types for target \"%s\"",
-			    ag->ag_target->t_name);
+		log_warnx("cannot mix \"chap-mutual\" authentication "
+		    "with other types for %s", ag->ag_label);
 		return (false);
 	}
+
+	auth_check_secret_length(ag, user, secret, "secret");
+	auth_check_secret_length(ag, user, secret2, "mutual secret");
 
 	auth = auth_new(ag);
 	auth->a_user = checked_strdup(user);
 	auth->a_secret = checked_strdup(secret);
 	auth->a_mutual_user = checked_strdup(user2);
 	auth->a_mutual_secret = checked_strdup(secret2);
-
-	auth_check_secret_length(auth);
 
 	return (true);
 }
@@ -371,14 +319,17 @@ auth_portal_new(struct auth_group *ag, const char *portal)
 	ap->ap_initiator_portal = checked_strdup(portal);
 	mask = str = checked_strdup(portal);
 	net = strsep(&mask, "/");
-	if (net[0] == '[')
+	if (net[0] == '[') {
 		net++;
-	len = strlen(net);
-	if (len == 0)
-		goto error;
-	if (net[len - 1] == ']')
+		len = strlen(net);
+		if (len < 2)
+			goto error;
+		if (net[len - 1] != ']')
+			goto error;
 		net[len - 1] = 0;
-	if (strchr(net, ':') != NULL) {
+	} else if (net[0] == '\0')
+		goto error;
+	if (str[0] == '[' || strchr(net, ':') != NULL) {
 		struct sockaddr_in6 *sin6 =
 		    (struct sockaddr_in6 *)&ap->ap_sa;
 
@@ -398,6 +349,8 @@ auth_portal_new(struct auth_group *ag, const char *portal)
 		dm = 32;
 	}
 	if (mask != NULL) {
+		if (mask[0] == '\0')
+			goto error;
 		m = strtol(mask, &tmp, 0);
 		if (m < 0 || m > dm || tmp[0] != 0)
 			goto error;
@@ -484,24 +437,17 @@ auth_portal_check(const struct auth_group *ag, const struct sockaddr_storage *sa
 	return (true);
 }
 
-struct auth_group *
-auth_group_new(struct conf *conf, const char *name)
+static struct auth_group *
+auth_group_create(struct conf *conf, const char *name, char *label)
 {
 	struct auth_group *ag;
-
-	if (name != NULL) {
-		ag = auth_group_find(conf, name);
-		if (ag != NULL) {
-			log_warnx("duplicated auth-group \"%s\"", name);
-			return (NULL);
-		}
-	}
 
 	ag = reinterpret_cast<struct auth_group *>(calloc(1, sizeof(*ag)));
 	if (ag == NULL)
 		log_err(1, "calloc");
 	if (name != NULL)
 		ag->ag_name = checked_strdup(name);
+	ag->ag_label = label;
 	TAILQ_INIT(&ag->ag_auths);
 	TAILQ_INIT(&ag->ag_names);
 	TAILQ_INIT(&ag->ag_portals);
@@ -509,6 +455,31 @@ auth_group_new(struct conf *conf, const char *name)
 	TAILQ_INSERT_TAIL(&conf->conf_auth_groups, ag, ag_next);
 
 	return (ag);
+}
+
+struct auth_group *
+auth_group_new(struct conf *conf, const char *name)
+{
+	struct auth_group *ag;
+	char *label;
+
+	ag = auth_group_find(conf, name);
+	if (ag != NULL) {
+		log_warnx("duplicated auth-group \"%s\"", name);
+		return (NULL);
+	}
+
+	asprintf(&label, "auth-group \"%s\"", name);
+	return (auth_group_create(conf, name, label));
+}
+
+struct auth_group *
+auth_group_new(struct conf *conf, struct target *target)
+{
+	char *label;
+
+	asprintf(&label, "target \"%s\"", target->t_name);
+	return (auth_group_create(conf, NULL, label));
 }
 
 void
@@ -527,6 +498,7 @@ auth_group_delete(struct auth_group *ag)
 	TAILQ_FOREACH_SAFE(auth_portal, &ag->ag_portals, ap_next,
 	    auth_portal_tmp)
 		auth_portal_delete(auth_portal);
+	free(ag->ag_label);
 	free(ag->ag_name);
 	free(ag);
 }
@@ -1380,68 +1352,6 @@ connection_new(struct portal *portal, int fd, const char *host,
 	return (conn);
 }
 
-#if 0
-static void
-options_print(const char *prefix, nvlist_t *nvl)
-{
-	const char *name;
-	void *cookie;
-
-	cookie = NULL;
-	while ((name = nvlist_next(nvl, NULL, &cookie)) != NULL) {
-		fprintf(stderr, "%soption %s %s\n", prefix, name,
-		    nvlist_get_string(nvl, name));
-	}
-}
-
-static void
-conf_print(struct conf *conf)
-{
-	struct auth_group *ag;
-	struct auth *auth;
-	struct auth_name *auth_name;
-	struct auth_portal *auth_portal;
-	struct portal_group *pg;
-	struct portal *portal;
-	struct target *targ;
-	struct lun *lun;
-
-	TAILQ_FOREACH(ag, &conf->conf_auth_groups, ag_next) {
-		fprintf(stderr, "auth-group %s {\n", ag->ag_name);
-		TAILQ_FOREACH(auth, &ag->ag_auths, a_next)
-			fprintf(stderr, "\t chap-mutual %s %s %s %s\n",
-			    auth->a_user, auth->a_secret,
-			    auth->a_mutual_user, auth->a_mutual_secret);
-		TAILQ_FOREACH(auth_name, &ag->ag_names, an_next)
-			fprintf(stderr, "\t initiator-name %s\n",
-			    auth_name->an_initiator_name);
-		TAILQ_FOREACH(auth_portal, &ag->ag_portals, ap_next)
-			fprintf(stderr, "\t initiator-portal %s\n",
-			    auth_portal->ap_initiator_portal);
-		fprintf(stderr, "}\n");
-	}
-	TAILQ_FOREACH(pg, &conf->conf_portal_groups, pg_next) {
-		fprintf(stderr, "portal-group %s {\n", pg->pg_name);
-		TAILQ_FOREACH(portal, &pg->pg_portals, p_next)
-			fprintf(stderr, "\t listen %s\n", portal->p_listen);
-		options_print("\t", pg->pg_options);
-		fprintf(stderr, "}\n");
-	}
-	TAILQ_FOREACH(lun, &conf->conf_luns, l_next) {
-		fprintf(stderr, "\tlun %s {\n", lun->l_name);
-		fprintf(stderr, "\t\tpath %s\n", lun->l_path);
-		options_print("\t\t", lun->l_options);
-		fprintf(stderr, "\t}\n");
-	}
-	TAILQ_FOREACH(targ, &conf->conf_targets, t_next) {
-		fprintf(stderr, "target %s {\n", targ->t_name);
-		if (targ->t_alias != NULL)
-			fprintf(stderr, "\t alias %s\n", targ->t_alias);
-		fprintf(stderr, "}\n");
-	}
-}
-#endif
-
 static bool
 conf_verify_lun(struct lun *lun)
 {
@@ -1571,11 +1481,6 @@ conf_verify(struct conf *conf)
 		}
 	}
 	TAILQ_FOREACH(ag, &conf->conf_auth_groups, ag_next) {
-		if (ag->ag_name == NULL)
-			assert(ag->ag_target != NULL);
-		else
-			assert(ag->ag_target == NULL);
-
 		found = false;
 		TAILQ_FOREACH(targ, &conf->conf_targets, t_next) {
 			if (targ->t_auth_group == ag) {
@@ -2601,7 +2506,7 @@ main(int argc, char **argv)
 			if (tmpconf == NULL) {
 				log_warnx("configuration error, "
 				    "continuing with old configuration");
-			} else if (new_pports_from_conf(tmpconf, &kports)) {
+			} else if (!new_pports_from_conf(tmpconf, &kports)) {
 				log_warnx("Error associating physical ports, "
 				    "continuing with old configuration");
 				conf_delete(tmpconf);

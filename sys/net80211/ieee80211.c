@@ -564,7 +564,7 @@ ieee80211_vap_setup(struct ieee80211com *ic, struct ieee80211vap *vap,
 	ifp = if_alloc(IFT_ETHER);
 	if_initname(ifp, name, unit);
 	ifp->if_softc = vap;			/* back pointer */
-	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
+	if_setflags(ifp, IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST);
 	ifp->if_transmit = ieee80211_vap_transmit;
 	ifp->if_qflush = ieee80211_vap_qflush;
 	ifp->if_ioctl = ieee80211_ioctl;
@@ -722,7 +722,8 @@ ieee80211_vap_attach(struct ieee80211vap *vap, ifm_change_cb_t media_change,
 		ifp->if_baudrate = IF_Mbps(maxrate);
 
 	ether_ifattach(ifp, macaddr);
-	IEEE80211_ADDR_COPY(vap->iv_myaddr, IF_LLADDR(ifp));
+	/* Do initial MAC address sync */
+	ieee80211_vap_copy_mac_address(vap);
 	/* hook output method setup by ether_ifattach */
 	vap->iv_output = ifp->if_output;
 	ifp->if_output = ieee80211_output;
@@ -2731,4 +2732,58 @@ ieee80211_is_key_unicast(const struct ieee80211vap *vap,
 	 * will absolutely need to fix the key flags.
 	 */
 	return (!ieee80211_is_key_global(vap, key));
+}
+
+/**
+ * Determine whether the given control frame is from a known node
+ * and destined to us.
+ *
+ * In some instances a control frame won't have a TA (eg ACKs), so
+ * we should only verify the RA for those.
+ *
+ * @param ni	ieee80211_node representing the sender, or BSS node
+ * @param m0	mbuf representing the 802.11 frame.
+ * @returns	false if the frame is not a CTL frame (with a warning logged);
+ *		true if the frame is from a known sender / valid recipient,
+ *		false otherwise.
+ */
+bool
+ieee80211_is_ctl_frame_for_vap(struct ieee80211_node *ni, const struct mbuf *m0)
+{
+	const struct ieee80211vap *vap = ni->ni_vap;
+	const struct ieee80211_frame *wh;
+	uint8_t subtype;
+
+	wh = mtod(m0, const struct ieee80211_frame *);
+	subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+
+	/* Verify it's a ctl frame. */
+	KASSERT(IEEE80211_IS_CTL(wh), ("%s: not a CTL frame (fc[0]=0x%04x)",
+	    __func__, wh->i_fc[0]));
+	if (!IEEE80211_IS_CTL(wh)) {
+		if_printf(vap->iv_ifp,
+		    "%s: not a control frame (fc[0]=0x%04x)\n",
+		    __func__, wh->i_fc[0]);
+		return (false);
+	}
+
+	/* Verify the TA if present. */
+	switch (subtype) {
+	case IEEE80211_FC0_SUBTYPE_CTS:
+	case IEEE80211_FC0_SUBTYPE_ACK:
+		/* No TA. */
+		break;
+	default:
+		/*
+		 * Verify TA matches ni->ni_macaddr; for unknown
+		 * sources it will be the BSS node and ni->ni_macaddr
+		 * will the BSS MAC.
+		 */
+		if (!IEEE80211_ADDR_EQ(wh->i_addr2, ni->ni_macaddr))
+			return (false);
+		break;
+	}
+
+	/* Verify the RA */
+	return (IEEE80211_ADDR_EQ(wh->i_addr1, vap->iv_myaddr));
 }

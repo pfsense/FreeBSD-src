@@ -380,7 +380,9 @@ struct device *lkpi_pci_find_irq_dev(unsigned int irq);
 int _lkpi_pci_enable_msi_range(struct pci_dev *pdev, int minvec, int maxvec);
 
 #define	pci_err(pdev, fmt, ...)						\
-    dev_err(&(pdev)->dev, fmt, __VA_ARGS__)
+    dev_err(&(pdev)->dev, fmt, ##__VA_ARGS__)
+#define	pci_info(pdev, fmt, ...)					\
+    dev_info(&(pdev)->dev, fmt, ##__VA_ARGS__)
 
 static inline bool
 dev_is_pci(struct device *dev)
@@ -523,7 +525,20 @@ pci_upstream_bridge(struct pci_dev *pdev)
 	if (pdev == pdev->bus->self) {
 		device_t bridge;
 
-		bridge = device_get_parent(pdev->dev.bsddev);
+		/*
+		 * In the case of DRM drivers, the passed device is a child of
+		 * `vgapci`. We want to start the lookup from `vgapci`, so the
+		 * parent of the passed `drmn`.
+		 *
+		 * We can use the `isdrm` flag to determine this.
+		 */
+		bridge = pdev->dev.bsddev;
+		if (pdev->pdrv != NULL && pdev->pdrv->isdrm)
+			bridge = device_get_parent(bridge);
+		if (bridge == NULL)
+			goto done;
+
+		bridge = device_get_parent(bridge);
 		if (bridge == NULL)
 			goto done;
 		bridge = device_get_parent(bridge);
