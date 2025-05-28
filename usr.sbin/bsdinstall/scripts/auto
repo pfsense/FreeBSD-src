@@ -153,11 +153,13 @@ trap true SIGINT	# This section is optional
 trap error SIGINT	# Catch cntrl-C here
 if [ -z "$BSDINSTALL_SKIP_HOSTNAME" ]; then bsdinstall hostname || error "Set hostname failed"; fi
 
-bsddialog --backtitle "$OSNAME Installer" --title "Select Installation Type" \
-	--yes-label "Traditional" --no-label "Packages (Experimental)" --yesno \
-	"Would you like to install the base system using traditional distribution sets or packages (experimental)?" 0 0
-if [ $? -eq 1 ]; then
-	PKGBASE=yes
+if [ -z "$BSDINSTALL_SKIP_PKGBASE" ]; then
+	bsddialog --backtitle "$OSNAME Installer" --title "Select Installation Type" \
+		--yes-label "Traditional" --no-label "Packages (Experimental)" --yesno \
+		"Would you like to install the base system using traditional distribution sets or packages (experimental)?" 0 0
+	if [ $? -eq 1 ]; then
+		PKGBASE=yes
+	fi
 fi
 
 if [ "$PKGBASE" == yes ]; then
