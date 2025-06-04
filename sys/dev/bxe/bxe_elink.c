@@ -391,7 +391,8 @@ Theotherbitsarereservedandshouldbezero*/
 #define MDIO_PMA_REG_8727_PCS_GP		0xc842
 #define MDIO_PMA_REG_8727_OPT_CFG_REG		0xc8e4
 
-#define MDIO_AN_REG_8727_MISC_CTRL		0x8309
+#define MDIO_AN_REG_8727_MISC_CTRL1		0x8308
+#define MDIO_AN_REG_8727_MISC_CTRL2		0x8309
 #define	MDIO_PMA_REG_8073_CHIP_REV			0xc801
 #define MDIO_PMA_REG_8073_SPEED_LINK_STATUS		0xc820
 #define MDIO_PMA_REG_8073_XAUI_WA 			0xc841
@@ -882,6 +883,7 @@ typedef elink_status_t (*read_sfp_module_eeprom_func_p)(struct elink_phy *phy,
 
 #define ELINK_SFP_EEPROM_CON_TYPE_ADDR		0x2
 	#define ELINK_SFP_EEPROM_CON_TYPE_VAL_UNKNOWN	0x0
+	#define ELINK_SFP_EEPROM_CON_TYPE_VAL_SC    0x1
 	#define ELINK_SFP_EEPROM_CON_TYPE_VAL_LC	0x7
 	#define ELINK_SFP_EEPROM_CON_TYPE_VAL_COPPER	0x21
 	#define ELINK_SFP_EEPROM_CON_TYPE_VAL_RJ45	0x22
@@ -5042,6 +5044,15 @@ static void elink_warpcore_set_sgmii_speed(struct elink_phy *phy,
 					 0x1000);
 		ELINK_DEBUG_P0(sc, "set SGMII AUTONEG\n");
 	} else {
+		if (fiber_mode && (phy->req_line_speed == ELINK_SPEED_2500) &&
+			(phy->speed_cap_mask &
+			 (PORT_HW_CFG_SPEED_CAPABILITY_D0_1G |
+			  PORT_HW_CFG_SPEED_CAPABILITY_D0_2_5G))) {
+			elink_cl45_write(sc, phy, MDIO_WC_DEVAD,
+				MDIO_WC_REG_SERDESDIGITAL_MISC1,
+				0x6010);
+		}
+
 		elink_cl45_read(sc, phy, MDIO_WC_DEVAD,
 				MDIO_WC_REG_COMBO_IEEE0_MIICTRL, &val16);
 		val16 &= 0xcebf;
@@ -5052,6 +5063,7 @@ static void elink_warpcore_set_sgmii_speed(struct elink_phy *phy,
 			val16 |= 0x2000;
 			break;
 		case ELINK_SPEED_1000:
+		case ELINK_SPEED_2500:
 			val16 |= 0x0040;
 			break;
 		default:
@@ -9069,6 +9081,7 @@ static elink_status_t elink_get_edc_mode(struct elink_phy *phy,
 		break;
 	}
 	case ELINK_SFP_EEPROM_CON_TYPE_VAL_UNKNOWN:
+	case ELINK_SFP_EEPROM_CON_TYPE_VAL_SC:
 	case ELINK_SFP_EEPROM_CON_TYPE_VAL_LC:
 	case ELINK_SFP_EEPROM_CON_TYPE_VAL_RJ45:
 		check_limiting_mode = 1;
@@ -9082,7 +9095,8 @@ static elink_status_t elink_get_edc_mode(struct elink_phy *phy,
 		    (val[ELINK_SFP_EEPROM_1G_COMP_CODE_ADDR] != 0)) {
 			ELINK_DEBUG_P0(sc, "1G SFP module detected\n");
 			phy->media_type = ELINK_ETH_PHY_SFP_1G_FIBER;
-			if (phy->req_line_speed != ELINK_SPEED_1000) {
+		if ((phy->req_line_speed != ELINK_SPEED_1000) &&
+			(phy->req_line_speed != ELINK_SPEED_2500)) {
 				uint8_t gport = params->port;
 				phy->req_line_speed = ELINK_SPEED_1000;
 				if (!CHIP_IS_E1x(sc)) {
@@ -10146,7 +10160,8 @@ static void elink_8727_config_speed(struct elink_phy *phy,
 	uint16_t tmp1, val;
 	/* Set option 1G speed */
 	if ((phy->req_line_speed == ELINK_SPEED_1000) ||
-	    (phy->media_type == ELINK_ETH_PHY_SFP_1G_FIBER)) {
+		(phy->req_line_speed == ELINK_SPEED_2500) ||
+		(phy->media_type == ELINK_ETH_PHY_SFP_1G_FIBER)) {
 		ELINK_DEBUG_P0(sc, "Setting 1G force\n");
 		elink_cl45_write(sc, phy,
 				 MDIO_PMA_DEVAD, MDIO_PMA_REG_CTRL, 0x40);
@@ -10155,6 +10170,22 @@ static void elink_8727_config_speed(struct elink_phy *phy,
 		elink_cl45_read(sc, phy,
 				MDIO_PMA_DEVAD, MDIO_PMA_REG_10G_CTRL2, &tmp1);
 		ELINK_DEBUG_P1(sc, "1.7 = 0x%x\n", tmp1);
+		if ((phy->req_line_speed == ELINK_SPEED_2500) &&
+			(phy->speed_cap_mask &
+			 (PORT_HW_CFG_SPEED_CAPABILITY_D0_1G |
+			  PORT_HW_CFG_SPEED_CAPABILITY_D0_2_5G))) {
+			elink_cl45_read_and_write(sc, phy,
+					MDIO_AN_DEVAD,
+					MDIO_AN_REG_8727_MISC_CTRL2,
+					~(1<<5));
+			elink_cl45_write(sc, phy,
+				MDIO_AN_DEVAD,
+				MDIO_AN_REG_8727_MISC_CTRL1, 0x0010);
+		} else {
+			elink_cl45_write(sc, phy,
+					MDIO_AN_DEVAD,
+					MDIO_AN_REG_8727_MISC_CTRL1, 0x001C);
+		}
 		/* Power down the XAUI until link is up in case of dual-media
 		 * and 1G
 		 */
@@ -10176,7 +10207,7 @@ static void elink_8727_config_speed(struct elink_phy *phy,
 
 		ELINK_DEBUG_P0(sc, "Setting 1G clause37\n");
 		elink_cl45_write(sc, phy,
-				 MDIO_AN_DEVAD, MDIO_AN_REG_8727_MISC_CTRL, 0);
+				 MDIO_AN_DEVAD, MDIO_AN_REG_8727_MISC_CTRL2, 0);
 		elink_cl45_write(sc, phy,
 				 MDIO_AN_DEVAD, MDIO_AN_REG_CL37_AN, 0x1300);
 	} else {
@@ -10184,8 +10215,11 @@ static void elink_8727_config_speed(struct elink_phy *phy,
 		 * registers although it is default
 		 */
 		elink_cl45_write(sc, phy,
-				 MDIO_AN_DEVAD, MDIO_AN_REG_8727_MISC_CTRL,
+				 MDIO_AN_DEVAD, MDIO_AN_REG_8727_MISC_CTRL2,
 				 0x0020);
+		elink_cl45_write(sc, phy,
+				 MDIO_AN_DEVAD, MDIO_AN_REG_8727_MISC_CTRL1,
+				 0x001C);
 		elink_cl45_write(sc, phy,
 				 MDIO_AN_DEVAD, MDIO_AN_REG_CL37_AN, 0x0100);
 		elink_cl45_write(sc, phy,
@@ -10477,6 +10511,11 @@ static uint8_t elink_8727_read_status(struct elink_phy *phy,
 		vars->line_speed = ELINK_SPEED_10000;
 		ELINK_DEBUG_P1(sc, "port %x: External link up in 10G\n",
 			   params->port);
+	} else if ((link_status & (1<<1)) && (!(link_status & (1<<14)))) {
+		link_up = 1;
+		vars->line_speed = ELINK_SPEED_2500;
+		ELINK_DEBUG_P1(sc, "port %x: External link up in 2.5G\n",
+			  params->port);
 	} else if ((link_status & (1<<0)) && (!(link_status & (1<<13)))) {
 		link_up = 1;
 		vars->line_speed = ELINK_SPEED_1000;
@@ -10508,7 +10547,8 @@ static uint8_t elink_8727_read_status(struct elink_phy *phy,
 	}
 
 	if ((ELINK_DUAL_MEDIA(params)) &&
-	    (phy->req_line_speed == ELINK_SPEED_1000)) {
+		((phy->req_line_speed == ELINK_SPEED_1000) ||
+		 (phy->req_line_speed == ELINK_SPEED_2500))) {
 		elink_cl45_read(sc, phy,
 				MDIO_PMA_DEVAD,
 				MDIO_PMA_REG_8727_PCS_GP, &val1);
@@ -12530,6 +12570,7 @@ static const struct elink_phy phy_warpcore = {
 			   ELINK_SUPPORTED_100baseT_Full |
 			   ELINK_SUPPORTED_1000baseT_Full |
 			   ELINK_SUPPORTED_1000baseKX_Full |
+			   ELINK_SUPPORTED_2500baseX_Full |
 			   ELINK_SUPPORTED_10000baseT_Full |
 			   ELINK_SUPPORTED_10000baseKR_Full |
 			   ELINK_SUPPORTED_20000baseKR2_Full |
@@ -12716,6 +12757,7 @@ static const struct elink_phy phy_8727 = {
 	.tx_preemphasis	= {0xffff, 0xffff, 0xffff, 0xffff},
 	.mdio_ctrl	= 0,
 	.supported	= (ELINK_SUPPORTED_10000baseT_Full |
+			   ELINK_SUPPORTED_2500baseX_Full |
 			   ELINK_SUPPORTED_1000baseT_Full |
 			   ELINK_SUPPORTED_FIBRE |
 			   ELINK_SUPPORTED_Pause |
@@ -13067,6 +13109,7 @@ static elink_status_t elink_populate_int_phy(struct bxe_softc *sc, uint32_t shme
 			break;
 		case PORT_HW_CFG_NET_SERDES_IF_SFI:
 			phy->supported &= (ELINK_SUPPORTED_1000baseT_Full |
+					   ELINK_SUPPORTED_2500baseX_Full |
 					   ELINK_SUPPORTED_10000baseT_Full |
 					   ELINK_SUPPORTED_FIBRE |
 					   ELINK_SUPPORTED_Pause |
@@ -14991,7 +15034,9 @@ void elink_period_func(struct elink_params *params, struct elink_vars *vars)
 		    & PORT_HW_CFG_NET_SERDES_IF_MASK) ==
 		    PORT_HW_CFG_NET_SERDES_IF_SFI) {
 			if (elink_is_sfp_module_plugged(phy, params)) {
-				elink_sfp_tx_fault_detection(phy, params, vars);
+				if (!((params->port+1) & sc->mask_tx_fault))
+					elink_sfp_tx_fault_detection(phy,
+						params, vars);
 			} else if (vars->link_status &
 				LINK_STATUS_SFP_TX_FAULT) {
 				/* Clean trail, interrupt corrects the leds */

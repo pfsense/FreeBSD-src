@@ -1525,6 +1525,7 @@ struct bxe_softc {
 #define INTR_MODE_MSI  1
 #define INTR_MODE_MSIX 2
     int      udp_rss;
+    int      mask_tx_fault;
 
     /* interrupt allocations */
     struct bxe_intr intr[MAX_RSS_CHAINS+1];

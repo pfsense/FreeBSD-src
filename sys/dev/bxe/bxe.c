@@ -300,6 +300,10 @@ static int bxe_udp_rss = 0;
 SYSCTL_INT(_hw_bxe, OID_AUTO, udp_rss, CTLFLAG_RDTUN,
            &bxe_udp_rss, 0, "UDP RSS support");
 
+/* Mask SFP TX fault detection: 0 (disabled), 1 (enabled) */
+static int bxe_mask_tx_fault = 0;
+SYSCTL_INT(_hw_bxe, OID_AUTO, mask_tx_fault, CTLFLAG_RDTUN,
+           &bxe_mask_tx_fault, 0, "Mask SFP TX fault detection");
 
 #define STAT_NAME_LEN 32 /* no stat names below can be longer than this */
 
@@ -13789,6 +13793,11 @@ bxe_get_tunable_params(struct bxe_softc *sc)
         bxe_udp_rss = 0;
     }
 
+    if ((bxe_mask_tx_fault < 0) || (bxe_mask_tx_fault > 3)) {
+        BLOGW(sc, "invalid mask_tx_fault (%d)\n", bxe_mask_tx_fault);
+        bxe_mask_tx_fault = 0;
+    }
+
     /* pull in user settings */
 
     sc->interrupt_mode       = bxe_interrupt_mode;
@@ -13799,6 +13808,7 @@ bxe_get_tunable_params(struct bxe_softc *sc)
     sc->mrrs                 = bxe_mrrs;
     sc->autogreeen           = bxe_autogreeen;
     sc->udp_rss              = bxe_udp_rss;
+    sc->mask_tx_fault        = bxe_mask_tx_fault;
 
     if (bxe_interrupt_mode == INTR_MODE_INTX) {
         sc->num_queues = 1;
