@@ -54,6 +54,7 @@ ATF_TESTS_SH+=	altq \
 		tos
 
 ATF_TESTS_PYTEST+=	frag6.py
+ATF_TESTS_PYTEST+=	header.py
 ATF_TESTS_PYTEST+=	icmp.py
 ATF_TESTS_PYTEST+=	nat64.py
 ATF_TESTS_PYTEST+=	nat66.py
@@ -81,7 +82,8 @@ ${PACKAGE}FILES+=	\
 			pft_ether.py \
 			pft_read_ipfix.py \
 			rdr-srcport.py \
-			utils.subr
+			utils.subr \
+			utils.py
 
 ${PACKAGE}FILESMODE_bsnmpd.conf=		0555
 ${PACKAGE}FILESMODE_CVE-2019-5597.py=	0555

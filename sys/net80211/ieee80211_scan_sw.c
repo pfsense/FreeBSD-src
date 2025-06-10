@@ -41,7 +41,6 @@
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/if_media.h>
-#include <net/if_private.h>
 #include <net/ethernet.h>
 
 #include <net80211/ieee80211_var.h>
@@ -201,7 +200,9 @@ ieee80211_swscan_start_scan_locked(const struct ieee80211_scanner *scan,
 				vap->iv_stats.is_scan_passive++;
 			if (flags & IEEE80211_SCAN_FLUSH)
 				ss->ss_ops->scan_flush(ss);
-			if (flags & IEEE80211_SCAN_BGSCAN)
+			/* Only BGSCAN if enabled and requested. */
+			if ((vap->iv_flags & IEEE80211_F_BGSCAN) != 0 &&
+			    (flags & IEEE80211_SCAN_BGSCAN) != 0)
 				ic->ic_flags_ext |= IEEE80211_FEXT_BGSCAN;
 
 			/* Set duration for this particular scan */
@@ -339,6 +340,10 @@ ieee80211_swscan_bg_scan(const struct ieee80211_scanner *scan,
 	// IEEE80211_UNLOCK_ASSERT(ic);
 
 	IEEE80211_LOCK(ic);
+	KASSERT((vap->iv_flags & IEEE80211_F_BGSCAN) != 0,
+	    ("%s: vap %p iv_flags %#010x no IEEE80211_F_BGSCAN set",
+	    __func__, vap, vap->iv_flags));
+
 	scanning = ic->ic_flags & IEEE80211_F_SCAN;
 	if (!scanning) {
 		u_int duration;
@@ -809,11 +814,9 @@ scan_end(struct ieee80211_scan_state *ss, int scandone)
 	 * driver calls (whilst unlocked), update scandone.
 	 */
 	if ((scandone == 0) && ((ss_priv->ss_iflags & ISCAN_PAUSE) == ISCAN_CANCEL)) {
-		/* XXX printf? */
-		if_printf(vap->iv_ifp,
+		net80211_vap_printf(vap,
 		    "%s: OOPS! scan cancelled during driver call (1) (ss_iflags=0x%x)!\n",
-		    __func__,
-		    ss_priv->ss_iflags);
+		    __func__, ss_priv->ss_iflags);
 		scandone = 1;
 	}
 
@@ -880,11 +883,9 @@ scan_end(struct ieee80211_scan_state *ss, int scandone)
 	 * driver calls (whilst unlocked), update scandone.
 	 */
 	if (scandone == 0 && (ss_priv->ss_iflags & ISCAN_PAUSE) == ISCAN_CANCEL) {
-		/* XXX printf? */
-		if_printf(vap->iv_ifp,
+		net80211_vap_printf(vap,
 		    "%s: OOPS! scan cancelled during driver call (2) (ss_iflags=0x%x)!\n",
-		    __func__,
-		    ss_priv->ss_iflags);
+		    __func__, ss_priv->ss_iflags);
 		scandone = 1;
 	}
 

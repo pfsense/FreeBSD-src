@@ -744,8 +744,8 @@ zio_unique_parent(zio_t *cio)
 	return (pio);
 }
 
-void
-zio_add_child(zio_t *pio, zio_t *cio)
+static void
+zio_add_child_impl(zio_t *pio, zio_t *cio, boolean_t first)
 {
 	/*
 	 * Logical I/Os can have logical, gang, or vdev children.
@@ -765,7 +765,11 @@ zio_add_child(zio_t *pio, zio_t *cio)
 	zl->zl_child = cio;
 
 	mutex_enter(&pio->io_lock);
-	mutex_enter(&cio->io_lock);
+
+	if (first)
+		ASSERT(list_is_empty(&cio->io_parent_list));
+	else
+		mutex_enter(&cio->io_lock);
 
 	ASSERT(pio->io_state[ZIO_WAIT_DONE] == 0);
 
@@ -776,44 +780,22 @@ zio_add_child(zio_t *pio, zio_t *cio)
 	list_insert_head(&pio->io_child_list, zl);
 	list_insert_head(&cio->io_parent_list, zl);
 
-	mutex_exit(&cio->io_lock);
+	if (!first)
+		mutex_exit(&cio->io_lock);
+
 	mutex_exit(&pio->io_lock);
 }
 
 void
+zio_add_child(zio_t *pio, zio_t *cio)
+{
+	zio_add_child_impl(pio, cio, B_FALSE);
+}
+
+static void
 zio_add_child_first(zio_t *pio, zio_t *cio)
 {
-	/*
-	 * Logical I/Os can have logical, gang, or vdev children.
-	 * Gang I/Os can have gang or vdev children.
-	 * Vdev I/Os can only have vdev children.
-	 * The following ASSERT captures all of these constraints.
-	 */
-	ASSERT3S(cio->io_child_type, <=, pio->io_child_type);
-
-	/* Parent should not have READY stage if child doesn't have it. */
-	IMPLY((cio->io_pipeline & ZIO_STAGE_READY) == 0 &&
-	    (cio->io_child_type != ZIO_CHILD_VDEV),
-	    (pio->io_pipeline & ZIO_STAGE_READY) == 0);
-
-	zio_link_t *zl = kmem_cache_alloc(zio_link_cache, KM_SLEEP);
-	zl->zl_parent = pio;
-	zl->zl_child = cio;
-
-	ASSERT(list_is_empty(&cio->io_parent_list));
-	list_insert_head(&cio->io_parent_list, zl);
-
-	mutex_enter(&pio->io_lock);
-
-	ASSERT(pio->io_state[ZIO_WAIT_DONE] == 0);
-
-	uint64_t *countp = pio->io_children[cio->io_child_type];
-	for (int w = 0; w < ZIO_WAIT_TYPES; w++)
-		countp[w] += !cio->io_state[w];
-
-	list_insert_head(&pio->io_child_list, zl);
-
-	mutex_exit(&pio->io_lock);
+	zio_add_child_impl(pio, cio, B_TRUE);
 }
 
 static void
@@ -2307,12 +2289,12 @@ zio_deadman_impl(zio_t *pio, int ziodepth)
 	zio_t *cio, *cio_next;
 	zio_link_t *zl = NULL;
 	vdev_t *vd = pio->io_vd;
+	uint64_t failmode = spa_get_deadman_failmode(pio->io_spa);
 
 	if (zio_deadman_log_all || (vd != NULL && vd->vdev_ops->vdev_op_leaf)) {
 		vdev_queue_t *vq = vd ? &vd->vdev_queue : NULL;
 		zbookmark_phys_t *zb = &pio->io_bookmark;
 		uint64_t delta = gethrtime() - pio->io_timestamp;
-		uint64_t failmode = spa_get_deadman_failmode(pio->io_spa);
 
 		zfs_dbgmsg("slow zio[%d]: zio=%px timestamp=%llu "
 		    "delta=%llu queued=%llu io=%llu "
@@ -2336,11 +2318,15 @@ zio_deadman_impl(zio_t *pio, int ziodepth)
 		    pio->io_error);
 		(void) zfs_ereport_post(FM_EREPORT_ZFS_DEADMAN,
 		    pio->io_spa, vd, zb, pio, 0);
+	}
 
-		if (failmode == ZIO_FAILURE_MODE_CONTINUE &&
-		    taskq_empty_ent(&pio->io_tqent)) {
-			zio_interrupt(pio);
-		}
+	if (vd != NULL && vd->vdev_ops->vdev_op_leaf &&
+	    list_is_empty(&pio->io_child_list) &&
+	    failmode == ZIO_FAILURE_MODE_CONTINUE &&
+	    taskq_empty_ent(&pio->io_tqent) &&
+	    pio->io_queue_state == ZIO_QS_ACTIVE) {
+		pio->io_error = EINTR;
+		zio_interrupt(pio);
 	}
 
 	mutex_enter(&pio->io_lock);
@@ -2714,6 +2700,8 @@ zio_suspend(spa_t *spa, zio_t *zio, zio_suspend_reason_t reason)
 	}
 
 	mutex_exit(&spa->spa_suspend_lock);
+
+	txg_wait_kick(spa->spa_dsl_pool);
 }
 
 int

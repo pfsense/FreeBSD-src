@@ -114,6 +114,10 @@ CONFGROUPS+=		CRON
 CRON+=			cron
 CRONPACKAGE=		cron
 
+CONFGROUPS+=		CTL
+CTL=			ctld
+CTLPACKAGE=		ctl
+
 CONFGROUPS+=		NFS
 NFS=			lockd \
 			mountd \
@@ -260,9 +264,8 @@ NATDPACKAGE=	natd
 
 .if ${MK_ISCSI} != "no"
 CONFGROUPS+=	ISCSI
-ISCSI=		iscsictl	\
-		iscsid		\
-		ctld
+ISCSI=		iscsictl \
+		iscsid
 ISCSIPACKAGE=	iscsi
 .endif
 
@@ -364,7 +367,8 @@ SMRCDPACKAGE=	sendmail
 
 .if ${MK_NUAGEINIT} != "no"
 CONFGROUPS+=	NIUAGEINIT
-NIUAGEINIT=		nuageinit
+NIUAGEINIT=		nuageinit \
+			nuageinit_user_data_script
 NIUAGEINITPACKAGE=	nuageinit
 .endif
 

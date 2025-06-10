@@ -1304,7 +1304,7 @@ out:
 }
 
 /*
- * Our version of sowakeup(), used by recv(2) and shutdown(2).
+ * Wakeup a writer, used by recv(2) and shutdown(2).
  *
  * @param so	Points to a connected stream socket with receive buffer locked
  *
@@ -1314,7 +1314,7 @@ out:
  * receive lock is protecting us from the peer going away.
  */
 static void
-uipc_wakeup(struct socket *so)
+uipc_wakeup_writer(struct socket *so)
 {
 	struct sockbuf *sb = &so->so_rcv;
 	struct selinfo *sel;
@@ -1346,8 +1346,10 @@ uipc_cantrcvmore(struct socket *so)
 
 	SOCK_RECVBUF_LOCK(so);
 	so->so_rcv.sb_state |= SBS_CANTRCVMORE;
+	selwakeuppri(&so->so_rdsel, PSOCK);
+	KNOTE_LOCKED(&so->so_rdsel.si_note, 0);
 	if (so->so_rcv.uxst_peer != NULL)
-		uipc_wakeup(so);
+		uipc_wakeup_writer(so);
 	else
 		SOCK_RECVBUF_UNLOCK(so);
 }
@@ -1503,7 +1505,7 @@ restart:
 			if ((aio = sb->uxst_flags & UXST_PEER_AIO))
 				sb->uxst_flags &= ~UXST_PEER_AIO;
 
-			uipc_wakeup(so);
+			uipc_wakeup_writer(so);
 			/*
 			 * XXXGL: need to go through uipc_lock_peer() after
 			 * the receive buffer lock dropped, it was protecting
@@ -1526,8 +1528,6 @@ restart:
 
 	while (control != NULL && control->m_type == MT_CONTROL) {
 		if (!peek) {
-			struct mbuf *c;
-
 			/*
 			 * unp_externalize() failure must abort entire read(2).
 			 * Such failure should also free the problematic
@@ -1537,14 +1537,9 @@ restart:
 			 * Probability of such a failure is really low, so it
 			 * is fine that we need to perform pretty complex
 			 * operation here to reconstruct the buffer.
-			 * XXXGL: unp_externalize() used to be
-			 * dom_externalize() KBI and it frees whole chain, so
-			 * we need to feed it with mbufs one by one.
 			 */
-			c = control;
-			control = STAILQ_NEXT(c, m_stailq);
-			STAILQ_NEXT(c, m_stailq) = NULL;
-			error = unp_externalize(c, controlp, flags);
+			error = unp_externalize(control, controlp, flags);
+			control = m_free(control);
 			if (__predict_false(error && control != NULL)) {
 				struct mchain cmc;
 
@@ -1692,7 +1687,8 @@ uipc_sopoll_stream_or_seqpacket(struct socket *so, int events,
 			    so->so_error || so->so_rerror)
 				revents |= events & (POLLIN | POLLRDNORM);
 			if (so->so_rcv.sb_state & SBS_CANTRCVMORE)
-				revents |= events & POLLRDHUP;
+				revents |= events &
+				    (POLLIN | POLLRDNORM | POLLRDHUP);
 			if (!(revents & (POLLIN | POLLRDNORM | POLLRDHUP))) {
 				selrecord(td, &so->so_rdsel);
 				so->so_rcv.sb_flags |= SB_SEL;
@@ -2322,13 +2318,8 @@ uipc_soreceive_dgram(struct socket *so, struct sockaddr **psa, struct uio *uio,
 	 * without MT_DATA mbufs.
 	 */
 	while (m != NULL && m->m_type == MT_CONTROL) {
-		struct mbuf *cm;
-
-		/* XXXGL: unp_externalize() is also dom_externalize() KBI and
-		 * it frees whole chain, so we must disconnect the mbuf.
-		 */
-		cm = m; m = m->m_next; cm->m_next = NULL;
-		error = unp_externalize(cm, controlp, flags);
+		error = unp_externalize(m, controlp, flags);
+		m = m_free(m);
 		if (error != 0) {
 			SOCK_IO_RECV_UNLOCK(so);
 			unp_scan(m, unp_freerights);
@@ -3541,7 +3532,6 @@ next:
 		}
 	}
 
-	m_freem(control);
 	return (error);
 }
 
@@ -4422,7 +4412,6 @@ static struct protosw seqpacketproto = {
 static struct domain localdomain = {
 	.dom_family =		AF_LOCAL,
 	.dom_name =		"local",
-	.dom_externalize =	unp_externalize,
 	.dom_nprotosw =		3,
 	.dom_protosw =		{
 		&streamproto,

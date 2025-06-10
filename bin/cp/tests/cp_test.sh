@@ -188,18 +188,22 @@ pflag_acls_body()
 	   ! setfacl -m g:staff:d::allow dir/file ; then
 		atf_skip "file system does not support ACLs"
 	fi
-	atf_check cp -p dir/file dst
-	atf_check -o match:"group:staff:-+d-+" getfacl dst
-	rm dst
-	mkdir dst
-	atf_check cp -rp dir dst
-	atf_check -o not-match:"group:staff:-+D-+" getfacl dst
-	atf_check -o match:"group:staff:-+D-+" getfacl dst/dir
-	atf_check -o match:"group:staff:-+d-+" getfacl dst/dir/file
-	rm -rf dst
-	atf_check cp -rp dir dst
-	atf_check -o match:"group:staff:-+D-+" getfacl dst/
-	atf_check -o match:"group:staff:-+d-+" getfacl dst/file
+	atf_check -o match:"group:staff:-+D-+" getfacl dir
+	atf_check -o match:"group:staff:-+d-+" getfacl dir/file
+	# file-to-file copy without -p
+	atf_check cp dir/file dst1
+	atf_check -o not-match:"group:staff:-+d-+" getfacl dst1
+	# file-to-file copy with -p
+	atf_check cp -p dir/file dst2
+	atf_check -o match:"group:staff:-+d-+" getfacl dst2
+	# recursive copy without -p
+	atf_check cp -r dir dst3
+	atf_check -o not-match:"group:staff:-+D-+" getfacl dst3
+	atf_check -o not-match:"group:staff:-+d-+" getfacl dst3/file
+	# recursive copy with -p
+	atf_check cp -rp dir dst4
+	atf_check -o match:"group:staff:-+D-+" getfacl dst4
+	atf_check -o match:"group:staff:-+d-+" getfacl dst4/file
 }
 
 atf_test_case pflag_flags
@@ -211,18 +215,22 @@ pflag_flags_body()
 	   ! chflags nodump dir/file ; then
 		atf_skip "file system does not support flags"
 	fi
-	atf_check cp -p dir/file dst
-	atf_check -o match:"nodump" stat -f%Sf dst
-	rm dst
-	mkdir dst
-	atf_check cp -rp dir dst
-	atf_check -o not-match:"nodump" stat -f%Sf dst
-	atf_check -o match:"nodump" stat -f%Sf dst/dir
-	atf_check -o match:"nodump" stat -f%Sf dst/dir/file
-	rm -rf dst
-	atf_check cp -rp dir dst
-	atf_check -o match:"nodump" stat -f%Sf dst
-	atf_check -o match:"nodump" stat -f%Sf dst/file
+	atf_check -o match:"nodump" stat -f%Sf dir
+	atf_check -o match:"nodump" stat -f%Sf dir/file
+	# file-to-file copy without -p
+	atf_check cp dir/file dst1
+	atf_check -o not-match:"nodump" stat -f%Sf dst1
+	# file-to-file copy with -p
+	atf_check cp -p dir/file dst2
+	atf_check -o match:"nodump" stat -f%Sf dst2
+	# recursive copy without -p
+	atf_check cp -r dir dst3
+	atf_check -o not-match:"nodump" stat -f%Sf dst3
+	atf_check -o not-match:"nodump" stat -f%Sf dst3/file
+	# recursive copy with -p
+	atf_check cp -rp dir dst4
+	atf_check -o match:"nodump" stat -f%Sf dst4
+	atf_check -o match:"nodump" stat -f%Sf dst4/file
 }
 
 recursive_link_setup()
@@ -570,6 +578,28 @@ dstmode_body()
 	atf_check cmp dir/file dst/file
 }
 
+atf_test_case to_root cleanup
+to_root_head()
+{
+	atf_set "require.user" "unprivileged"
+}
+to_root_body()
+{
+	dst="test.$(atf_get ident).$$"
+	echo "$dst" >dst
+	echo "foo" >"$dst"
+	atf_check -s not-exit:0 \
+	    -e match:"^cp: /$dst: (Permission|Read-only)" \
+	    cp "$dst" /
+	atf_check -s not-exit:0 \
+	    -e match:"^cp: /$dst: (Permission|Read-only)" \
+	    cp "$dst" //
+}
+to_root_cleanup()
+{
+	(dst=$(cat dst) && rm "/$dst") 2>/dev/null || true
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case basic
@@ -607,4 +637,5 @@ atf_init_test_cases()
 	atf_add_test_case to_deaddirlink
 	atf_add_test_case to_link_outside
 	atf_add_test_case dstmode
+	atf_add_test_case to_root
 }

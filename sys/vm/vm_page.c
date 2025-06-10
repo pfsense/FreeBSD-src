@@ -341,7 +341,7 @@ vm_page_blacklist_add(vm_paddr_t pa, bool verbose)
 	vm_domain_free_unlock(vmd);
 	if (found) {
 		vm_domain_freecnt_inc(vmd, -1);
-		TAILQ_INSERT_TAIL(&blacklist_head, m, listq);
+		TAILQ_INSERT_TAIL(&blacklist_head, m, plinks.q);
 		if (verbose)
 			printf("Skipping page with pa 0x%jx\n", (uintmax_t)pa);
 	}
@@ -411,7 +411,7 @@ sysctl_vm_page_blacklist(SYSCTL_HANDLER_ARGS)
 	if (error != 0)
 		return (error);
 	sbuf_new_for_sysctl(&sbuf, NULL, 128, req);
-	TAILQ_FOREACH(m, &blacklist_head, listq) {
+	TAILQ_FOREACH(m, &blacklist_head, plinks.q) {
 		sbuf_printf(&sbuf, "%s%#jx", first ? "" : ",",
 		    (uintmax_t)m->phys_addr);
 		first = 0;
@@ -2470,6 +2470,13 @@ again:
 	}
 
 found:
+	/*
+	 * If the page comes from the free page cache, then it might still
+	 * have a pending deferred dequeue.  Specifically, when the page is
+	 * imported from a different pool by vm_phys_alloc_npages(), the
+	 * second, third, etc. pages in a non-zero order set could have
+	 * pending deferred dequeues.
+	 */
 	vm_page_dequeue(m);
 	vm_page_alloc_check(m);
 
@@ -2536,17 +2543,18 @@ vm_page_alloc_nofree_domain(int domain, int req)
 			return (NULL);
 		}
 		m->ref_count = count - 1;
-		TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m, listq);
+		TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m, plinks.q);
 		VM_CNT_ADD(v_nofree_count, count);
 	}
 	m = TAILQ_FIRST(&vmd->vmd_nofreeq);
-	TAILQ_REMOVE(&vmd->vmd_nofreeq, m, listq);
+	TAILQ_REMOVE(&vmd->vmd_nofreeq, m, plinks.q);
 	if (m->ref_count > 0) {
 		vm_page_t m_next;
 
 		m_next = &m[1];
+		vm_page_dequeue(m_next);
 		m_next->ref_count = m->ref_count - 1;
-		TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m_next, listq);
+		TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m_next, plinks.q);
 		m->ref_count = 0;
 	}
 	vm_domain_free_unlock(vmd);
@@ -2566,7 +2574,7 @@ vm_page_free_nofree(struct vm_domain *vmd, vm_page_t m)
 {
 	vm_domain_free_lock(vmd);
 	MPASS(m->ref_count == 0);
-	TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m, listq);
+	TAILQ_INSERT_HEAD(&vmd->vmd_nofreeq, m, plinks.q);
 	vm_domain_free_unlock(vmd);
 	VM_CNT_ADD(v_nofree_count, 1);
 }
@@ -3971,7 +3979,7 @@ vm_page_dequeue(vm_page_t m)
 
 	old = vm_page_astate_load(m);
 	do {
-		if (old.queue == PQ_NONE) {
+		if (__predict_true(old.queue == PQ_NONE)) {
 			KASSERT((old.flags & PGA_QUEUE_STATE_MASK) == 0,
 			    ("%s: page %p has unexpected queue state",
 			    __func__, m));
@@ -4882,7 +4890,7 @@ vm_page_grab_valid_iter(vm_page_t *mp, vm_object_t object, vm_pindex_t pindex,
 {
 	vm_page_t m;
 	vm_page_t ma[VM_INITIAL_PAGEIN];
-	int after, i, pflags, rv;
+	int after, ahead, i, pflags, rv;
 
 	KASSERT((allocflags & VM_ALLOC_SBUSY) == 0 ||
 	    (allocflags & VM_ALLOC_IGN_SBUSY) != 0,
@@ -4942,13 +4950,18 @@ retrylookup:
 		ma[0] = m;
 		pctrie_iter_reset(pages);
 		for (i = 1; i < after; i++) {
-			m = vm_radix_iter_lookup(pages, pindex + i);
-			if (m == NULL) {
-				m = vm_page_alloc_iter(object, pindex + i,
+			m = vm_radix_iter_lookup_ge(pages, pindex + i);
+			ahead = after;
+			if (m != NULL)
+				ahead = MIN(ahead, m->pindex - pindex);
+			for (; i < ahead; i++) {
+				ma[i] = vm_page_alloc_iter(object, pindex + i,
 				    VM_ALLOC_NORMAL, pages);
-				if (m == NULL)
+				if (ma[i] == NULL)
 					break;
-			} else if (vm_page_any_valid(m) || !vm_page_tryxbusy(m))
+			}
+			if (m == NULL || m->pindex != pindex + i ||
+			    vm_page_any_valid(m) || !vm_page_tryxbusy(m))
 				break;
 			ma[i] = m;
 		}
@@ -4956,6 +4969,7 @@ retrylookup:
 		vm_object_pip_add(object, after);
 		VM_OBJECT_WUNLOCK(object);
 		rv = vm_pager_get_pages(object, ma, after, NULL, NULL);
+		pctrie_iter_reset(pages);
 		VM_OBJECT_WLOCK(object);
 		vm_object_pip_wakeupn(object, after);
 		/* Pager may have replaced a page. */
@@ -4975,8 +4989,8 @@ retrylookup:
 		MPASS(vm_page_all_valid(m));
 	} else {
 		vm_page_zero_invalid(m, TRUE);
+		pctrie_iter_reset(pages);
 	}
-	pctrie_iter_reset(pages);
 out:
 	if ((allocflags & VM_ALLOC_WIRED) != 0)
 		vm_page_wire(m);

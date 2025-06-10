@@ -1,23 +1,10 @@
 import pytest
 import logging
-import threading
-import time
 import random
 logging.getLogger("scapy").setLevel(logging.CRITICAL)
+from utils import DelayedSend
 from atf_python.sys.net.tools import ToolsHelper
 from atf_python.sys.net.vnet import VnetTestTemplate
-
-class DelayedSend(threading.Thread):
-    def __init__(self, packet):
-        threading.Thread.__init__(self)
-        self._packet = packet
-
-        self.start()
-
-    def run(self):
-        import scapy.all as sp
-        time.sleep(1)
-        sp.send(self._packet)
 
 class TestFrag6(VnetTestTemplate):
     REQUIRED_MODULES = ["pf", "dummymbuf"]
@@ -114,7 +101,7 @@ class TestFrag6HopHyHop(VnetTestTemplate):
         ToolsHelper.print_output("/sbin/pfctl -x loud")
         ToolsHelper.pf_rules([
             "scrub fragment reassemble min-ttl 10",
-            "pass",
+            "pass allow-opts",
         ])
 
     @pytest.mark.require_user("root")
@@ -257,6 +244,8 @@ class TestFrag6_RouteTo(VnetTestTemplate):
     def vnet3_handler(self, vnet):
         pass
 
+    @pytest.mark.require_user("root")
+    @pytest.mark.require_progs(["scapy"])
     def test_too_big(self):
         ToolsHelper.print_output("/sbin/route add -6 default 2001:db8::2")
 
