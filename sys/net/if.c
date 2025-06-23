@@ -4870,9 +4870,16 @@ if_sendq_enqueue(if_t ifp, struct mbuf *m)
 	int err;
 
 	IF_LOCK(ifq);\
-	if (ALTQ_IS_ENABLED(ifq))
+	if (ALTQ_IS_ENABLED(ifq)) {
 		ALTQ_ENQUEUE(ifq, m, NULL, err);
-	else {
+		/*
+		 * ALTQ returns ENOBUFS if it discards a packet. This confuses users into
+		 * thinking something is wrong, (rather than ALTQ working as expected), so hide
+		 * this error.
+		*/
+		if (err == ENOBUFS)
+			err = 0;
+	} else {
 		if (_IF_QFULL(ifq)) {
 			m_freem(m);
 			err = ENOBUFS;
