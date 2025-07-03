@@ -308,6 +308,9 @@ int	ifqmaxlen = IFQ_MAXLEN;
 VNET_DEFINE(struct ifnethead, ifnet);	/* depend on static init XXX */
 VNET_DEFINE(struct ifgrouphead, ifg_head);
 
+#define V_allow_carp_src	VNET(allow_carp_src)
+VNET_DECLARE(bool, allow_carp_src);
+
 /* Table of ifnet by index. */
 static int if_index;
 static int if_indexlim = 8;
@@ -2019,6 +2022,9 @@ ifaof_ifpforaddr(const struct sockaddr *addr, struct ifnet *ifp)
 	NET_EPOCH_ASSERT();
 	CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 		if (ifa->ifa_addr->sa_family != af)
+			continue;
+		if (!V_allow_carp_src && ifa_maybe != NULL &&
+		    !ifa_preferred(ifa_maybe, ifa))
 			continue;
 		if (ifa_maybe == NULL)
 			ifa_maybe = ifa;

@@ -142,6 +142,12 @@ SYSCTL_UINT(_net_route, OID_AUTO, ipv6_nexthop, CTLFLAG_RW | CTLFLAG_VNET,
     &VNET_NAME(rib_route_ipv6_nexthop), 0, "Enable IPv4 route via IPv6 Next Hop address");
 #endif
 
+#define V_allow_carp_src	VNET(allow_carp_src)
+VNET_DEFINE(bool, allow_carp_src) = true;
+SYSCTL_BOOL(_net_route, OID_AUTO, allow_carp_src, CTLFLAG_RDTUN | CTLFLAG_VNET,
+    &VNET_NAME(allow_carp_src), true, "Allow CARP vhid source addresses");
+
+
 /* Debug bits */
 SYSCTL_NODE(_net_route, OID_AUTO, debug, CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "");
 
