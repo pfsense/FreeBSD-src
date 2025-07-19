@@ -171,7 +171,8 @@ options 	MROUTING
 # Additional cards
 device		mxge		# mxge - Myricom Myri10GE 10 Gigabit Ethernet adapter driver
 device		cxgb		# cxgb -- Chelsio T3 10 Gigabit Ethernet adapter driver
-device		cxgbe		# cxgbe -- Chelsio T5 10 Gigabit Ethernet adapter driver
+device		cxgbe		# cxgbe -- Chelsio T4-, T5-, and T6-based 100Gb, 40Gb, 25Gb, 10Gb, and 1Gb Ethernet adapter driver
+device		cxgbev	# cxgbev -- Chelsio T4-, T5-, and T6-based 100Gb, 40Gb, 25Gb, 10Gb, and 1Gb Ethernet VF driver
 #device		nve		# nVidia nForce MCP on-board Ethernet Networking
 device		oce
 device  	mlxfw
