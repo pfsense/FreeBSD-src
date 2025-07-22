@@ -32,15 +32,19 @@
 #ifndef _SYS_MOUNT_H_
 #define _SYS_MOUNT_H_
 
+#include <sys/types.h>
 #include <sys/ucred.h>
 #include <sys/queue.h>
 #ifdef _KERNEL
-#include <sys/types.h>
 #include <sys/lock.h>
 #include <sys/lockmgr.h>
 #include <sys/tslog.h>
 #include <sys/_mutex.h>
 #include <sys/_sx.h>
+#elif defined(_WANT_MOUNT)
+#include <sys/_lock.h>
+#include <sys/_lockmgr.h>
+#include <sys/_mutex.h>
 #endif
 
 /*
@@ -263,6 +267,7 @@ struct mount {
 	int		mnt_lazyvnodelistsize;	/* (l) # of lazy vnodes */
 	int		mnt_upper_pending;	/* (i) # of pending ops on mnt_uppers */
 	struct lock	mnt_explock;		/* vfs_export walkers lock */
+	struct lock	mnt_renamelock;		/* renames and O_RESOLVE_BENEATH */
 	TAILQ_HEAD(, mount_upper_node) mnt_uppers; /* (i) upper mounts over us */
 	TAILQ_HEAD(, mount_upper_node) mnt_notify; /* (i) upper mounts for notification */
 	STAILQ_ENTRY(mount) mnt_taskqueue_link;	/* (d) our place in deferred unmount list */

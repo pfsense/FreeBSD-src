@@ -393,7 +393,6 @@ MAN=	accept_filter.9 \
 	vm_map_max.9 \
 	vm_map_protect.9 \
 	vm_map_remove.9 \
-	vm_map_simplify_entry.9 \
 	vm_map_stack.9 \
 	vm_map_submap.9 \
 	vm_map_sync.9 \
@@ -435,6 +434,7 @@ MAN=	accept_filter.9 \
 	VOP_GETEXTATTR.9 \
 	VOP_GETPAGES.9 \
 	VOP_INACTIVE.9 \
+	VOP_INOTIFY.9 \
 	VOP_IOCTL.9 \
 	VOP_LINK.9 \
 	VOP_LISTEXTATTR.9 \
@@ -2461,6 +2461,7 @@ MLINKS+=VOP_CREATE.9 VOP_MKDIR.9 \
 MLINKS+=VOP_FSYNC.9 VOP_FDATASYNC.9
 MLINKS+=VOP_GETPAGES.9 VOP_PUTPAGES.9
 MLINKS+=VOP_INACTIVE.9 VOP_RECLAIM.9
+MLINKS+=VOP_INOTIFY.9 VOP_INOTIFY_ADD_WATCH.9
 MLINKS+=VOP_LOCK.9 vn_lock.9 \
 	VOP_LOCK.9 VOP_ISLOCKED.9 \
 	VOP_LOCK.9 VOP_UNLOCK.9

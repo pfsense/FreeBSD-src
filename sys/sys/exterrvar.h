@@ -21,6 +21,7 @@
 
 #define	EXTERRCTL_ENABLE	1
 #define	EXTERRCTL_DISABLE	2
+#define	EXTERRCTL_UD		3
 
 #define	EXTERRCTLF_FORCE	0x00000001
 
@@ -31,27 +32,25 @@
 #endif
 
 #ifdef	BLOAT_KERNEL_WITH_EXTERR
-#define	SET_ERROR_MSG(mmsg)	_Td->td_kexterr.msg = mmsg
+#define	SET_ERROR_MSG(mmsg)	(mmsg)
 #else
-#define	SET_ERROR_MSG(mmsg)	_Td->td_kexterr.msg = NULL
+#define	SET_ERROR_MSG(mmsg)	NULL
 #endif
 
-#define	SET_ERROR2(eerror, mmsg, pp1, pp2) do {	\
-	struct thread *_Td = curthread;				\
-	if ((_Td->td_pflags2 & TDP2_UEXTERR) != 0) {		\
-		_Td->td_pflags2 |= TDP2_EXTERR;			\
-		_Td->td_kexterr.error = eerror;			\
-		_Td->td_kexterr.cat = EXTERR_CATEGORY;		\
-		SET_ERROR_MSG(mmsg);				\
-		_Td->td_kexterr.p1 = (uintptr_t)pp1;		\
-		_Td->td_kexterr.p2 = (uintptr_t)pp2;		\
-		_Td->td_kexterr.src_line = __LINE__;		\
-		ktrexterr(_Td);					\
-	}							\
-} while (0)
-#define	SET_ERROR0(eerror, mmsg)	SET_ERROR2(eerror, mmsg, 0, 0)
-#define	SET_ERROR1(eerror, mmsg, pp1)	SET_ERROR2(eerror, mmsg, pp1, 0)
+#define	_SET_ERROR2(eerror, mmsg, pp1, pp2)				\
+	exterr_set(eerror, EXTERR_CATEGORY, SET_ERROR_MSG(mmsg),	\
+	    (uintptr_t)(pp1), (uintptr_t)(pp2), __LINE__)
+#define	_SET_ERROR0(eerror, mmsg)	_SET_ERROR2(eerror, mmsg, 0, 0)
+#define	_SET_ERROR1(eerror, mmsg, pp1)	_SET_ERROR2(eerror, mmsg, pp1, 0)
 
+#define	_EXTERROR_MACRO(eerror, mmsg, _1, _2, NAME, ...)		\
+	NAME
+#define	EXTERROR(...)							\
+	_EXTERROR_MACRO(__VA_ARGS__, _SET_ERROR2, _SET_ERROR1,		\
+	    _SET_ERROR0)(__VA_ARGS__)
+
+int exterr_set(int eerror, int category, const char *mmsg, uintptr_t pp1,
+    uintptr_t pp2, int line);
 int exterr_to_ue(struct thread *td, struct uexterror *ue);
 void ktrexterr(struct thread *td);
 

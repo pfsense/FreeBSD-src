@@ -58,6 +58,7 @@
 #include <sys/nv.h>
 #include <sys/rwlock.h>
 #include <sys/sockio.h>
+#include <sys/stdarg.h>
 #include <sys/syslog.h>
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
@@ -70,7 +71,6 @@
 #include <ddb/ddb.h>
 #endif
 
-#include <machine/stdarg.h>
 #include <vm/uma.h>
 
 #include <net/bpf.h>
@@ -933,21 +933,6 @@ if_attach_internal(struct ifnet *ifp, bool vmove)
 		}
 #endif
 	}
-#ifdef VIMAGE
-	else {
-		/*
-		 * Update the interface index in the link layer address
-		 * of the interface.
-		 */
-		for (ifa = ifp->if_addr; ifa != NULL;
-		    ifa = CK_STAILQ_NEXT(ifa, ifa_link)) {
-			if (ifa->ifa_addr->sa_family == AF_LINK) {
-				sdl = (struct sockaddr_dl *)ifa->ifa_addr;
-				sdl->sdl_index = ifp->if_index;
-			}
-		}
-	}
-#endif
 
 	if (domain_init_status >= 2)
 		if_attachdomain1(ifp);
@@ -2110,6 +2095,7 @@ int	(*vlan_tag_p)(struct ifnet *, uint16_t *);
 int	(*vlan_pcp_p)(struct ifnet *, uint16_t *);
 int	(*vlan_setcookie_p)(struct ifnet *, void *);
 void	*(*vlan_cookie_p)(struct ifnet *);
+void	(*vlan_input_p)(struct ifnet *, struct mbuf *);
 
 /*
  * Handle a change in the interface link state. To avoid LORs

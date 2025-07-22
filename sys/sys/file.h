@@ -71,6 +71,7 @@ struct nameidata;
 #define	DTYPE_PROCDESC	12	/* process descriptor */
 #define	DTYPE_EVENTFD	13	/* eventfd */
 #define	DTYPE_TIMERFD	14	/* timerfd */
+#define	DTYPE_INOTIFY	15	/* inotify descriptor */
 
 #ifdef _KERNEL
 
@@ -301,7 +302,7 @@ int fgetvp_read(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
 int fgetvp_write(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
-int fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, bool *fsearch);
+int fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, int *flagsp);
 int fgetvp_lookup(struct nameidata *ndp, struct vnode **vpp);
 
 static __inline __result_use_check bool

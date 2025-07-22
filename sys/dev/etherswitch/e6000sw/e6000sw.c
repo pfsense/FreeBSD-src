@@ -51,7 +51,7 @@
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 #else
-#include <machine/stdarg.h>
+#include <sys/stdarg.h>
 #endif
 
 #include "e6000swreg.h"
@@ -205,7 +205,7 @@ static void
 e6000sw_identify(driver_t *driver, device_t parent)
 {
 
-	if (device_find_child(parent, "e6000sw", -1) == NULL)
+	if (device_find_child(parent, "e6000sw", DEVICE_UNIT_ANY) == NULL)
 		BUS_ADD_CHILD(parent, 0, "e6000sw", DEVICE_UNIT_ANY);
 }
 

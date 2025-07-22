@@ -51,6 +51,30 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20250716: Remove an old manual page, vn(4) was removed in FreeBSD 5.0
+OLD_FILES+=usr/share/man/man4/vn.4.gz
+
+# 20250710: share: Delete bitrotted make_*_driver.sh scripts
+OLD_FILES+=usr/share/examples/drivers/README
+OLD_FILES+=usr/share/examples/drivers/make_device_driver.sh
+OLD_FILES+=usr/share/examples/drivers/make_pseudo_driver.sh
+OLD_DIRS+=usr/share/examples/drivers
+
+# 20250710: shar(1) removed
+OLD_FILES+=usr/bin/shar
+
+# 20250708: For 34 days 15.0-CURRENT installed libkadm5clnt symlink without .so
+OLD_FILES+=usr/lib/libkadm5clnt
+
+# 20250626: For 11 days 15.0-CURRENT installed libtpool to the wrong location
+MOVED_LIBS+=usr/lib/libtpool.so.2
+
+# 20250626: replace yaml.lua with lyaml
+OLD_FILES+=usr/share/flua/yaml.lua
+
+# 20250615: don't install man page for absent function
+OLD_FILES+=usr/share/man/man9/vm_map_simplify_entry.9.gz
+
 # 20250521: don't install zoneinfo version
 OLD_FILES+=usr/share/zoneinfo/version
 
@@ -2468,7 +2492,7 @@ OLD_FILES+=usr/share/man/man4/ng_uni.4.gz
 OLD_FILES+=usr/share/man/man4/ngatmbase.4.gz
 
 # 20230308: machine-id merged into hostid_save
-OLD_FILES+=etc/rc.d/machine-id
+OLD_FILES+=etc/rc.d/machine_id
 
 # 20230306: remove tzsetwall(3)
 OLD_FILES+=usr/share/man/man3/tzsetwall.3.gz
@@ -4022,9 +4046,9 @@ OLD_FILES+=usr/share/man/man4/twa.4.gz
 OLD_FILES+=usr/share/man/man9/kernel_vmount.9.gz
 
 # 20211115: vm_page busy functions removed
-OLD_FILES+=share/man/man9/vm_page_sbusy.9.gz
-OLD_FILES+=share/man/man9/vm_page_xbusy.9.gz
-OLD_FILES+=share/man/man9/vm_page_sleep_if_busy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_sbusy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_xbusy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_sleep_if_busy.9.gz
 
 # 20211113: new clang import which bumps version from 12.0.1 to 13.0.0
 OLD_FILES+=usr/lib/clang/12.0.1/include/cuda_wrappers/algorithm

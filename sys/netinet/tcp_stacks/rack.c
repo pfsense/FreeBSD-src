@@ -198,7 +198,7 @@ static uint32_t rack_pcm_blast = 0;
 static uint32_t rack_pcm_is_enabled = 1;
 static uint8_t rack_ssthresh_rest_rto_rec = 0; /* Do we restore ssthresh when we have rec -> rto -> rec */
 
-static uint32_t rack_gp_gain_req = 1200;		/* Amount percent wise required to gain to record a round has "gaining" */
+static uint32_t rack_gp_gain_req = 1200;		/* Amount percent wise required to gain to record a round as "gaining" */
 static uint32_t rack_rnd_cnt_req = 0x10005;		/* Default number of rounds if we are below rack_gp_gain_req where we exit ss */
 
 
@@ -621,7 +621,7 @@ rack_swap_beta_values(struct tcp_rack *rack, uint8_t flex8)
 	struct tcpcb *tp;
 	uint32_t old_beta;
 	uint32_t old_beta_ecn;
-	int error, failed = 0;
+	int error = 0, failed = 0;
 
 	tp = rack->rc_tp;
 	if (tp->t_cc == NULL) {
@@ -938,7 +938,7 @@ rack_init_sysctls(void)
 	SYSCTL_ADD_U32(&rack_sysctl_ctx,
 	    SYSCTL_CHILDREN(rack_probertt),
 	    OID_AUTO, "time_between", CTLFLAG_RW,
-	    & rack_time_between_probertt, 96000000,
+	    &rack_time_between_probertt, 96000000,
 	    "How many useconds between the lowest rtt falling must past before we enter probertt");
 	SYSCTL_ADD_U32(&rack_sysctl_ctx,
 	    SYSCTL_CHILDREN(rack_probertt),
@@ -3480,16 +3480,16 @@ static void
 rack_free(struct tcp_rack *rack, struct rack_sendmap *rsm)
 {
 	if (rsm->r_flags & RACK_APP_LIMITED) {
-		if (rack->r_ctl.rc_app_limited_cnt > 0) {
-			rack->r_ctl.rc_app_limited_cnt--;
-		}
+		KASSERT((rack->r_ctl.rc_app_limited_cnt > 0),
+		    ("app_cnt %u, rsm %p", rack->r_ctl.rc_app_limited_cnt, rsm));
+		rack->r_ctl.rc_app_limited_cnt--;
 	}
 	if (rsm->r_limit_type) {
 		/* currently there is only one limit type */
 		rack->r_ctl.rc_num_split_allocs--;
 	}
 	if (rsm == rack->r_ctl.rc_first_appl) {
-		rack->r_ctl.cleared_app_ack_seq = rsm->r_start + (rsm->r_end - rsm->r_start);
+		rack->r_ctl.cleared_app_ack_seq = rsm->r_end;
 		rack->r_ctl.cleared_app_ack = 1;
 		if (rack->r_ctl.rc_app_limited_cnt == 0)
 			rack->r_ctl.rc_first_appl = NULL;
@@ -3554,8 +3554,7 @@ rack_get_measure_window(struct tcpcb *tp, struct tcp_rack *rack)
 	 * earlier.
 	 *
 	 * So lets calculate the BDP with the "known" b/w using
-	 * the SRTT has our rtt and then multiply it by the
-	 * goal.
+	 * the SRTT as our rtt and then multiply it by the goal.
 	 */
 	bw = rack_get_bw(rack);
 	srtt = (uint64_t)tp->t_srtt;
@@ -5793,7 +5792,7 @@ rack_cong_signal(struct tcpcb *tp, uint32_t type, uint32_t ack, int line)
 		tp->t_badrxtwin = 0;
 		break;
 	}
-	if ((CC_ALGO(tp)->cong_signal != NULL)  &&
+	if ((CC_ALGO(tp)->cong_signal != NULL) &&
 	    (type != CC_RTO)){
 		tp->t_ccv.curack = ack;
 		CC_ALGO(tp)->cong_signal(&tp->t_ccv, type);
@@ -5904,7 +5903,7 @@ rack_calc_thresh_rack(struct tcp_rack *rack, uint32_t srtt, uint32_t cts, int li
 	 *
 	 * If reorder-fade is configured, then we track the last time we saw
 	 * re-ordering occur. If we reach the point where enough time as
-	 * passed we no longer consider reordering has occuring.
+	 * passed we no longer consider reordering as occurring.
 	 *
 	 * Or if reorder-face is 0, then once we see reordering we consider
 	 * the connection to alway be subject to reordering and just set lro
@@ -6347,7 +6346,7 @@ activate_tlp:
 		if (to < rack_tlp_min) {
 			to = rack_tlp_min;
 		}
-		if (to > TICKS_2_USEC(TCPTV_REXMTMAX)) {
+		if (to > TICKS_2_USEC(tcp_rexmit_max)) {
 			/*
 			 * If the TLP time works out to larger than the max
 			 * RTO lets not do TLP.. just RTO.
@@ -7045,6 +7044,9 @@ rack_clone_rsm(struct tcp_rack *rack, struct rack_sendmap *nrsm,
 	/* Push bit must go to the right edge as well */
 	if (rsm->r_flags & RACK_HAD_PUSH)
 		rsm->r_flags &= ~RACK_HAD_PUSH;
+	/* Update the count if app limited */
+	if (nrsm->r_flags & RACK_APP_LIMITED)
+		rack->r_ctl.rc_app_limited_cnt++;
 	/* Clone over the state of the hw_tls flag */
 	nrsm->r_hw_tls = rsm->r_hw_tls;
 	/*
@@ -7096,7 +7098,7 @@ rack_merge_rsm(struct tcp_rack *rack,
 		l_rsm->r_flags |= RACK_TLP;
 	if (r_rsm->r_flags & RACK_RWND_COLLAPSED)
 		l_rsm->r_flags |= RACK_RWND_COLLAPSED;
-	if ((r_rsm->r_flags & RACK_APP_LIMITED)  &&
+	if ((r_rsm->r_flags & RACK_APP_LIMITED) &&
 	    ((l_rsm->r_flags & RACK_APP_LIMITED) == 0)) {
 		/*
 		 * If both are app-limited then let the
@@ -8032,6 +8034,7 @@ skip_time_check:
 		ret = rack_timeout_rack(tp, rack, cts);
 	} else if (timers & PACE_TMR_TLP) {
 		rack->r_ctl.rc_tlp_rxt_last_time = cts;
+		rack->r_fast_output = 0;
 		ret = rack_timeout_tlp(tp, rack, cts, doing_tlp);
 	} else if (timers & PACE_TMR_RXT) {
 		rack->r_ctl.rc_tlp_rxt_last_time = cts;
@@ -8136,7 +8139,7 @@ rack_update_rsm(struct tcpcb *tp, struct tcp_rack *rack,
 		 * remove the lost desgination and reduce the
 		 * bytes considered lost.
 		 */
-		rsm->r_flags  &= ~RACK_WAS_LOST;
+		rsm->r_flags &= ~RACK_WAS_LOST;
 		KASSERT((rack->r_ctl.rc_considered_lost >= (rsm->r_end - rsm->r_start)),
 			("rsm:%p rack:%p rc_considered_lost goes negative", rsm,  rack));
 		if (rack->r_ctl.rc_considered_lost >= (rsm->r_end - rsm->r_start))
@@ -8831,7 +8834,7 @@ rack_apply_updated_usrtt(struct tcp_rack *rack, uint32_t us_rtt, uint32_t us_cts
 
 				val = rack_probertt_lower_within * rack_time_between_probertt;
 				val /= 100;
-				if ((rack->in_probe_rtt == 0)  &&
+				if ((rack->in_probe_rtt == 0) &&
 				    (rack->rc_skip_timely == 0) &&
 				    ((us_cts - rack->r_ctl.rc_lower_rtt_us_cts) >= (rack_time_between_probertt - val)))	{
 					rack_enter_probertt(rack, us_cts);
@@ -10368,7 +10371,7 @@ more:
 			 * and yet before retransmitting we get an ack
 			 * which can happen due to reordering.
 			 */
-			rsm->r_flags  &= ~RACK_WAS_LOST;
+			rsm->r_flags &= ~RACK_WAS_LOST;
 			KASSERT((rack->r_ctl.rc_considered_lost >= (rsm->r_end - rsm->r_start)),
 				("rsm:%p rack:%p rc_considered_lost goes negative", rsm,  rack));
 			if (rack->r_ctl.rc_considered_lost >= (rsm->r_end - rsm->r_start))
@@ -11064,7 +11067,7 @@ rack_strike_dupack(struct tcp_rack *rack, tcp_seq th_ack)
 		 * We need to skip anything already set
 		 * to be retransmitted.
 		 */
-		if ((rsm->r_dupack >= DUP_ACK_THRESHOLD)  ||
+		if ((rsm->r_dupack >= DUP_ACK_THRESHOLD) ||
 		    (rsm->r_flags & RACK_MUST_RXT)) {
 			rsm = TAILQ_NEXT(rsm, r_tnext);
 			continue;
@@ -16918,7 +16921,7 @@ do_output_now:
 		} else if ((nxt_pkt == 0) && (tp->t_flags & TF_ACKNOW)) {
 			goto do_output_now;
 		} else if ((no_output == 1) &&
-			   (nxt_pkt == 0)  &&
+			   (nxt_pkt == 0) &&
 			   (tcp_in_hpts(rack->rc_tp) == 0)) {
 			/*
 			 * We are not in hpts and we had a pacing timer up. Use
@@ -17178,6 +17181,12 @@ rack_log_pacing_delay_calc (struct tcp_rack *rack, uint32_t len, uint32_t slot,
 		log.u_bbr.cwnd_gain |= rack->rc_gp_saw_ss;
 		log.u_bbr.cwnd_gain <<= 1;
 		log.u_bbr.cwnd_gain |= rack->rc_gp_saw_ca;
+		log.u_bbr.cwnd_gain <<= 1;
+		log.u_bbr.cwnd_gain |= rack->use_fixed_rate;
+		log.u_bbr.cwnd_gain <<= 1;
+		log.u_bbr.cwnd_gain |= rack->rc_always_pace;
+		log.u_bbr.cwnd_gain <<= 1;
+		log.u_bbr.cwnd_gain |= rack->gp_ready;
 		log.u_bbr.bbr_substate = quality;
 		log.u_bbr.bbr_state = rack->dgp_on;
 		log.u_bbr.bbr_state <<= 1;
@@ -17539,8 +17548,8 @@ rack_get_pacing_delay(struct tcp_rack *rack, struct tcpcb *tp, uint32_t len, str
 						   rack->r_ctl.rc_last_us_rtt,
 						   88, __LINE__, NULL, gain);
 		}
-		if ((bw_est == 0) || (rate_wanted == 0) ||
-		    ((rack->gp_ready == 0) && (rack->use_fixed_rate == 0))) {
+		if (((bw_est == 0) || (rate_wanted == 0) || (rack->gp_ready == 0)) &&
+		    (rack->use_fixed_rate == 0)) {
 			/*
 			 * No way yet to make a b/w estimate or
 			 * our raise is set incorrectly.
@@ -19039,7 +19048,7 @@ rack_sndbuf_autoscale(struct tcp_rack *rack)
 
 static int
 rack_fast_output(struct tcpcb *tp, struct tcp_rack *rack, uint64_t ts_val,
-		 uint32_t cts, uint32_t ms_cts, struct timeval *tv, long tot_len, int *send_err)
+		 uint32_t cts, uint32_t ms_cts, struct timeval *tv, long *tot_len, int *send_err, int line)
 {
 	/*
 	 * Enter to do fast output. We are given that the sched_pin is
@@ -19212,7 +19221,7 @@ again:
 	}
 	if (rack->r_ctl.fsb.rfo_apply_push &&
 	    (len == rack->r_ctl.fsb.left_to_send)) {
-		tcp_set_flags(th, flags | TH_PUSH);
+		flags |= TH_PUSH;
 		add_flag |= RACK_HAD_PUSH;
 	}
 	if ((m->m_next == NULL) || (len <= 0)){
@@ -19391,11 +19400,11 @@ again:
 		log.u_bbr.inflight = ctf_flight_size(rack->rc_tp, rack->r_ctl.rc_sacked);
 		log.u_bbr.flex5 = log.u_bbr.inflight;
 		log.u_bbr.lt_epoch = rack->r_ctl.cwnd_to_use;
-		log.u_bbr.delivered = 0;
+		log.u_bbr.delivered = rack->r_ctl.fsb.left_to_send;
 		log.u_bbr.rttProp = 0;
 		log.u_bbr.delRate = rack->r_must_retran;
 		log.u_bbr.delRate <<= 1;
-		log.u_bbr.pkt_epoch = __LINE__;
+		log.u_bbr.pkt_epoch = line;
 		/* For fast output no retrans so just inflight and how many mss we send */
 		log.u_bbr.flex5 = log.u_bbr.inflight;
 		log.u_bbr.bbr_substate = (uint8_t)((len + segsiz - 1)/segsiz);
@@ -19468,7 +19477,7 @@ again:
 	tcp_account_for_send(tp, len, 0, 0, rack->r_ctl.fsb.hw_tls);
 
 	rack->forced_ack = 0;	/* If we send something zap the FA flag */
-	tot_len += len;
+	*tot_len += len;
 	if ((tp->t_flags & TF_GPUTINPROG) == 0)
 		rack_start_gp_measurement(tp, rack, tp->snd_max, sb_offset);
 	tp->snd_max += len;
@@ -19504,6 +19513,7 @@ again:
 	}
 	if ((rack->r_ctl.fsb.left_to_send >= segsiz) &&
 	    (max_val > len) &&
+	    (*tot_len < rack->r_ctl.rc_pace_max_segs) &&
 	    (tso == 0)) {
 		max_val -= len;
 		len = segsiz;
@@ -19515,14 +19525,14 @@ again:
 	}
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
 	counter_u64_add(rack_fto_send, 1);
-	slot = rack_get_pacing_delay(rack, tp, tot_len, NULL, segsiz, __LINE__);
-	rack_start_hpts_timer(rack, tp, cts, slot, tot_len, 0);
+	slot = rack_get_pacing_delay(rack, tp, *tot_len, NULL, segsiz, __LINE__);
+	rack_start_hpts_timer(rack, tp, cts, slot, *tot_len, 0);
 #ifdef TCP_ACCOUNTING
 	crtsc = get_cyclecount();
 	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_cnt_counters[SND_OUT_DATA] += cnt_thru;
 		tp->tcp_proc_time[SND_OUT_DATA] += (crtsc - ts_val);
-		tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((tot_len + segsiz - 1) / segsiz);
+		tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((*tot_len + segsiz - 1) / segsiz);
 	}
 	sched_unpin();
 #endif
@@ -19884,20 +19894,36 @@ rack_output(struct tcpcb *tp)
 	    TCPS_HAVEESTABLISHED(tp->t_state)) {
 		rack_set_state(tp, rack);
 	}
+	segsiz = min(ctf_fixed_maxseg(tp), rack->r_ctl.rc_pace_min_segs);
+	minseg = segsiz;
+	if (rack->r_ctl.rc_pace_max_segs == 0)
+		pace_max_seg = rack->rc_user_set_max_segs * segsiz;
+	else
+		pace_max_seg = rack->r_ctl.rc_pace_max_segs;
 	if ((rack->r_fast_output) &&
 	    (doing_tlp == 0) &&
 	    (tp->rcv_numsacks == 0)) {
 		int ret;
 
 		error = 0;
-		ret = rack_fast_output(tp, rack, ts_val, cts, ms_cts, &tv, tot_len_this_send, &error);
-		if (ret >= 0)
+		ret = rack_fast_output(tp, rack, ts_val, cts, ms_cts, &tv, &tot_len_this_send, &error, __LINE__);
+		if (ret > 0)
 			return(ret);
 		else if (error) {
 			inp = rack->rc_inp;
 			so = inp->inp_socket;
 			sb = &so->so_snd;
 			goto nomore;
+		} else {
+			/* Return == 0, if there is more we can send tot_len wise fall through and send */
+			if (tot_len_this_send >= pace_max_seg) 
+				return (ret);
+#ifdef TCP_ACCOUNTING
+			/* We need to re-pin since fast_output un-pined */
+			sched_pin();
+			ts_val = get_cyclecount();
+#endif
+			/* Fall back out so we can send any more that may bring us to pace_max_seg */
 		}
 	}
 	inp = rack->rc_inp;
@@ -20004,12 +20030,6 @@ again:
 	ms_cts = tcp_tv_to_mssectick(&tv);
 	tso = 0;
 	mtu = 0;
-	segsiz = min(ctf_fixed_maxseg(tp), rack->r_ctl.rc_pace_min_segs);
-	minseg = segsiz;
-	if (rack->r_ctl.rc_pace_max_segs == 0)
-		pace_max_seg = rack->rc_user_set_max_segs * segsiz;
-	else
-		pace_max_seg = rack->r_ctl.rc_pace_max_segs;
 	if (TCPS_HAVEESTABLISHED(tp->t_state) &&
 	    (rack->r_ctl.pcm_max_seg == 0)) {
 		/*
@@ -20025,7 +20045,7 @@ again:
 			rack->r_ctl.pcm_max_seg = ctf_fixed_maxseg(tp) * 10;
 		}
 	}
-	if ((rack->r_ctl.pcm_max_seg != 0)  && (rack->pcm_needed == 1)) {
+	if ((rack->r_ctl.pcm_max_seg != 0) && (rack->pcm_needed == 1)) {
 		uint32_t rw_avail, cwa;
 
 		if (tp->snd_wnd > ctf_outstanding(tp))
@@ -20871,6 +20891,7 @@ just_return_nolock:
 			    rack->r_fsb_inited &&
 			    TCPS_HAVEESTABLISHED(tp->t_state) &&
 			    ((IN_RECOVERY(tp->t_flags)) == 0) &&
+			    (doing_tlp == 0) &&
 			    (rack->r_must_retran == 0) &&
 			    ((tp->t_flags & TF_NEEDFIN) == 0) &&
 			    (len > 0) && (orig_len > 0) &&
@@ -21012,7 +21033,7 @@ just_return_nolock:
 					} else
 						log = 1;
 				}
-				/* Mark the last packet has app limited */
+				/* Mark the last packet as app limited */
 				rsm = tqhash_max(rack->r_ctl.tqh);
 				if (rsm && ((rsm->r_flags & RACK_APP_LIMITED) == 0)) {
 					if (rack->r_ctl.rc_app_limited_cnt == 0)
@@ -21364,7 +21385,8 @@ send:
 				if (max_len <= 0) {
 					len = 0;
 				} else if (len > max_len) {
-					sendalot = 1;
+					if (doing_tlp == 0)
+						sendalot = 1;
 					len = max_len;
 					mark = 2;
 				}
@@ -21593,7 +21615,6 @@ send:
 			flags |= TH_PUSH;
 			add_flag |= RACK_HAD_PUSH;
 		}
-
 		SOCK_SENDBUF_UNLOCK(so);
 	} else {
 		SOCK_SENDBUF_UNLOCK(so);
@@ -22062,6 +22083,8 @@ out:
 	 * In transmit state, time the transmission and arrange for the
 	 * retransmit.  In persist state, just set snd_max.
 	 */
+	if ((rsm == NULL) &&  doing_tlp)
+		add_flag |= RACK_TLP;
 	rack_log_output(tp, &to, len, rack_seq, (uint8_t) flags, error,
 			rack_to_usec_ts(&tv),
 			rsm, add_flag, s_mb, s_moff, hw_tls, segsiz);
@@ -22148,15 +22171,14 @@ out:
 			rack->r_ctl.rc_prr_sndcnt = 0;
 	}
 	sub_from_prr = 0;
-	if (doing_tlp) {
-		/* Make sure the TLP is added */
-		add_flag |= RACK_TLP;
-	} else if (rsm) {
-		/* If its a resend without TLP then it must not have the flag */
-		rsm->r_flags &= ~RACK_TLP;
-	}
-
-
+	if (rsm != NULL) {
+		if (doing_tlp)
+			/* Make sure the TLP is added */
+			rsm->r_flags |= RACK_TLP;
+		else
+			/* If its a resend without TLP then it must not have the flag */
+			rsm->r_flags &= ~RACK_TLP;
+ 	}
 	if ((error == 0) &&
 	    (len > 0) &&
 	    (tp->snd_una == tp->snd_max))
@@ -22494,6 +22516,7 @@ enobufs:
 		    ((flags & (TH_SYN|TH_FIN)) == 0) &&
 		    (rsm == NULL) &&
 		    (ipoptlen == 0) &&
+		    (doing_tlp == 0) &&
 		    rack->r_fsb_inited &&
 		    TCPS_HAVEESTABLISHED(tp->t_state) &&
 		    ((IN_RECOVERY(tp->t_flags)) == 0) &&
@@ -22520,6 +22543,7 @@ enobufs:
 		    rack_use_rfo &&
 		    ((flags & (TH_SYN|TH_FIN)) == 0) &&
 		    (rsm == NULL) &&
+		    (doing_tlp == 0) &&
 		    (ipoptlen == 0) &&
 		    (rack->r_must_retran == 0) &&
 		    rack->r_fsb_inited &&
@@ -22536,7 +22560,7 @@ enobufs:
 					       segsiz, pace_max_seg, hw_tls, flags);
 			if (rack->r_fast_output) {
 				error = 0;
-				ret = rack_fast_output(tp, rack, ts_val, cts, ms_cts, &tv, tot_len_this_send, &error);
+				ret = rack_fast_output(tp, rack, ts_val, cts, ms_cts, &tv, &tot_len_this_send, &error, __LINE__);
 				if (ret >= 0)
 					return (ret);
 			        else if (error)

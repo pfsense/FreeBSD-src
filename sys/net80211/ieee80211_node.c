@@ -940,7 +940,7 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 {
 	struct ieee80211com *ic = vap->iv_ic;
 	struct ieee80211_node *ni;
-	int do_ht = 0;
+	bool do_ht;
 
 	ni = ieee80211_alloc_node(&ic->ic_sta, vap, se->se_macaddr,
 	    __func__, __LINE__);
@@ -1016,6 +1016,7 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 	 * association request/response, the only appropriate place
 	 * to setup the HT state is here.
 	 */
+	do_ht = false;
 	if (ni->ni_ies.htinfo_ie != NULL &&
 	    ni->ni_ies.htcap_ie != NULL &&
 	    vap->iv_flags_ht & IEEE80211_FHT_HT) {
@@ -1023,7 +1024,7 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 		ieee80211_ht_updateparams(ni,
 		    ni->ni_ies.htcap_ie,
 		    ni->ni_ies.htinfo_ie);
-		do_ht = 1;
+		do_ht = true;
 	}
 
 	/*
@@ -1032,7 +1033,7 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 	 *
 	 * For now, don't allow 2GHz VHT operation.
 	 */
-	if (ni->ni_ies.vhtopmode_ie != NULL &&
+	if (do_ht && ni->ni_ies.vhtopmode_ie != NULL &&
 	    ni->ni_ies.vhtcap_ie != NULL &&
 	    vap->iv_vht_flags & IEEE80211_FVHT_VHT) {
 		if (IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
@@ -1045,7 +1046,6 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 			    ni->ni_ies.vhtcap_ie,
 			    ni->ni_ies.vhtopmode_ie);
 			ieee80211_setup_vht_rates(ni);
-			do_ht = 1;
 		}
 	}
 
@@ -3135,6 +3135,36 @@ ieee80211_getsignal(struct ieee80211vap *vap, int8_t *rssi, int8_t *noise)
 	/* for non-station mode return avg'd rssi accounting */
 	if (vap->iv_opmode != IEEE80211_M_STA)
 		*rssi = ieee80211_getrssi(vap);
+}
+
+/**
+ * @brief Increment the given TID TX sequence, return the current one.
+ *
+ * @param ni ieee80211_node to operate on
+ * @param tid TID, or IEEE80211_NONQOS_TID
+ * @returns sequence number, from 0 .. 4095 inclusive, post increments
+ */
+ieee80211_seq ieee80211_tx_seqno_fetch_incr(struct ieee80211_node *ni,
+    uint8_t tid)
+{
+	ieee80211_seq seq;
+
+	seq = ni->ni_txseqs[tid];
+	ni->ni_txseqs[tid] = (ni->ni_txseqs[tid] + 1) % IEEE80211_SEQ_RANGE;
+	return (seq);
+}
+
+/**
+ * @brief Return the current sequence number for the given TID
+ *
+ * @param ni ieee80211_node to operate on
+ * @param tid TID, or IEEE80211_NONQOS_TID
+ * @returns sequence number, from 0 .. 4095 inclusive
+ */
+ieee80211_seq ieee80211_tx_seqno_fetch(const struct ieee80211_node *ni,
+    uint8_t tid)
+{
+	return (ni->ni_txseqs[tid]);
 }
 
 /**

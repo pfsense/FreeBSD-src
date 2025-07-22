@@ -54,7 +54,6 @@
 #include <sys/osd.h>
 #include <sys/priority.h>
 #include <sys/rtprio.h>			/* XXX. */
-#include <sys/runq.h>
 #include <sys/resource.h>
 #include <sys/sigio.h>
 #include <sys/signal.h>
@@ -893,6 +892,8 @@ struct proc {
 
 #define	P2_LOGSIGEXIT_ENABLE	0x00800000	/* Disable logging on sigexit */
 #define	P2_LOGSIGEXIT_CTL	0x01000000	/* Override kern.logsigexit */
+
+#define	P2_HWT			0x02000000	/* Process is using HWT. */
 
 /* Flags protected by proctree_lock, kept in p_treeflags. */
 #define	P_TREE_ORPHANED		0x00000001	/* Reparented, on orphan list */

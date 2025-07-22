@@ -336,50 +336,6 @@ SLIST_HEAD(spglist, vm_page);
 extern vm_page_t bogus_page;
 #endif	/* _KERNEL */
 
-extern struct mtx_padalign pa_lock[];
-
-#if defined(__arm__)
-#define	PDRSHIFT	PDR_SHIFT
-#elif !defined(PDRSHIFT)
-#define PDRSHIFT	21
-#endif
-
-#define	pa_index(pa)	((pa) >> PDRSHIFT)
-#define	PA_LOCKPTR(pa)	((struct mtx *)(&pa_lock[pa_index(pa) % PA_LOCK_COUNT]))
-#define	PA_LOCKOBJPTR(pa)	((struct lock_object *)PA_LOCKPTR((pa)))
-#define	PA_LOCK(pa)	mtx_lock(PA_LOCKPTR(pa))
-#define	PA_TRYLOCK(pa)	mtx_trylock(PA_LOCKPTR(pa))
-#define	PA_UNLOCK(pa)	mtx_unlock(PA_LOCKPTR(pa))
-#define	PA_UNLOCK_COND(pa) 			\
-	do {		   			\
-		if ((pa) != 0) {		\
-			PA_UNLOCK((pa));	\
-			(pa) = 0;		\
-		}				\
-	} while (0)
-
-#define	PA_LOCK_ASSERT(pa, a)	mtx_assert(PA_LOCKPTR(pa), (a))
-
-#if defined(KLD_MODULE) && !defined(KLD_TIED)
-#define	vm_page_lock(m)		vm_page_lock_KBI((m), LOCK_FILE, LOCK_LINE)
-#define	vm_page_unlock(m)	vm_page_unlock_KBI((m), LOCK_FILE, LOCK_LINE)
-#define	vm_page_trylock(m)	vm_page_trylock_KBI((m), LOCK_FILE, LOCK_LINE)
-#else	/* !KLD_MODULE */
-#define	vm_page_lockptr(m)	(PA_LOCKPTR(VM_PAGE_TO_PHYS((m))))
-#define	vm_page_lock(m)		mtx_lock(vm_page_lockptr((m)))
-#define	vm_page_unlock(m)	mtx_unlock(vm_page_lockptr((m)))
-#define	vm_page_trylock(m)	mtx_trylock(vm_page_lockptr((m)))
-#endif
-#if defined(INVARIANTS)
-#define	vm_page_assert_locked(m)		\
-    vm_page_assert_locked_KBI((m), __FILE__, __LINE__)
-#define	vm_page_lock_assert(m, a)		\
-    vm_page_lock_assert_KBI((m), (a), __FILE__, __LINE__)
-#else
-#define	vm_page_assert_locked(m)
-#define	vm_page_lock_assert(m, a)
-#endif
-
 /*
  * The vm_page's aflags are updated using atomic operations.  To set or clear
  * these flags, the functions vm_page_aflag_set() and vm_page_aflag_clear()
@@ -506,13 +462,15 @@ extern long first_page;			/* first physical page number */
 vm_page_t PHYS_TO_VM_PAGE(vm_paddr_t pa);
 
 /*
- * Page allocation parameters for vm_page for the functions
- * vm_page_alloc(), vm_page_grab(), vm_page_alloc_contig() and
- * vm_page_alloc_freelist().  Some functions support only a subset
- * of the flags, and ignore others, see the flags legend.
+ * vm_page allocation arguments for the functions vm_page_alloc(),
+ * vm_page_alloc_contig(), vm_page_alloc_noobj(), vm_page_grab(), and
+ * vm_page_grab_pages().  Each function supports only a subset of the flags.
+ * See the flags legend.
  *
- * The meaning of VM_ALLOC_ZERO differs slightly between the vm_page_alloc*()
- * and the vm_page_grab*() functions.  See these functions for details.
+ * The meaning of VM_ALLOC_ZERO varies: vm_page_alloc_noobj(), vm_page_grab(),
+ * and vm_page_grab_pages() guarantee that the returned pages are zeroed; in
+ * contrast vm_page_alloc() and vm_page_alloc_contig() do not, leaving it to
+ * the caller to test the page's flags for PG_ZERO.
  *
  * Bits 0 - 1 define class.
  * Bits 2 - 15 dedicated for flags.
@@ -520,7 +478,7 @@ vm_page_t PHYS_TO_VM_PAGE(vm_paddr_t pa);
  * (a) - vm_page_alloc() supports the flag.
  * (c) - vm_page_alloc_contig() supports the flag.
  * (g) - vm_page_grab() supports the flag.
- * (n) - vm_page_alloc_noobj() and vm_page_alloc_freelist() support the flag.
+ * (n) - vm_page_alloc_noobj() supports the flag.
  * (p) - vm_page_grab_pages() supports the flag.
  * Bits above 15 define the count of additional pages that the caller
  * intends to allocate.
@@ -529,26 +487,26 @@ vm_page_t PHYS_TO_VM_PAGE(vm_paddr_t pa);
 #define VM_ALLOC_INTERRUPT	1
 #define VM_ALLOC_SYSTEM		2
 #define	VM_ALLOC_CLASS_MASK	3
-#define	VM_ALLOC_WAITOK		0x0008	/* (acn) Sleep and retry */
-#define	VM_ALLOC_WAITFAIL	0x0010	/* (acn) Sleep and return error */
+#define	VM_ALLOC_WAITOK		0x0008	/* (gnp) Sleep and retry */
+#define	VM_ALLOC_WAITFAIL	0x0010	/* (acgnp) Sleep and return error */
 #define	VM_ALLOC_WIRED		0x0020	/* (acgnp) Allocate a wired page */
 #define	VM_ALLOC_ZERO		0x0040	/* (acgnp) Allocate a zeroed page */
 #define	VM_ALLOC_NORECLAIM	0x0080	/* (c) Do not reclaim after failure */
-#define	VM_ALLOC_NOFREE		0x0100	/* (an) Page will never be released */
+#define	VM_ALLOC_NOFREE		0x0100	/* (agnp) Page will never be freed */
 #define	VM_ALLOC_NOBUSY		0x0200	/* (acgp) Do not excl busy the page */
-#define	VM_ALLOC_NOCREAT	0x0400	/* (gp) Don't create a page */
+#define	VM_ALLOC_NOCREAT	0x0400	/* (gp) Do not allocate a page */
 #define	VM_ALLOC_AVAIL1		0x0800
-#define	VM_ALLOC_IGN_SBUSY	0x1000	/* (gp) Ignore shared busy flag */
-#define	VM_ALLOC_NODUMP		0x2000	/* (ag) don't include in dump */
+#define	VM_ALLOC_IGN_SBUSY	0x1000	/* (gp) Ignore shared busy state */
+#define	VM_ALLOC_NODUMP		0x2000	/* (acgnp) Do not include in dump */
 #define	VM_ALLOC_SBUSY		0x4000	/* (acgp) Shared busy the page */
 #define	VM_ALLOC_NOWAIT		0x8000	/* (acgnp) Do not sleep */
 #define	VM_ALLOC_COUNT_MAX	0xffff
 #define	VM_ALLOC_COUNT_SHIFT	16
 #define	VM_ALLOC_COUNT_MASK	(VM_ALLOC_COUNT(VM_ALLOC_COUNT_MAX))
-#define	VM_ALLOC_COUNT(count)	({				\
-	KASSERT((count) <= VM_ALLOC_COUNT_MAX,			\
-	    ("%s: invalid VM_ALLOC_COUNT value", __func__));	\
-	(count) << VM_ALLOC_COUNT_SHIFT;			\
+#define	VM_ALLOC_COUNT(count)	({ 	/* (acgn) Additional pages */	\
+	KASSERT((count) <= VM_ALLOC_COUNT_MAX,				\
+	    ("%s: invalid VM_ALLOC_COUNT value", __func__));		\
+	(count) << VM_ALLOC_COUNT_SHIFT;				\
 })
 
 #ifdef M_NOWAIT
@@ -713,13 +671,6 @@ vm_page_bits_t vm_page_bits(int base, int size);
 void vm_page_zero_invalid(vm_page_t m, boolean_t setvalid);
 
 void vm_page_dirty_KBI(vm_page_t m);
-void vm_page_lock_KBI(vm_page_t m, const char *file, int line);
-void vm_page_unlock_KBI(vm_page_t m, const char *file, int line);
-int vm_page_trylock_KBI(vm_page_t m, const char *file, int line);
-#if defined(INVARIANTS) || defined(INVARIANT_SUPPORT)
-void vm_page_assert_locked_KBI(vm_page_t m, const char *file, int line);
-void vm_page_lock_assert_KBI(vm_page_t m, int a, const char *file, int line);
-#endif
 
 #define	vm_page_busy_fetch(m)	atomic_load_int(&(m)->busy_lock)
 

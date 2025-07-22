@@ -55,6 +55,7 @@
 #define PF_OPT_RECURSE		0x04000
 #define PF_OPT_KILLMATCH	0x08000
 #define PF_OPT_NODNS		0x10000
+#define PF_OPT_IGNFAIL		0x20000
 
 #define PF_NAT_PROXY_PORT_LOW	50001
 #define PF_NAT_PROXY_PORT_HIGH	65535
@@ -258,10 +259,10 @@ struct pf_opt_tbl {
 	char			 pt_name[PF_TABLE_NAME_SIZE];
 	int			 pt_rulecount;
 	int			 pt_generated;
+	uint32_t		 pt_refcnt;
 	struct node_tinithead	 pt_nodes;
 	struct pfr_buffer	*pt_buf;
 };
-#define PF_OPT_TABLE_PREFIX	"__automatic_"
 
 /* optimizer pf_rule container */
 struct pf_opt_rule {
@@ -274,6 +275,8 @@ struct pf_opt_rule {
 };
 
 TAILQ_HEAD(pf_opt_queue, pf_opt_rule);
+
+void	copy_satopfaddr(struct pf_addr *, struct sockaddr *);
 
 int	pfctl_rules(int, char *, int, int, char *, struct pfr_buffer *);
 int	pfctl_optimize_ruleset(struct pfctl *, struct pfctl_ruleset *);
@@ -360,9 +363,9 @@ struct pf_timeout {
 
 extern const struct pf_timeout pf_timeouts[];
 
-void			 set_ipmask(struct node_host *, u_int8_t);
+void			 set_ipmask(struct node_host *, int);
 int			 check_netmask(struct node_host *, sa_family_t);
-int			 unmask(struct pf_addr *, sa_family_t);
+int			 unmask(struct pf_addr *);
 struct node_host	*gen_dynnode(struct node_host *, sa_family_t);
 void			 ifa_load(void);
 unsigned int		 ifa_nametoindex(const char *);

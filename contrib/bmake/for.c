@@ -1,4 +1,4 @@
-/*	$NetBSD: for.c,v 1.184 2025/04/11 18:08:17 rillig Exp $	*/
+/*	$NetBSD: for.c,v 1.186 2025/06/28 22:39:27 rillig Exp $	*/
 
 /*
  * Copyright (c) 1992, The Regents of the University of California.
@@ -58,14 +58,14 @@
 #include "make.h"
 
 /*	"@(#)for.c	8.1 (Berkeley) 6/6/93"	*/
-MAKE_RCSID("$NetBSD: for.c,v 1.184 2025/04/11 18:08:17 rillig Exp $");
+MAKE_RCSID("$NetBSD: for.c,v 1.186 2025/06/28 22:39:27 rillig Exp $");
 
 
 typedef struct ForLoop {
 	Vector /* of 'char *' */ vars; /* Iteration variables */
 	SubstringWords items;	/* Substitution items */
 	Buffer body;		/* Unexpanded body of the loop */
-	unsigned int nextItem;	/* Where to continue iterating */
+	unsigned nextItem;	/* Where to continue iterating */
 } ForLoop;
 
 
@@ -153,7 +153,8 @@ ForLoop_ParseVarnames(ForLoop *f, const char **pp)
 	for (;;) {
 		cpp_skip_whitespace(&p);
 		if (*p == '\0') {
-			Parse_Error(PARSE_FATAL, "missing `in' in for");
+			Parse_Error(PARSE_FATAL,
+			    "Missing \"in\" in .for loop");
 			goto cleanup;
 		}
 
@@ -168,7 +169,8 @@ ForLoop_ParseVarnames(ForLoop *f, const char **pp)
 	}
 
 	if (f->vars.len == 0) {
-		Parse_Error(PARSE_FATAL, "no iteration variables in for");
+		Parse_Error(PARSE_FATAL,
+		    "Missing iteration variables in .for loop");
 		return;
 	}
 
@@ -177,7 +179,7 @@ ForLoop_ParseVarnames(ForLoop *f, const char **pp)
 
 invalid_variable_name:
 	Parse_Error(PARSE_FATAL,
-	    "invalid character '%c' in .for loop variable name", *p);
+	    "Invalid character \"%c\" in .for loop variable name", *p);
 cleanup:
 	while (f->vars.len > 0)
 		free(*(char **)Vector_Pop(&f->vars));
@@ -330,7 +332,7 @@ ExprLen(const char *s, const char *e)
  * by ApplyModifier_Defined.
  */
 static void
-AddEscaped(Buffer *cmds, Substring item, char endc)
+AddEscaped(Buffer *body, Substring item, char endc)
 {
 	const char *p;
 	char ch;
@@ -344,18 +346,18 @@ AddEscaped(Buffer *cmds, Substring item, char endc)
 				 * XXX: Should a '\' be added here?
 				 * See directive-for-escape.mk, ExprLen.
 				 */
-				Buf_AddBytes(cmds, p, 1 + len);
+				Buf_AddBytes(body, p, 1 + len);
 				p += 1 + len;
 				continue;
 			}
-			Buf_AddByte(cmds, '\\');
+			Buf_AddByte(body, '\\');
 		} else if (ch == ':' || ch == '\\' || ch == endc)
-			Buf_AddByte(cmds, '\\');
+			Buf_AddByte(body, '\\');
 		else if (ch == '\n') {
 			Parse_Error(PARSE_FATAL, "newline in .for value");
 			ch = ' ';	/* prevent newline injection */
 		}
-		Buf_AddByte(cmds, ch);
+		Buf_AddByte(body, ch);
 		p++;
 	}
 }
@@ -365,7 +367,7 @@ AddEscaped(Buffer *cmds, Substring item, char endc)
  * expression like ${i} or ${i:...} or $(i) or $(i:...) with ":Uvalue".
  */
 static void
-ForLoop_SubstVarLong(ForLoop *f, unsigned int firstItem, Buffer *body,
+ForLoop_SubstVarLong(ForLoop *f, unsigned firstItem, Buffer *body,
 		     const char **pp, char endc, const char **inout_mark)
 {
 	size_t i;
@@ -400,7 +402,7 @@ ForLoop_SubstVarLong(ForLoop *f, unsigned int firstItem, Buffer *body,
  * expressions like $i with their ${:U...} expansion.
  */
 static void
-ForLoop_SubstVarShort(ForLoop *f, unsigned int firstItem, Buffer *body,
+ForLoop_SubstVarShort(ForLoop *f, unsigned firstItem, Buffer *body,
 		      const char *p, const char **inout_mark)
 {
 	char ch = *p;
@@ -444,7 +446,7 @@ found:
  * See unit-tests/directive-for-escape.mk.
  */
 static void
-ForLoop_SubstBody(ForLoop *f, unsigned int firstItem, Buffer *body)
+ForLoop_SubstBody(ForLoop *f, unsigned firstItem, Buffer *body)
 {
 	const char *p, *end;
 	const char *mark;	/* where the last substitution left off */
@@ -479,8 +481,8 @@ For_NextIteration(ForLoop *f, Buffer *body)
 	if (f->nextItem == f->items.len)
 		return false;
 
-	f->nextItem += (unsigned int)f->vars.len;
-	ForLoop_SubstBody(f, f->nextItem - (unsigned int)f->vars.len, body);
+	f->nextItem += (unsigned)f->vars.len;
+	ForLoop_SubstBody(f, f->nextItem - (unsigned)f->vars.len, body);
 	if (DEBUG(FOR)) {
 		char *details = ForLoop_Details(f);
 		debug_printf("For: loop body with %s:\n%s",
@@ -494,7 +496,7 @@ For_NextIteration(ForLoop *f, Buffer *body)
 void
 For_Break(ForLoop *f)
 {
-	f->nextItem = (unsigned int)f->items.len;
+	f->nextItem = (unsigned)f->items.len;
 }
 
 /* Run the .for loop, imitating the actions of an include file. */

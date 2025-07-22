@@ -357,6 +357,11 @@ static u_int physmap_idx;
 static SYSCTL_NODE(_vm, OID_AUTO, pmap, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "VM/pmap parameters");
 
+static int pmap_growkernel_panic = 0;
+SYSCTL_INT(_vm_pmap, OID_AUTO, growkernel_panic, CTLFLAG_RDTUN,
+    &pmap_growkernel_panic, 0,
+    "panic on failure to allocate kernel page table page");
+
 bool pmap_lpa_enabled __read_mostly = false;
 pt_entry_t pmap_sh_attr __read_mostly = ATTR_SH(ATTR_SH_IS);
 
@@ -492,7 +497,8 @@ static bool pmap_pv_insert_l3c(pmap_t pmap, vm_offset_t va, vm_page_t m,
     struct rwlock **lockp);
 static void pmap_remove_kernel_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t va);
 static int pmap_remove_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t sva,
-    pd_entry_t l1e, struct spglist *free, struct rwlock **lockp);
+    pd_entry_t l1e, bool demote_kl2e, struct spglist *free,
+    struct rwlock **lockp);
 static int pmap_remove_l3(pmap_t pmap, pt_entry_t *l3, vm_offset_t sva,
     pd_entry_t l2e, struct spglist *free, struct rwlock **lockp);
 static bool pmap_remove_l3c(pmap_t pmap, pt_entry_t *l3p, vm_offset_t va,
@@ -1798,21 +1804,21 @@ SYSCTL_COUNTER_U64(_vm_pmap_l2c, OID_AUTO, demotions, CTLFLAG_RD,
 static SYSCTL_NODE(_vm_pmap, OID_AUTO, l2, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "2MB page mapping counters");
 
-static u_long pmap_l2_demotions;
-SYSCTL_ULONG(_vm_pmap_l2, OID_AUTO, demotions, CTLFLAG_RD,
-    &pmap_l2_demotions, 0, "2MB page demotions");
+static COUNTER_U64_DEFINE_EARLY(pmap_l2_demotions);
+SYSCTL_COUNTER_U64(_vm_pmap_l2, OID_AUTO, demotions, CTLFLAG_RD,
+    &pmap_l2_demotions, "L2 (2MB/32MB) page demotions");
 
-static u_long pmap_l2_mappings;
-SYSCTL_ULONG(_vm_pmap_l2, OID_AUTO, mappings, CTLFLAG_RD,
-    &pmap_l2_mappings, 0, "2MB page mappings");
+static COUNTER_U64_DEFINE_EARLY(pmap_l2_mappings);
+SYSCTL_COUNTER_U64(_vm_pmap_l2, OID_AUTO, mappings, CTLFLAG_RD,
+    &pmap_l2_mappings, "L2 (2MB/32MB) page mappings");
 
-static u_long pmap_l2_p_failures;
-SYSCTL_ULONG(_vm_pmap_l2, OID_AUTO, p_failures, CTLFLAG_RD,
-    &pmap_l2_p_failures, 0, "2MB page promotion failures");
+static COUNTER_U64_DEFINE_EARLY(pmap_l2_p_failures);
+SYSCTL_COUNTER_U64(_vm_pmap_l2, OID_AUTO, p_failures, CTLFLAG_RD,
+    &pmap_l2_p_failures, "L2 (2MB/32MB) page promotion failures");
 
-static u_long pmap_l2_promotions;
-SYSCTL_ULONG(_vm_pmap_l2, OID_AUTO, promotions, CTLFLAG_RD,
-    &pmap_l2_promotions, 0, "2MB page promotions");
+static COUNTER_U64_DEFINE_EARLY(pmap_l2_promotions);
+SYSCTL_COUNTER_U64(_vm_pmap_l2, OID_AUTO, promotions, CTLFLAG_RD,
+    &pmap_l2_promotions, "L2 (2MB/32MB) page promotions");
 
 static SYSCTL_NODE(_vm_pmap, OID_AUTO, l3c, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "L3C (64KB/2MB) page mapping counters");
@@ -3096,8 +3102,8 @@ SYSCTL_PROC(_vm, OID_AUTO, kvm_free, CTLTYPE_LONG | CTLFLAG_RD | CTLFLAG_MPSAFE,
 /*
  * grow the number of kernel page table entries, if needed
  */
-void
-pmap_growkernel(vm_offset_t addr)
+static int
+pmap_growkernel_nopanic(vm_offset_t addr)
 {
 	vm_page_t nkpg;
 	pd_entry_t *l0, *l1, *l2;
@@ -3122,7 +3128,7 @@ pmap_growkernel(vm_offset_t addr)
 			nkpg = vm_page_alloc_noobj(VM_ALLOC_INTERRUPT |
 			    VM_ALLOC_NOFREE | VM_ALLOC_WIRED | VM_ALLOC_ZERO);
 			if (nkpg == NULL)
-				panic("pmap_growkernel: no memory to grow kernel");
+				return (KERN_RESOURCE_SHORTAGE);
 			nkpg->pindex = pmap_l1_pindex(kernel_vm_end);
 			/* See the dmb() in _pmap_alloc_l3(). */
 			dmb(ishst);
@@ -3142,7 +3148,7 @@ pmap_growkernel(vm_offset_t addr)
 		nkpg = vm_page_alloc_noobj(VM_ALLOC_INTERRUPT |
 		    VM_ALLOC_NOFREE | VM_ALLOC_WIRED | VM_ALLOC_ZERO);
 		if (nkpg == NULL)
-			panic("pmap_growkernel: no memory to grow kernel");
+			return (KERN_RESOURCE_SHORTAGE);
 		nkpg->pindex = pmap_l2_pindex(kernel_vm_end);
 		/* See the dmb() in _pmap_alloc_l3(). */
 		dmb(ishst);
@@ -3154,6 +3160,18 @@ pmap_growkernel(vm_offset_t addr)
 			break;
 		}
 	}
+	return (KERN_SUCCESS);
+}
+
+int
+pmap_growkernel(vm_offset_t addr)
+{
+	int rv;
+
+	rv = pmap_growkernel_nopanic(addr);
+	if (rv != KERN_SUCCESS && pmap_growkernel_panic)
+		panic("pmap_growkernel: no memory to grow kernel");
+	return (rv);
 }
 
 /***************************************************
@@ -3830,8 +3848,7 @@ pmap_remove_kernel_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t va)
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 
 	ml3 = pmap_remove_pt_page(pmap, va);
-	if (ml3 == NULL)
-		panic("pmap_remove_kernel_l2: Missing pt page");
+	KASSERT(ml3 != NULL, ("pmap_remove_kernel_l2: missing pt page"));
 
 	ml3pa = VM_PAGE_TO_PHYS(ml3);
 	newl2 = PHYS_TO_PTE(ml3pa) | L2_TABLE;
@@ -3856,8 +3873,8 @@ pmap_remove_kernel_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t va)
  * pmap_remove_l2: Do the things to unmap a level 2 superpage.
  */
 static int
-pmap_remove_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t sva,
-    pd_entry_t l1e, struct spglist *free, struct rwlock **lockp)
+pmap_remove_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t sva, pd_entry_t l1e,
+    bool demote_kl2e, struct spglist *free, struct rwlock **lockp)
 {
 	struct md_page *pvh;
 	pt_entry_t old_l2;
@@ -3893,9 +3910,7 @@ pmap_remove_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t sva,
 				vm_page_aflag_clear(mt, PGA_WRITEABLE);
 		}
 	}
-	if (pmap == kernel_pmap) {
-		pmap_remove_kernel_l2(pmap, l2, sva);
-	} else {
+	if (pmap != kernel_pmap) {
 		ml3 = pmap_remove_pt_page(pmap, sva);
 		if (ml3 != NULL) {
 			KASSERT(vm_page_any_valid(ml3),
@@ -3905,6 +3920,14 @@ pmap_remove_l2(pmap_t pmap, pt_entry_t *l2, vm_offset_t sva,
 			    ("pmap_remove_l2: l3 page ref count error"));
 			ml3->ref_count = 0;
 			pmap_add_delayed_free_list(ml3, free, false);
+		}
+	} else if (demote_kl2e) {
+		pmap_remove_kernel_l2(pmap, l2, sva);
+	} else {
+		ml3 = vm_radix_lookup(&pmap->pm_root, pmap_l2_pindex(sva));
+		if (vm_page_any_valid(ml3)) {
+			ml3->valid = 0;
+			pmap_zero_page(ml3);
 		}
 	}
 	return (pmap_unuse_pt(pmap, sva, l1e, free));
@@ -4215,7 +4238,7 @@ pmap_remove1(pmap_t pmap, vm_offset_t sva, vm_offset_t eva, bool map_delete)
 		if ((l3_paddr & ATTR_DESCR_MASK) == L2_BLOCK) {
 			if (sva + L2_SIZE == va_next && eva >= va_next) {
 				pmap_remove_l2(pmap, l2, sva, pmap_load(l1),
-				    &free, &lock);
+				    true, &free, &lock);
 				continue;
 			} else if (pmap_demote_l2_locked(pmap, l2, sva,
 			    &lock) == NULL)
@@ -4875,7 +4898,7 @@ pmap_promote_l2(pmap_t pmap, pd_entry_t *l2, vm_offset_t va, vm_page_t mpte,
 	/* ... is not the first physical page within an L2 block */
 	if ((PTE_TO_PHYS(newl2) & L2_OFFSET) != 0 ||
 	    ((newl2 & ATTR_DESCR_MASK) != L3_PAGE)) { /* ... or is invalid */
-		atomic_add_long(&pmap_l2_p_failures, 1);
+		counter_u64_add(pmap_l2_p_failures, 1);
 		CTR2(KTR_PMAP, "pmap_promote_l2: failure for va %#lx"
 		    " in pmap %p", va, pmap);
 		return (false);
@@ -4923,7 +4946,7 @@ setl2:
 	for (l3 = firstl3 + NL3PG - 1; l3 > firstl3; l3--) {
 		oldl3 = pmap_load(l3);
 		if ((PTE_TO_PHYS(oldl3) | (oldl3 & ATTR_DESCR_MASK)) != pa) {
-			atomic_add_long(&pmap_l2_p_failures, 1);
+			counter_u64_add(pmap_l2_p_failures, 1);
 			CTR2(KTR_PMAP, "pmap_promote_l2: failure for va %#lx"
 			    " in pmap %p", va, pmap);
 			return (false);
@@ -4942,7 +4965,7 @@ setl3:
 			oldl3 &= ~ATTR_SW_DBM;
 		}
 		if ((oldl3 & ATTR_PROMOTE) != (newl2 & ATTR_PROMOTE)) {
-			atomic_add_long(&pmap_l2_p_failures, 1);
+			counter_u64_add(pmap_l2_p_failures, 1);
 			CTR2(KTR_PMAP, "pmap_promote_l2: failure for va %#lx"
 			    " in pmap %p", va, pmap);
 			return (false);
@@ -4972,7 +4995,7 @@ setl3:
 	KASSERT(mpte->pindex == pmap_l2_pindex(va),
 	    ("pmap_promote_l2: page table page's pindex is wrong"));
 	if (pmap_insert_pt_page(pmap, mpte, true, all_l3e_AF != 0)) {
-		atomic_add_long(&pmap_l2_p_failures, 1);
+		counter_u64_add(pmap_l2_p_failures, 1);
 		CTR2(KTR_PMAP,
 		    "pmap_promote_l2: failure for va %#lx in pmap %p", va,
 		    pmap);
@@ -4984,7 +5007,7 @@ setl3:
 
 	pmap_update_entry(pmap, l2, newl2 | L2_BLOCK, va & ~L2_OFFSET, L2_SIZE);
 
-	atomic_add_long(&pmap_l2_promotions, 1);
+	counter_u64_add(pmap_l2_promotions, 1);
 	CTR2(KTR_PMAP, "pmap_promote_l2: success for va %#lx in pmap %p", va,
 	    pmap);
 	return (true);
@@ -5686,6 +5709,9 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 	KASSERT(ADDR_IS_CANONICAL(va),
 	    ("%s: Address not in canonical form: %lx", __func__, va));
+	KASSERT((flags & (PMAP_ENTER_NOREPLACE | PMAP_ENTER_NORECLAIM)) !=
+	    PMAP_ENTER_NORECLAIM,
+	    ("pmap_enter_l2: flags is missing PMAP_ENTER_NOREPLACE"));
 
 	if ((l2 = pmap_alloc_l2(pmap, va, &l2pg, (flags &
 	    PMAP_ENTER_NOSLEEP) != 0 ? NULL : lockp)) == NULL) {
@@ -5730,33 +5756,51 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 			}
 		}
 		SLIST_INIT(&free);
-		if ((old_l2 & ATTR_DESCR_MASK) == L2_BLOCK)
+		if ((old_l2 & ATTR_DESCR_MASK) == L2_BLOCK) {
 			(void)pmap_remove_l2(pmap, l2, va,
-			    pmap_load(pmap_l1(pmap, va)), &free, lockp);
-		else
+			    pmap_load(pmap_l1(pmap, va)), false, &free, lockp);
+		} else {
+			if (ADDR_IS_KERNEL(va)) {
+				/*
+				 * Try to save the ptp in the trie
+				 * before any changes to mappings are
+				 * made.  Abort on failure.
+				 */
+				mt = PTE_TO_VM_PAGE(old_l2);
+				if (pmap_insert_pt_page(pmap, mt, false,
+				    false)) {
+					CTR1(KTR_PMAP,
+			    "pmap_enter_l2: cannot ins kern ptp va %#lx",
+					    va);
+					return (KERN_RESOURCE_SHORTAGE);
+				}
+				/*
+				 * Both pmap_remove_l2() and
+				 * pmap_remove_l3_range() will zero fill
+				 * the L3 kernel page table page.
+				 */
+			}
 			pmap_remove_l3_range(pmap, old_l2, va, va + L2_SIZE,
 			    &free, lockp);
+			if (ADDR_IS_KERNEL(va)) {
+				/*
+				 * The TLB could have an intermediate
+				 * entry for the L3 kernel page table
+				 * page, so request an invalidation at
+				 * all levels after clearing the
+				 * L2_TABLE entry.
+				 */
+				pmap_clear(l2);
+				pmap_s1_invalidate_page(pmap, va, false);
+			}
+		}
+		KASSERT(pmap_load(l2) == 0,
+		    ("pmap_enter_l2: non-zero L2 entry %p", l2));
 		if (!ADDR_IS_KERNEL(va)) {
 			vm_page_free_pages_toq(&free, true);
-			KASSERT(pmap_load(l2) == 0,
-			    ("pmap_enter_l2: non-zero L2 entry %p", l2));
 		} else {
 			KASSERT(SLIST_EMPTY(&free),
 			    ("pmap_enter_l2: freed kernel page table page"));
-
-			/*
-			 * Both pmap_remove_l2() and pmap_remove_l3_range()
-			 * will leave the kernel page table page zero filled.
-			 * Nonetheless, the TLB could have an intermediate
-			 * entry for the kernel page table page, so request
-			 * an invalidation at all levels after clearing
-			 * the L2_TABLE entry.
-			 */
-			mt = PTE_TO_VM_PAGE(pmap_load(l2));
-			if (pmap_insert_pt_page(pmap, mt, false, false))
-				panic("pmap_enter_l2: trie insert failed");
-			pmap_clear(l2);
-			pmap_s1_invalidate_page(pmap, va, false);
 		}
 	}
 
@@ -5787,6 +5831,15 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 		if (!pmap_pv_insert_l2(pmap, va, new_l2, flags, lockp)) {
 			if (l2pg != NULL)
 				pmap_abort_ptp(pmap, va, l2pg);
+			else {
+				KASSERT(ADDR_IS_KERNEL(va) &&
+				    (pmap_load(l2) & ATTR_DESCR_MASK) ==
+				    L2_TABLE,
+				    ("pmap_enter_l2: invalid kernel L2E"));
+				mt = pmap_remove_pt_page(pmap, va);
+				KASSERT(mt != NULL,
+				    ("pmap_enter_l2: missing kernel PTP"));
+			}
 			if (uwptpg != NULL) {
 				mt = pmap_remove_pt_page(pmap, va);
 				KASSERT(mt == uwptpg,
@@ -5830,7 +5883,7 @@ pmap_enter_l2(pmap_t pmap, vm_offset_t va, pd_entry_t new_l2, u_int flags,
 	pmap_store(l2, new_l2);
 	dsb(ishst);
 
-	atomic_add_long(&pmap_l2_mappings, 1);
+	counter_u64_add(pmap_l2_mappings, 1);
 	CTR2(KTR_PMAP, "pmap_enter_l2: success for va %#lx in pmap %p",
 	    va, pmap);
 
@@ -6602,7 +6655,7 @@ pmap_copy(pmap_t dst_pmap, pmap_t src_pmap, vm_offset_t dst_addr, vm_size_t len,
 				pmap_store(l2, srcptepaddr);
 				pmap_resident_count_inc(dst_pmap, L2_SIZE /
 				    PAGE_SIZE);
-				atomic_add_long(&pmap_l2_mappings, 1);
+				counter_u64_add(pmap_l2_mappings, 1);
 			} else
 				pmap_abort_ptp(dst_pmap, addr, dst_m);
 			continue;
@@ -8028,6 +8081,8 @@ pmap_unmapbios(void *p, vm_size_t size)
 void
 pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma)
 {
+	if (m->md.pv_memattr == ma)
+		return;
 
 	m->md.pv_memattr = ma;
 
@@ -8407,8 +8462,8 @@ pmap_demote_l2_abort(pmap_t pmap, vm_offset_t va, pt_entry_t *l2,
 	struct spglist free;
 
 	SLIST_INIT(&free);
-	(void)pmap_remove_l2(pmap, l2, va, pmap_load(pmap_l1(pmap, va)), &free,
-	    lockp);
+	(void)pmap_remove_l2(pmap, l2, va, pmap_load(pmap_l1(pmap, va)), true,
+	    &free, lockp);
 	vm_page_free_pages_toq(&free, true);
 }
 
@@ -8563,7 +8618,7 @@ pmap_demote_l2_locked(pmap_t pmap, pt_entry_t *l2, vm_offset_t va,
 	if ((oldl2 & ATTR_SW_MANAGED) != 0)
 		pmap_pv_demote_l2(pmap, va, PTE_TO_PHYS(oldl2), lockp);
 
-	atomic_add_long(&pmap_l2_demotions, 1);
+	counter_u64_add(pmap_l2_demotions, 1);
 	CTR3(KTR_PMAP, "pmap_demote_l2: success for va %#lx"
 	    " in pmap %p %lx", va, pmap, l3[0]);
 
@@ -8662,10 +8717,10 @@ pmap_demote_l2c(pmap_t pmap, pt_entry_t *l2p, vm_offset_t va)
 	/*
 	 * Remake the mappings, updating the accessed and dirty bits.
 	 */
+	l2e = (pmap_load(l2c_start) & ~mask) | nbits;
 	for (tl2p = l2c_start; tl2p < l2c_end; tl2p++) {
-		l2e = pmap_load(tl2p);
-		while (!atomic_fcmpset_64(tl2p, &l2e, (l2e & ~mask) | nbits))
-			cpu_spinwait();
+		pmap_store(tl2p, l2e);
+		l2e += L2_SIZE;
 	}
 	dsb(ishst);
 
@@ -8751,10 +8806,10 @@ pmap_demote_l3c(pmap_t pmap, pt_entry_t *l3p, vm_offset_t va)
 	/*
 	 * Remake the mappings, updating the accessed and dirty bits.
 	 */
+	l3e = (pmap_load(l3c_start) & ~mask) | nbits;
 	for (tl3p = l3c_start; tl3p < l3c_end; tl3p++) {
-		l3e = pmap_load(tl3p);
-		while (!atomic_fcmpset_64(tl3p, &l3e, (l3e & ~mask) | nbits))
-			cpu_spinwait();
+		pmap_store(tl3p, l3e);
+		l3e += L3_SIZE;
 	}
 	dsb(ishst);
 

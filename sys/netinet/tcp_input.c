@@ -383,7 +383,7 @@ cc_conn_init(struct tcpcb *tp)
 		}
 		TCPT_RANGESET(tp->t_rxtcur,
 		    ((tp->t_srtt >> 2) + tp->t_rttvar) >> 1,
-		    tp->t_rttmin, TCPTV_REXMTMAX);
+		    tp->t_rttmin, tcp_rexmit_max);
 	}
 	if (metrics.hc_ssthresh) {
 		/*
@@ -1055,6 +1055,8 @@ findpcb:
 		 * socket appended to the listen queue in SYN_RECEIVED state.
 		 */
 		if ((thflags & (TH_RST|TH_ACK|TH_SYN)) == TH_ACK) {
+			int result;
+
 			/*
 			 * Parse the TCP options here because
 			 * syncookies need access to the reflected
@@ -1064,8 +1066,8 @@ findpcb:
 			/*
 			 * NB: syncache_expand() doesn't unlock inp.
 			 */
-			rstreason = syncache_expand(&inc, &to, th, &so, m, port);
-			if (rstreason < 0) {
+			result = syncache_expand(&inc, &to, th, &so, m, port);
+			if (result < 0) {
 				/*
 				 * A failing TCP MD5 signature comparison
 				 * must result in the segment being dropped
@@ -1073,7 +1075,7 @@ findpcb:
 				 * to the sender.
 				 */
 				goto dropunlock;
-			} else if (rstreason == 0) {
+			} else if (result == 0) {
 				/*
 				 * No syncache entry, or ACK was not for our
 				 * SYN/ACK.  Do our protection against double
@@ -1385,7 +1387,7 @@ dropwithreset:
 	    ((V_blackhole == 1 && (thflags & TH_SYN)) || V_blackhole > 1))) &&
 	    (V_blackhole_local || (
 #ifdef INET6
-	    isipv6 ? !in6_localaddr(&ip6->ip6_src) :
+	    isipv6 ? !in6_localip(&ip6->ip6_src) :
 #endif
 #ifdef INET
 	    !in_localip(ip->ip_src)
@@ -1515,7 +1517,9 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 	struct tcpopt to;
 	int tfo_syn;
 	u_int maxseg = 0;
+	bool no_data;
 
+	no_data = (tlen == 0);
 	thflags = tcp_get_flags(th);
 	tp->sackhint.last_sack_ack = 0;
 	sack_changed = SACK_NOCHANGE;
@@ -1754,7 +1758,7 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 			tp->ts_recent = to.to_tsval;
 		}
 
-		if (tlen == 0) {
+		if (no_data) {
 			if (SEQ_GT(th->th_ack, tp->snd_una) &&
 			    SEQ_LEQ(th->th_ack, tp->snd_max) &&
 			    !IN_RECOVERY(tp->t_flags) &&
@@ -2557,7 +2561,7 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 
 		if (SEQ_LEQ(th->th_ack, tp->snd_una)) {
 			maxseg = tcp_maxseg(tp);
-			if (tlen == 0 &&
+			if (no_data &&
 			    (tiwin == tp->snd_wnd ||
 			    (tp->t_flags & TF_SACK_PERMIT))) {
 				/*
@@ -3113,8 +3117,7 @@ step6:
 	    (tp->snd_wl1 == th->th_seq && (SEQ_LT(tp->snd_wl2, th->th_ack) ||
 	     (tp->snd_wl2 == th->th_ack && tiwin > tp->snd_wnd))))) {
 		/* keep track of pure window updates */
-		if (tlen == 0 &&
-		    tp->snd_wl2 == th->th_ack && tiwin > tp->snd_wnd)
+		if (no_data && tp->snd_wl2 == th->th_ack && tiwin > tp->snd_wnd)
 			TCPSTAT_INC(tcps_rcvwinupd);
 		tp->snd_wnd = tiwin;
 		tp->snd_wl1 = th->th_seq;
@@ -3732,7 +3735,7 @@ tcp_xmit_timer(struct tcpcb *tp, int rtt)
 	 * the minimum feasible timer (which is 2 ticks).
 	 */
 	TCPT_RANGESET(tp->t_rxtcur, TCP_REXMTVAL(tp),
-		      max(tp->t_rttmin, rtt + 2), TCPTV_REXMTMAX);
+	    max(tp->t_rttmin, rtt + 2), tcp_rexmit_max);
 
 	/*
 	 * We received an ack for a packet that wasn't retransmitted;

@@ -66,14 +66,13 @@
 #include <sys/rwlock.h>
 #include <sys/sdt.h>
 #include <sys/stat.h>
+#include <sys/stdarg.h>
 #include <sys/sx.h>
 #include <sys/syscallsubr.h>
 #include <sys/sysctl.h>
 #include <sys/sysproto.h>
 #include <sys/unistd.h>
 #include <sys/vnode.h>
-
-#include <machine/stdarg.h>
 
 #include <security/audit/audit.h>
 #include <security/mac/mac_framework.h>
@@ -371,7 +370,7 @@ kern_fstatfs(struct thread *td, int fd, struct statfs *buf)
 	int error;
 
 	AUDIT_ARG_FD(fd);
-	error = getvnode_path(td, fd, &cap_fstatfs_rights, &fp);
+	error = getvnode_path(td, fd, &cap_fstatfs_rights, NULL, &fp);
 	if (error != 0)
 		return (error);
 	vp = fp->f_vnode;
@@ -894,12 +893,17 @@ sys_fchdir(struct thread *td, struct fchdir_args *uap)
 	struct mount *mp;
 	struct file *fp;
 	int error;
+	uint8_t fdflags;
 
 	AUDIT_ARG_FD(uap->fd);
-	error = getvnode_path(td, uap->fd, &cap_fchdir_rights,
+	error = getvnode_path(td, uap->fd, &cap_fchdir_rights, &fdflags,
 	    &fp);
 	if (error != 0)
 		return (error);
+	if ((fdflags & UF_RESOLVE_BENEATH) != 0) {
+		fdrop(fp, td);
+		return (ENOTCAPABLE);
+	}
 	vp = fp->f_vnode;
 	vrefact(vp);
 	fdrop(fp, td);
@@ -1042,10 +1046,15 @@ sys_fchroot(struct thread *td, struct fchroot_args *uap)
 	struct vnode *vp;
 	struct file *fp;
 	int error;
+	uint8_t fdflags;
 
-	error = getvnode_path(td, uap->fd, &cap_fchroot_rights, &fp);
+	error = getvnode_path(td, uap->fd, &cap_fchroot_rights, &fdflags, &fp);
 	if (error != 0)
 		return (error);
+	if ((fdflags & UF_RESOLVE_BENEATH) != 0) {
+		fdrop(fp, td);
+		return (ENOTCAPABLE);
+	}
 	vp = fp->f_vnode;
 	vrefact(vp);
 	fdrop(fp, td);
@@ -1310,6 +1319,10 @@ success:
 		else
 #endif
 			fcaps = NULL;
+		if ((nd.ni_resflags & NIRES_BENEATH) != 0)
+			flags |= O_RESOLVE_BENEATH;
+		else
+			flags &= ~O_RESOLVE_BENEATH;
 		error = finstall_refed(td, fp, &indx, flags, fcaps);
 		/* On success finstall_refed() consumes fcaps. */
 		if (error != 0) {
@@ -2014,7 +2027,7 @@ kern_funlinkat(struct thread *td, int dfd, const char *path, int fd,
 
 	fp = NULL;
 	if (fd != FD_NONE) {
-		error = getvnode_path(td, fd, &cap_no_rights, &fp);
+		error = getvnode_path(td, fd, &cap_no_rights, NULL, &fp);
 		if (error != 0)
 			return (error);
 	}
@@ -3753,7 +3766,7 @@ int
 kern_renameat(struct thread *td, int oldfd, const char *old, int newfd,
     const char *new, enum uio_seg pathseg)
 {
-	struct mount *mp = NULL;
+	struct mount *mp, *tmp;
 	struct vnode *tvp, *fvp, *tdvp;
 	struct nameidata fromnd, tond;
 	uint64_t tondflags;
@@ -3761,6 +3774,7 @@ kern_renameat(struct thread *td, int oldfd, const char *old, int newfd,
 	short irflag;
 
 again:
+	tmp = mp = NULL;
 	bwillwrite();
 #ifdef MAC
 	if (mac_vnode_check_rename_from_enabled()) {
@@ -3796,6 +3810,7 @@ again:
 	tvp = tond.ni_vp;
 	error = vn_start_write(fvp, &mp, V_NOWAIT);
 	if (error != 0) {
+again1:
 		NDFREE_PNBUF(&fromnd);
 		NDFREE_PNBUF(&tond);
 		if (tvp != NULL)
@@ -3806,10 +3821,24 @@ again:
 			vput(tdvp);
 		vrele(fromnd.ni_dvp);
 		vrele(fvp);
+		if (tmp != NULL) {
+			lockmgr(&tmp->mnt_renamelock, LK_EXCLUSIVE, NULL);
+			lockmgr(&tmp->mnt_renamelock, LK_RELEASE, NULL);
+			vfs_rel(tmp);
+			tmp = NULL;
+		}
 		error = vn_start_write(NULL, &mp, V_XSLEEP | V_PCATCH);
 		if (error != 0)
 			return (error);
 		goto again;
+	}
+	error = VOP_GETWRITEMOUNT(tdvp, &tmp);
+	if (error != 0 || tmp == NULL)
+		goto again1;
+	error = lockmgr(&tmp->mnt_renamelock, LK_EXCLUSIVE | LK_NOWAIT, NULL);
+	if (error != 0) {
+		vn_finished_write(mp);
+		goto again1;
 	}
 	irflag = vn_irflag_read(fvp);
 	if (((irflag & VIRF_NAMEDATTR) != 0 && tdvp != fromnd.ni_dvp) ||
@@ -3871,6 +3900,8 @@ out:
 		vrele(fromnd.ni_dvp);
 		vrele(fvp);
 	}
+	lockmgr(&tmp->mnt_renamelock, LK_RELEASE, 0);
+	vfs_rel(tmp);
 	vn_finished_write(mp);
 out1:
 	if (error == ERESTART)
@@ -4283,10 +4314,6 @@ kern_getdirentries(struct thread *td, int fd, char *buf, size_t count,
 	vp = fp->f_vnode;
 	foffset = foffset_lock(fp, 0);
 unionread:
-	if (vp->v_type != VDIR) {
-		error = EINVAL;
-		goto fail;
-	}
 	if (__predict_false((vp->v_vflag & VV_UNLINKED) != 0)) {
 		error = ENOENT;
 		goto fail;
@@ -4299,6 +4326,19 @@ unionread:
 	auio.uio_segflg = bufseg;
 	auio.uio_td = td;
 	vn_lock(vp, LK_SHARED | LK_RETRY);
+	/*
+	 * We want to return ENOTDIR for anything that is not VDIR, but
+	 * not for VBAD, and we can't check for VBAD while the vnode is
+	 * unlocked.
+	 */
+	if (vp->v_type != VDIR) {
+		if (vp->v_type == VBAD)
+			error = EBADF;
+		else
+			error = ENOTDIR;
+		VOP_UNLOCK(vp);
+		goto fail;
+	}
 	AUDIT_ARG_VNODE1(vp);
 	loff = auio.uio_offset = foffset;
 #ifdef MAC
@@ -4410,12 +4450,12 @@ out:
  */
 int
 getvnode_path(struct thread *td, int fd, const cap_rights_t *rightsp,
-    struct file **fpp)
+    uint8_t *flagsp, struct file **fpp)
 {
 	struct file *fp;
 	int error;
 
-	error = fget_unlocked(td, fd, rightsp, &fp);
+	error = fget_unlocked_flags(td, fd, rightsp, flagsp, &fp);
 	if (error != 0)
 		return (error);
 
@@ -4452,7 +4492,7 @@ getvnode(struct thread *td, int fd, const cap_rights_t *rightsp,
 {
 	int error;
 
-	error = getvnode_path(td, fd, rightsp, fpp);
+	error = getvnode_path(td, fd, rightsp, NULL, fpp);
 	if (__predict_false(error != 0))
 		return (error);
 

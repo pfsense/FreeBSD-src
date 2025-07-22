@@ -2878,7 +2878,7 @@ tcp_log_sendfile(struct socket *so, off_t offset, size_t nbytes, int flags)
 	/* double check log state now that we have the lock */
 	if (inp->inp_flags & INP_DROPPED)
 		goto done;
-	if (tp->_t_logstate != TCP_LOG_STATE_OFF) {
+	if (tcp_bblogging_on(tp)) {
 		struct timeval tv;
 		tcp_log_eventspecific_t log;
 
@@ -3027,14 +3027,8 @@ db_print_tcphdr(struct tcp_log_buffer *tlm_buf)
 	if (flags & TH_ECE) {
 		db_printf("E");
 	}
-	if (flags & TH_FIN) {
-		db_printf("F");
-	}
 	if (flags & TH_CWR) {
 		db_printf("W");
-	}
-	if (flags & TH_FIN) {
-		db_printf("F");
 	}
 	if (flags & TH_AE) {
 		db_printf("A");

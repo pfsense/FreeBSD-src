@@ -92,11 +92,6 @@
 
 #include <crypto/sha1.h>
 
-#ifdef CTASSERT
-CTASSERT(sizeof (struct ether_header) == ETHER_ADDR_LEN * 2 + 2);
-CTASSERT(sizeof (struct ether_addr) == ETHER_ADDR_LEN);
-#endif
-
 VNET_DEFINE(pfil_head_t, link_pfil_head);	/* Packet filter hooks */
 VNET_DEFINE(pppoe_input_t *, pppoe_input_ptr);
 
@@ -106,8 +101,6 @@ void	(*ng_ether_input_orphan_p)(struct ifnet *ifp, struct mbuf *m);
 int	(*ng_ether_output_p)(struct ifnet *ifp, struct mbuf **mp);
 void	(*ng_ether_attach_p)(struct ifnet *ifp);
 void	(*ng_ether_detach_p)(struct ifnet *ifp);
-
-void	(*vlan_input_p)(struct ifnet *, struct mbuf *);
 
 /* if_bridge(4) support */
 void	(*bridge_dn_p)(struct mbuf *, struct ifnet *);
@@ -995,7 +988,8 @@ ether_ifattach(struct ifnet *ifp, const u_int8_t *lla)
 	struct sockaddr_dl *sdl;
 
 	ifp->if_addrlen = ETHER_ADDR_LEN;
-	ifp->if_hdrlen = ETHER_HDR_LEN;
+	ifp->if_hdrlen = (ifp->if_capabilities & IFCAP_VLAN_MTU) != 0 ?
+	    ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN : ETHER_HDR_LEN;
 	ifp->if_mtu = ETHERMTU;
 	if_attach(ifp);
 	ifp->if_output = ether_output;
@@ -1495,7 +1489,7 @@ ether_gen_addr_byname(const char *nameunit, struct ether_addr *hwaddr)
 	char uuid[HOSTUUIDLEN + 1];
 	uint64_t addr;
 	int i, sz;
-	char digest[SHA1_RESULTLEN];
+	unsigned char digest[SHA1_RESULTLEN];
 	char jailname[MAXHOSTNAMELEN];
 
 	getcredhostuuid(curthread->td_ucred, uuid, sizeof(uuid));
@@ -1519,9 +1513,7 @@ ether_gen_addr_byname(const char *nameunit, struct ether_addr *hwaddr)
 	SHA1Final(digest, &ctx);
 	free(buf, M_TEMP);
 
-	addr = ((digest[0] << 16) | (digest[1] << 8) | digest[2]) &
-	    OUI_FREEBSD_GENERATED_MASK;
-	addr = OUI_FREEBSD(addr);
+	addr = (digest[0] << 8) | digest[1] | OUI_FREEBSD_GENERATED_LOW;
 	for (i = 0; i < ETHER_ADDR_LEN; ++i) {
 		hwaddr->octet[i] = addr >> ((ETHER_ADDR_LEN - i - 1) * 8) &
 		    0xFF;
