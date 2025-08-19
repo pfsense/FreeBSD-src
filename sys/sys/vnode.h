@@ -67,6 +67,11 @@ __enum_uint8_decl(vtype) {
 	VLASTTYPE = VMARKER,
 };
 
+/*
+ * We frequently need to test is something is a device node.
+ */
+#define VTYPE_ISDEV(vtype)	((vtype) == VCHR || (vtype) == VBLK)
+
 __enum_uint8_decl(vstate) {
 	VSTATE_UNINITIALIZED,
 	VSTATE_CONSTRUCTED,
@@ -199,6 +204,8 @@ struct vnode {
 	int	v_seqc_users;			/* i modifications pending */
 };
 
+#define VN_ISDEV(vp)		VTYPE_ISDEV((vp)->v_type)
+
 #ifndef DEBUG_LOCKS
 #ifdef _LP64
 /*
@@ -308,6 +315,8 @@ struct vattr {
 	u_int		va_vaflags;	/* operations flags, see below */
 	long		va_spare;	/* remain quad aligned */
 };
+
+#define VATTR_ISDEV(vap)	VTYPE_ISDEV((vap)->va_type)
 
 /*
  * Flags for va_vaflags.
@@ -538,7 +547,7 @@ extern struct vnodeop_desc *vnodeop_descs[];
 #define	VOPARG_OFFSETTO(s_type, s_offset, struct_p) \
     ((s_type)(((char*)(struct_p)) + (s_offset)))
 
-#ifdef DEBUG_VFS_LOCKS
+#ifdef INVARIANTS
 /*
  * Support code to aid in debugging VFS locking problems.  Not totally
  * reliable since if the thread sleeps between changing the lock
@@ -572,7 +581,7 @@ void	assert_vop_unlocked(struct vnode *vp, const char *str);
 	VNPASS(!seqc_in_modify(_vp->v_seqc), _vp);		\
 } while (0)
 
-#else /* !DEBUG_VFS_LOCKS */
+#else /* !INVARIANTS */
 
 #define	ASSERT_VI_LOCKED(vp, str)	((void)0)
 #define	ASSERT_VI_UNLOCKED(vp, str)	((void)0)
@@ -583,7 +592,7 @@ void	assert_vop_unlocked(struct vnode *vp, const char *str);
 #define ASSERT_VOP_IN_SEQC(vp)		((void)0)
 #define ASSERT_VOP_NOT_IN_SEQC(vp)	((void)0)
 
-#endif /* DEBUG_VFS_LOCKS */
+#endif /* INVARIANTS */
 
 /*
  * This call works for vnodes in the kernel.
@@ -939,7 +948,6 @@ void	vop_mknod_post(void *a, int rc);
 void	vop_open_post(void *a, int rc);
 void	vop_read_post(void *a, int rc);
 void	vop_read_pgcache_post(void *ap, int rc);
-void	vop_readdir_post(void *a, int rc);
 void	vop_reclaim_post(void *a, int rc);
 void	vop_remove_pre(void *a);
 void	vop_remove_post(void *a, int rc);
@@ -957,7 +965,7 @@ void	vop_symlink_pre(void *a);
 void	vop_symlink_post(void *a, int rc);
 int	vop_sigdefer(struct vop_vector *vop, struct vop_generic_args *a);
 
-#ifdef DEBUG_VFS_LOCKS
+#ifdef INVARIANTS
 void	vop_fdatasync_debugpre(void *a);
 void	vop_fdatasync_debugpost(void *a, int rc);
 void	vop_fplookup_vexec_debugpre(void *a);
@@ -1015,7 +1023,36 @@ void	vop_rename_fail(struct vop_rename_args *ap);
 	_error;									\
 })
 
-#define	VOP_WRITE_PRE(ap)						\
+#ifdef INVARIANTS
+#define	vop_readdir_pre_assert(ap)					\
+	ssize_t nresid, oresid;						\
+									\
+	oresid = (ap)->a_uio->uio_resid;
+
+#define	vop_readdir_post_assert(ap, ret)				\
+	nresid = (ap)->a_uio->uio_resid;				\
+	if ((ret) == 0 && (ap)->a_eofflag != NULL) {			\
+		VNASSERT(oresid == 0 || nresid != oresid ||		\
+		    *(ap)->a_eofflag == 1,				\
+		    (ap)->a_vp, ("VOP_READDIR: eofflag not set"));	\
+	}
+#else
+#define	vop_readdir_pre_assert(ap)
+#define	vop_readdir_post_assert(ap, ret)
+#endif
+
+#define	vop_readdir_pre(ap) do {					\
+	vop_readdir_pre_assert(ap)
+
+#define vop_readdir_post(ap, ret)					\
+	vop_readdir_post_assert(ap, ret);				\
+	if ((ret) == 0) {						\
+		VFS_KNOTE_LOCKED((ap)->a_vp, NOTE_READ);		\
+		INOTIFY((ap)->a_vp, IN_ACCESS);				\
+	}								\
+} while (0)
+
+#define	vop_write_pre(ap)						\
 	struct vattr va;						\
 	int error;							\
 	off_t osize, ooffset, noffset;					\
@@ -1029,7 +1066,7 @@ void	vop_rename_fail(struct vop_rename_args *ap);
 		osize = (off_t)va.va_size;				\
 	}
 
-#define VOP_WRITE_POST(ap, ret)						\
+#define vop_write_post(ap, ret)						\
 	noffset = (ap)->a_uio->uio_offset;				\
 	if (noffset > ooffset) {					\
 		if (!VN_KNLIST_EMPTY((ap)->a_vp)) {			\

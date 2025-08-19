@@ -80,6 +80,7 @@ __DEFAULT_YES_OPTIONS = \
     CDDL \
     CLANG \
     CLANG_BOOTSTRAP \
+    CLEAN \
     CPP \
     CROSS_COMPILER \
     CRYPT \
@@ -143,6 +144,7 @@ __DEFAULT_YES_OPTIONS = \
     MAIL \
     MAILWRAPPER \
     MAKE \
+    MITKRB5 \
     MLX5TOOL \
     NETCAT \
     NETGRAPH \
@@ -199,7 +201,6 @@ __DEFAULT_NO_OPTIONS = \
     BHYVE_SNAPSHOT \
     CLANG_EXTRAS \
     CLANG_FORMAT \
-    CLEAN \
     DIALOG \
     DETECT_TZ_CHANGES \
     DISK_IMAGE_TOOLS_BOOTSTRAP \
@@ -211,7 +212,6 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_VERIEXEC_PASS_MANIFEST \
     LLVM_FULL_DEBUGINFO \
     MALLOC_PRODUCTION \
-    MITKRB5 \
     OFED_EXTRA \
     OPENLDAP \
     REPRODUCIBLE_BUILD \
@@ -296,9 +296,9 @@ __DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF LLVM_TARGET_MIPS
 .include <bsd.compiler.mk>
 
 .if ${__T} == "i386" || ${__T} == "amd64"
-__DEFAULT_NO_OPTIONS += FDT
+__DEFAULT_NO_OPTIONS+=FDT
 .else
-__DEFAULT_YES_OPTIONS += FDT
+__DEFAULT_YES_OPTIONS+=FDT
 .endif
 
 .if ${__T:Marm*} == "" && ${__T:Mriscv64*} == ""
@@ -518,9 +518,5 @@ MK_${vv:H}:=	no
 MK_${vv:H}:=	${MK_${vv:T}}
 .endif
 .endfor
-
-#
-# Set defaults for the MK_*_SUPPORT variables.
-#
 
 .endif #  !target(__<src.opts.mk>__)

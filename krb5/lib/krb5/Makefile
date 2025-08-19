@@ -1,5 +1,5 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
@@ -7,16 +7,18 @@
 # under sponsorship from the FreeBSD Foundation.
 #
 
-PACKAGE=	krb5
-
 .include <src.opts.mk>
 
 .include "../Makefile.inc"
+.include "${KRB5_SRCTOP}/Makefile.pc"
 
 LIB=		krb5
-LDFLAGS=-Wl,--no-undefined
-LIBADD=	krb5profile k5crypto com_err krb5support
-# SHLIB_MAJOR=	3
+LDFLAGS=	-Wl,--no-undefined
+LIBADD=		krb5profile k5crypto com_err krb5support
+VERSION_MAP=	${.CURDIR}/version.map
+PCFILES=	krb5.pc \
+		mit-krb5.pc
+CLEANFILES+=	${PCFILES}
 
 SRCS=	krb5_libinit.c
 
@@ -51,19 +53,26 @@ CFLAGS+=${DEFINES} \
 	-I${KRB5_SRCTOP}/include \
 	-I${KRB5_DIR}
 
-MAN=	k5identity.5 \
-	k5login.5 \
-	kadm5.acl.5 \
-	kdc.conf.5 \
-	krb5.conf.5 \
-	kerberos.7
+MANGROUPS=	KRB5
+KRB5=		k5identity.5 \
+		k5login.5 \
+		krb5.conf.5 \
+		kerberos.7
+KRB5PACKAGE=	kerberos
+KRB5LINKS=k5identity.5 .k5identity.5
+KRB5LINKS+=k5login.5 .k5login.5
 
-MLINKS= k5identity.5 .k5identity.5
-MLINKS+=k5login.5 .k5login.5
+MANGROUPS+=	KDC
+KDC=		kadm5.acl.5 \
+		kdc.conf.5
+KDCPACKAGE=	kerberos-kdc
+
 
 .include <bsd.lib.mk>
 
-.SUFFIXES: .h .c .et .man .5 .7
+all: ${PCFILES}
+
+.SUFFIXES: .et .man
 
 .man.5:
 	@cp ${.ALLSRC} ${.TARGET}
@@ -71,5 +80,6 @@ MLINKS+=k5login.5 .k5login.5
 .man.7:
 	@cp ${.ALLSRC} ${.TARGET}
 
-.PATH:	${KRB5_DIR}/lib/krb5 \
+.PATH:	${KRB5_DIR}/build-tools \
+	${KRB5_DIR}/lib/krb5 \
 	${KRB5_DIR}/man

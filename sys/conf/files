@@ -359,6 +359,7 @@ contrib/openzfs/module/zfs/zcp_synctask.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/zfeature.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/zfs_byteswap.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/zfs_chksum.c		optional zfs compile-with "${ZFS_C}"
+contrib/openzfs/module/zfs/zfs_crrd.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/zfs_fm.c		optional zfs compile-with "${ZFS_C} ${NO_WUNUSED_BUT_SET_VARIABLE}"
 contrib/openzfs/module/zfs/zfs_fuid.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/zfs_impl.c		optional zfs compile-with "${ZFS_C}"
@@ -1749,6 +1750,7 @@ dev/hid/hpen.c			optional hpen
 dev/hid/hsctrl.c		optional hsctrl
 dev/hid/ietp.c			optional ietp
 dev/hid/ps4dshock.c		optional ps4dshock
+dev/hid/u2f.c			optional u2f
 dev/hid/xb360gp.c		optional xb360gp
 dev/hifn/hifn7751.c		optional hifn
 dev/hptiop/hptiop.c		optional hptiop scbus
@@ -2278,6 +2280,8 @@ dev/ixgbe/ixgbe_82599.c		optional ix inet | ixv inet \
 dev/ixgbe/ixgbe_x540.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ixgbe_x550.c		optional ix inet | ixv inet \
+	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
+dev/ixgbe/ixgbe_e610.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ixgbe_dcb.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
@@ -3769,6 +3773,7 @@ gnu/gcov/gcov_subr.c		optional gcov
 
 kern/bus_if.m			standard
 kern/clock_if.m			standard
+kern/coredump_vnode.c		standard
 kern/cpufreq_if.m		standard
 kern/device_if.m		standard
 kern/imgact_binmisc.c		optional imgact_binmisc
@@ -3857,6 +3862,7 @@ kern/kern_time.c		standard
 kern/kern_timeout.c		standard
 kern/kern_tslog.c		optional tslog
 kern/kern_ubsan.c		optional kubsan
+kern/kern_ucoredump.c		standard
 kern/kern_umtx.c		standard
 kern/kern_uuid.c		standard
 kern/kern_vnodedumper.c		standard

@@ -1,13 +1,11 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
 # This sofware was developed by Cy Schubert <cy@FreeBSD.org>
 # under sponsorship from the FreeBSD Foundation.
 #
-
-PACKAGE=	krb5
 
 PROG=	ksu
 .if defined(ENABLE_SUID_K5SU)
@@ -25,7 +23,8 @@ SRCS=	authorization.c \
 	xmalloc.c
 
 CFLAGS+=-I${KRB5_DIR}/include \
-	-I${KRB5_SRCTOP}/include
+	-I${KRB5_SRCTOP}/include \
+	-DGET_TGT_VIA_PASSWD
 
 MAN=	ksu.1
 

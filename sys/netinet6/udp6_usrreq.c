@@ -142,7 +142,6 @@ udp6_append(struct inpcb *inp, struct mbuf *n, int off,
 	struct socket *so;
 	struct mbuf *opts = NULL, *tmp_opts;
 	struct udpcb *up;
-	bool filtered;
 
 	INP_LOCK_ASSERT(inp);
 
@@ -151,13 +150,19 @@ udp6_append(struct inpcb *inp, struct mbuf *n, int off,
 	 */
 	up = intoudpcb(inp);
 	if (up->u_tun_func != NULL) {
+		bool filtered;
+
 		in_pcbref(inp);
 		INP_RUNLOCK(inp);
 		filtered = (*up->u_tun_func)(n, off, inp,
 		    (struct sockaddr *)&fromsa[0], up->u_tun_ctx);
 		INP_RLOCK(inp);
-		if (filtered)
-			return (in_pcbrele_rlocked(inp));
+		if (in_pcbrele_rlocked(inp))
+			return (1);
+		if (filtered) {
+			INP_RUNLOCK(inp);
+			return (1);
+		}
 	}
 
 	off += sizeof(struct udphdr);
@@ -336,7 +341,7 @@ udp6_multi_input(struct mbuf *m, int off, int proto,
 		/*
 		 * No matching pcb found; discard datagram.  (No need
 		 * to send an ICMP Port Unreachable for a broadcast
-		 * or multicast datgram.)
+		 * or multicast datagram.)
 		 */
 		UDPSTAT_INC(udps_noport);
 		UDPSTAT_INC(udps_noportmcast);
@@ -429,6 +434,12 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 			uh_sum = in6_cksum_pseudo(ip6, ulen, nxt,
 			    m->m_pkthdr.csum_data);
 		uh_sum ^= 0xffff;
+	} else if (m->m_pkthdr.csum_flags & CSUM_IP6_UDP) {
+		/*
+		 * Packet from local host (maybe from a VM).
+		 * Checksum not required.
+		 */
+		uh_sum = 0;
 	} else
 		uh_sum = in6_cksum_partial(m, nxt, off, plen, ulen);
 

@@ -1,5 +1,5 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
@@ -7,16 +7,17 @@
 # under sponsorship from the FreeBSD Foundation.
 #
 
-PACKAGE=	krb5
-
 .include <src.opts.mk>
 
 .include "../Makefile.inc"
+.include "${KRB5_SRCTOP}/Makefile.pc"
 
 LIB=		kadm5clnt_mit
-# SHLIB_MAJOR=	12
-LDFLAGS=-Wl,--no-undefined
-LIBADD=	krb5profile gssrpc gssapi_krb5 krb5 k5crypto krb5support com_err
+LDFLAGS=	-Wl,--no-undefined
+LIBADD=		krb5profile gssrpc gssapi_krb5 krb5 k5crypto krb5support com_err
+VERSION_MAP=	${.CURDIR}/version.map
+PCFILES=	kadm-client.pc
+CLEANFILES+=	${PCFILES}
 
 SRCS=	alt_prof.c \
 	chpass_util.c \
@@ -29,7 +30,8 @@ SRCS=	alt_prof.c \
 
 .include "${KRB5_SRCTOP}/lib/kadm5clnt/clnt/Makefile.inc"
 
-CFLAGS+=-I${KRB5_DIR}/lib/kadm5 \
+CFLAGS+=-I${KRB5_DIR}/lib \
+	-I${KRB5_DIR}/lib/kadm5 \
 	-I${KRB5_DIR}/include \
 	-I${KRB5_OBJTOP}/include/krb5_private \
 	-I${KRB5_SRCTOP}/include \
@@ -37,10 +39,6 @@ CFLAGS+=-I${KRB5_DIR}/lib/kadm5 \
 
 INCSDIR=${INCLUDEDIR}/kadm5
 INCS=	admin.h \
-	admin_internal.h \
-	admin_xdr.h \
-	kadm_rpc.h \
-	server_internal.h \
 	${GENI}
 
 KADM_ERR=	kadm_err.et
@@ -92,6 +90,9 @@ afterinstall:
 
 .include <bsd.lib.mk>
 
+all: ${PCFILES}
+
 .SUFFIXES: .h .c
 
-.PATH:	${KRB5_DIR}/lib/kadm5
+.PATH:	${KRB5_DIR}/build-tools \
+	${KRB5_DIR}/lib/kadm5

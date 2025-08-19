@@ -1,5 +1,5 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
@@ -7,7 +7,7 @@
 # under sponsorship from the FreeBSD Foundation.
 #
 
-PACKAGE=	krb5
+PACKAGE=	kerberos-lib
 
 .include <src.opts.mk>
 
@@ -15,6 +15,7 @@ PACKAGE=	krb5
 
 LIB=		verto
 # SHLIB_MAJOR=	0
+VERSION_MAP=	${.CURDIR}/version.map
 
 .PATH: ${KRB5_DIR}/util/verto
 
