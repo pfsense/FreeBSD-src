@@ -9036,7 +9036,7 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr))) {
 		if (s)
 			PF_STATE_UNLOCK(s);
-		return;
+		return (action);
 	}
 
 	bzero(&ro, sizeof(ro));
@@ -9122,12 +9122,12 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
 				    (ifa->ifa_dstaddr &&
 				    (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
-					return;
+					return (action);
 				continue;
 			}
 			if (ifp->if_flags & IFF_POINTOPOINT) {
 				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
-					return;
+					return (action);
 			} else {
 				cp = addr->sa_data;
 				cp2 = ifa->ifa_addr->sa_data;
@@ -9137,19 +9137,19 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 					if ((*cp++ ^ *cp2++) & *cp3)
 						break;
 				if (cp3 == cplim)
-					return;
+					return (action);
 			}
 		}
 	}
 	else if (r->rt == PF_ROUTETO && r->direction == pd->dir && in_localip(ip->ip_dst))
-		return;
+		return (action);
 
 	if (r->rt == PF_DUPTO)
 		skip_test = true;
 
 	if (pd->dir == PF_IN && !skip_test) {
 		if (in_ifnet_broadcast(ip->ip_dst, oifp)) /* XXX: LOCKING of address list?! */
-			return;
+			return (action);
 		if (pf_test(AF_INET, PF_OUT, PFIL_FWD, ifp, &m0, inp,
 		    &pd->act) != PF_PASS) {
 			action = PF_DROP;
@@ -9400,7 +9400,7 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 	if (IN6_IS_ADDR_MULTICAST(&ip6->ip6_src)) {
 		if (s)
 			PF_STATE_UNLOCK(s);
-		return;
+		return (action);
 	}
 
 	bzero(&dst, sizeof(dst));
@@ -9495,12 +9495,12 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
 				    (ifa->ifa_dstaddr &&
 				     (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
-					return;
+					return (action);
 				continue;
 			}
 			if (ifp->if_flags & IFF_POINTOPOINT) {
 				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
-					return;
+					return (action);
 			} else {
 				cp = addr->sa_data;
 				cp2 = ifa->ifa_addr->sa_data;
@@ -9510,11 +9510,11 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 					if ((*cp++ ^ *cp2++) & *cp3)
 						break;
 				if (cp3 == cplim)
-					return;
+					return (action);
 			}
 		}
 	} else if (r->rt == PF_ROUTETO && r->direction == pd->dir && in6_localaddr(&ip6->ip6_dst))
-		return;
+		return (action);
 
 	if (r->rt == PF_DUPTO)
 		skip_test = true;
