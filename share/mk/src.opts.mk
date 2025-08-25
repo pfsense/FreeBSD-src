@@ -143,6 +143,7 @@ __DEFAULT_YES_OPTIONS = \
     MAIL \
     MAILWRAPPER \
     MAKE \
+    MITKRB5 \
     MLX5TOOL \
     NETCAT \
     NETGRAPH \
@@ -211,7 +212,6 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_VERIEXEC_PASS_MANIFEST \
     LLVM_FULL_DEBUGINFO \
     MALLOC_PRODUCTION \
-    MITKRB5 \
     OFED_EXTRA \
     OPENLDAP \
     REPRODUCIBLE_BUILD \
@@ -296,9 +296,9 @@ __DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF LLVM_TARGET_MIPS
 .include <bsd.compiler.mk>
 
 .if ${__T} == "i386" || ${__T} == "amd64"
-__DEFAULT_NO_OPTIONS += FDT
+__DEFAULT_NO_OPTIONS+=FDT
 .else
-__DEFAULT_YES_OPTIONS += FDT
+__DEFAULT_YES_OPTIONS+=FDT
 .endif
 
 .if ${__T:Marm*} == "" && ${__T:Mriscv64*} == ""
@@ -508,7 +508,7 @@ MK_LOADER_VERIEXEC_PASS_MANIFEST := no
 # MK_* options whose default value depends on another option.
 #
 .for vv in \
-    GSSAPI/KERBEROS \
+    KERBEROS_SUPPORT/KERBEROS \
     MAN_UTILS/MAN
 .if defined(WITH_${vv:H})
 MK_${vv:H}:=	yes
@@ -518,9 +518,5 @@ MK_${vv:H}:=	no
 MK_${vv:H}:=	${MK_${vv:T}}
 .endif
 .endfor
-
-#
-# Set defaults for the MK_*_SUPPORT variables.
-#
 
 .endif #  !target(__<src.opts.mk>__)

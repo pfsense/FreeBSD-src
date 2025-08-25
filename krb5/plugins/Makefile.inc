@@ -1,5 +1,5 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
@@ -7,10 +7,11 @@
 # under sponsorship from the FreeBSD Foundation.
 #
 
+PACKAGE?=	kerberos-kdc
 MK_INSTALLLIB=	no
 SHLIB_NAME?=	${LIB}.so.${SHLIB_MAJOR}
 PLUGINSDIR=	${LIBDIR_BASE}/krb5/plugins
 SHLIBDIR=	${LIBDIR}
-SHLIB_MAJOR=	121
+SHLIB_MAJOR=	122
 
 .include "../Makefile.inc"

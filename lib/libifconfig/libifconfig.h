@@ -69,6 +69,8 @@ struct ifconfig_bridge_status {
 	size_t members_count;		/**< how many member interfaces */
 	uint32_t cache_size;		/**< size of address cache */
 	uint32_t cache_lifetime;	/**< address cache entry lifetime */
+	ifbr_flags_t flags;		/**< bridge flags */
+	ether_vlanid_t defpvid;		/**< default pvid */
 };
 
 struct ifconfig_capabilities {
@@ -169,7 +171,6 @@ int ifconfig_set_name(ifconfig_handle_t *h, const char *name,
     const char *newname);
 int ifconfig_get_orig_name(ifconfig_handle_t *h, const char *ifname,
     char **orig_name);
-int ifconfig_set_fib(ifconfig_handle_t *h, const char *name, int fib);
 int ifconfig_get_fib(ifconfig_handle_t *h, const char *name, int *fib);
 int ifconfig_set_mtu(ifconfig_handle_t *h, const char *name, const int mtu);
 int ifconfig_get_mtu(ifconfig_handle_t *h, const char *name, int *mtu);

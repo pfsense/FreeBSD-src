@@ -1,13 +1,11 @@
 #
-# SPDX-License-Idendifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2025 FreeBSD Foundation
 #
 # This sofware was developed by Cy Schubert <cy@FreeBSD.org>
 # under sponsorship from the FreeBSD Foundation.
 #
-
-PACKAGE=	krb5
 
 .include <src.opts.mk>
 
@@ -17,6 +15,7 @@ LIB=		spake
 LIBDIR=		${PLUGINSDIR}/preauth
 LDFLAGS=-Wl,--no-undefined
 LIBADD=	krb5profile krb5 k5crypto com_err krb5support crypto sys
+VERSION_MAP=	${.CURDIR}/version.map
 
 .PATH:	${KRB5_DIR}/plugins/preauth/spake
 

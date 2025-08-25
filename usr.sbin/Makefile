@@ -56,7 +56,6 @@ SUBDIR=	adduser \
 	nfsuserd \
 	nmtree \
 	nologin \
-	nvmfd \
 	pciconf \
 	periodic \
 	pnfsdscopymr \
@@ -140,7 +139,7 @@ SUBDIR.${MK_FLOPPY}+=	fdformat
 SUBDIR.${MK_FLOPPY}+=	fdread
 SUBDIR.${MK_FLOPPY}+=	fdwrite
 SUBDIR.${MK_FREEBSD_UPDATE}+=	freebsd-update
-SUBDIR.${MK_GSSAPI}+=	gssd
+SUBDIR.${MK_KERBEROS_SUPPORT}+=	gssd
 SUBDIR.${MK_GPIO}+=	gpioctl
 SUBDIR.${MK_HYPERV}+=	hyperv
 SUBDIR.${MK_INET6}+=	ip6addrctl
