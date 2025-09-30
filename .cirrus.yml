@@ -213,7 +213,7 @@ precommit_task:
     - pkg --version
 
   ci_script:
-    - make -C tests/ci TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} CITYPE=smoke ci
+    - make -C tests/ci TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} CIENV=cirrus CITYPE=smoke ci
 
   post_script:
     - df -m

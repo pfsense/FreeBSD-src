@@ -763,6 +763,8 @@ static const struct nlattr_parser nla_p_rule[] = {
 	{ .type = PF_RT_RCV_IFNOT, .off = _OUT(rcvifnot), .cb = nlattr_get_bool },
 	{ .type = PF_RT_PKTRATE, .off = _OUT(pktrate), .arg = &threshold_parser, .cb = nlattr_get_nested },
 	{ .type = PF_RT_MAX_PKT_SIZE, .off = _OUT(max_pkt_size), .cb = nlattr_get_uint16 },
+	{ .type = PF_RT_TYPE_2, .off = _OUT(type), .cb = nlattr_get_uint16 },
+	{ .type = PF_RT_CODE_2, .off = _OUT(code), .cb = nlattr_get_uint16 },
 };
 NL_DECLARE_ATTR_PARSER(rule_parser, nla_p_rule);
 #undef _OUT
@@ -984,8 +986,12 @@ pf_handle_getrule(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	nlattr_add_u8(nw, PF_RT_AF, rule->af);
 	nlattr_add_u8(nw, PF_RT_NAF, rule->naf);
 	nlattr_add_u8(nw, PF_RT_PROTO, rule->proto);
+
 	nlattr_add_u8(nw, PF_RT_TYPE, rule->type);
 	nlattr_add_u8(nw, PF_RT_CODE, rule->code);
+	nlattr_add_u16(nw, PF_RT_TYPE_2, rule->type);
+	nlattr_add_u16(nw, PF_RT_CODE_2, rule->code);
+
 	nlattr_add_u8(nw, PF_RT_FLAGS, rule->flags);
 	nlattr_add_u8(nw, PF_RT_FLAGSET, rule->flagset);
 	nlattr_add_u8(nw, PF_RT_MIN_TTL, rule->min_ttl);
@@ -1019,6 +1025,7 @@ pf_handle_getrule(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	nlattr_add_u64(nw, PF_RT_SRC_NODES_NAT, counter_u64_fetch(rule->src_nodes[PF_SN_NAT]));
 	nlattr_add_u64(nw, PF_RT_SRC_NODES_ROUTE, counter_u64_fetch(rule->src_nodes[PF_SN_ROUTE]));
 	nlattr_add_pf_threshold(nw, PF_RT_PKTRATE, &rule->pktrate);
+	nlattr_add_time_t(nw, PF_RT_EXPTIME, time_second - (time_uptime - rule->exptime));
 
 	error = pf_kanchor_copyout(ruleset, rule, anchor_call, sizeof(anchor_call));
 	MPASS(error == 0);
@@ -1228,6 +1235,9 @@ pf_handle_get_status(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	    V_pf_status.fcounters);
 	nlattr_add_counters(nw, PF_GS_SCOUNTERS, SCNT_MAX, pf_fcounter,
 	    V_pf_status.scounters);
+	nlattr_add_counters(nw, PF_GS_NCOUNTERS, NCNT_MAX, pf_fcounter,
+	    V_pf_status.ncounters);
+	nlattr_add_u64(nw, PF_GS_FRAGMENTS, pf_normalize_get_frag_count());
 
 	pfi_update_status(V_pf_status.ifname, &s);
 	nlattr_add_u64_array(nw, PF_GS_BCOUNTERS, 2 * 2, (uint64_t *)s.bcounters);
@@ -1945,7 +1955,7 @@ pf_handle_get_tstats(struct nlmsghdr *hdr, struct nl_pstate *npt)
 
 	n = pfr_table_count(&attrs.pfrio_table, attrs.pfrio_flags);
 	pfrtstats = mallocarray(n,
-	    sizeof(struct pfr_tstats), M_TEMP, M_NOWAIT | M_ZERO);
+	    sizeof(struct pfr_tstats), M_PF, M_NOWAIT | M_ZERO);
 
 	error = pfr_get_tstats(&attrs.pfrio_table, pfrtstats,
 	    &n, attrs.pfrio_flags | PFR_FLAG_USERIOCTL);
@@ -1997,7 +2007,7 @@ pf_handle_get_tstats(struct nlmsghdr *hdr, struct nl_pstate *npt)
 			}
 		}
 	}
-	free(pfrtstats, M_TEMP);
+	free(pfrtstats, M_PF);
 
 	if (!nlmsg_end_dump(npt->nw, error, hdr)) {
 		NL_LOG(LOG_DEBUG, "Unable to finalize the dump");

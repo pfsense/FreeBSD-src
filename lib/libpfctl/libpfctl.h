@@ -62,6 +62,8 @@ struct pfctl_status {
 	struct pfctl_status_counters	 lcounters;
 	struct pfctl_status_counters	 fcounters;
 	struct pfctl_status_counters	 scounters;
+	struct pfctl_status_counters	 ncounters;
+	uint64_t	fragments;
 	uint64_t	pcounters[2][2][2];
 	uint64_t	bcounters[2][2];
 };
@@ -261,8 +263,8 @@ struct pfctl_rule {
 	uint8_t			 keep_state;
 	sa_family_t		 af;
 	uint8_t			 proto;
-	uint8_t			 type;
-	uint8_t			 code;
+	uint16_t		 type;
+	uint16_t		 code;
 	uint8_t			 flags;
 	uint8_t			 flagset;
 	uint8_t			 min_ttl;
@@ -283,6 +285,8 @@ struct pfctl_rule {
 		struct pf_addr		addr;
 		uint16_t		port;
 	}			divert;
+
+	time_t			exptime;
 };
 
 TAILQ_HEAD(pfctl_rulequeue, pfctl_rule);

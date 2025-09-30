@@ -231,7 +231,7 @@ tarfs_lookup(struct vop_cachedlookup_args *ap)
 	vpp = ap->a_vpp;
 	cnp = ap->a_cnp;
 
-	*vpp = NULLVP;
+	*vpp = NULL;
 	dirnode = VP_TO_TARFS_NODE(dvp);
 	parent = dirnode->parent;
 	tmp = dirnode->tmp;
@@ -256,7 +256,7 @@ tarfs_lookup(struct vop_cachedlookup_args *ap)
 		if (error != 0)
 			return (error);
 	} else if (cnp->cn_namelen == 1 && cnp->cn_nameptr[0] == '.') {
-		VREF(dvp);
+		vref(dvp);
 		*vpp = dvp;
 #ifdef TARFS_DEBUG
 	} else if (dirnode == dirnode->tmp->root &&
@@ -334,6 +334,10 @@ tarfs_readdir(struct vop_readdir_args *ap)
 	    tnp, tnp->name, uio->uio_offset, uio->uio_resid);
 
 	if (uio->uio_offset == TARFS_COOKIE_EOF) {
+		if (eofflag != NULL) {
+			TARFS_DPF(VNODE, "%s: Setting EOF flag\n", __func__);
+			*eofflag = 1;
+		}
 		TARFS_DPF(VNODE, "%s: EOF\n", __func__);
 		return (0);
 	}
@@ -581,7 +585,7 @@ tarfs_reclaim(struct vop_reclaim_args *ap)
 	vfs_hash_remove(vp);
 
 	TARFS_NODE_LOCK(tnp);
-	tnp->vnode = NULLVP;
+	tnp->vnode = NULL;
 	vp->v_data = NULL;
 	TARFS_NODE_UNLOCK(tnp);
 

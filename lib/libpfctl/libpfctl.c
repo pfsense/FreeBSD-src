@@ -391,6 +391,8 @@ static const struct snl_attr_parser ap_getstatus[] = {
 	{ .type = PF_GS_CHKSUM, .off = _OUT(pf_chksum), .arg_u32 = PF_MD5_DIGEST_LENGTH, .cb = snl_attr_get_bytes },
 	{ .type = PF_GS_BCOUNTERS, .off = _OUT(bcounters), .arg_u32 = 2 * 2, .cb = snl_attr_get_uint64_array },
 	{ .type = PF_GS_PCOUNTERS, .off = _OUT(pcounters), .arg_u32 = 2 * 2 * 2, .cb = snl_attr_get_uint64_array },
+	{ .type = PF_GS_NCOUNTERS, .off = _OUT(ncounters), .cb = snl_attr_get_counters },
+	{ .type = PF_GS_FRAGMENTS, .off = _OUT(fragments), .cb = snl_attr_get_uint64 },
 };
 SNL_DECLARE_PARSER(getstatus_parser, struct genlmsghdr, snl_f_p_empty, ap_getstatus);
 #undef _OUT
@@ -429,6 +431,7 @@ pfctl_get_status_h(struct pfctl_handle *h)
 	TAILQ_INIT(&status->lcounters);
 	TAILQ_INIT(&status->fcounters);
 	TAILQ_INIT(&status->scounters);
+	TAILQ_INIT(&status->ncounters);
 
 	while ((hdr = snl_read_reply_multi(&h->ss, seq_id, &e)) != NULL) {
 		if (! snl_parse_nlmsg(&h->ss, hdr, &getstatus_parser, status))
@@ -1284,8 +1287,8 @@ snl_add_msg_attr_pf_rule(struct snl_writer *nw, uint32_t type, const struct pfct
 	snl_add_msg_attr_u8(nw, PF_RT_KEEP_STATE, r->keep_state);
 	snl_add_msg_attr_u8(nw, PF_RT_AF, r->af);
 	snl_add_msg_attr_u8(nw, PF_RT_PROTO, r->proto);
-	snl_add_msg_attr_u8(nw, PF_RT_TYPE, r->type);
-	snl_add_msg_attr_u8(nw, PF_RT_CODE, r->code);
+	snl_add_msg_attr_u16(nw, PF_RT_TYPE_2, r->type);
+	snl_add_msg_attr_u16(nw, PF_RT_CODE_2, r->code);
 	snl_add_msg_attr_u8(nw, PF_RT_FLAGS, r->flags);
 	snl_add_msg_attr_u8(nw, PF_RT_FLAGSET, r->flagset);
 	snl_add_msg_attr_u8(nw, PF_RT_MIN_TTL, r->min_ttl);
@@ -1694,6 +1697,9 @@ static struct snl_attr_parser ap_getrule[] = {
 	{ .type = PF_RT_SRC_NODES_ROUTE, .off = _OUT(r.src_nodes_type[PF_SN_ROUTE]), .cb = snl_attr_get_uint64 },
 	{ .type = PF_RT_PKTRATE, .off = _OUT(r.pktrate), .arg = &pfctl_threshold_parser, .cb = snl_attr_get_nested },
 	{ .type = PF_RT_MAX_PKT_SIZE, .off =_OUT(r.max_pkt_size), .cb = snl_attr_get_uint16 },
+	{ .type = PF_RT_TYPE_2, .off = _OUT(r.type), .cb = snl_attr_get_uint16 },
+	{ .type = PF_RT_CODE_2, .off = _OUT(r.code), .cb = snl_attr_get_uint16 },
+	{ .type = PF_RT_EXPTIME, .off = _OUT(r.exptime), .cb = snl_attr_get_time_t },
 };
 #undef _OUT
 SNL_DECLARE_PARSER(getrule_parser, struct genlmsghdr, snl_f_p_empty, ap_getrule);

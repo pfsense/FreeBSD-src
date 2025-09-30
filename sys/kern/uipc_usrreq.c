@@ -154,15 +154,12 @@ static struct task	unp_defer_task;
  * and don't really want to reserve the sendspace.  Their recvspace should be
  * large enough for at least one max-size datagram plus address.
  */
-#ifndef PIPSIZ
-#define	PIPSIZ	8192
-#endif
-static u_long	unpst_sendspace = PIPSIZ;
-static u_long	unpst_recvspace = PIPSIZ;
+static u_long	unpst_sendspace = 64*1024;
+static u_long	unpst_recvspace = 64*1024;
 static u_long	unpdg_maxdgram = 8*1024;	/* support 8KB syslog msgs */
 static u_long	unpdg_recvspace = 16*1024;
-static u_long	unpsp_sendspace = PIPSIZ;
-static u_long	unpsp_recvspace = PIPSIZ;
+static u_long	unpsp_sendspace = 64*1024;
+static u_long	unpsp_recvspace = 64*1024;
 
 static SYSCTL_NODE(_net, PF_LOCAL, local, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Local domain");
@@ -1810,9 +1807,7 @@ uipc_filt_sowrite(struct knote *kn, long hint)
 	kn->kn_data = uipc_stream_sbspace(&so2->so_rcv);
 
 	if (so2->so_rcv.sb_state & SBS_CANTRCVMORE) {
-		/*
-		 * XXXGL: maybe kn->kn_flags |= EV_EOF ?
-		 */
+		kn->kn_flags |= EV_EOF;
 		return (1);
 	} else if (kn->kn_sfflags & NOTE_LOWAT)
 		return (kn->kn_data >= kn->kn_sdata);
@@ -3672,11 +3667,14 @@ unp_internalize(struct mbuf *control, struct mchain *mc, struct thread *td)
 			cmcred->cmcred_uid = td->td_ucred->cr_ruid;
 			cmcred->cmcred_gid = td->td_ucred->cr_rgid;
 			cmcred->cmcred_euid = td->td_ucred->cr_uid;
-			cmcred->cmcred_ngroups = MIN(td->td_ucred->cr_ngroups,
+			_Static_assert(CMGROUP_MAX >= 1,
+			    "Room needed for the effective GID.");
+			cmcred->cmcred_ngroups = MIN(td->td_ucred->cr_ngroups + 1,
 			    CMGROUP_MAX);
-			for (i = 0; i < cmcred->cmcred_ngroups; i++)
+			cmcred->cmcred_groups[0] = td->td_ucred->cr_gid;
+			for (i = 1; i < cmcred->cmcred_ngroups; i++)
 				cmcred->cmcred_groups[i] =
-				    td->td_ucred->cr_groups[i];
+				    td->td_ucred->cr_groups[i - 1];
 			break;
 
 		case SCM_RIGHTS:

@@ -1235,11 +1235,20 @@ in6_addifaddr(struct ifnet *ifp, struct in6_aliasreq *ifra, struct in6_ifaddr *i
 	int carp_attached = 0;
 	int error;
 
-	/* Check if this interface is a bridge member */
-	if (ifp->if_bridge && bridge_member_ifaddrs_p &&
-	    !bridge_member_ifaddrs_p()) {
-		error = EINVAL;
-		goto out;
+	/*
+	 * Check if bridge wants to allow adding addrs to member interfaces.
+	 */
+	if (ifp->if_bridge != NULL && ifp->if_type != IFT_GIF &&
+	    bridge_member_ifaddrs_p != NULL) {
+		if (bridge_member_ifaddrs_p()) {
+			if_printf(ifp, "WARNING: Assigning an IP address to "
+			    "an interface which is also a bridge member is "
+			    "deprecated and will be unsupported in a future "
+			    "release.\n");
+		} else {
+			error = EINVAL;
+			goto out;
+		}
 	}
 
 	/*
@@ -2595,6 +2604,8 @@ in6_domifattach(struct ifnet *ifp)
 	COUNTER_ARRAY_ALLOC(ext->icmp6_ifstat,
 	    sizeof(struct icmp6_ifstat) / sizeof(uint64_t), M_WAITOK);
 
+	ext->dad_failures = counter_u64_alloc(M_WAITOK);
+
 	ext->nd_ifinfo = nd6_ifattach(ifp);
 	ext->scope6_id = scope6_ifattach(ifp);
 	ext->lltable = in6_lltattach(ifp);
@@ -2618,6 +2629,8 @@ in6_domifdetach(struct ifnet *ifp, void *aux)
 {
 	struct in6_ifextra *ext = (struct in6_ifextra *)aux;
 
+	MPASS(ifp->if_afdata[AF_INET6] == NULL);
+
 	mld_domifdetach(ifp);
 	scope6_ifdetach(ext->scope6_id);
 	nd6_ifdetach(ifp, ext->nd_ifinfo);
@@ -2628,6 +2641,7 @@ in6_domifdetach(struct ifnet *ifp, void *aux)
 	COUNTER_ARRAY_FREE(ext->icmp6_ifstat,
 	    sizeof(struct icmp6_ifstat) / sizeof(uint64_t));
 	free(ext->icmp6_ifstat, M_IFADDR);
+	counter_u64_free(ext->dad_failures);
 	free(ext, M_IFADDR);
 }
 

@@ -107,7 +107,9 @@ extern uint_t zfs_reconstruct_indirect_combinations_max;
 extern uint_t zfs_btree_verify_intensity;
 
 static const char cmdname[] = "zdb";
-uint8_t dump_opt[256];
+uint8_t dump_opt[512];
+
+#define	ALLOCATED_OPT	256
 
 typedef void object_viewer_t(objset_t *, uint64_t, void *data, size_t size);
 
@@ -383,7 +385,7 @@ verify_livelist_allocs(metaslab_verify_t *mv, uint64_t txg,
 	sublivelist_verify_block_t svb = {{{0}}};
 	DVA_SET_VDEV(&svb.svb_dva, mv->mv_vdid);
 	DVA_SET_OFFSET(&svb.svb_dva, offset);
-	DVA_SET_ASIZE(&svb.svb_dva, size);
+	DVA_SET_ASIZE(&svb.svb_dva, 0);
 	zfs_btree_index_t where;
 	uint64_t end_offset = offset + size;
 
@@ -1586,9 +1588,8 @@ dump_spacemap(objset_t *os, space_map_t *sm)
 			continue;
 		}
 
-		uint8_t words;
 		char entry_type;
-		uint64_t entry_off, entry_run, entry_vdev = SM_NO_VDEVID;
+		uint64_t entry_off, entry_run, entry_vdev;
 
 		if (sm_entry_is_single_word(word)) {
 			entry_type = (SM_TYPE_DECODE(word) == SM_ALLOC) ?
@@ -1596,18 +1597,23 @@ dump_spacemap(objset_t *os, space_map_t *sm)
 			entry_off = (SM_OFFSET_DECODE(word) << mapshift) +
 			    sm->sm_start;
 			entry_run = SM_RUN_DECODE(word) << mapshift;
-			words = 1;
+
+			(void) printf("\t    [%6llu] %c "
+			    "range: %012llx-%012llx size: %08llx\n",
+			    (u_longlong_t)entry_id, entry_type,
+			    (u_longlong_t)entry_off,
+			    (u_longlong_t)(entry_off + entry_run - 1),
+			    (u_longlong_t)entry_run);
 		} else {
 			/* it is a two-word entry so we read another word */
 			ASSERT(sm_entry_is_double_word(word));
 
 			uint64_t extra_word;
 			offset += sizeof (extra_word);
+			ASSERT3U(offset, <, space_map_length(sm));
 			VERIFY0(dmu_read(os, space_map_object(sm), offset,
 			    sizeof (extra_word), &extra_word,
 			    DMU_READ_PREFETCH));
-
-			ASSERT3U(offset, <=, space_map_length(sm));
 
 			entry_run = SM2_RUN_DECODE(word) << mapshift;
 			entry_vdev = SM2_VDEV_DECODE(word);
@@ -1615,16 +1621,19 @@ dump_spacemap(objset_t *os, space_map_t *sm)
 			    'A' : 'F';
 			entry_off = (SM2_OFFSET_DECODE(extra_word) <<
 			    mapshift) + sm->sm_start;
-			words = 2;
-		}
 
-		(void) printf("\t    [%6llu]    %c  range:"
-		    " %010llx-%010llx  size: %06llx vdev: %06llu words: %u\n",
-		    (u_longlong_t)entry_id,
-		    entry_type, (u_longlong_t)entry_off,
-		    (u_longlong_t)(entry_off + entry_run),
-		    (u_longlong_t)entry_run,
-		    (u_longlong_t)entry_vdev, words);
+			if (zopt_metaslab_args == 0 ||
+			    zopt_metaslab[0] == entry_vdev) {
+				(void) printf("\t    [%6llu] %c "
+				    "range: %012llx-%012llx size: %08llx "
+				    "vdev: %llu\n",
+				    (u_longlong_t)entry_id, entry_type,
+				    (u_longlong_t)entry_off,
+				    (u_longlong_t)(entry_off + entry_run - 1),
+				    (u_longlong_t)entry_run,
+				    (u_longlong_t)entry_vdev);
+			}
+		}
 
 		if (entry_type == 'A')
 			alloc += entry_run;
@@ -1660,6 +1669,16 @@ dump_metaslab_stats(metaslab_t *msp)
 }
 
 static void
+dump_allocated(void *arg, uint64_t start, uint64_t size)
+{
+	uint64_t *off = arg;
+	if (*off != start)
+		(void) printf("ALLOC: %"PRIu64" %"PRIu64"\n", *off,
+		    start - *off);
+	*off = start + size;
+}
+
+static void
 dump_metaslab(metaslab_t *msp)
 {
 	vdev_t *vd = msp->ms_group->mg_vd;
@@ -1675,13 +1694,24 @@ dump_metaslab(metaslab_t *msp)
 	    (u_longlong_t)msp->ms_id, (u_longlong_t)msp->ms_start,
 	    (u_longlong_t)space_map_object(sm), freebuf);
 
-	if (dump_opt['m'] > 2 && !dump_opt['L']) {
+	if (dump_opt[ALLOCATED_OPT] ||
+	    (dump_opt['m'] > 2 && !dump_opt['L'])) {
 		mutex_enter(&msp->ms_lock);
 		VERIFY0(metaslab_load(msp));
+	}
+
+	if (dump_opt['m'] > 2 && !dump_opt['L']) {
 		zfs_range_tree_stat_verify(msp->ms_allocatable);
 		dump_metaslab_stats(msp);
-		metaslab_unload(msp);
-		mutex_exit(&msp->ms_lock);
+	}
+
+	if (dump_opt[ALLOCATED_OPT]) {
+		uint64_t off = msp->ms_start;
+		zfs_range_tree_walk(msp->ms_allocatable, dump_allocated,
+		    &off);
+		if (off != msp->ms_start + msp->ms_size)
+			(void) printf("ALLOC: %"PRIu64" %"PRIu64"\n", off,
+			    msp->ms_size - off);
 	}
 
 	if (dump_opt['m'] > 1 && sm != NULL &&
@@ -1694,6 +1724,12 @@ dump_metaslab(metaslab_t *msp)
 		    (u_longlong_t)msp->ms_fragmentation);
 		dump_histogram(sm->sm_phys->smp_histogram,
 		    SPACE_MAP_HISTOGRAM_SIZE, sm->sm_shift);
+	}
+
+	if (dump_opt[ALLOCATED_OPT] ||
+	    (dump_opt['m'] > 2 && !dump_opt['L'])) {
+		metaslab_unload(msp);
+		mutex_exit(&msp->ms_lock);
 	}
 
 	if (vd->vdev_ops == &vdev_draid_ops)
@@ -1732,8 +1768,9 @@ print_vdev_metaslab_header(vdev_t *vd)
 		}
 	}
 
-	(void) printf("\tvdev %10llu   %s",
-	    (u_longlong_t)vd->vdev_id, bias_str);
+	(void) printf("\tvdev %10llu\t%s  metaslab shift %4llu",
+	    (u_longlong_t)vd->vdev_id, bias_str,
+	    (u_longlong_t)vd->vdev_ms_shift);
 
 	if (ms_flush_data_obj != 0) {
 		(void) printf("   ms_unflushed_phys object %llu",
@@ -1873,7 +1910,7 @@ dump_metaslabs(spa_t *spa)
 
 	(void) printf("\nMetaslabs:\n");
 
-	if (!dump_opt['d'] && zopt_metaslab_args > 0) {
+	if (zopt_metaslab_args > 0) {
 		c = zopt_metaslab[0];
 
 		if (c >= children)
@@ -2628,7 +2665,7 @@ print_indirect(spa_t *spa, blkptr_t *bp, const zbookmark_phys_t *zb,
 		if (BP_GET_LEVEL(bp) != zb->zb_level) {
 			(void) printf(" (ERROR: Block pointer level "
 			    "(%llu) does not match bookmark level (%lld))",
-			    BP_GET_LEVEL(bp), (u_longlong_t)zb->zb_level);
+			    BP_GET_LEVEL(bp), (longlong_t)zb->zb_level);
 			corruption_found = B_TRUE;
 		}
 	}
@@ -9368,6 +9405,8 @@ main(int argc, char **argv)
 		{"all-reconstruction",	no_argument,		NULL, 'Y'},
 		{"livelist",		no_argument,		NULL, 'y'},
 		{"zstd-headers",	no_argument,		NULL, 'Z'},
+		{"allocated-map",	no_argument,		NULL,
+		    ALLOCATED_OPT},
 		{0, 0, 0, 0}
 	};
 
@@ -9398,6 +9437,7 @@ main(int argc, char **argv)
 		case 'u':
 		case 'y':
 		case 'Z':
+		case ALLOCATED_OPT:
 			dump_opt[c]++;
 			dump_all = 0;
 			break;

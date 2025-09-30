@@ -585,10 +585,10 @@ BRANCH_EXT=	${MAJOR_REVISION}.snap
 EXTRA_REVISION=	.snap${_TIMENOW}
 .elif ${_BRANCH:MALPHA*}
 BRANCH_EXT=	alpha
-EXTRA_REVISION=	.${_BRANCH:C/ALPHA([0-9]+).*/\1/}.${_TIMENOW}
+EXTRA_REVISION=	.a${_BRANCH:C/ALPHA([0-9]+).*/\1/}.${_TIMENOW}
 .elif ${_BRANCH:MBETA*}
 BRANCH_EXT=	beta
-EXTRA_REVISION=	.${_BRANCH:C/BETA([0-9]+).*/\1/}.${_TIMENOW}
+EXTRA_REVISION=	.b${_BRANCH:C/BETA([0-9]+).*/\1/}.${_TIMENOW}
 .elif ${_BRANCH:MRC*}
 BRANCH_EXT=	rc
 EXTRA_REVISION=	.rc${_BRANCH:C/RC([0-9]+).*/\1/}.${_TIMENOW}
@@ -644,7 +644,10 @@ XPATH=		${WORLDTMP}/bin:${WORLDTMP}/usr/sbin:${WORLDTMP}/usr/bin
 # When building we want to find the cross tools before the host tools in ${BPATH}.
 # We also need to add UNIVERSE_TOOLCHAIN_PATH so that we can find the shared
 # toolchain files (clang, lld, etc.) during make universe/tinderbox
-STRICTTMPPATH=	${XPATH}:${BPATH}:${UNIVERSE_TOOLCHAIN_PATH}
+STRICTTMPPATH=	${XPATH}:${BPATH}
+.if defined(UNIVERSE_TOOLCHAIN_PATH)
+STRICTTMPPATH:=${STRICTTMPPATH}:${UNIVERSE_TOOLCHAIN_PATH}
+.endif
 # We should not be using tools from /usr/bin accidentally since this could cause
 # the build to break on other systems that don't have that tool. For now we
 # still allow using the old behaviour (inheriting $PATH) if
@@ -1989,16 +1992,20 @@ PKG_ABI!=	${PKG_CMD} -o ABI_FILE=${PKG_ABI_FILE} config ABI
 
 _pkgbootstrap: .PHONY
 .if make(*package*) && !exists(${LOCALBASE}/sbin/pkg)
+.if defined(BOOTSTRAP_PKG_FROM_PORTS)
+	env - UNAME_r=${UNAME_r} PATH=$$PATH \
+	    make -C ${PORTSDIR}/ports-mgmt/pkg \
+	    I_DONT_CARE_IF_MY_BUILDS_TARGET_THE_WRONG_RELEASE=1 \
+	    BATCH=1 WRKDIRPREFIX=/tmp/ports DISTDIR=/tmp/distfiles \
+	    all install clean
+.else
 	@env ASSUME_ALWAYS_YES=YES pkg bootstrap
+.endif
 .endif
 
 PKG_BIN_VERSION!=${PKG_CMD} --version </dev/null 2>/dev/null |\
-    awk -F. '/^[0-9.]+$$/ {print $$1 * 10000 + $$2 * 100 + $$3}'
-.if ${PKG_BIN_VERSION} < 11700
-PKG_EXT=	${PKG_FORMAT}
-.else
+    awk -F. '/^[0-9.]+(-.*)?$$/ {print $$1 * 10000 + $$2 * 100 + $$3}'
 PKG_EXT=	pkg
-.endif
 
 .if !defined(PKG_VERSION_FROM) && make(real-update-packages) && \
     exists(${PKG_ABI_FILE}) && exists(${REPODIR}/${PKG_ABI}/latest)
@@ -2035,13 +2042,17 @@ packages: .PHONY
 update-packages: .PHONY
 	${_+_}${MAKE} -C ${.CURDIR} ${PKGMAKEARGS} real-update-packages
 
-package-pkg: .PHONY
+package-pkg: _pkgbootstrap _repodir .PHONY
+.if defined(INCLUDE_PKG_IN_PKGBASE_REPO)
+.if exists(${PORTSDIR})
 	rm -rf /tmp/ports.${TARGET} || :
-	env ${WMAKEENV:Q} SRCDIR=${.CURDIR} PORTSDIR=${PORTSDIR} REVISION=${_REVISION} \
+	env ${WMAKEENV} SRCDIR=${.CURDIR} PORTSDIR=${PORTSDIR} REVISION=${_REVISION} \
 		PKG_CMD=${PKG_CMD} PKG_VERSION=${PKG_VERSION} REPODIR=${REPODIR} \
 		WSTAGEDIR=${WSTAGEDIR} \
-		OSVERSION="${SRCRELDATE}" \
+		OSVERSION="${SRCRELDATE}" LOCALBASE=${LOCALBASE} \
 		sh ${.CURDIR}/release/scripts/make-pkg-package.sh
+.endif
+.endif
 
 real-packages:	stage-packages create-packages sign-packages .PHONY
 
@@ -2094,6 +2105,14 @@ create-packages-world:	_pkgbootstrap _repodir .PHONY
 			DESTDIR=${WSTAGEDIR} \
 			PKG_VERSION=${PKG_VERSION} create-world-packages
 
+.ORDER: create-packages-world create-packages-sets
+.ORDER: create-packages-kernel create-packages-sets
+create-packages-sets:	_pkgbootstrap _repodir .PHONY
+	${_+_}@cd ${.CURDIR}; \
+		${MAKE} -f Makefile.inc1 \
+			DESTDIR=${WSTAGEDIR} \
+			PKG_VERSION=${PKG_VERSION} create-sets-packages
+
 create-packages-kernel:	_pkgbootstrap _repodir .PHONY
 	${_+_}@cd ${.CURDIR}; \
 		${MAKE} -f Makefile.inc1 \
@@ -2106,6 +2125,8 @@ create-packages-kernel-repo: .PHONY create-packages-kernel sign-packages
 
 create-packages-world-repo: .PHONY create-packages-world sign-packages
 
+create-packages-sets-repo: .PHONY create-packages-sets sign-packages
+
 create-packages-source:	_pkgbootstrap _repodir .PHONY
 	${_+_}@cd ${.CURDIR}; \
 		${MAKE} -f Makefile.inc1 \
@@ -2114,7 +2135,7 @@ create-packages-source:	_pkgbootstrap _repodir .PHONY
 			SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
 			create-source-packages
 
-create-packages: .PHONY create-packages-world create-packages-kernel create-packages-source
+create-packages: .PHONY create-packages-world create-packages-kernel create-packages-source package-pkg create-packages-sets
 
 create-source-src-package: _pkgbootstrap .PHONY
 	rm -f ${SSTAGEDIR}/src.plist 2>/dev/null || :
@@ -2211,6 +2232,24 @@ create-world-package-${pkgname}: .PHONY
 		-o ${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR}
 .endfor
 
+create-sets-packages-jobs: .PHONY create-sets-packages
+create-sets-packages: .PHONY
+	@echo "==> Creating set metapackages."
+	sh "${SRCDIR}/release/packages/create-sets.sh" "${SRCDIR}" \
+		"${WSTAGEDIR}" "${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR}" \
+		VERSION "${PKG_VERSION}" \
+		PKG_NAME_PREFIX "${PKG_NAME_PREFIX}" \
+		PKG_MAINTAINER "${PKG_MAINTAINER}" \
+		PKG_WWW "${PKG_WWW}"
+	@for manifest in ${WSTAGEDIR}/set-*.ucl; do \
+		echo "--> Processing manifest: $$manifest"; \
+		${PKG_CMD} -o ABI=${PKG_ABI} -o OSVERSION="${SRCRELDATE}" \
+			create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+			-M $$manifest \
+			-o "${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR}" \
+			|| exit 1; \
+	done
+
 _default_flavor=	-default
 .if make(*package*) && exists(${KSTAGEDIR}/kernel.meta)
 . if ${MK_DEBUG_FILES} != "no"
@@ -2275,6 +2314,9 @@ create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},}: _pkgbootstrap
 		-r ${KSTAGEDIR}/${DISTDIR} \
 		-o ${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR}
 . endfor
+.else
+create-kernel-packages: .PHONY
+
 .endif
 .if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
 . for _kernel in ${BUILDKERNELS:[2..-1]}
@@ -2328,9 +2370,6 @@ sign-packages:	.PHONY
 
 real-sign-packages:	_pkgbootstrap .PHONY
 	printf "version = 2;\n" > ${WSTAGEDIR}/meta
-.if ${PKG_BIN_VERSION} < 11700
-	printf "packing_format = \"${PKG_FORMAT}\";\n" >> ${WSTAGEDIR}/meta
-.endif
 	@${PKG_CMD} -o ABI=${PKG_ABI} -o OSVERSION="${SRCRELDATE}" \
 		-o WORKERS_COUNT=${PKG_WORKERS_COUNT} repo \
 		-m ${WSTAGEDIR}/meta \
@@ -2711,9 +2750,10 @@ _basic_bootstrap_tools+=usr.sbin/tzsetup
 
 # certctl is needed as an install tool.  libcrypto is rather heavy, so we'll
 # build that alongside it only for platforms that don't expose headers for
-# OpenSSL, like macOS.
+# OpenSSL, like macOS, or when building on releases with OpenSSL 1.x.
 .if ${MK_CAROOT} != "no" && ${MK_OPENSSL} != "no"
-.if ${.MAKE.OS} == "Darwin"
+.if ${.MAKE.OS} == "Darwin" || \
+    (${.MAKE.OS} == "FreeBSD" && ${BOOTSTRAPPING} < 1400000)
 _bootstrap_libcrypto=secure/lib/libcrypto
 ${_bt}-usr.sbin/certctl: ${_bt}-secure/lib/libcrypto
 .endif
@@ -3712,7 +3752,7 @@ check-old-libs: .PHONY
 list-old-dirs: .PHONY
 	@cd ${.CURDIR}; \
 	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_DIRS | sed -E 's/[[:space:]]+/\n/g' | sort -r
+	    -V "OLD_DIRS:ts\n" | sort -r
 
 delete-old-dirs: .PHONY
 	@echo ">>> Removing old directories"

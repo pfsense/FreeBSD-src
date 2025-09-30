@@ -5673,6 +5673,11 @@ iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	if (rinfo == NULL)
 		return EINVAL;
 
+	/* Offloaded sequence number assignment; non-AMPDU case */
+	if ((m->m_flags & M_AMPDU_MPDU) == 0)
+		ieee80211_output_seqno_assign(ni, -1, m);
+
+	/* Radiotap */
 	if (ieee80211_radiotap_active_vap(vap)) {
 		struct iwx_tx_radiotap_header *tap = &sc->sc_txtap;
 
@@ -5685,6 +5690,7 @@ iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 		ieee80211_radiotap_tx(vap, m);
 	}
 
+	/* Encrypt - CCMP via direct HW path, TKIP/WEP indirected openbsd-style for now */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
 		k = ieee80211_crypto_get_txkey(ni, m);
 		if (k == NULL) {
@@ -10467,6 +10473,10 @@ iwx_attach(device_t dev)
 	    IEEE80211_C_BGSCAN		/* capable of bg scanning */
 	    ;
 	ic->ic_flags_ext = IEEE80211_FEXT_SCAN_OFFLOAD;
+	/* Enable seqno offload */
+	ic->ic_flags_ext |= IEEE80211_FEXT_SEQNO_OFFLOAD;
+	/* Don't send null data frames; let firmware do it */
+	ic->ic_flags_ext |= IEEE80211_FEXT_NO_NULLDATA;
 
 	ic->ic_txstream = 2;
 	ic->ic_rxstream = 2;

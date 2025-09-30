@@ -22,8 +22,9 @@
 #  WORLDDIR: location of src tree -- must have built world and default kernel
 #            (by default, the directory above this one)
 #  NODISTSETS: if set, do not include dist sets or MANIFEST
-#  PKGBASE:  if set, include pkgbase packages rather than dist tarballs in
-#            disc1 and dvd1 installation media
+#  NOPKGBASE:  if set, include dist tarballs rather than pkgbase packages in
+#            disc1 and dvd1 installation media and build VM/cloud images using
+#            make installkernel installworld.
 #  PORTSDIR: location of ports tree to distribute (default: /usr/ports)
 #  XTRADIR:  xtra-bits-dir argument for <arch>/mkisoimages.sh
 #  NOPKG:    if set, do not distribute third-party packages
@@ -79,11 +80,16 @@ VOLUME_LABEL=	${REVISION:C/[.-]/_/g}_${BRANCH:C/[.-]/_/g}_${TARGET_ARCH}
 PKG_ENV+=	INSTALL_AS_USER=yes
 PKG_ENV+=	ASSUME_ALWAYS_YES=yes
 PKG_ARGS+=	-o METALOG=METALOG
-PKG_ARGS+=	-r ${.TARGET} -o REPOS_DIR=${.CURDIR}/pkg_repos
+PKG_ARGS+=	-r ${.TARGET}
+PKG_REPO_ARGS=	-o REPOS_DIR=${.CURDIR}/pkg_repos
+PKGBASE_REPO_ARGS=-o REPOS_DIR=${.OBJDIR}/pkgbase-repo-conf
 # Pass -f to make sure pkg writes to the METALOG even if the package
 # is already installed from a previous build
-PKG_INSTALL=	env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} install -f
-PKG_CLEAN=	env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} clean -a
+PKG_INSTALL=	env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} ${PKG_REPO_ARGS} install -f
+PKG_CLEAN=	env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} ${PKG_REPO_ARGS} clean -a
+# This installs from the pkgbase repo we created during build.
+PKGBASE_INSTALL=env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} ${PKGBASE_REPO_ARGS} install -f
+PKGBASE_CLEAN=	env ${PKG_ENV} ${PKG_CMD} ${PKG_ARGS} ${PKGBASE_REPO_ARGS} clean -a
 .endif
 
 .if !defined(VOLUME_LABEL) || empty(VOLUME_LABEL)
@@ -128,7 +134,7 @@ CLEANFILES+=	${I}.xz
 .if defined(WITH_DVD) && !empty(WITH_DVD)
 CLEANFILES+=	pkg-stage
 .endif
-CLEANDIRS=	dist pkgbase-repo pkgbase-repo-conf ftp disc1 disc1-disc1 disc1-memstick bootonly bootonly-bootonly bootonly-memstick dvd
+CLEANDIRS=	dist pkgdb-dvd pkgdb-disc1 pkgbase-repo pkgbase-repo-dir ftp disc1 disc1-disc1 disc1-memstick bootonly bootonly-bootonly bootonly-memstick dvd
 beforeclean:
 	chflags -R noschg .
 .include <bsd.obj.mk>
@@ -188,16 +194,26 @@ bootonly: packagesystem
 dvd: packagesystem
 .endif
 
-.if defined(PKGBASE)
-PKGBASE_REPO=	pkgbase-repo
-PKG_ABI=	$$(${PKG_CMD} -o ABI_FILE=${.TARGET}/usr/bin/uname config ABI)
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
+PKGBASE_REPO_DIR= pkgbase-repo-dir
+WSTAGEDIR!=	${IMAKE} -f Makefile.inc1 -C ${WORLDDIR} -V WSTAGEDIR
+PKG_ABI_FILE=	${WSTAGEDIR}/usr/bin/uname
+PKG_ABI=	$$(${PKG_CMD} -o ABI_FILE=${PKG_ABI_FILE} config ABI)
 .endif
 
 pkgbase-repo:
 	mkdir -p pkgbase-repo
-	( ${IMAKE} -C ${WORLDDIR} packages REPODIR=${.OBJDIR}/pkgbase-repo )
+	mkdir -p /tmp/ports /tmp/distfiles
+	( ${IMAKE} -C ${WORLDDIR} packages REPODIR=${.OBJDIR}/pkgbase-repo \
+	    INCLUDE_PKG_IN_PKGBASE_REPO=YES BOOTSTRAP_PKG_FROM_PORTS=YES )
 
-disc1: ${PKGBASE_REPO}
+pkgbase-repo-dir: pkgbase-repo
+	mkdir -p pkgbase-repo-dir
+	printf "FreeBSD-base: { url: "file://%s", enabled: yes }" \
+	    ${.OBJDIR}/pkgbase-repo/${PKG_ABI}/latest \
+	    > pkgbase-repo-dir/FreeBSD-base.conf
+
+disc1: ${PKGBASE_REPO_DIR}
 # Install system
 	mkdir -p ${.TARGET}
 	( cd ${WORLDDIR} && ${IMAKE} installworld installkernel distribution \
@@ -207,13 +223,13 @@ disc1: ${PKGBASE_REPO}
 	    MK_TOOLCHAIN=no \
 	    MK_RESCUE=no MK_DICT=no \
 	    MK_KERNEL_SYMBOLS=no MK_TESTS=no MK_DEBUG_FILES=no)
-.if defined(PKGBASE)
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
 # Create offline pkgbase repo on release media
 	mkdir -p ${.TARGET}/usr/freebsd-packages/repos/
 	${.CURDIR}/scripts/pkgbase-stage.lua disc \
-	    ${.OBJDIR}/pkgbase-repo/${PKG_ABI}/latest \
+	    ${.OBJDIR}/pkgbase-repo-dir \
 	    ${.TARGET}/usr/freebsd-packages/offline \
-	    "${_ALL_libcompats}"
+	    "${_ALL_libcompats}" ${PKG_ABI} ${.OBJDIR}/pkgdb-disc1
 	cp ${.CURDIR}/scripts/FreeBSD-base-offline.conf \
 		${.TARGET}/usr/freebsd-packages/repos/
 	mtree -c -p ${.TARGET}/usr/freebsd-packages | \
@@ -226,7 +242,7 @@ disc1: ${PKGBASE_REPO}
 	echo "./usr/freebsd-dist type=dir uname=root gname=wheel mode=0755" >> ${.TARGET}/METALOG
 	cp MANIFEST ${.TARGET}/usr/freebsd-dist
 	echo "./usr/freebsd-dist/MANIFEST type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
-.if !defined(PKGBASE)
+.if defined(NOPKGBASE) && !empty(NOPKGBASE)
 # Copy distfiles
 	for dist in $$(ls *.txz | grep -v container | grep -vE -- '(${base ${_ALL_libcompats}:L:ts|})-dbg'); do \
 	    cp $${dist} ${.TARGET}/usr/freebsd-dist; \
@@ -236,7 +252,12 @@ disc1: ${PKGBASE_REPO}
 .endif
 .if ${.MAKE.OS} == "FreeBSD" && (!defined(NOPKG) || empty(NOPKG))
 # Install packages onto release media.
-	${PKG_INSTALL} pkg || true
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
+	${PKGBASE_INSTALL} pkg
+	${PKGBASE_CLEAN}
+.else
+	${PKG_INSTALL} pkg
+.endif
 	${PKG_INSTALL} wifi-firmware-kmod-release || true
 	${PKG_CLEAN} || true
 .endif
@@ -276,7 +297,6 @@ bootonly:
 	echo "./usr/freebsd-dist/MANIFEST type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 .endif
 .if ${.MAKE.OS} == "FreeBSD" && (!defined(NOPKG) || empty(NOPKG))
-# Install packages onto release media.
 	${PKG_INSTALL} pkg || true
 	${PKG_INSTALL} wifi-firmware-iwlwifi-kmod wifi-firmware-rtw88-kmod || true
 	${PKG_CLEAN} || true
@@ -297,19 +317,19 @@ bootonly:
 	echo "./boot/loader.conf type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 	echo "./etc/rc.local type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 
-dvd: ${PKGBASE_REPO}
+dvd: ${PKGBASE_REPO_DIR}
 # Install system
 	mkdir -p ${.TARGET}
 	( cd ${WORLDDIR} && ${IMAKE} installworld installkernel distribution \
 		DESTDIR=${.OBJDIR}/${.TARGET} MK_RESCUE=no MK_KERNEL_SYMBOLS=no \
 		MK_TESTS=no MK_DEBUG_FILES=no)
-.if defined(PKGBASE)
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
 # Create offline pkgbase repo on release media
 	mkdir -p ${.TARGET}/usr/freebsd-packages/repos/
 	${.CURDIR}/scripts/pkgbase-stage.lua dvd \
-	    ${.OBJDIR}/pkgbase-repo/${PKG_ABI}/latest \
+	    ${.OBJDIR}/pkgbase-repo-dir \
 	    ${.TARGET}/usr/freebsd-packages/offline \
-	    "${_ALL_libcompats}"
+	    "${_ALL_libcompats}" ${PKG_ABI} ${.OBJDIR}/pkgdb-dvd
 	cp ${.CURDIR}/scripts/FreeBSD-base-offline.conf \
 		${.TARGET}/usr/freebsd-packages/repos/
 	mtree -c -p ${.TARGET}/usr/freebsd-packages | \
@@ -322,7 +342,6 @@ dvd: ${PKGBASE_REPO}
 	echo "./usr/freebsd-dist type=dir uname=root gname=wheel mode=0755" >> ${.TARGET}/METALOG
 	cp MANIFEST ${.TARGET}/usr/freebsd-dist
 	echo "./usr/freebsd-dist/MANIFEST type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
-.if !defined(PKGBASE)
 # Copy distfiles
 	mkdir -p ${.TARGET}/usr/freebsd-dist
 	for dist in $$(ls *.txz | grep -v container); do \
@@ -330,10 +349,14 @@ dvd: ${PKGBASE_REPO}
 	    echo "./usr/freebsd-dist/$${dist} type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG; \
 	done
 .endif
-.endif
 .if ${.MAKE.OS} == "FreeBSD" && (!defined(NOPKG) || empty(NOPKG))
 # Install packages onto release media.
-	${PKG_INSTALL} pkg || true
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
+	${PKGBASE_INSTALL} pkg
+	${PKGBASE_CLEAN}
+.else
+	${PKG_INSTALL} pkg
+.endif
 	${PKG_INSTALL} wifi-firmware-kmod-release || true
 	${PKG_CLEAN} || true
 .endif

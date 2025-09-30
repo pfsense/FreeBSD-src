@@ -395,6 +395,7 @@ SUBDIR=	\
 	sysvipc \
 	tarfs \
 	tcp \
+	${_thunderbolt} \
 	${_ti} \
 	tmpfs \
 	${_toecore} \
@@ -576,7 +577,10 @@ _mlx5ib=	mlx5ib
     ${MACHINE_CPUARCH} == "i386"
 _ena=		ena
 _gve=		gve
+# gcc13 and earlier lack __builtin_bitcountg used by linux emulation
+.if !(${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} < 140000)
 _iwlwifi=	iwlwifi
+.endif
 _rtw88=		rtw88
 _rtw89=		rtw89
 _vmware=	vmware
@@ -920,6 +924,10 @@ _nvram+=	powermac_nvram
 .if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "aarch64"
 _bcm283x_clkman=  bcm283x_clkman
 _bcm283x_pwm=  bcm283x_pwm
+.endif
+
+.if ${MACHINE_CPUARCH} == "amd64"
+_thunderbolt=	thunderbolt
 .endif
 
 .if !(${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} < 110000)

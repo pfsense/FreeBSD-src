@@ -26,6 +26,8 @@
                     ..
                 ..
             ..
+            samplerate
+            ..
             sqlite3
             ..
             ucl
@@ -101,6 +103,8 @@
         ..
         ossl-modules
         ..
+	virtual_oss
+	..
     ..
     libdata
         ldscripts
@@ -285,8 +289,6 @@
             diskless
             ..
             dma
-            ..
-            drivers
             ..
             dwatch
             ..

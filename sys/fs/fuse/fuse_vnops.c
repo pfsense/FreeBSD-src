@@ -795,10 +795,14 @@ fuse_vnop_close(struct vop_close_args *ap)
 	struct mount *mp = vnode_mount(vp);
 	struct ucred *cred = ap->a_cred;
 	int fflag = ap->a_fflag;
-	struct thread *td = ap->a_td;
-	pid_t pid = td->td_proc->p_pid;
+	struct thread *td;
 	struct fuse_vnode_data *fvdat = VTOFUD(vp);
+	pid_t pid;
 	int err = 0;
+
+	/* NB: a_td will be NULL from some async kernel contexts */
+	td = ap->a_td ? ap->a_td : curthread;
+	pid = td->td_proc->p_pid;
 
 	if (fuse_isdeadfs(vp))
 		return 0;
@@ -838,7 +842,7 @@ fuse_vnop_close(struct vop_close_args *ap)
 	}
 	/* TODO: close the file handle, if we're sure it's no longer used */
 	if ((fvdat->flag & FN_SIZECHANGE) != 0) {
-		fuse_vnode_savesize(vp, cred, td->td_proc->p_pid);
+		fuse_vnode_savesize(vp, cred, pid);
 	}
 	return err;
 }
@@ -953,7 +957,7 @@ fuse_vnop_copy_file_range(struct vop_copy_file_range_args *ap)
 		*ap->a_outoffp += fwo->size;
 		fuse_internal_clear_suid_on_write(outvp, outcred, td);
 		if (*ap->a_outoffp > outfvdat->cached_attrs.va_size) {
-                        fuse_vnode_setsize(outvp, *ap->a_outoffp, false);
+			fuse_vnode_setsize(outvp, *ap->a_outoffp, false);
 			getnanouptime(&outfvdat->last_local_modify);
 		}
 		fuse_vnode_update(invp, FN_ATIMECHANGE);

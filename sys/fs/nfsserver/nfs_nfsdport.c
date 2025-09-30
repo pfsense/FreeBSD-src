@@ -675,7 +675,7 @@ nfsvno_namei(struct nfsrv_descript *nd, struct nameidata *ndp,
 	}
 	if (islocked)
 		NFSVOPUNLOCK(dp);
-	VREF(dp);
+	vref(dp);
 	*retdirp = dp;
 	if (NFSVNO_EXRDONLY(exp))
 		cnp->cn_flags |= RDONLY;
@@ -697,7 +697,7 @@ nfsvno_namei(struct nfsrv_descript *nd, struct nameidata *ndp,
 				goto out;
 			}
 			dp = rootvnode;
-			VREF(dp);
+			vref(dp);
 		}
 	} else if ((nfsrv_enable_crossmntpt == 0 && NFSVNO_EXPORTED(exp)) ||
 	    (nd->nd_flag & ND_NFSV4) == 0) {
@@ -814,7 +814,7 @@ nfsvno_namei(struct nfsrv_descript *nd, struct nameidata *ndp,
 		if (cnp->cn_pnbuf[0] == '/') {
 			vrele(ndp->ni_dvp);
 			ndp->ni_dvp = ndp->ni_rootdir;
-			VREF(ndp->ni_dvp);
+			vref(ndp->ni_dvp);
 		}
 		ndp->ni_startdir = ndp->ni_dvp;
 		ndp->ni_dvp = NULL;
@@ -2607,6 +2607,7 @@ again:
 	 * rpc reply
 	 */
 	if (siz == 0) {
+ateof:
 		vput(vp);
 		if (nd->nd_flag & ND_NFSV3)
 			nfsrv_postopattr(nd, getret, &at);
@@ -2648,6 +2649,8 @@ again:
 		ncookies--;
 	}
 	if (cpos >= cend || ncookies == 0) {
+		if (eofflag != 0)
+			goto ateof;
 		siz = fullsiz;
 		toff = off;
 		goto again;
@@ -3475,11 +3478,6 @@ nfsd_excred(struct nfsrv_descript *nd, struct nfsexstuff *exp,
 		     (nd->nd_flag & ND_AUTHNONE) != 0) {
 			nd->nd_cred->cr_uid = credanon->cr_uid;
 			nd->nd_cred->cr_gid = credanon->cr_gid;
-			/*
-			 * 'credanon' is already a 'struct ucred' that was built
-			 * internally with calls to crsetgroups_and_egid(), so
-			 * we don't need a fallback here.
-			 */
 			crsetgroups(nd->nd_cred, credanon->cr_ngroups,
 			    credanon->cr_groups);
 		} else if ((nd->nd_flag & ND_GSS) == 0) {
