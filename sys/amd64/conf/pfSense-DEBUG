@@ -10,6 +10,7 @@ nooptions	COMPAT_FREEBSD4	# Compatible with FreeBSD4
 nooptions	COMPAT_FREEBSD5	# Compatible with FreeBSD5
 nooptions	COMPAT_FREEBSD6	# Compatible with FreeBSD6
 nooptions	COMPAT_FREEBSD7	# Compatible with FreeBSD7
+nooptions 	COMPAT_FREEBSD9	# Compatible with FreeBSD9
 
 options 	GEOM_MIRROR
 options 	GEOM_UZIP
