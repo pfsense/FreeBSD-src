@@ -32,6 +32,11 @@ CONSOLEDIR=		${DEVDDIR}
 CONSOLE+=		moused.conf syscons.conf
 CONSOLEPACKAGE=		console-tools
 
+CONFGROUPS+=		SND
+SNDDIR=			${DEVDDIR}
+SND=			snd.conf
+SNDPACKAGE=		sound
+
 .if ${MK_BLUETOOTH} != "no"
 CONFGROUPS+=		BLUETOOTH
 BLUETOOTHDIR=		${DEVDDIR}
@@ -50,11 +55,6 @@ CONFGROUPS+=		NVME
 NVMEDIR=		${DEVDDIR}
 NVME+=			nvmf.conf
 NVMEPACKAGE=		nvme-tools
-
-CONFGROUPS+=	SND
-SNDDIR=		${DEVDDIR}
-SND+=		snd.conf
-SNDPACKAGE=	snd
 
 .if ${MK_USB} != "no"
 DEVD+=	uath.conf ulpt.conf

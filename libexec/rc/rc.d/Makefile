@@ -218,7 +218,7 @@ CCDPACKAGE=	ccdconfig
 .if ${MK_CUSE} != "no"
 CONFGROUPS+=	VOSS
 VOSS=		virtual_oss
-VOSSPACKAGE=	virtual_oss
+VOSSPACKAGE=	sound
 .endif
 
 .if ${MK_KERBEROS_SUPPORT} != "no"

@@ -122,6 +122,7 @@ static void	 syncache_drop(struct syncache *, struct syncache_head *);
 static void	 syncache_free(struct syncache *);
 static void	 syncache_insert(struct syncache *, struct syncache_head *);
 static int	 syncache_respond(struct syncache *, const struct mbuf *, int);
+static void	 syncache_send_challenge_ack(struct syncache *, struct mbuf *);
 static struct	 socket *syncache_socket(struct syncache *, struct socket *,
 		    struct mbuf *m);
 static void	 syncache_timeout(struct syncache *sc, struct syncache_head *sch,
@@ -694,13 +695,7 @@ syncache_chkrst(struct in_conninfo *inc, struct tcphdr *th, struct mbuf *m,
 				    "sending challenge ACK\n",
 				    s, __func__,
 				    th->th_seq, sc->sc_irs + 1, sc->sc_wnd);
-			if (syncache_respond(sc, m, TH_ACK) == 0) {
-				TCPSTAT_INC(tcps_sndacks);
-				TCPSTAT_INC(tcps_sndtotal);
-			} else {
-				syncache_drop(sc, sch);
-				TCPSTAT_INC(tcps_sc_dropped);
-			}
+			syncache_send_challenge_ack(sc, m);
 		}
 	} else {
 		if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
@@ -962,6 +957,10 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 	 */
 	if (sc->sc_rxmits > 1)
 		tp->snd_cwnd = 1;
+
+	/* Copy over the challenge ACK state. */
+	tp->t_challenge_ack_end = sc->sc_challenge_ack_end;
+	tp->t_challenge_ack_cnt = sc->sc_challenge_ack_cnt;
 
 #ifdef TCP_OFFLOAD
 	/*
@@ -1258,6 +1257,37 @@ syncache_expand(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 				return (-1);  /* Do not send RST */
 			}
 		}
+
+		/*
+		 * SEG.SEQ validation:
+		 * The SEG.SEQ must be in the window starting at our
+		 * initial receive sequence number + 1.
+		 */
+		if (SEQ_LEQ(th->th_seq, sc->sc_irs) ||
+		    SEQ_GT(th->th_seq, sc->sc_irs + sc->sc_wnd)) {
+			if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
+				log(LOG_DEBUG, "%s; %s: SEQ %u != IRS+1 %u, "
+				    "sending challenge ACK\n",
+				    s, __func__, th->th_seq, sc->sc_irs + 1);
+			syncache_send_challenge_ack(sc, m);
+			SCH_UNLOCK(sch);
+			free(s, M_TCPLOG);
+			return (-1);  /* Do not send RST */;
+		}
+
+		/*
+		 * SEG.ACK validation:
+		 * SEG.ACK must match our initial send sequence number + 1.
+		 */
+		if (th->th_ack != sc->sc_iss + 1) {
+			SCH_UNLOCK(sch);
+			if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
+				log(LOG_DEBUG, "%s; %s: ACK %u != ISS+1 %u, "
+				    "segment rejected\n",
+				    s, __func__, th->th_ack, sc->sc_iss + 1);
+			goto failed;
+		}
+
 		TAILQ_REMOVE(&sch->sch_bucket, sc, sc_hash);
 		sch->sch_length--;
 #ifdef TCP_OFFLOAD
@@ -1268,29 +1298,6 @@ syncache_expand(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 		}
 #endif
 		SCH_UNLOCK(sch);
-	}
-
-	/*
-	 * Segment validation:
-	 * ACK must match our initial sequence number + 1 (the SYN|ACK).
-	 */
-	if (th->th_ack != sc->sc_iss + 1) {
-		if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
-			log(LOG_DEBUG, "%s; %s: ACK %u != ISS+1 %u, segment "
-			    "rejected\n", s, __func__, th->th_ack, sc->sc_iss);
-		goto failed;
-	}
-
-	/*
-	 * The SEQ must fall in the window starting at the received
-	 * initial receive sequence number + 1 (the SYN).
-	 */
-	if (SEQ_LEQ(th->th_seq, sc->sc_irs) ||
-	    SEQ_GT(th->th_seq, sc->sc_irs + sc->sc_wnd)) {
-		if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
-			log(LOG_DEBUG, "%s; %s: SEQ %u != IRS+1 %u, segment "
-			    "rejected\n", s, __func__, th->th_seq, sc->sc_irs);
-		goto failed;
 	}
 
 	*lsop = syncache_socket(sc, *lsop, m);
@@ -2051,6 +2058,18 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 	}
 #endif
 	return (error);
+}
+
+static void
+syncache_send_challenge_ack(struct syncache *sc, struct mbuf *m)
+{
+	if (tcp_challenge_ack_check(&sc->sc_challenge_ack_end,
+	    &sc->sc_challenge_ack_cnt)) {
+		if (syncache_respond(sc, m, TH_ACK) == 0) {
+			TCPSTAT_INC(tcps_sndacks);
+			TCPSTAT_INC(tcps_sndtotal);
+		}
+	}
 }
 
 /*
