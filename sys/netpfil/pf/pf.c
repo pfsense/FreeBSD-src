@@ -9219,7 +9219,8 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 		action = PF_DROP;
 		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 		goto bad;
-	} else if (r->rt == PF_REPLYTO || (r->rt == PF_ROUTETO && ifp->if_type == IFT_ENC)) {
+	} else if ((pd->af == pd->naf) &&
+	    (r->rt == PF_REPLYTO || (r->rt == PF_ROUTETO && ifp->if_type == IFT_ENC))) {
 		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
 		struct sockaddr_in inaddr;
 		struct sockaddr *addr;
