@@ -75,11 +75,19 @@ VOLUME_LABEL=	${REVISION:C/[.-]/_/g}_${BRANCH:C/[.-]/_/g}_${TARGET_ARCH}
 .endfor
 .endif
 
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
+PKGBASE_REPO_DIR= pkgbase-repo-dir
+WSTAGEDIR!=	${IMAKE} -f Makefile.inc1 -C ${WORLDDIR} -V WSTAGEDIR
+PKG_ABI_FILE=	${WSTAGEDIR}/usr/bin/uname
+PKG_ABI=	$$(${PKG_CMD} -o ABI_FILE=${PKG_ABI_FILE} config ABI)
+.endif
+
 .if ${.MAKE.OS} == "FreeBSD"
 # For installing packages into the release media.
 PKG_ENV+=	INSTALL_AS_USER=yes
 PKG_ENV+=	ASSUME_ALWAYS_YES=yes
 PKG_ARGS+=	-o METALOG=METALOG
+PKG_ARGS+=	-o ABI=${PKG_ABI}
 PKG_ARGS+=	-r ${.TARGET}
 PKG_REPO_ARGS=	-o REPOS_DIR=${.CURDIR}/pkg_repos
 PKGBASE_REPO_ARGS=-o REPOS_DIR=${.OBJDIR}/pkgbase-repo-dir
@@ -108,7 +116,10 @@ DISTRIBUTIONS+= ports.txz
 DISTRIBUTIONS+= src.txz
 .endif
 
-RELEASE_TARGETS= ftp
+RELEASE_TARGETS=
+.if !defined(NODISTSETS) || empty(NODISTSETS)
+RELEASE_TARGETS+= ftp
+.endif
 IMAGES=
 .if exists(${.CURDIR}/${TARGET}/mkisoimages.sh)
 RELEASE_TARGETS+= cdrom
@@ -124,6 +135,9 @@ RELEASE_TARGETS+= mini-memstick.img
 IMAGES+=	memstick.img
 IMAGES+=	mini-memstick.img
 .endif
+.if !defined(NOPKGBASE) || empty(NOPKGBASE)
+RELEASE_TARGETS+= pkgbase-repo.tar
+.endif
 
 CLEANFILES=	packagesystem *.txz MANIFEST release ${IMAGES}
 .if defined(WITH_COMPRESSED_IMAGES) && !empty(WITH_COMPRESSED_IMAGES)
@@ -134,7 +148,7 @@ CLEANFILES+=	${I}.xz
 .if defined(WITH_DVD) && !empty(WITH_DVD)
 CLEANFILES+=	pkg-stage
 .endif
-CLEANDIRS=	dist pkgdb-dvd pkgdb-disc1 pkgbase-repo pkgbase-repo-dir ftp disc1 disc1-disc1 disc1-memstick bootonly bootonly-bootonly bootonly-memstick dvd
+CLEANDIRS=	dist pkgdb-dvd pkgdb-disc1 pkgbase-repo pkgbase-repo-dir ftp disc1 disc1-disc1 disc1-memstick bootonly bootonly-bootonly bootonly-memstick dvd pkgbase-repo.tar
 beforeclean:
 	chflags -R noschg .
 .include <bsd.obj.mk>
@@ -188,17 +202,15 @@ packagesystem: ${DISTRIBUTIONS}
 	sh ${.CURDIR}/scripts/make-manifest.sh $$(ls *.txz | grep -v container) > MANIFEST
 	touch ${.TARGET}
 
-.if !defined(NODISTSETS)
+.if !defined(NODISTSETS) || empty(NODISTSETS)
 disc1: packagesystem
 bootonly: packagesystem
 dvd: packagesystem
 .endif
-
 .if !defined(NOPKGBASE) || empty(NOPKGBASE)
-PKGBASE_REPO_DIR= pkgbase-repo-dir
-WSTAGEDIR!=	${IMAKE} -f Makefile.inc1 -C ${WORLDDIR} -V WSTAGEDIR
-PKG_ABI_FILE=	${WSTAGEDIR}/usr/bin/uname
-PKG_ABI=	$$(${PKG_CMD} -o ABI_FILE=${PKG_ABI_FILE} config ABI)
+disc1: pkgbase-repo-dir
+bootonly: pkgbase-repo-dir
+dvd: pkgbase-repo-dir
 .endif
 
 pkgbase-repo:
@@ -207,13 +219,16 @@ pkgbase-repo:
 	( ${IMAKE} -C ${WORLDDIR} packages REPODIR=${.OBJDIR}/pkgbase-repo \
 	    INCLUDE_PKG_IN_PKGBASE_REPO=YES BOOTSTRAP_PKG_FROM_PORTS=YES )
 
+pkgbase-repo.tar: pkgbase-repo
+	tar -cf pkgbase-repo.tar -C pkgbase-repo .
+
 pkgbase-repo-dir: pkgbase-repo
 	mkdir -p pkgbase-repo-dir
 	printf "FreeBSD-base: { url: "file://%s", enabled: yes }" \
 	    ${.OBJDIR}/pkgbase-repo/${PKG_ABI}/latest \
 	    > pkgbase-repo-dir/FreeBSD-base.conf
 
-disc1: ${PKGBASE_REPO_DIR}
+disc1:
 # Install system
 	mkdir -p ${.TARGET}
 	( cd ${WORLDDIR} && ${IMAKE} installworld installkernel distribution \
@@ -236,7 +251,7 @@ disc1: ${PKGBASE_REPO_DIR}
 	    mtree -C -k type,mode,link,size | \
 	    sed 's|^\.|./usr/freebsd-packages|g' >> ${.TARGET}/METALOG
 .endif
-.if !defined(NODISTSETS)
+.if !defined(NODISTSETS) || empty(NODISTSETS)
 	# Copy MANIFEST to provide legacy dist checksums in both modes
 	mkdir -p ${.TARGET}/usr/freebsd-dist
 	echo "./usr/freebsd-dist type=dir uname=root gname=wheel mode=0755" >> ${.TARGET}/METALOG
@@ -278,7 +293,7 @@ disc1: ${PKGBASE_REPO_DIR}
 	echo "./etc/rc.local type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 	touch ${.TARGET}
 
-bootonly: ${PKGBASE_REPO_DIR}
+bootonly:
 # Install system
 	mkdir -p ${.TARGET}
 	( cd ${WORLDDIR} && ${IMAKE} installworld installkernel distribution \
@@ -289,7 +304,7 @@ bootonly: ${PKGBASE_REPO_DIR}
 	    MK_TOOLCHAIN=no \
 	    MK_RESCUE=no MK_DICT=no \
 	    MK_KERNEL_SYMBOLS=no MK_TESTS=no MK_DEBUG_FILES=no)
-.if !defined(NODISTSETS)
+.if !defined(NODISTSETS) || empty(NODISTSETS)
 # Copy manifest only (no distfiles) to get checksums
 	mkdir -p ${.TARGET}/usr/freebsd-dist
 	cp MANIFEST ${.TARGET}/usr/freebsd-dist
@@ -322,7 +337,7 @@ bootonly: ${PKGBASE_REPO_DIR}
 	echo "./boot/loader.conf type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 	echo "./etc/rc.local type=file uname=root gname=wheel mode=0644" >> ${.TARGET}/METALOG
 
-dvd: ${PKGBASE_REPO_DIR}
+dvd:
 # Install system
 	mkdir -p ${.TARGET}
 	( cd ${WORLDDIR} && ${IMAKE} installworld installkernel distribution \
@@ -341,7 +356,7 @@ dvd: ${PKGBASE_REPO_DIR}
 	    mtree -C -k type,mode,link,size | \
 	    sed 's|^\.|./usr/freebsd-packages|g' >> ${.TARGET}/METALOG
 .endif
-.if !defined(NODISTSETS)
+.if !defined(NODISTSETS) || empty(NODISTSETS)
 	# Copy MANIFEST to provide legacy dist checksums in both modes
 	mkdir -p ${.TARGET}/usr/freebsd-dist
 	echo "./usr/freebsd-dist type=dir uname=root gname=wheel mode=0755" >> ${.TARGET}/METALOG
@@ -433,9 +448,7 @@ release:	real-release vm-release cloudware-release oci-release
 release-done:
 	touch release
 
-real-release:
-	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} obj
-	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} ${RELEASE_TARGETS}
+real-release: obj .WAIT ${RELEASE_TARGETS}
 
 install:	release-install vm-install oci-install .WAIT cloud-install
 
@@ -443,7 +456,9 @@ release-install:
 .if defined(DESTDIR) && !empty(DESTDIR)
 	mkdir -p ${DESTDIR}
 .endif
+.if !defined(NODISTSETS) || empty(NODISTSETS)
 	cp -a ftp ${DESTDIR}/
+.endif
 .if !empty(IMAGES)
 .for I in ${IMAGES}
 	cp -p ${I} ${DESTDIR}/${OSRELEASE}-${I}
@@ -453,6 +468,12 @@ release-install:
 .endfor
 	( cd ${DESTDIR} && sha512 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA512 )
 	( cd ${DESTDIR} && sha256 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA256 )
+.endif
+.if !defined (NOPKGBASE) || empty(NOPKGBASE)
+	mkdir -p ${DESTDIR}/pkgbase
+	cp -p pkgbase-repo.tar ${DESTDIR}/pkgbase/
+	( cd ${DESTDIR}/pkgbase && sha256 pkgbase-repo.tar > CHECKSUM.SHA256 )
+	( cd ${DESTDIR}/pkgbase && sha512 pkgbase-repo.tar > CHECKSUM.SHA512 )
 .endif
 
 .include "${.CURDIR}/Makefile.inc1"

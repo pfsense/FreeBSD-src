@@ -100,7 +100,7 @@ static uint_t zfs_vdev_default_ms_shift = 29;
 /* upper limit for metaslab size (16G) */
 static uint_t zfs_vdev_max_ms_shift = 34;
 
-static int vdev_validate_skip = B_FALSE;
+int vdev_validate_skip = B_FALSE;
 
 /*
  * Since the DTL space map of a vdev is not expected to have a lot of
@@ -1497,12 +1497,14 @@ vdev_spa_set_alloc(spa_t *spa, uint64_t min_alloc)
 {
 	if (min_alloc < spa->spa_min_alloc)
 		spa->spa_min_alloc = min_alloc;
-	if (spa->spa_gcd_alloc == INT_MAX) {
+
+	if (min_alloc > spa->spa_max_alloc)
+		spa->spa_max_alloc = min_alloc;
+
+	if (spa->spa_gcd_alloc == INT_MAX)
 		spa->spa_gcd_alloc = min_alloc;
-	} else {
-		spa->spa_gcd_alloc = vdev_gcd(min_alloc,
-		    spa->spa_gcd_alloc);
-	}
+	else
+		spa->spa_gcd_alloc = vdev_gcd(min_alloc, spa->spa_gcd_alloc);
 }
 
 void
@@ -1560,8 +1562,7 @@ vdev_metaslab_group_create(vdev_t *vd)
 			if (vd->vdev_ashift < spa->spa_min_ashift)
 				spa->spa_min_ashift = vd->vdev_ashift;
 
-			uint64_t min_alloc = vdev_get_min_alloc(vd);
-			vdev_spa_set_alloc(spa, min_alloc);
+			vdev_spa_set_alloc(spa, vdev_get_min_alloc(vd));
 		}
 	}
 }

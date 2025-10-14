@@ -205,8 +205,14 @@ else
 	unset PKGBASE_DEFAULT_BUTTON
 fi
 
-if [ -z "$BSDINSTALL_SKIP_PKGBASE" ]; then
-	if [ ! -f $BSDINSTALL_DISTDIR/MANIFEST ]; then
+if [ ! -f $BSDINSTALL_DISTDIR/MANIFEST ]; then
+	PKGBASE=yes
+elif [ -z "${BSDINSTALL_SKIP_PKGBASE}" ]; then
+	bsddialog --backtitle "$OSNAME Installer" --title "Select Installation Type" \
+		--yes-label "Distribution Sets" --no-label "Packages (Tech Preview)" --yesno \
+		$PKGBASE_DEFAULT_BUTTON \
+		"Would you like to install the base system using traditional distribution sets or packages (technology preview)?" 0 0
+	if [ $? -eq 1 ]; then
 		PKGBASE=yes
 	else
 		bsddialog --backtitle "$OSNAME Installer" --title "Select Installation Type" \

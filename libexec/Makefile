@@ -4,13 +4,12 @@
 
 SUBDIR=	${_atf} \
 	${_atrun} \
-	${_blacklistd-helper} \
+	${_blocklistd-helper} \
 	${_comsat} \
 	${_dma} \
 	flua \
 	getty \
 	${_hyperv} \
-	kgdb \
 	${_mail.local} \
 	${_makewhatis.local} \
 	${_mknetid} \
@@ -38,8 +37,8 @@ SUBDIR=	${_atf} \
 _atrun=		atrun
 .endif
 
-.if ${MK_BLACKLIST} != "no"
-_blacklistd-helper+=	blacklistd-helper
+.if ${MK_BLOCKLIST} != "no"
+_blocklistd-helper+=	blocklistd-helper
 .endif
 
 .if ${MK_BOOTPD} != "no"

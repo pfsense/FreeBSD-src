@@ -344,7 +344,7 @@ VNET_DECLARE(bool, ip6_use_stableaddr);	/* Whether to use stable address generat
 #define	V_ip6_use_stableaddr		VNET(ip6_use_stableaddr)
 
 #define IP6_IDGEN_RETRIES		3 /* RFC 7217 section 7 default max retries */
-VNET_DECLARE(int, ip6_stableaddr_maxretries);
+VNET_DECLARE(u_int, ip6_stableaddr_maxretries);
 #define	V_ip6_stableaddr_maxretries	VNET(ip6_stableaddr_maxretries)
 
 #define IP6_STABLEADDR_NETIFSRC_NAME	0
@@ -440,6 +440,8 @@ int	in6_selectsrc_socket(struct sockaddr_in6 *, struct ip6_pktopts *,
     struct inpcb *, struct ucred *, int, struct in6_addr *, int *);
 int	in6_selectsrc_addr(uint32_t, const struct in6_addr *,
     uint32_t, struct ifnet *, struct in6_addr *, int *);
+int	in6_selectsrc_nbr(uint32_t, const struct in6_addr *,
+    struct ip6_moptions *, struct ifnet *, struct in6_addr *);
 int in6_selectroute(struct sockaddr_in6 *, struct ip6_pktopts *,
 	struct ip6_moptions *, struct route_in6 *, struct ifnet **,
 	struct nhop_object **, u_int, uint32_t);
