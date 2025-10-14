@@ -523,25 +523,6 @@ BUILDENV_SHELL?=/bin/sh
 .endif
 
 .if !defined(_MKSHOWCONFIG)
-.if !defined(VCS_REVISION) || empty(VCS_REVISION)
-.if !defined(SVNVERSION_CMD) || empty(SVNVERSION_CMD)
-. for _D in ${PATH:S,:, ,g}
-.  if exists(${_D}/svnversion)
-SVNVERSION_CMD?=${_D}/svnversion
-.  endif
-.  if exists(${_D}/svnliteversion)
-SVNVERSION_CMD?=${_D}/svnliteversion
-.  endif
-. endfor
-.endif
-.if defined(SVNVERSION_CMD) && !empty(SVNVERSION_CMD)
-_VCS_REVISION?=	$$(eval ${SVNVERSION_CMD} ${SRCDIR})
-. if !empty(_VCS_REVISION)
-VCS_REVISION=	$$(echo r${_VCS_REVISION})
-.export VCS_REVISION
-. endif
-.endif
-.endif
 
 .if !defined(GIT_CMD) || empty(GIT_CMD)
 . for _P in /usr/bin /usr/local/bin
@@ -603,6 +584,7 @@ EXTRA_REVISION=	p${_BRANCH:C/.*-p([0-9]+$)/\1/}
 .if !defined(PKG_VERSION)
 PKG_VERSION:=	${_PKG_REVISION}${EXTRA_REVISION:C/[[:space:]]//g}
 .endif
+
 .endif	# !defined(_MKSHOWCONFIG)
 
 .if make(*package*)
@@ -1982,6 +1964,7 @@ REPODIR?=	${OBJROOT}repo
 PKG_FORMAT?=	tzst
 PKG_LEVEL?=	-1
 PKG_CLEVEL?=	${"${PKG_FORMAT:Mtar}" != "":?:-l ${PKG_LEVEL}}
+PKG_CTHREADS?=	0
 PKG_REPO_SIGNING_KEY?=	# empty
 PKG_OUTPUT_DIR?=	${PKG_VERSION}
 PKG_ABI_FILE?=	${WSTAGEDIR}/usr/bin/uname
@@ -2112,6 +2095,7 @@ create-packages-world:	_pkgbootstrap _repodir .PHONY
 
 .ORDER: create-packages-world create-packages-sets
 .ORDER: create-packages-kernel create-packages-sets
+.ORDER: create-packages-source create-packages-sets
 create-packages-sets:	_pkgbootstrap _repodir .PHONY
 	${_+_}@cd ${.CURDIR}; \
 		${MAKE} -f Makefile.inc1 \
@@ -2161,7 +2145,7 @@ create-source-src-package: _pkgbootstrap .PHONY
 		${SSTAGEDIR}/src.ucl
 	${PKG_CMD} -o ABI=${PKG_ABI} \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${SSTAGEDIR}/src.ucl \
 		-p ${SSTAGEDIR}/src.plist \
 		-r ${SRCDIR} \
@@ -2187,7 +2171,7 @@ create-source-src-sys-package: _pkgbootstrap .PHONY
 		${SSTAGEDIR}/src-sys.ucl
 	${PKG_CMD} -o ABI=${PKG_ABI} \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${SSTAGEDIR}/src-sys.ucl \
 		-p ${SSTAGEDIR}/src-sys.plist \
 		-r ${SRCDIR} \
@@ -2225,12 +2209,9 @@ create-world-package-${pkgname}: .PHONY
 		/^name/ { printf("===> Creating %s-", $$2); next } \
 		/^version/ { print $$2; next } \
 		' ${WSTAGEDIR}/${pkgname}.ucl
-	@if [ "${pkgname}" == "runtime" ]; then \
-		sed -i '' -e "s/%VCS_REVISION%/${VCS_REVISION}/" ${WSTAGEDIR}/${pkgname}.ucl ; \
-	fi
 	${PKG_CMD} -o ABI=${PKG_ABI} -o ALLOW_BASE_SHLIBS=yes \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${WSTAGEDIR}/${pkgname}.ucl \
 		-p ${WSTAGEDIR}/${pkgname}.plist \
 		-r ${WSTAGEDIR} \
@@ -2249,7 +2230,7 @@ create-sets-packages: .PHONY
 	@for manifest in ${WSTAGEDIR}/set-*.ucl; do \
 		echo "--> Processing manifest: $$manifest"; \
 		${PKG_CMD} -o ABI=${PKG_ABI} -o OSVERSION="${SRCRELDATE}" \
-			create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+			create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 			-M $$manifest \
 			-o "${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR}" \
 			|| exit 1; \
@@ -2261,7 +2242,7 @@ _default_flavor=	-default
 _debug=-dbg
 . endif
 
-create-dtb-package:
+create-dtb-package:	.PHONY
 	@if [ -f ${KSTAGEDIR}/${DISTDIR}/dtb.plist ]; then \
 	${SRCDIR}/release/packages/generate-ucl.lua \
 		PKGNAME "dtb" \
@@ -2279,16 +2260,19 @@ create-dtb-package:
 		${KSTAGEDIR}/${DISTDIR}/dtb.ucl ; \
 	${PKG_CMD} -o ABI=${PKG_ABI} -o ALLOW_BASE_SHLIBS=yes \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${KSTAGEDIR}/${DISTDIR}/dtb.ucl \
 		-p ${KSTAGEDIR}/${DISTDIR}/dtb.plist \
 		-r ${KSTAGEDIR}/${DISTDIR} \
 		-o ${REPODIR}/${PKG_ABI}/${PKG_OUTPUT_DIR} ; \
 	fi
 
-create-kernel-packages:	.PHONY
+create-kernel-packages:	.PHONY create-kernel-flavored-packages create-dtb-package
+create-kernel-flavored-packages:	.PHONY
+.ORDER: create-kernel-flavored-packages create-dtb-package
+
 . for flavor in "" ${_debug}
-create-kernel-packages: create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},} create-dtb-package
+create-kernel-flavored-packages: create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},}
 create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},}: _pkgbootstrap .PHONY
 	@cd ${KSTAGEDIR}/${DISTDIR} ; \
 	${METALOG_SORT_CMD} ${KSTAGEDIR}/kernel.meta | \
@@ -2313,7 +2297,7 @@ create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},}: _pkgbootstrap
 		${KSTAGEDIR}/${DISTDIR}/kernel.${INSTALLKERNEL}${flavor}.ucl ; \
 	${PKG_CMD} -o ABI=${PKG_ABI} -o ALLOW_BASE_SHLIBS=yes \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${KSTAGEDIR}/${DISTDIR}/kernel.${INSTALLKERNEL}${flavor}.ucl \
 		-p ${KSTAGEDIR}/${DISTDIR}/kernel.${INSTALLKERNEL}${flavor}.plist \
 		-r ${KSTAGEDIR}/${DISTDIR} \
@@ -2356,7 +2340,7 @@ create-kernel-packages-extra-flavor${flavor:C,^""$,${_default_flavor},}-${_kerne
 		${KSTAGEDIR}/kernel.${_kernel}/kernel.${_kernel}${flavor}.ucl ; \
 	${PKG_CMD} -o ABI=${PKG_ABI} -o ALLOW_BASE_SHLIBS=yes \
 		-o OSVERSION="${SRCRELDATE}" \
-		create -f ${PKG_FORMAT} ${PKG_CLEVEL} \
+		create -f ${PKG_FORMAT} ${PKG_CLEVEL} -T${PKG_CTHREADS} \
 		-M ${KSTAGEDIR}/kernel.${_kernel}/kernel.${_kernel}${flavor}.ucl \
 		-p ${KSTAGEDIR}/kernel.${_kernel}/kernel.${_kernel}${flavor}.plist \
 		-r ${KSTAGEDIR}/kernel.${_kernel} \
@@ -2548,6 +2532,10 @@ ${_bt}-usr.sbin/kldxref: ${_bt_libelf_depend} ${_bt_libkldelf_depend}
 .if ${BOOTSTRAPPING} < 1300059
 ${_bt}-libexec/flua: ${_bt}-lib/liblua
 _flua= lib/liblua libexec/flua
+.if ${BOOTSTRAPPING} == 0
+_flua+= lib/libmd lib/libucl lib/libyaml
+${_bt}-libexec/flua: ${_bt}-lib/libmd ${_bt}-lib/libucl ${_bt}-lib/libyaml
+.endif # BOOTSTRAPPING == 0
 .endif
 
 # r245440 mtree -N support added
@@ -2859,6 +2847,15 @@ bootstrap-tools: ${_bt}-links .PHONY
     ${_mkesdb} \
     ${_zic} \
     ${LOCAL_BSTOOL_DIRS}
+# We don't enforce any particular uniqueness of targets in the above list; it
+# may be the case that different bootstrap tools may have shared dependencies
+# at different BOOTSTRAPPING points, so we don't object to them using their own
+# conditionals and duplicating them into their ${_foo} variable to ease future
+# maintenance if we purge some entries.  These target names are purposefully
+# unique and this is the only place that should be generating commands for them,
+# but the target may have been defined earlier to express dependencies -- thus,
+# we specifically want commands() here.
+.if !commands(${_bt}-${_tool})
 ${_bt}-${_tool}: ${_bt}-links .PHONY .MAKE
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
 		cd ${.CURDIR}/${_tool}; \
@@ -2868,8 +2865,8 @@ ${_bt}-${_tool}: ${_bt}-links .PHONY .MAKE
 		fi; \
 		${MAKE} DIRPRFX=${_tool}/ all; \
 		${MAKE} DIRPRFX=${_tool}/ DESTDIR=${WORLDTMP}/legacy install
-
 bootstrap-tools: ${_bt}-${_tool}
+.endif
 .endfor
 .if target(${_bt}-lib/libmd)
 # If we are bootstrapping libmd (e.g. when building on macOS/Linux) add the

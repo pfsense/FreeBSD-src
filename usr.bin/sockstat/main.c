@@ -51,6 +51,7 @@
 #include <netinet/tcp_fsm.h>
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_var.h>
+#include <netinet/tcp_log_buf.h>
 #include <arpa/inet.h>
 
 #include <capsicum_helpers.h>
@@ -84,6 +85,7 @@
 static bool	 opt_4;		/* Show IPv4 sockets */
 static bool	 opt_6;		/* Show IPv6 sockets */
 static bool	 opt_A;		/* Show kernel address of pcb */
+static bool	 opt_b;		/* Show BBLog state */
 static bool	 opt_C;		/* Show congestion control */
 static bool	 opt_c;		/* Show connected sockets */
 static bool	 opt_f;		/* Show FIB numbers */
@@ -101,6 +103,7 @@ static bool	 opt_u;		/* Show Unix domain sockets */
 static u_int	 opt_v;		/* Verbose mode */
 static bool	 opt_w;		/* Automatically size the columns */
 static bool	 is_xo_style_encoding;
+static bool	 show_path_state = false;
 
 /*
  * Default protocols to use if no -P was defined.
@@ -141,6 +144,7 @@ struct sock {
 	int proto;
 	int state;
 	int fibnum;
+	int bblog_state;
 	const char *protoname;
 	char stack[TCP_FUNCTION_NAME_LEN_MAX];
 	char cc[TCP_CA_NAME_MAX];
@@ -581,6 +585,7 @@ gather_sctp(void)
 				     !(local_all_loopback ||
 				     foreign_all_loopback))) {
 					RB_INSERT(socks_t, &socks, sock);
+					show_path_state = true;
 				} else {
 					free_socket(sock);
 				}
@@ -738,6 +743,7 @@ gather_inet(int proto)
 		sock->vflag = xip->inp_vflag;
 		if (proto == IPPROTO_TCP) {
 			sock->state = xtp->t_state;
+			sock->bblog_state = xtp->t_logstate;
 			memcpy(sock->stack, xtp->xt_stack,
 			    TCP_FUNCTION_NAME_LEN_MAX);
 			memcpy(sock->cc, xtp->xt_cc, TCP_CA_NAME_MAX);
@@ -1056,6 +1062,37 @@ sctp_path_state(int state)
 	}
 }
 
+static const char *
+bblog_state(int state)
+{
+	switch (state) {
+	case TCP_LOG_STATE_OFF:
+		return "OFF";
+		break;
+	case TCP_LOG_STATE_TAIL:
+		return "TAIL";
+		break;
+	case TCP_LOG_STATE_HEAD:
+		return "HEAD";
+		break;
+	case TCP_LOG_STATE_HEAD_AUTO:
+		return "HEAD_AUTO";
+		break;
+	case TCP_LOG_STATE_CONTINUAL:
+		return "CONTINUAL";
+		break;
+	case TCP_LOG_STATE_TAIL_AUTO:
+		return "TAIL_AUTO";
+		break;
+	case TCP_LOG_VIA_BBPOINTS:
+		return "BBPOINTS";
+		break;
+	default:
+		return "UNKNOWN";
+		break;
+	}
+}
+
 static int
 format_unix_faddr(struct addr *faddr, char *buf, size_t bufsize) {
 	#define SAFEBUF  (buf == NULL ? NULL : buf + pos)
@@ -1143,6 +1180,7 @@ struct col_widths {
 	int encaps;
 	int path_state;
 	int conn_state;
+	int bblog_state;
 	int stack;
 	int cc;
 };
@@ -1194,40 +1232,40 @@ calculate_sock_column_widths(struct col_widths *cw, struct sock *s)
 					{ .socket = s->splice_socket });
 				if (sp != NULL) {
 					len = formataddr(&sp->laddr->address,
-						 NULL, 0);
+					    NULL, 0);
 					cw->splice_address = MAX(
-						cw->splice_address, len);
+					    cw->splice_address, len);
 				}
 			}
 		}
 		if (opt_i) {
-			if (s->proto == IPPROTO_TCP || s->proto == IPPROTO_UDP)
-			{
+			if (s->proto == IPPROTO_TCP ||
+			    s->proto == IPPROTO_UDP) {
 				len = snprintf(NULL, 0,
-					"%" PRIu64, s->inp_gencnt);
+				    "%" PRIu64, s->inp_gencnt);
 				cw->inp_gencnt = MAX(cw->inp_gencnt, len);
 			}
 		}
 		if (opt_U) {
 			if (faddr != NULL &&
-				((s->proto == IPPROTO_SCTP &&
-					s->state != SCTP_CLOSED &&
-					s->state != SCTP_BOUND &&
-					s->state != SCTP_LISTEN) ||
-					(s->proto == IPPROTO_TCP &&
-					s->state != TCPS_CLOSED &&
-					s->state != TCPS_LISTEN))) {
+			    ((s->proto == IPPROTO_SCTP &&
+			      s->state != SCTP_CLOSED &&
+			      s->state != SCTP_BOUND &&
+			      s->state != SCTP_LISTEN) ||
+			    (s->proto == IPPROTO_TCP &&
+			     s->state != TCPS_CLOSED &&
+			     s->state != TCPS_LISTEN))) {
 				len = snprintf(NULL, 0, "%u",
-					ntohs(faddr->encaps_port));
+				    ntohs(faddr->encaps_port));
 				cw->encaps = MAX(cw->encaps, len);
 			}
 		}
 		if (opt_s) {
 			if (faddr != NULL &&
-				s->proto == IPPROTO_SCTP &&
-				s->state != SCTP_CLOSED &&
-				s->state != SCTP_BOUND &&
-				s->state != SCTP_LISTEN) {
+			    s->proto == IPPROTO_SCTP &&
+			    s->state != SCTP_CLOSED &&
+			    s->state != SCTP_BOUND &&
+			    s->state != SCTP_LISTEN) {
 				len = strlen(sctp_path_state(faddr->state));
 				cw->path_state = MAX(cw->path_state, len);
 			}
@@ -1235,21 +1273,22 @@ calculate_sock_column_widths(struct col_widths *cw, struct sock *s)
 		if (first) {
 			if (opt_s) {
 				if (s->proto == IPPROTO_SCTP ||
-					s->proto == IPPROTO_TCP) {
+				    s->proto == IPPROTO_TCP) {
 					switch (s->proto) {
 					case IPPROTO_SCTP:
 						len = strlen(
 						    sctp_conn_state(s->state));
 						cw->conn_state = MAX(
-							cw->conn_state, len);
+						    cw->conn_state, len);
 						break;
 					case IPPROTO_TCP:
 						if (s->state >= 0 &&
 						    s->state < TCP_NSTATES) {
-						    len = strlen(
-							tcpstates[s->state]);
-						    cw->conn_state = MAX(
-							cw->conn_state, len);
+							len = strlen(
+							    tcpstates[s->state]);
+							cw->conn_state = MAX(
+							    cw->conn_state,
+							    len);
 						}
 						break;
 					}
@@ -1426,8 +1465,8 @@ display_sock(struct sock *s, struct col_widths *cw, char *buf, size_t bufsize)
 					cw->splice_address, buf);
 		}
 		if (opt_i) {
-			if (s->proto == IPPROTO_TCP || s->proto == IPPROTO_UDP)
-			{
+			if (s->proto == IPPROTO_TCP ||
+			    s->proto == IPPROTO_UDP) {
 				snprintf(buf, bufsize, "%" PRIu64,
 					s->inp_gencnt);
 				xo_emit(" {:id/%*s}", cw->inp_gencnt, buf);
@@ -1436,29 +1475,29 @@ display_sock(struct sock *s, struct col_widths *cw, char *buf, size_t bufsize)
 		}
 		if (opt_U) {
 			if (faddr != NULL &&
-				((s->proto == IPPROTO_SCTP &&
-					s->state != SCTP_CLOSED &&
-					s->state != SCTP_BOUND &&
-					s->state != SCTP_LISTEN) ||
-					(s->proto == IPPROTO_TCP &&
-					s->state != TCPS_CLOSED &&
-					s->state != TCPS_LISTEN))) {
+			    ((s->proto == IPPROTO_SCTP &&
+			      s->state != SCTP_CLOSED &&
+			      s->state != SCTP_BOUND &&
+			      s->state != SCTP_LISTEN) ||
+			     (s->proto == IPPROTO_TCP &&
+			      s->state != TCPS_CLOSED &&
+			      s->state != TCPS_LISTEN))) {
 				xo_emit(" {:encaps/%*u}", cw->encaps,
-					ntohs(faddr->encaps_port));
+				    ntohs(faddr->encaps_port));
 			} else if (!is_xo_style_encoding)
 				xo_emit(" {:encaps/%*s}", cw->encaps, "??");
 		}
-		if (opt_s) {
+		if (opt_s && show_path_state) {
 			if (faddr != NULL &&
-				s->proto == IPPROTO_SCTP &&
-				s->state != SCTP_CLOSED &&
-				s->state != SCTP_BOUND &&
-				s->state != SCTP_LISTEN) {
+			    s->proto == IPPROTO_SCTP &&
+			    s->state != SCTP_CLOSED &&
+			    s->state != SCTP_BOUND &&
+			    s->state != SCTP_LISTEN) {
 				xo_emit(" {:path-state/%-*s}", cw->path_state,
-					sctp_path_state(faddr->state));
+				    sctp_path_state(faddr->state));
 			} else if (!is_xo_style_encoding)
 				xo_emit(" {:path-state/%-*s}", cw->path_state,
-					"??");
+				    "??");
 		}
 		if (first) {
 			if (opt_s) {
@@ -1467,31 +1506,40 @@ display_sock(struct sock *s, struct col_widths *cw, char *buf, size_t bufsize)
 					switch (s->proto) {
 					case IPPROTO_SCTP:
 						xo_emit(" {:conn-state/%-*s}",
-							cw->conn_state,
-							sctp_conn_state(s->state));
+						    cw->conn_state,
+						    sctp_conn_state(s->state));
 						break;
 					case IPPROTO_TCP:
 						if (s->state >= 0 &&
-							s->state < TCP_NSTATES)
+						    s->state < TCP_NSTATES)
 							xo_emit(" {:conn-state/%-*s}",
-								cw->conn_state,
-								tcpstates[s->state]);
+							    cw->conn_state,
+							    tcpstates[s->state]);
 						else if (!is_xo_style_encoding)
 							xo_emit(" {:conn-state/%-*s}",
-								cw->conn_state, "??");
+							    cw->conn_state, "??");
 						break;
 					}
 				} else if (!is_xo_style_encoding)
 					xo_emit(" {:conn-state/%-*s}",
-						cw->conn_state, "??");
+					    cw->conn_state, "??");
+			}
+			if (opt_b) {
+				if (s->proto == IPPROTO_TCP)
+					xo_emit(" {:bblog-state/%-*s}",
+					    cw->bblog_state,
+					    bblog_state(s->bblog_state));
+				else if (!is_xo_style_encoding)
+					xo_emit(" {:bblog-state/%-*s}",
+					    cw->bblog_state, "??");
 			}
 			if (opt_S) {
 				if (s->proto == IPPROTO_TCP)
 					xo_emit(" {:stack/%-*s}",
-						cw->stack, s->stack);
+					    cw->stack, s->stack);
 				else if (!is_xo_style_encoding)
 					xo_emit(" {:stack/%-*s}",
-						cw->stack, "??");
+					    cw->stack, "??");
 			}
 			if (opt_C) {
 				if (s->proto == IPPROTO_TCP)
@@ -1499,18 +1547,30 @@ display_sock(struct sock *s, struct col_widths *cw, char *buf, size_t bufsize)
 				else if (!is_xo_style_encoding)
 					xo_emit(" {:cc/%-*s}", cw->cc, "??");
 			}
+		} else if (!is_xo_style_encoding) {
+			if (opt_s)
+				xo_emit(" {:conn-state/%-*s}", cw->conn_state,
+				    "??");
+			if (opt_b)
+				xo_emit(" {:bblog-state/%-*s}", cw->bblog_state,
+				    "??");
+			if (opt_S)
+				xo_emit(" {:stack/%-*s}", cw->stack, "??");
+			if (opt_C)
+				xo_emit(" {:cc/%-*s}", cw->cc, "??");
 		}
 		if (laddr != NULL)
 			laddr = laddr->next;
 		if (faddr != NULL)
 			faddr = faddr->next;
+		xo_emit("\n");
 		if (!is_xo_style_encoding && (laddr != NULL || faddr != NULL))
 			xo_emit("{:user/%-*s} {:command/%-*s} {:pid/%*s}"
-				" {:fd/%*s}", cw->user, "??", cw->command, "??",
-				cw->pid, "??", cw->fd, "??");
+			    " {:fd/%*s} {:proto/%-*s}", cw->user, "??",
+			    cw->command, "??", cw->pid, "??", cw->fd, "??",
+			    cw->proto, "??");
 		first = false;
 	}
-	xo_emit("\n");
 }
 
 static void
@@ -1544,6 +1604,7 @@ display(void)
 			.encaps = strlen("ENCAPS"),
 			.path_state = strlen("PATH STATE"),
 			.conn_state = strlen("CONN STATE"),
+			.bblog_state = strlen("BBLOG STATE"),
 			.stack = strlen("STACK"),
 			.cc = strlen("CC"),
 		};
@@ -1567,15 +1628,19 @@ display(void)
 			xo_emit(" {T:/%*s}", cw.fib, "FIB");
 		if (opt_I)
 			xo_emit(" {T:/%-*s}", cw.splice_address,
-				"SPLICE ADDRESS");
+			    "SPLICE ADDRESS");
 		if (opt_i)
 			xo_emit(" {T:/%*s}", cw.inp_gencnt, "ID");
 		if (opt_U)
 			xo_emit(" {T:/%*s}", cw.encaps, "ENCAPS");
 		if (opt_s) {
-			xo_emit(" {T:/%-*s}", cw.path_state, "PATH STATE");
+			if (show_path_state)
+				xo_emit(" {T:/%-*s}", cw.path_state,
+				    "PATH STATE");
 			xo_emit(" {T:/%-*s}", cw.conn_state, "CONN STATE");
 		}
+		if (opt_b)
+			xo_emit(" {T:/%-*s}", cw.bblog_state, "BBLOG STATE");
 		if (opt_S)
 			xo_emit(" {T:/%-*s}", cw.stack, "STACK");
 		if (opt_C)
@@ -1596,15 +1661,15 @@ display(void)
 			if (opt_n ||
 			    (pwd = cap_getpwuid(cappwd, xf->xf_uid)) == NULL)
 				xo_emit("{:user/%-*lu}", cw.user,
-					(u_long)xf->xf_uid);
+				    (u_long)xf->xf_uid);
 			else
 				xo_emit("{:user/%-*s}", cw.user, pwd->pw_name);
 			if (!is_xo_style_encoding)
 				xo_emit(" {:command/%-*.10s}", cw.command,
-					getprocname(xf->xf_pid));
+				    getprocname(xf->xf_pid));
 			else
 				xo_emit(" {:command/%-*s}", cw.command,
-					getprocname(xf->xf_pid));
+				    getprocname(xf->xf_pid));
 			xo_emit(" {:pid/%*lu}", cw.pid, (u_long)xf->xf_pid);
 			xo_emit(" {:fd/%*d}", cw.fd, xf->xf_fd);
 			display_sock(s, &cw, buf, bufsize);
@@ -1619,8 +1684,8 @@ display(void)
 		xo_open_instance("socket");
 		if (!is_xo_style_encoding)
 			xo_emit("{:user/%-*s} {:command/%-*s} {:pid/%*s}"
-				" {:fd/%*s}", cw.user, "??", cw.command, "??",
-				cw.pid, "??", cw.fd, "??");
+			    " {:fd/%*s}", cw.user, "??", cw.command, "??",
+			    cw.pid, "??", cw.fd, "??");
 		display_sock(s, &cw, buf, bufsize);
 		xo_close_instance("socket");
 	}
@@ -1632,8 +1697,8 @@ display(void)
 		xo_open_instance("socket");
 		if (!is_xo_style_encoding)
 			xo_emit("{:user/%-*s} {:command/%-*s} {:pid/%*s}"
-				" {:fd/%*s}", cw.user, "??", cw.command, "??",
-				cw.pid, "??", cw.fd, "??");
+			    " {:fd/%*s}", cw.user, "??", cw.command, "??",
+			    cw.pid, "??", cw.fd, "??");
 		display_sock(s, &cw, buf, bufsize);
 		xo_close_instance("socket");
 	}
@@ -1706,7 +1771,7 @@ static void
 usage(void)
 {
 	xo_error(
-"usage: sockstat [--libxo ...] [-46ACcfIiLlnqSsUuvw] [-j jid] [-p ports]\n"
+"usage: sockstat [--libxo ...] [-46AbCcfIiLlnqSsUuvw] [-j jid] [-p ports]\n"
 "                [-P protocols]\n");
 	exit(1);
 }
@@ -1728,7 +1793,7 @@ main(int argc, char *argv[])
 		xo_get_style(NULL) != XO_STYLE_HTML)
 		is_xo_style_encoding = true;
 	opt_j = -1;
-	while ((o = getopt(argc, argv, "46ACcfIij:Llnp:P:qSsUuvw")) != -1)
+	while ((o = getopt(argc, argv, "46AbCcfIij:Llnp:P:qSsUuvw")) != -1)
 		switch (o) {
 		case '4':
 			opt_4 = true;
@@ -1738,6 +1803,9 @@ main(int argc, char *argv[])
 			break;
 		case 'A':
 			opt_A = true;
+			break;
+		case 'b':
+			opt_b = true;
 			break;
 		case 'C':
 			opt_C = true;

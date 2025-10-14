@@ -1,7 +1,13 @@
 #!/usr/libexec/flua
+--
+-- Copyright (c) 2024-2025 Baptiste Daroussin <bapt@FreeBSD.org>
+-- Copyright (c) 2025 Lexi Winter <ivy@FreeBSD.org>
+--
+-- SPDX-License-Identifier: BSD-2-Clause
+--
 
 --[[ usage:
-generare-set-ucl.lua <template> [<variablename> <variablevalue>]
+generate-set-ucl.lua <template> [<variablename> <variablevalue>]
 
 Generate the UCL for a set metapackage.  The variables provided will be
 substituted as UCL variables.
@@ -75,15 +81,15 @@ end
 -- Add dependencies from SET_DEPENDS.
 for dep in string.gmatch(pkgdeps, "[^%s]+") do
 	obj["deps"][dep] = {
-		["origin"] = "base"
+		["origin"] = "base/"..dep
 	}
 end
 
--- Add a version key to all dependencies, otherwise pkg doesn't like it.
+-- Add a version and origin key to all dependencies, otherwise pkg
+-- doesn't like it.
 for dep, opts in pairs(obj["deps"]) do
-	if obj["deps"][dep]["version"] == nil then
-		obj["deps"][dep]["version"] = pkgversion
-	end
+	obj["deps"][dep]["origin"] = obj["deps"][dep]["origin"] or "base/"..dep
+	obj["deps"][dep]["version"] = obj["deps"][dep]["version"] or pkgversion
 end
 
 -- If there are no dependencies, remove the deps key, otherwise pkg raises an

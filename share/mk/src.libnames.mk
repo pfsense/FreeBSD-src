@@ -264,8 +264,12 @@ _LIBRARIES+= \
 
 .if ${MK_BLACKLIST} != "no"
 _LIBRARIES+= \
-		blacklist \
+		blacklist
+.endif
 
+.if ${MK_BLOCKLIST} != "no"
+_LIBRARIES+= \
+		blocklist
 .endif
 
 .if ${MK_OFED} != "no"
@@ -318,6 +322,9 @@ _DP_bsddialog=	ncursesw tinfow
 _DP_zstd=	pthread
 .if ${MK_BLACKLIST} != "no"
 _DP_blacklist+=	pthread
+.endif
+.if ${MK_BLOCKLIST} != "no"
+_DP_blocklist+=	pthread
 .endif
 _DP_crypto=	pthread
 # See comment by _DP_archive above
@@ -425,7 +432,7 @@ _DP_kadm5clnt=	com_err krb5 roken
 _DP_kadm5srv=	com_err hdb krb5 roken
 _DP_heimntlm=	crypto com_err krb5 roken
 _DP_hx509=	asn1 com_err crypto roken wind
-_DP_hdb=	asn1 com_err krb5 roken sqlite3
+_DP_hdb=	asn1 com_err krb5 roken sqlite3 heimbase
 _DP_asn1=	com_err roken
 _DP_kdc=	roken hdb hx509 krb5 heimntlm asn1 crypto
 _DP_wind=	com_err roken
@@ -865,6 +872,7 @@ LIBGTESTDIR=	${_LIB_OBJTOP}/lib/googletest/gtest
 LIBGTEST_MAINDIR=	${_LIB_OBJTOP}/lib/googletest/gtest_main
 LIBALIASDIR=	${_LIB_OBJTOP}/lib/libalias/libalias
 LIBBLACKLISTDIR=	${_LIB_OBJTOP}/lib/libblacklist
+LIBBLOCKLISTDIR=	${_LIB_OBJTOP}/lib/libblocklist
 LIBBLOCKSRUNTIMEDIR=	${_LIB_OBJTOP}/lib/libblocksruntime
 LIBBSNMPDIR=	${_LIB_OBJTOP}/lib/libbsnmp/libbsnmp
 LIBCASPERDIR=	${_LIB_OBJTOP}/lib/libcasper/libcasper
