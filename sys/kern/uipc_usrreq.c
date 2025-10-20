@@ -1069,6 +1069,21 @@ uipc_stream_sbspace(struct sockbuf *sb)
 	return (min(space, mbspace));
 }
 
+/*
+ * UNIX version of generic sbwait() for writes.  We wait on peer's receive
+ * buffer, using our timeout.
+ */
+static int
+uipc_stream_sbwait(struct socket *so, sbintime_t timeo)
+{
+	struct sockbuf *sb = &so->so_rcv;
+
+	SOCK_RECVBUF_LOCK_ASSERT(so);
+	sb->sb_flags |= SB_WAIT;
+	return (msleep_sbt(&sb->sb_acc, SOCK_RECVBUF_MTX(so), PSOCK | PCATCH,
+	    "sbwait", timeo, 0, 0));
+}
+
 static int
 uipc_sosend_stream_or_seqpacket(struct socket *so, struct sockaddr *addr,
     struct uio *uio0, struct mbuf *m, struct mbuf *c, int flags,
@@ -1203,7 +1218,8 @@ restart:
 				error = EWOULDBLOCK;
 				goto out4;
 			}
-			if ((error = sbwait(so2, SO_RCV)) != 0) {
+			if ((error = uipc_stream_sbwait(so2,
+			    so->so_snd.sb_timeo)) != 0) {
 				SOCK_RECVBUF_UNLOCK(so2);
 				goto out4;
 			} else
@@ -1543,15 +1559,19 @@ restart:
 				mc_init_m(&cmc, control);
 
 				SOCK_RECVBUF_LOCK(so);
-				MPASS(!(sb->sb_state & SBS_CANTRCVMORE));
-
-				if (__predict_false(cmc.mc_len + sb->sb_ccc +
-				    sb->sb_ctl > sb->sb_hiwat)) {
+				if (__predict_false(
+				    (sb->sb_state & SBS_CANTRCVMORE) ||
+				    cmc.mc_len + sb->sb_ccc + sb->sb_ctl >
+				    sb->sb_hiwat)) {
 					/*
-					 * Too bad, while unp_externalize() was
-					 * failing, the other side had filled
-					 * the buffer and we can't prepend data
-					 * back. Losing data!
+					 * While the lock was dropped and we
+					 * were failing in unp_externalize(),
+					 * the peer could has a) disconnected,
+					 * b) filled the buffer so that we
+					 * can't prepend data back.
+					 * These are two edge conditions that
+					 * we just can't handle, so lose the
+					 * data and return the error.
 					 */
 					SOCK_RECVBUF_UNLOCK(so);
 					SOCK_IO_RECV_UNLOCK(so);
@@ -1835,11 +1855,13 @@ static const struct filterops uipc_write_filtops = {
 	.f_isfd = 1,
 	.f_detach = uipc_filt_sowdetach,
 	.f_event = uipc_filt_sowrite,
+	.f_copy = knote_triv_copy,
 };
 static const struct filterops uipc_empty_filtops = {
 	.f_isfd = 1,
 	.f_detach = uipc_filt_sowdetach,
 	.f_event = uipc_filt_soempty,
+	.f_copy = knote_triv_copy,
 };
 
 static int
@@ -2397,7 +2419,7 @@ uipc_sendfile_wait(struct socket *so, off_t need, int *space)
 		}
 		if (!sockref)
 			soref(so2);
-		error = sbwait(so2, SO_RCV);
+		error = uipc_stream_sbwait(so2, so->so_snd.sb_timeo);
 		if (error == 0 &&
 		    __predict_false(sb->sb_state & SBS_CANTRCVMORE))
 			error = EPIPE;

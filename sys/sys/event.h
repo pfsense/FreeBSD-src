@@ -228,6 +228,7 @@ struct freebsd11_kevent32 {
 
 /* Flags for kqueuex(2) */
 #define	KQUEUE_CLOEXEC	0x00000001	/* close on exec */
+#define	KQUEUE_CPONFORK	0x00000002	/* copy on fork */
 
 struct knote;
 SLIST_HEAD(klist, knote);
@@ -283,6 +284,7 @@ struct filterops {
 	void	(*f_touch)(struct knote *kn, struct kevent *kev, u_long type);
 	int	(*f_userdump)(struct proc *p, struct knote *kn,
 		    struct kinfo_knote *kin);
+	int	(*f_copy)(struct knote *kn, struct proc *p1);
 };
 
 /*
@@ -346,6 +348,7 @@ struct rwlock;
 
 void	knote(struct knlist *list, long hint, int lockflags);
 void	knote_fork(struct knlist *list, int pid);
+int	knote_triv_copy(struct knote *kn, struct proc *p1);
 struct knlist *knlist_alloc(struct mtx *lock);
 void	knlist_detach(struct knlist *knl);
 void	knlist_add(struct knlist *knl, struct knote *kn, int islocked);

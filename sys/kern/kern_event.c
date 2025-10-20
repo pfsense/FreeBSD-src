@@ -134,6 +134,7 @@ static fo_kqfilter_t	kqueue_kqfilter;
 static fo_stat_t	kqueue_stat;
 static fo_close_t	kqueue_close;
 static fo_fill_kinfo_t	kqueue_fill_kinfo;
+static fo_fork_t	kqueue_fork;
 
 static const struct fileops kqueueops = {
 	.fo_read = invfo_rdwr,
@@ -148,7 +149,9 @@ static const struct fileops kqueueops = {
 	.fo_chown = invfo_chown,
 	.fo_sendfile = invfo_sendfile,
 	.fo_cmp = file_kcmp_generic,
+	.fo_fork = kqueue_fork,
 	.fo_fill_kinfo = kqueue_fill_kinfo,
+	.fo_flags = DFLAG_FORK,
 };
 
 static int 	knote_attach(struct knote *kn, struct kqueue *kq);
@@ -176,6 +179,7 @@ static void	filt_timerdetach(struct knote *kn);
 static void	filt_timerstart(struct knote *kn, sbintime_t to);
 static void	filt_timertouch(struct knote *kn, struct kevent *kev,
 		    u_long type);
+static int	filt_timercopy(struct knote *kn, struct proc *p1);
 static int	filt_timervalidate(struct knote *kn, sbintime_t *to);
 static int	filt_timer(struct knote *kn, long hint);
 static int	filt_userattach(struct knote *kn);
@@ -187,11 +191,13 @@ static void	filt_usertouch(struct knote *kn, struct kevent *kev,
 static const struct filterops file_filtops = {
 	.f_isfd = 1,
 	.f_attach = filt_fileattach,
+	.f_copy = knote_triv_copy,
 };
 static const struct filterops kqread_filtops = {
 	.f_isfd = 1,
 	.f_detach = filt_kqdetach,
 	.f_event = filt_kqueue,
+	.f_copy = knote_triv_copy,
 };
 /* XXX - move to kern_proc.c?  */
 static const struct filterops proc_filtops = {
@@ -199,12 +205,14 @@ static const struct filterops proc_filtops = {
 	.f_attach = filt_procattach,
 	.f_detach = filt_procdetach,
 	.f_event = filt_proc,
+	.f_copy = knote_triv_copy,
 };
 static const struct filterops jail_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_jailattach,
 	.f_detach = filt_jaildetach,
 	.f_event = filt_jail,
+	.f_copy = knote_triv_copy,
 };
 static const struct filterops timer_filtops = {
 	.f_isfd = 0,
@@ -212,12 +220,14 @@ static const struct filterops timer_filtops = {
 	.f_detach = filt_timerdetach,
 	.f_event = filt_timer,
 	.f_touch = filt_timertouch,
+	.f_copy =  filt_timercopy,
 };
 static const struct filterops user_filtops = {
 	.f_attach = filt_userattach,
 	.f_detach = filt_userdetach,
 	.f_event = filt_user,
 	.f_touch = filt_usertouch,
+	.f_copy = knote_triv_copy,
 };
 
 static uma_zone_t	knote_zone;
@@ -347,6 +357,7 @@ filt_nullattach(struct knote *kn)
 static const struct filterops null_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_nullattach,
+	.f_copy = knote_triv_copy,
 };
 
 /* XXX - make SYSINIT to add these, and move into respective modules. */
@@ -940,6 +951,30 @@ filt_timerattach(struct knote *kn)
 	return (0);
 }
 
+static int
+filt_timercopy(struct knote *kn, struct proc *p)
+{
+	struct kq_timer_cb_data *kc_src, *kc;
+
+	if (atomic_fetchadd_int(&kq_ncallouts, 1) + 1 > kq_calloutmax) {
+		atomic_subtract_int(&kq_ncallouts, 1);
+		return (ENOMEM);
+	}
+
+	kn->kn_status &= ~KN_DETACHED;
+	kc_src = kn->kn_ptr.p_v;
+	kn->kn_ptr.p_v = kc = malloc(sizeof(*kc), M_KQUEUE, M_WAITOK);
+	kc->kn = kn;
+	kc->p = p;
+	kc->flags = kc_src->flags & ~KQ_TIMER_CB_ENQUEUED;
+	kc->next = kc_src->next;
+	kc->to = kc_src->to;
+	kc->cpuid = PCPU_GET(cpuid);
+	callout_init(&kc->c, 1);
+	kqtimer_sched_callout(kc);
+	return (0);
+}
+
 static void
 filt_timerstart(struct knote *kn, sbintime_t to)
 {
@@ -1151,7 +1186,7 @@ int
 sys_kqueue(struct thread *td, struct kqueue_args *uap)
 {
 
-	return (kern_kqueue(td, 0, NULL));
+	return (kern_kqueue(td, 0, false, NULL));
 }
 
 int
@@ -1159,55 +1194,76 @@ sys_kqueuex(struct thread *td, struct kqueuex_args *uap)
 {
 	int flags;
 
-	if ((uap->flags & ~(KQUEUE_CLOEXEC)) != 0)
+	if ((uap->flags & ~(KQUEUE_CLOEXEC | KQUEUE_CPONFORK)) != 0)
 		return (EINVAL);
 	flags = 0;
 	if ((uap->flags & KQUEUE_CLOEXEC) != 0)
 		flags |= O_CLOEXEC;
-	return (kern_kqueue(td, flags, NULL));
+	return (kern_kqueue(td, flags, (uap->flags & KQUEUE_CPONFORK) != 0,
+	    NULL));
 }
 
 static void
-kqueue_init(struct kqueue *kq)
+kqueue_init(struct kqueue *kq, bool cponfork)
 {
 
 	mtx_init(&kq->kq_lock, "kqueue", NULL, MTX_DEF | MTX_DUPOK);
 	TAILQ_INIT(&kq->kq_head);
 	knlist_init_mtx(&kq->kq_sel.si_note, &kq->kq_lock);
 	TASK_INIT(&kq->kq_task, 0, kqueue_task, kq);
+	if (cponfork)
+		kq->kq_state |= KQ_CPONFORK;
 }
 
-int
-kern_kqueue(struct thread *td, int flags, struct filecaps *fcaps)
+static int
+kern_kqueue_alloc(struct thread *td, struct filedesc *fdp, int *fdip,
+    struct file **fpp, int flags, struct filecaps *fcaps, bool cponfork,
+    struct kqueue **kqp)
 {
-	struct filedesc *fdp;
-	struct kqueue *kq;
-	struct file *fp;
 	struct ucred *cred;
-	int fd, error;
+	struct kqueue *kq;
+	int error;
 
-	fdp = td->td_proc->p_fd;
 	cred = td->td_ucred;
 	if (!chgkqcnt(cred->cr_ruidinfo, 1, lim_cur(td, RLIMIT_KQUEUES)))
 		return (ENOMEM);
 
-	error = falloc_caps(td, &fp, &fd, flags, fcaps);
+	error = fdip != NULL ? falloc_caps(td, fpp, fdip, flags, fcaps) :
+	    _falloc_noinstall(td, fpp, 1);
 	if (error != 0) {
 		chgkqcnt(cred->cr_ruidinfo, -1, 0);
 		return (error);
 	}
 
 	/* An extra reference on `fp' has been held for us by falloc(). */
-	kq = malloc(sizeof *kq, M_KQUEUE, M_WAITOK | M_ZERO);
-	kqueue_init(kq);
+	kq = malloc(sizeof(*kq), M_KQUEUE, M_WAITOK | M_ZERO);
+	kqueue_init(kq, cponfork);
 	kq->kq_fdp = fdp;
 	kq->kq_cred = crhold(cred);
 
-	FILEDESC_XLOCK(fdp);
+	if (fdip != NULL)
+		FILEDESC_XLOCK(fdp);
 	TAILQ_INSERT_HEAD(&fdp->fd_kqlist, kq, kq_list);
-	FILEDESC_XUNLOCK(fdp);
+	if (fdip != NULL)
+		FILEDESC_XUNLOCK(fdp);
 
-	finit(fp, FREAD | FWRITE, DTYPE_KQUEUE, kq, &kqueueops);
+	finit(*fpp, FREAD | FWRITE, DTYPE_KQUEUE, kq, &kqueueops);
+	*kqp = kq;
+	return (0);
+}
+
+int
+kern_kqueue(struct thread *td, int flags, bool cponfork, struct filecaps *fcaps)
+{
+	struct kqueue *kq;
+	struct file *fp;
+	int fd, error;
+
+	error = kern_kqueue_alloc(td, td->td_proc->p_fd, &fd, &fp, flags,
+	    fcaps, cponfork, &kq);
+	if (error != 0)
+		return (error);
+
 	fdrop(fp, td);
 
 	td->td_retval[0] = fd;
@@ -1488,7 +1544,7 @@ kern_kevent_anonymous(struct thread *td, int nevents,
 	struct kqueue kq = {};
 	int error;
 
-	kqueue_init(&kq);
+	kqueue_init(&kq, false);
 	kq.kq_refcnt = 1;
 	error = kqueue_kevent(&kq, td, nevents, nevents, k_ops, NULL);
 	kqueue_drain(&kq, td);
@@ -1576,7 +1632,7 @@ kqueue_fo_release(int filt)
 
 	mtx_lock(&filterops_lock);
 	KASSERT(sysfilt_ops[~filt].for_refcnt > 0,
-	    ("filter object refcount not valid on release"));
+	    ("filter object %d refcount not valid on release", filt));
 	sysfilt_ops[~filt].for_refcnt--;
 	mtx_unlock(&filterops_lock);
 }
@@ -1855,17 +1911,8 @@ done:
 }
 
 static int
-kqueue_acquire(struct file *fp, struct kqueue **kqp)
+kqueue_acquire_ref(struct kqueue *kq)
 {
-	int error;
-	struct kqueue *kq;
-
-	error = 0;
-
-	kq = fp->f_data;
-	if (fp->f_type != DTYPE_KQUEUE || kq == NULL)
-		return (EINVAL);
-	*kqp = kq;
 	KQ_LOCK(kq);
 	if ((kq->kq_state & KQ_CLOSING) == KQ_CLOSING) {
 		KQ_UNLOCK(kq);
@@ -1873,8 +1920,22 @@ kqueue_acquire(struct file *fp, struct kqueue **kqp)
 	}
 	kq->kq_refcnt++;
 	KQ_UNLOCK(kq);
+	return (0);
+}
 
-	return error;
+static int
+kqueue_acquire(struct file *fp, struct kqueue **kqp)
+{
+	struct kqueue *kq;
+	int error;
+
+	kq = fp->f_data;
+	if (fp->f_type != DTYPE_KQUEUE || kq == NULL)
+		return (EINVAL);
+	error = kqueue_acquire_ref(kq);
+	if (error == 0)
+		*kqp = kq;
+	return (error);
 }
 
 static void
@@ -2935,6 +2996,152 @@ kqfd_register(int fd, struct kevent *kev, struct thread *td, int mflag)
 noacquire:
 	fdrop(fp, td);
 	return (error);
+}
+
+static int
+kqueue_fork_alloc(struct filedesc *fdp, struct file *fp, struct file **fp1,
+    struct thread *td)
+{
+	struct kqueue *kq, *kq1;
+	int error;
+
+	MPASS(fp->f_type == DTYPE_KQUEUE);
+	kq = fp->f_data;
+	if ((kq->kq_state & KQ_CPONFORK) == 0)
+		return (EOPNOTSUPP);
+	error = kqueue_acquire_ref(kq);
+	if (error != 0)
+		return (error);
+	error = kern_kqueue_alloc(td, fdp, NULL, fp1, 0, NULL, true, &kq1);
+	if (error == 0) {
+		kq1->kq_forksrc = kq;
+		(*fp1)->f_flag = fp->f_flag & (FREAD | FWRITE | FEXEC |
+		    O_CLOEXEC | O_CLOFORK);
+	} else {
+		kqueue_release(kq, 0);
+	}
+	return (error);
+}
+
+static void
+kqueue_fork_copy_knote(struct kqueue *kq1, struct knote *kn, struct proc *p1,
+    struct filedesc *fdp)
+{
+	struct knote *kn1;
+	const struct filterops *fop;
+	int error;
+
+	fop = kn->kn_fop;
+	if (fop->f_copy == NULL || (fop->f_isfd &&
+	    fdp->fd_files->fdt_ofiles[kn->kn_kevent.ident].fde_file == NULL))
+		return;
+	error = kqueue_expand(kq1, fop, kn->kn_kevent.ident, M_WAITOK);
+	if (error != 0)
+		return;
+
+	kn1 = knote_alloc(M_WAITOK);
+	*kn1 = *kn;
+	kn1->kn_status |= KN_DETACHED;
+	kn1->kn_status &= ~KN_QUEUED;
+	kn1->kn_kq = kq1;
+	error = fop->f_copy(kn1, p1);
+	if (error != 0) {
+		knote_free(kn1);
+		return;
+	}
+	(void)kqueue_fo_find(kn->kn_kevent.filter);
+	if (fop->f_isfd && !fhold(kn1->kn_fp)) {
+		fop->f_detach(kn1);
+		kqueue_fo_release(kn->kn_kevent.filter);
+		knote_free(kn1);
+		return;
+	}
+	if (kn->kn_knlist != NULL)
+		knlist_add(kn->kn_knlist, kn1, 0);
+	KQ_LOCK(kq1);
+	knote_attach(kn1, kq1);
+	kn1->kn_influx = 0;
+	if ((kn->kn_status & KN_QUEUED) != 0)
+		knote_enqueue(kn1);
+	KQ_UNLOCK(kq1);
+}
+
+static void
+kqueue_fork_copy_list(struct klist *knlist, struct knote *marker,
+    struct kqueue *kq, struct kqueue *kq1, struct proc *p1,
+    struct filedesc *fdp)
+{
+	struct knote *kn;
+
+	KQ_OWNED(kq);
+	kn = SLIST_FIRST(knlist);
+	while (kn != NULL) {
+		if ((kn->kn_status & KN_DETACHED) != 0 ||
+		    (kn_in_flux(kn) && (kn->kn_status & KN_SCAN) == 0)) {
+			kn = SLIST_NEXT(kn, kn_link);
+			continue;
+		}
+		kn_enter_flux(kn);
+		SLIST_INSERT_AFTER(kn, marker, kn_link);
+		KQ_UNLOCK(kq);
+		kqueue_fork_copy_knote(kq1, kn, p1, fdp);
+		KQ_LOCK(kq);
+		kn_leave_flux(kn);
+		kn = SLIST_NEXT(marker, kn_link);
+		/* XXXKIB switch kn_link to LIST? */
+		SLIST_REMOVE(knlist, marker, knote, kn_link);
+	}
+}
+
+static int
+kqueue_fork_copy(struct filedesc *fdp, struct file *fp, struct file *fp1,
+    struct proc *p1, struct thread *td)
+{
+	struct kqueue *kq, *kq1;
+	struct knote *marker;
+	int error, i;
+
+	error = 0;
+	MPASS(fp == NULL);
+	MPASS(fp1->f_type == DTYPE_KQUEUE);
+
+	kq1 = fp1->f_data;
+	kq = kq1->kq_forksrc;
+	marker = knote_alloc(M_WAITOK);
+	marker->kn_status = KN_MARKER;
+
+	KQ_LOCK(kq);
+	for (i = 0; i < kq->kq_knlistsize; i++) {
+		kqueue_fork_copy_list(&kq->kq_knlist[i], marker, kq, kq1,
+		    p1, fdp);
+	}
+	if (kq->kq_knhashmask != 0) {
+		for (i = 0; i <= kq->kq_knhashmask; i++) {
+			kqueue_fork_copy_list(&kq->kq_knhash[i], marker, kq,
+			    kq1, p1, fdp);
+		}
+	}
+	kqueue_release(kq, 1);
+	kq1->kq_forksrc = NULL;
+	KQ_UNLOCK(kq);
+
+	knote_free(marker);
+	return (error);
+}
+
+static int
+kqueue_fork(struct filedesc *fdp, struct file *fp, struct file **fp1,
+    struct proc *p1, struct thread *td)
+{
+	if (*fp1 == NULL)
+		return (kqueue_fork_alloc(fdp, fp, fp1, td));
+	return (kqueue_fork_copy(fdp, fp, *fp1, p1, td));
+}
+
+int
+knote_triv_copy(struct knote *kn __unused, struct proc *p1 __unused)
+{
+	return (0);
 }
 
 struct knote_status_export_bit {
