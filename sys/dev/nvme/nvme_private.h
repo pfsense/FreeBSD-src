@@ -235,8 +235,10 @@ struct nvme_controller {
 	 *  separate from the control registers which are in BAR 0/1.  These
 	 *  members track the mapping of BAR 4/5 for that reason.
 	 */
-	int			bar4_resource_id;
-	struct resource		*bar4_resource;
+	int			msix_table_resource_id;
+	struct resource		*msix_table_resource;
+	int			msix_pba_resource_id;
+	struct resource		*msix_pba_resource;
 
 	int			msi_count;
 	uint32_t		enable_aborts;
@@ -563,6 +565,7 @@ void	nvme_notify_new_controller(struct nvme_controller *ctrlr);
 void	nvme_notify_ns(struct nvme_controller *ctrlr, int nsid);
 
 void	nvme_ctrlr_shared_handler(void *arg);
+void	nvme_ctrlr_get_ident(const struct nvme_controller *ctrlr, uint8_t *sn);
 void	nvme_ctrlr_poll(struct nvme_controller *ctrlr);
 
 int	nvme_ctrlr_suspend(struct nvme_controller *ctrlr);

@@ -1081,12 +1081,14 @@ nfs_setattr(struct vop_setattr_args *ap)
 #endif
 
 	/*
-	 * Only setting of UF_HIDDEN and UF_SYSTEM are supported and
+	 * Only setting of UF_ARCHIVE, UF_HIDDEN and UF_SYSTEM are supported and
 	 * only for NFSv4 servers that support them.
 	 */
 	nmp = VFSTONFS(vp->v_mount);
 	if (vap->va_flags != VNOVAL && (!NFSHASNFSV4(nmp) ||
-	    (vap->va_flags & ~(UF_HIDDEN | UF_SYSTEM)) != 0 ||
+	    (vap->va_flags & ~(UF_ARCHIVE | UF_HIDDEN | UF_SYSTEM)) != 0 ||
+	    ((vap->va_flags & UF_ARCHIVE) != 0 &&
+	     !NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr, NFSATTRBIT_ARCHIVE)) ||
 	    ((vap->va_flags & UF_HIDDEN) != 0 &&
 	     !NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr, NFSATTRBIT_HIDDEN)) ||
 	    ((vap->va_flags & UF_SYSTEM) != 0 &&
@@ -3894,11 +3896,15 @@ nfs_allocate(struct vop_allocate_args *ap)
 			mtx_lock(&nmp->nm_mtx);
 			nmp->nm_privflag |= NFSMNTP_NOALLOCATE;
 			mtx_unlock(&nmp->nm_mtx);
-			error = EINVAL;
+			error = EOPNOTSUPP;
 		}
 	} else {
+		/*
+		 * Pre-v4.2 NFS server that doesn't support it, or a newer
+		 * NFS server that has indicated that it doesn't support it.
+		 */
 		mtx_unlock(&nmp->nm_mtx);
-		error = EINVAL;
+		error = EOPNOTSUPP;
 	}
 	if (attrflag != 0) {
 		ret = nfscl_loadattrcache(&vp, &nfsva, NULL, 0, 1);
@@ -4675,12 +4681,13 @@ nfs_pathconf(struct vop_pathconf_args *ap)
 	clone_blksize = 0;
 	if ((NFS_ISV34(vp) && (ap->a_name == _PC_LINK_MAX ||
 	    ap->a_name == _PC_NAME_MAX || ap->a_name == _PC_CHOWN_RESTRICTED ||
-	    ap->a_name == _PC_NO_TRUNC)) ||
+	    ap->a_name == _PC_NO_TRUNC ||
+	    ap->a_name == _PC_CASE_INSENSITIVE)) ||
 	    (NFS_ISV4(vp) && (ap->a_name == _PC_ACL_NFS4 ||
 	     ap->a_name == _PC_HAS_NAMEDATTR ||
 	     ap->a_name == _PC_CLONE_BLKSIZE))) {
 		/*
-		 * Since only the above 4 a_names are returned by the NFSv3
+		 * Since only the above 5 a_names are returned by the NFSv3
 		 * Pathconf RPC, there is no point in doing it for others.
 		 * For NFSv4, the Pathconf RPC (actually a Getattr Op.) can
 		 * be used for _PC_ACL_NFS4, _PC_HAS_NAMEDATTR and
@@ -4835,6 +4842,8 @@ nfs_pathconf(struct vop_pathconf_args *ap)
 		break;
 	case _PC_HAS_HIDDENSYSTEM:
 		if (NFS_ISV4(vp) && NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
+		    NFSATTRBIT_ARCHIVE) &&
+		    NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
 		    NFSATTRBIT_HIDDEN) &&
 		    NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
 		    NFSATTRBIT_SYSTEM))
@@ -4844,6 +4853,9 @@ nfs_pathconf(struct vop_pathconf_args *ap)
 		break;
 	case _PC_CLONE_BLKSIZE:
 		*ap->a_retval = clone_blksize;
+		break;
+	case _PC_CASE_INSENSITIVE:
+		*ap->a_retval = pc.pc_caseinsensitive;
 		break;
 
 	default:

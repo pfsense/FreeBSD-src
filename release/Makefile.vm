@@ -101,9 +101,12 @@ QEMUTGT=emulator-portinstall
 .endif
 QEMUTGT?=
 
+.if (defined(WITH_CLOUDWARE) && !empty(WITH_CLOUDWARE)) || \
+    (defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES))
 .if (defined(WITHOUT_QEMU) && !defined(NO_ROOT)) || \
   (!defined(WITHOUT_QEMU) && defined(NO_ROOT))
 .error WITHOUT_QEMU requires NO_ROOT (and vice versa)
+.endif
 .endif
 
 .if defined(WITH_CLOUDWARE) && !empty(WITH_CLOUDWARE) && !empty(CLOUDWARE)
@@ -124,6 +127,13 @@ ${_CW:tu}${_FS:tu}${_FMT:tu}IMAGE=	${_CW:tl}.${_FS}.${_FMT}
 # built first.
 .if ${_CW} == EC2-BUILDER
 cw-${_CW:tl}-${_FS}-${_FMT}: cw-ec2-base-${_FS}-${_FMT}
+.endif
+
+# Special handling: GCE images ingest src.txz and ports.txz and expect them
+# to be in the /ftp/ directory.  Note: This will need to be reworked before
+# distribution sets go away!
+.if ${_CW} == GCE
+cw-${_CW:tl}-${_FS}-${_FMT}: ftp
 .endif
 
 cw-${_CW:tl}-${_FS}-${_FMT}: ${QEMUTGT} ${PKGBASE_REPO_DIR}

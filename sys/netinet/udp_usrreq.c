@@ -787,7 +787,8 @@ udplite_ctlinput(struct icmp *icmp)
 static int
 udp_pcblist(SYSCTL_HANDLER_ARGS)
 {
-	struct inpcb_iterator inpi = INP_ALL_ITERATOR(&V_udbinfo,
+	struct inpcbinfo *pcbinfo = udp_get_inpcbinfo(arg2);
+	struct inpcb_iterator inpi = INP_ALL_ITERATOR(pcbinfo,
 	    INPLOOKUP_RLOCKPCB);
 	struct xinpgen xig;
 	struct inpcb *inp;
@@ -799,7 +800,7 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 	if (req->oldptr == 0) {
 		int n;
 
-		n = V_udbinfo.ipi_count;
+		n = pcbinfo->ipi_count;
 		n += imax(n / 8, 10);
 		req->oldidx = 2 * (sizeof xig) + n * sizeof(struct xinpcb);
 		return (0);
@@ -810,8 +811,8 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 
 	bzero(&xig, sizeof(xig));
 	xig.xig_len = sizeof xig;
-	xig.xig_count = V_udbinfo.ipi_count;
-	xig.xig_gen = V_udbinfo.ipi_gencnt;
+	xig.xig_count = pcbinfo->ipi_count;
+	xig.xig_gen = pcbinfo->ipi_gencnt;
 	xig.xig_sogen = so_gencnt;
 	error = SYSCTL_OUT(req, &xig, sizeof xig);
 	if (error)
@@ -838,9 +839,9 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 		 * that something happened while we were processing this
 		 * request, and it might be necessary to retry.
 		 */
-		xig.xig_gen = V_udbinfo.ipi_gencnt;
+		xig.xig_gen = pcbinfo->ipi_gencnt;
 		xig.xig_sogen = so_gencnt;
-		xig.xig_count = V_udbinfo.ipi_count;
+		xig.xig_count = pcbinfo->ipi_count;
 		error = SYSCTL_OUT(req, &xig, sizeof xig);
 	}
 
@@ -848,9 +849,14 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_udp, UDPCTL_PCBLIST, pcblist,
-    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
+    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, IPPROTO_UDP,
     udp_pcblist, "S,xinpcb",
     "List of active UDP sockets");
+
+SYSCTL_PROC(_net_inet_udplite, OID_AUTO, pcblist,
+    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, IPPROTO_UDPLITE,
+    udp_pcblist, "S,xinpcb",
+    "List of active UDP-Lite sockets");
 
 #ifdef INET
 static int
@@ -1166,7 +1172,19 @@ udp_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *addr,
 	else
 		INP_RLOCK(inp);
 	NET_EPOCH_ENTER(et);
+#ifdef INET6
+	if ((flags & PRUS_IPV6) != 0) {
+		if ((inp->in6p_outputopts != NULL) &&
+		    (inp->in6p_outputopts->ip6po_tclass != -1))
+			tos = (u_char)inp->in6p_outputopts->ip6po_tclass;
+		else
+			tos = 0;
+	} else {
+		tos = inp->inp_ip_tos;
+	}
+#else
 	tos = inp->inp_ip_tos;
+#endif
 	if (control != NULL) {
 		/*
 		 * XXX: Currently, we assume all the optional information is
@@ -1190,6 +1208,23 @@ udp_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *addr,
 			error = udp_v4mapped_pktinfo(cm, &src, inp, flags);
 			if (error != 0)
 				break;
+			if (((flags & PRUS_IPV6) != 0) &&
+			    (cm->cmsg_level == IPPROTO_IPV6) &&
+			    (cm->cmsg_type == IPV6_TCLASS)) {
+				int tclass;
+
+				if (cm->cmsg_len != CMSG_LEN(sizeof(int))) {
+					error = EINVAL;
+					break;
+				}
+				tclass = *(int *)CMSG_DATA(cm);
+				if (tclass < -1 || tclass > 255) {
+					error = EINVAL;
+					break;
+				}
+				if (tclass != -1)
+					tos = (u_char)tclass;
+			}
 #endif
 			if (cm->cmsg_level != IPPROTO_IP)
 				continue;

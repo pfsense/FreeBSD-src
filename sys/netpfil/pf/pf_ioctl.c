@@ -4792,6 +4792,17 @@ DIOCCHANGEADDR_error:
 			error = ENODEV;
 			goto fail;
 		}
+		if (strnlen(io->pfrio_table.pfrt_anchor, MAXPATHLEN)
+		    == MAXPATHLEN) {
+			error = EINVAL;
+			goto fail;
+		}
+		if (strnlen(io->pfrio_table.pfrt_name, PF_TABLE_NAME_SIZE)
+		    == PF_TABLE_NAME_SIZE) {
+			error = EINVAL;
+			goto fail;
+		}
+
 		PF_RULES_WLOCK();
 		error = pfr_clr_tables(&io->pfrio_table, &io->pfrio_ndel,
 		    io->pfrio_flags | PFR_FLAG_USERIOCTL);
@@ -5131,7 +5142,7 @@ DIOCCHANGEADDR_error:
 		error = pfr_set_addrs(&io->pfrio_table, pfras,
 		    io->pfrio_size, &io->pfrio_size2, &io->pfrio_nadd,
 		    &io->pfrio_ndel, &io->pfrio_nchange, io->pfrio_flags |
-		    PFR_FLAG_USERIOCTL, 0);
+		    PFR_FLAG_START | PFR_FLAG_DONE | PFR_FLAG_USERIOCTL, 0);
 		PF_RULES_WUNLOCK();
 		if (error == 0 && io->pfrio_flags & PFR_FLAG_FEEDBACK)
 			error = copyout(pfras, io->pfrio_buffer, totlen);

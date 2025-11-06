@@ -27,7 +27,7 @@
 .\" ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 .\" POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd October 7, 2025
+.Dd November 3, 2025
 .Dt PF.CONF 5
 .Os
 .Sh NAME
@@ -1490,7 +1490,7 @@ options and both implicitly and explicitly in the case of
 ones.
 A
 .Ar rdr-to
-opion may cause the source port to be modified if doing so avoids a conflict
+option may cause the source port to be modified if doing so avoids a conflict
 with an existing connection.
 A random source port in the range 50001-65535 is chosen in this case.
 Port numbers are never translated with a
@@ -3460,6 +3460,12 @@ filteropt      = user | group | flags | icmp-type | icmp6-type | "tos" tos |
                  "dnpipe" ( number | "(" number "," number ")" ) |
                  "dnqueue" ( number | "(" number "," number ")" ) |
                  "ridentifier" number |
+                 "binat-to" ( redirhost | "{" redirhost-list "}" )
+                 [ portspec ] [ pooltype ] |
+                 "rdr-to" ( redirhost | "{" redirhost-list "}" )
+                 [ portspec ] [ pooltype ] |
+                 "nat-to" ( redirhost | "{" redirhost-list "}" )
+                 [ portspec ] [ pooltype ] [ "static-port" ] |
                  [ ! ] "received-on" ( interface-name | interface-group )
 
 nat-rule       = [ "no" ] "nat" [ "pass" [ "log" [ "(" logopts ")" ] ] ]

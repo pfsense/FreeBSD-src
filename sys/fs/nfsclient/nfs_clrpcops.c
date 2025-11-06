@@ -2212,7 +2212,7 @@ nfsrpc_writerpc(vnode_t vp, struct uio *uiop, int *iomode,
 				NFSM_DISSECT(tl, u_int32_t *, 2 * NFSX_UNSIGNED
 					+ NFSX_VERF);
 				rlen = fxdr_unsigned(int, *tl++);
-				if (rlen == 0) {
+				if (rlen <= 0 || rlen > len) {
 					error = NFSERR_IO;
 					goto nfsmout;
 				} else if (rlen < len) {
@@ -4162,9 +4162,12 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 		    NFSATTRBIT_TIMECREATE))
 			NFSCLRBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMECREATE);
 		if (!NFSISSET_ATTRBIT(&dnp->n_vattr.na_suppattr,
+		    NFSATTRBIT_ARCHIVE) ||
+		    !NFSISSET_ATTRBIT(&dnp->n_vattr.na_suppattr,
 		    NFSATTRBIT_HIDDEN) ||
 		    !NFSISSET_ATTRBIT(&dnp->n_vattr.na_suppattr,
 		    NFSATTRBIT_SYSTEM)) {
+			NFSCLRBIT_ATTRBIT(&attrbits, NFSATTRBIT_ARCHIVE);
 			NFSCLRBIT_ATTRBIT(&attrbits, NFSATTRBIT_HIDDEN);
 			NFSCLRBIT_ATTRBIT(&attrbits, NFSATTRBIT_SYSTEM);
 		}
@@ -5281,7 +5284,7 @@ nfsrpc_getdirpath(struct nfsmount *nmp, u_char *dirpath, struct ucred *cred,
 	struct nfsrv_descript nfsd;
 	struct nfsrv_descript *nd = &nfsd;
 	u_char *cp, *cp2, *fhp;
-	int error, cnt, len, setnil;
+	int error, cnt, i, len, setnil;
 	u_int32_t *opcntp;
 
 	nfscl_reqstart(nd, NFSPROC_PUTROOTFH, nmp, NULL, 0, &opcntp, NULL, 0,
@@ -5322,8 +5325,12 @@ nfsrpc_getdirpath(struct nfsmount *nmp, u_char *dirpath, struct ucred *cred,
 	if (error)
 		return (error);
 	if (nd->nd_repstat == 0) {
-		NFSM_DISSECT(tl, u_int32_t *, (3 + 2 * cnt) * NFSX_UNSIGNED);
-		tl += (2 + 2 * cnt);
+		NFSM_DISSECT(tl, uint32_t *, 3 * NFSX_UNSIGNED);
+		tl += 2;
+		for (i = 0; i < cnt; i++) {
+			NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
+			tl++;
+		}
 		if ((len = fxdr_unsigned(int, *tl)) <= 0 ||
 			len > NFSX_FHMAX) {
 			nd->nd_repstat = NFSERR_BADXDR;
@@ -5445,7 +5452,7 @@ nfsrpc_setaclrpc(vnode_t vp, struct ucred *cred, NFSPROC_T *p,
 	NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_ACL);
 	(void) nfsv4_fillattr(nd, vp->v_mount, vp, aclp, NULL, NULL, 0,
 	    &attrbits, NULL, NULL, 0, 0, 0, 0, (uint64_t)0, NULL, false, false,
-	    false, 0);
+	    false, 0, NULL, false);
 	error = nfscl_request(nd, vp, p, cred);
 	if (error)
 		return (error);
@@ -5596,7 +5603,7 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
 	}
 	*tl++ = txdr_unsigned(4096);		/* Max response size cached */
 	*tl++ = txdr_unsigned(20);		/* Max operations */
-	*tl++ = txdr_unsigned(64);		/* Max slots */
+	*tl++ = txdr_unsigned(NFSV4_SLOTS);	/* Max slots */
 	*tl = 0;				/* No rdma ird */
 
 	/* Fill in back channel attributes. */
@@ -5665,6 +5672,11 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
 		sep->nfsess_maxcache = fxdr_unsigned(int, *tl++);
 		tl++;
 		sep->nfsess_foreslots = fxdr_unsigned(uint16_t, *tl++);
+		if (sep->nfsess_foreslots == 0) {
+			error = NFSERR_BADXDR;
+			goto nfsmout;
+		} else if (sep->nfsess_foreslots > NFSV4_SLOTS)
+			sep->nfsess_foreslots = NFSV4_SLOTS;
 		NFSCL_DEBUG(4, "fore slots=%d\n", (int)sep->nfsess_foreslots);
 		irdcnt = fxdr_unsigned(int, *tl);
 		if (irdcnt < 0 || irdcnt > 1) {
@@ -5678,6 +5690,8 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
 		NFSM_DISSECT(tl, uint32_t *, 7 * NFSX_UNSIGNED);
 		tl += 5;
 		sep->nfsess_backslots = fxdr_unsigned(uint16_t, *tl);
+		if (sep->nfsess_backslots > NFSV4_CBSLOTS)
+			sep->nfsess_backslots = NFSV4_CBSLOTS;
 		NFSCL_DEBUG(4, "back slots=%d\n", (int)sep->nfsess_backslots);
 	}
 	error = nd->nd_repstat;
@@ -5797,7 +5811,8 @@ nfsrpc_getdeviceinfo(struct nfsmount *nmp, uint8_t *deviceid, int layouttype,
 			NFSM_DISSECT(tl, uint32_t *, NFSX_UNSIGNED);
 			stripecnt = fxdr_unsigned(int, *tl);
 			NFSCL_DEBUG(4, "stripecnt=%d\n", stripecnt);
-			if (stripecnt < 1 || stripecnt > 4096) {
+			if (stripecnt >= MHLEN / NFSX_UNSIGNED ||
+			    stripecnt < 1) {
 				printf("pNFS File layout devinfo stripecnt %d:"
 				    " out of range\n", stripecnt);
 				error = NFSERR_BADXDR;
@@ -7246,7 +7261,7 @@ nfsrpc_writeds(vnode_t vp, struct uio *uiop, int *iomode, int *must_commit,
 		NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED + NFSX_VERF);
 		rlen = fxdr_unsigned(int, *tl++);
 		NFSCL_DEBUG(4, "nfsrpc_writeds: len=%d rlen=%d\n", len, rlen);
-		if (rlen == 0) {
+		if (rlen <= 0 || rlen > len) {
 			error = NFSERR_IO;
 			goto nfsmout;
 		} else if (rlen < len) {
@@ -8243,7 +8258,7 @@ nfsrv_parseug(struct nfsrv_descript *nd, int dogrp, uid_t *uidp, gid_t *gidp,
     NFSPROC_T *p)
 {
 	uint32_t *tl;
-	char *cp, *str, str0[NFSV4_SMALLSTR + 1];
+	char *str, str0[NFSV4_SMALLSTR + 1];
 	uint32_t len = 0;
 	int error = 0;
 
@@ -8266,9 +8281,9 @@ nfsrv_parseug(struct nfsrv_descript *nd, int dogrp, uid_t *uidp, gid_t *gidp,
 		str = malloc(len + 1, M_TEMP, M_WAITOK);
 	else
 		str = str0;
-	NFSM_DISSECT(cp, char *, NFSM_RNDUP(len));
-	NFSBCOPY(cp, str, len);
-	str[len] = '\0';
+	error = nfsrv_mtostr(nd, str, len);
+	if (error != 0)
+		goto nfsmout;
 	NFSCL_DEBUG(4, "nfsrv_parseug: str=%s\n", str);
 	if (dogrp != 0)
 		error = nfsv4_strtogid(nd, str, len, gidp);
@@ -9745,7 +9760,7 @@ nfsm_split(struct mbuf *mp, uint64_t xfer)
 		pgno++;
 	} while (pgno < m->m_epg_npgs);
 	if (pgno == m->m_epg_npgs)
-		panic("nfsm_split: eroneous ext_pgs mbuf");
+		panic("nfsm_split: erroneous ext_pgs mbuf");
 
 	m2 = mb_alloc_ext_pgs(M_WAITOK, mb_free_mext_pgs, 0);
 	m2->m_epg_flags |= EPG_FLAG_ANON;

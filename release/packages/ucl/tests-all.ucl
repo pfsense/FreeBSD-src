@@ -23,24 +23,6 @@ The test suite, installed in /usr/tests, allows the functionality of the
 installed system to be verified.
 EOD
 
-deps {
-	# Nearly all the tests require atf to run.
-	"atf": {
-		version = "${VERSION}"
-	},
-
-	# The test framework requires Kyua.
-	"kyua": {
-		version = "${VERSION}"
-	},
-
-	# Since the purpose of the tests is to test the base system, the base
-	# system must be installed.
-	"set-base": {
-		version = "${VERSION}"
-	}
-}
-
 annotations {
 	set = tests
 }

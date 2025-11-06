@@ -27,6 +27,13 @@ loaded from a local disk or CD-ROM.
 nuageinit implements the cloud-init (https://cloud-init.io/) specification.
 EOD
 
+deps {
+	# nuageinit is written in Lua
+	"flua" {
+		version = "${VERSION}"
+	},
+}
+
 annotations {
 	set = minimal
 }

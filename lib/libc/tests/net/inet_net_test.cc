@@ -50,7 +50,7 @@ ATF_TEST_CASE_BODY(inet_net_inet4)
 
 	struct test_addr {
 		std::string input;
-		unsigned bits;
+		int bits;
 		std::string output;
 	};
 
@@ -134,7 +134,7 @@ ATF_TEST_CASE_BODY(inet_net_inet6)
 
 	struct test_addr {
 		std::string input;
-		unsigned bits;
+		int bits;
 		std::string output;
 	};
 
@@ -303,25 +303,25 @@ ATF_TEST_CASE_BODY(inet_net_ntop_invalid)
 
 	std::ranges::fill(strbuf, 'Z');
 	auto ret = inet_net_ntop(AF_INET6, &addr6, 128, strbuf.data(), 1);
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 	ATF_REQUIRE_EQ(strbuf[1], 'Z');
 
 	std::ranges::fill(strbuf, 'Z');
 	ret = inet_net_ntop(AF_INET, &addr4, 32, strbuf.data(), 1);
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 	ATF_REQUIRE_EQ(strbuf[1], 'Z');
 
 	/* Check that invalid prefix lengths return an error */
 
 	ret = inet_net_ntop(AF_INET6, &addr6, 129, strbuf.data(), strbuf.size());
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 	ret = inet_net_ntop(AF_INET6, &addr6, -1, strbuf.data(), strbuf.size());
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 
 	ret = inet_net_ntop(AF_INET, &addr4, 33, strbuf.data(), strbuf.size());
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 	ret = inet_net_ntop(AF_INET, &addr4, -1, strbuf.data(), strbuf.size());
-	ATF_REQUIRE_EQ(ret, NULL);
+	ATF_REQUIRE_EQ(ret, nullptr);
 }
 
 ATF_INIT_TEST_CASES(tcs)

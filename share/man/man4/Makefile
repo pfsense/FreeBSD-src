@@ -69,6 +69,12 @@ MAN=	aac.4 \
 	audit.4 \
 	auditpipe.4 \
 	aue.4 \
+	${_aw_gpio.4} \
+	${_aw_mmc.4} \
+	${_aw_rtc.4} \
+	${_aw_sid.4} \
+	${_aw_spi.4} \
+	${_aw_syscon.4} \
 	axe.4 \
 	axge.4 \
 	axp.4 \
@@ -198,7 +204,6 @@ MAN=	aac.4 \
 	hidbus.4 \
 	hidquirk.4 \
 	hidraw.4 \
-	hifn.4 \
 	hkbd.4 \
 	hms.4 \
 	hmt.4 \
@@ -887,7 +892,6 @@ _ntb_hw_intel.4=	ntb_hw_intel.4
 _ntb_hw_plx.4=	ntb_hw_plx.4
 _ntb_transport.4=ntb_transport.4
 _nvram.4=	nvram.4
-_padlock.4=	padlock.4
 _pchtherm.4=	pchtherm.4
 _qat.4=		qat.4
 _qat_c2xxx.4=	qat_c2xxx.4
@@ -934,6 +938,10 @@ _vmm.4=		vmm.4
 .endif
 .endif
 
+.if ${MACHINE_CPUARCH} == "i386"
+_padlock.4=	padlock.4
+.endif
+
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "aarch64"
 _hwt.4=		hwt.4
 .if ${MACHINE_CPUARCH} == "amd64"
@@ -962,6 +970,12 @@ _vmx.4=		vmx.4
 
 .if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "aarch64" || \
 	 ${MACHINE_CPUARCH} == "riscv"
+_aw_gpio.4=	aw_gpio.4
+_aw_mmc.4=	aw_mmc.4
+_aw_rtc.4=	aw_rtc.4
+_aw_sid.4=	aw_sid.4
+_aw_spi.4=	aw_spi.4
+_aw_syscon.4=	aw_syscon.4
 _cgem.4=	cgem.4
 MLINKS+=cgem.4 if_cgem.4
 .endif
@@ -991,6 +1005,7 @@ _ccd.4=		ccd.4
 
 .if ${MK_CDDL} != "no"
 _dtrace_provs=	dtrace_audit.4 \
+		dtrace_callout_execute.4 \
 		dtrace_dtrace.4 \
 		dtrace_fbt.4 \
 		dtrace_io.4 \
@@ -1003,7 +1018,8 @@ _dtrace_provs=	dtrace_audit.4 \
 		dtrace_sctp.4 \
 		dtrace_tcp.4 \
 		dtrace_udp.4 \
-		dtrace_udplite.4
+		dtrace_udplite.4 \
+		dtrace_vfs.4
 
 MLINKS+=	dtrace_audit.4 dtaudit.4
 .endif

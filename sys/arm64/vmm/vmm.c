@@ -33,7 +33,6 @@
 #include <sys/linker.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
-#include <sys/module.h>
 #include <sys/mutex.h>
 #include <sys/pcpu.h>
 #include <sys/proc.h>
@@ -51,7 +50,6 @@
 #include <vm/vm_extern.h>
 #include <vm/vm_param.h>
 
-#include <machine/armreg.h>
 #include <machine/cpu.h>
 #include <machine/fpu.h>
 #include <machine/machdep.h>
@@ -126,7 +124,7 @@ struct vm {
 	volatile cpuset_t suspended_cpus; 	/* (i) suspended vcpus */
 	volatile cpuset_t halted_cpus;		/* (x) cpus in a hard halt */
 	struct vm_mem	mem;			/* (i) guest memory */
-	char		name[VM_MAX_NAMELEN];	/* (o) virtual machine name */
+	char		name[VM_MAX_NAMELEN + 1];	/* (o) virtual machine name */
 	struct vcpu	**vcpu;			/* (i) guest vcpus */
 	struct vmm_mmio_region mmio_region[VM_MAX_MMIO_REGIONS];
 						/* (o) guest MMIO regions */
@@ -138,8 +136,6 @@ struct vm {
 	uint16_t	maxcpus;		/* (o) max pluggable cpus */
 	struct sx	vcpus_init_lock;	/* (o) */
 };
-
-static bool vmm_initialized = false;
 
 static int vm_handle_wfi(struct vcpu *vcpu,
 			 struct vm_exit *vme, bool *retu);
@@ -209,10 +205,6 @@ static const struct vmm_regs vmm_arch_regs_masks = {
 /* Host registers masked by vmm_arch_regs_masks. */
 static struct vmm_regs vmm_arch_regs;
 
-u_int vm_maxcpu;
-SYSCTL_UINT(_hw_vmm, OID_AUTO, maxcpu, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
-    &vm_maxcpu, 0, "Maximum number of vCPUs");
-
 static void vcpu_notify_event_locked(struct vcpu *vcpu);
 
 /* global statistics */
@@ -231,12 +223,6 @@ VMM_STAT(VMEXIT_BRK, "number of vmexits for a breakpoint exception");
 VMM_STAT(VMEXIT_SS, "number of vmexits for a single-step exception");
 VMM_STAT(VMEXIT_UNHANDLED_EL2, "number of vmexits for an unhandled EL2 exception");
 VMM_STAT(VMEXIT_UNHANDLED, "number of vmexits for an unhandled exception");
-
-/*
- * Upper limit on vm_maxcpu. We could increase this to 28 bits, but this
- * is a safe value for now.
- */
-#define	VM_MAXCPU	MIN(0xffff - 1, CPU_SETSIZE)
 
 static int
 vmm_regs_init(struct vmm_regs *regs, const struct vmm_regs *masks)
@@ -324,20 +310,14 @@ vmm_unsupported_quirk(void)
 	return (0);
 }
 
-static int
-vmm_init(void)
+int
+vmm_modinit(void)
 {
 	int error;
 
-	vm_maxcpu = mp_ncpus;
-	TUNABLE_INT_FETCH("hw.vmm.maxcpu", &vm_maxcpu);
-
-	if (vm_maxcpu > VM_MAXCPU) {
-		printf("vmm: vm_maxcpu clamped to %u\n", VM_MAXCPU);
-		vm_maxcpu = VM_MAXCPU;
-	}
-	if (vm_maxcpu == 0)
-		vm_maxcpu = 1;
+	error = vmm_unsupported_quirk();
+	if (error != 0)
+		return (error);
 
 	error = vmm_regs_init(&vmm_arch_regs, &vmm_arch_regs_masks);
 	if (error != 0)
@@ -346,60 +326,11 @@ vmm_init(void)
 	return (vmmops_modinit(0));
 }
 
-static int
-vmm_handler(module_t mod, int what, void *arg)
+int
+vmm_modcleanup(void)
 {
-	int error;
-
-	switch (what) {
-	case MOD_LOAD:
-		error = vmm_unsupported_quirk();
-		if (error != 0)
-			break;
-		error = vmmdev_init();
-		if (error != 0)
-			break;
-		error = vmm_init();
-		if (error == 0)
-			vmm_initialized = true;
-		else
-			(void)vmmdev_cleanup();
-		break;
-	case MOD_UNLOAD:
-		error = vmmdev_cleanup();
-		if (error == 0 && vmm_initialized) {
-			error = vmmops_modcleanup();
-			if (error) {
-				/*
-				 * Something bad happened - prevent new
-				 * VMs from being created
-				 */
-				vmm_initialized = false;
-			}
-		}
-		break;
-	default:
-		error = 0;
-		break;
-	}
-	return (error);
+	return (vmmops_modcleanup());
 }
-
-static moduledata_t vmm_kmod = {
-	"vmm",
-	vmm_handler,
-	NULL
-};
-
-/*
- * vmm initialization has the following dependencies:
- *
- * - HYP initialization requires smp_rendezvous() and therefore must happen
- *   after SMP is fully functional (after SI_SUB_SMP).
- * - vmm device initialization requires an initialized devfs.
- */
-DECLARE_MODULE(vmm, vmm_kmod, MAX(SI_SUB_SMP, SI_SUB_DEVFS) + 1, SI_ORDER_ANY);
-MODULE_VERSION(vmm, 1);
 
 static void
 vm_init(struct vm *vm, bool create)
@@ -442,10 +373,6 @@ vm_alloc_vcpu(struct vm *vm, int vcpuid)
 	if (vcpuid < 0 || vcpuid >= vm_get_maxcpus(vm))
 		return (NULL);
 
-	/* Some interrupt controllers may have a CPU limit */
-	if (vcpuid >= vgic_max_cpu_count(vm->cookie))
-		return (NULL);
-
 	vcpu = (struct vcpu *)
 	    atomic_load_acq_ptr((uintptr_t *)&vm->vcpu[vcpuid]);
 	if (__predict_true(vcpu != NULL))
@@ -454,6 +381,12 @@ vm_alloc_vcpu(struct vm *vm, int vcpuid)
 	sx_xlock(&vm->vcpus_init_lock);
 	vcpu = vm->vcpu[vcpuid];
 	if (vcpu == NULL && !vm->dying) {
+		/* Some interrupt controllers may have a CPU limit */
+		if (vcpuid >= vgic_max_cpu_count(vm->cookie)) {
+			sx_xunlock(&vm->vcpus_init_lock);
+			return (NULL);
+		}
+
 		vcpu = vcpu_alloc(vm, vcpuid);
 		vcpu_init(vcpu);
 
@@ -485,16 +418,6 @@ vm_create(const char *name, struct vm **retvm)
 {
 	struct vm *vm;
 	int error;
-
-	/*
-	 * If vmm.ko could not be successfully initialized then don't attempt
-	 * to create the virtual machine.
-	 */
-	if (!vmm_initialized)
-		return (ENXIO);
-
-	if (name == NULL || strlen(name) >= VM_MAX_NAMELEN)
-		return (EINVAL);
 
 	vm = malloc(sizeof(struct vm), M_VMM, M_WAITOK | M_ZERO);
 	error = vm_mem_init(&vm->mem, 0, 1ul << 39);
@@ -1279,8 +1202,7 @@ vcpu_get_state(struct vcpu *vcpu, int *hostcpu)
 int
 vm_get_register(struct vcpu *vcpu, int reg, uint64_t *retval)
 {
-
-	if (reg >= VM_REG_LAST)
+	if (reg < 0 || reg >= VM_REG_LAST)
 		return (EINVAL);
 
 	return (vmmops_getreg(vcpu->cookie, reg, retval));
@@ -1291,7 +1213,7 @@ vm_set_register(struct vcpu *vcpu, int reg, uint64_t val)
 {
 	int error;
 
-	if (reg >= VM_REG_LAST)
+	if (reg < 0 || reg >= VM_REG_LAST)
 		return (EINVAL);
 	error = vmmops_setreg(vcpu->cookie, reg, val);
 	if (error || reg != VM_REG_GUEST_PC)
