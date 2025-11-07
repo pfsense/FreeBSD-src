@@ -1008,7 +1008,7 @@ pf_src_node_exists(struct pf_ksrc_node **sn, struct pf_srchash *sh)
 	return (false);
 }
 
-static void
+void
 pf_free_src_node(struct pf_ksrc_node *sn)
 {
 

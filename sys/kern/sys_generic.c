@@ -2345,3 +2345,35 @@ exterr_set(int eerror, int category, const char *mmsg, uintptr_t pp1,
 	}
 	return (eerror);
 }
+
+int
+exterr_set_from(const struct kexterr *ke)
+{
+	struct thread *td;
+
+	td = curthread;
+	if ((td->td_pflags2 & TDP2_UEXTERR) != 0) {
+		td->td_pflags2 |= TDP2_EXTERR;
+		td->td_kexterr = *ke;
+	}
+	return (td->td_kexterr.error);
+}
+
+void
+exterr_clear(struct kexterr *ke)
+{
+	memset(ke, 0, sizeof(*ke));
+}
+
+#include "opt_ddb.h"
+#ifdef DDB
+#include <ddb/ddb.h>
+
+void
+exterr_db_print(struct kexterr *ke)
+{
+	db_printf("errno %d cat %d msg %s p1 %#jx p2 %#jx line %d\n",
+	    ke->error, ke->cat, ke->msg == NULL ? "<none>" : ke->msg,
+	    (uintmax_t)ke->p1, (uintmax_t)ke->p2, ke->src_line);
+}
+#endif

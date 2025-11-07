@@ -25,3 +25,11 @@ by running "service local_unbound setup" before restarting the service.
 EOM
 	}
 ]
+
+deps {
+	# local-unbound uses resolvconf to update resolv.conf and to generate
+	# its forward.conf.
+	"resolvconf" {
+		version = "${VERSION}"
+	},
+}

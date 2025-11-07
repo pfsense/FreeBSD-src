@@ -1491,7 +1491,7 @@ snl_attr_get_pf_rule_labels(struct snl_state *ss, struct nlattr *nla,
 	bool ret;
 
 	if (l->i >= PF_RULE_MAX_LABEL_COUNT)
-		return (E2BIG);
+		return (false);
 
 	ret = snl_attr_copy_string(ss, nla, (void *)PF_RULE_LABEL_SIZE,
 	    l->labels[l->i]);
@@ -1561,7 +1561,7 @@ snl_attr_get_pf_timeout(struct snl_state *ss, struct nlattr *nla,
 	bool ret;
 
 	if (t->i >= PFTM_MAX)
-		return (E2BIG);
+		return (false);
 
 	ret = snl_attr_get_uint32(ss, nla, NULL, &t->timeouts[t->i]);
 	if (ret)
@@ -2597,6 +2597,101 @@ pfctl_table_del_addrs_h(struct pfctl_handle *h, struct pfr_table *tbl, struct pf
 	return (ret);
 }
 
+struct pfctl_change {
+	int add;
+	int del;
+	int change;
+};
+#define	_OUT(_field)	offsetof(struct pfctl_change, _field)
+static struct snl_attr_parser ap_table_set_addr[] = {
+	{ .type = PF_TA_NBR_ADDED, .off = _OUT(add), .cb = snl_attr_get_uint32 },
+	{ .type = PF_TA_NBR_DELETED, .off = _OUT(del), .cb = snl_attr_get_uint32 },
+	{ .type = PF_TA_NBR_CHANGED, .off = _OUT(change), .cb = snl_attr_get_uint32 },
+};
+#undef _OUT
+SNL_DECLARE_PARSER(table_set_addr_parser, struct genlmsghdr, snl_f_p_empty, ap_table_set_addr);
+
+static int
+_pfctl_table_set_addrs_h(struct pfctl_handle *h, struct pfr_table *tbl, struct pfr_addr
+    *addrs, int size, int *nadd, int *ndel, int *nchange, int flags)
+{
+	struct snl_writer nw;
+	struct snl_errmsg_data e = {};
+	struct nlmsghdr *hdr;
+	struct pfctl_change change = { 0 };
+	uint32_t seq_id;
+	int family_id;
+
+	family_id = snl_get_genl_family(&h->ss, PFNL_FAMILY_NAME);
+	if (family_id == 0)
+		return (ENOTSUP);
+
+	snl_init_writer(&h->ss, &nw);
+	hdr = snl_create_genl_msg_request(&nw, family_id, PFNL_CMD_TABLE_SET_ADDR);
+
+	snl_add_msg_attr_table(&nw, PF_TA_TABLE, tbl);
+	snl_add_msg_attr_u32(&nw, PF_TA_FLAGS, flags);
+	for (int i = 0; i < size; i++)
+		snl_add_msg_attr_pfr_addr(&nw, PF_TA_ADDR, &addrs[i]);
+
+	if ((hdr = snl_finalize_msg(&nw)) == NULL)
+		return (ENXIO);
+	seq_id = hdr->nlmsg_seq;
+
+	if (! snl_send_message(&h->ss, hdr))
+		return (ENXIO);
+
+	while ((hdr = snl_read_reply_multi(&h->ss, seq_id, &e)) != NULL) {
+		if (! snl_parse_nlmsg(&h->ss, hdr, &table_set_addr_parser, &change))
+			continue;
+	}
+
+	if (nadd)
+		*nadd = change.add;
+	if (ndel)
+		*ndel = change.del;
+	if (nchange)
+		*nchange = change.change;
+
+	return (e.error);
+}
+
+int
+pfctl_table_set_addrs_h(struct pfctl_handle *h, struct pfr_table *tbl,
+    struct pfr_addr *addr, int size, int *nadd, int *ndel,
+    int *nchange, int flags)
+{
+	int ret;
+	int off = 0;
+	int partial_add, partial_del, partial_change;
+	int chunk_size;
+
+	do {
+		flags &= ~(PFR_FLAG_START | PFR_FLAG_DONE);
+		if (off == 0)
+			flags |= PFR_FLAG_START;
+		chunk_size = MIN(size - off, 256);
+		if ((chunk_size + off) == size)
+			flags |= PFR_FLAG_DONE;
+		ret = _pfctl_table_set_addrs_h(h, tbl, &addr[off], chunk_size,
+		    &partial_add, &partial_del, &partial_change, flags);
+		if (ret != 0)
+			break;
+		if (! (flags & PFR_FLAG_DONE)) {
+			assert(partial_del == 0);
+		}
+		if (nadd)
+			*nadd += partial_add;
+		if (ndel)
+			*ndel += partial_del;
+		if (nchange)
+			*nchange += partial_change;
+		off += chunk_size;
+	} while (off < size);
+
+	return (ret);
+}
+
 int
 pfctl_table_set_addrs(int dev, struct pfr_table *tbl, struct pfr_addr
     *addr, int size, int *size2, int *nadd, int *ndel, int *nchange, int flags)
@@ -2645,6 +2740,88 @@ int pfctl_table_get_addrs(int dev, struct pfr_table *tbl, struct pfr_addr *addr,
 		return (errno);
 	*size = io.pfrio_size;
 	return (0);
+}
+
+struct nl_addrs {
+	size_t max;
+	struct pfr_addr	*addrs;
+	size_t count;
+	size_t total_count;
+};
+
+#define _OUT(_field)	offsetof(struct pfr_addr, _field)
+static const struct snl_attr_parser ap_pfr_addr[] = {
+	{ .type = PFR_A_AF, .off = _OUT(pfra_af), .cb = snl_attr_get_uint32 },
+	{ .type = PFR_A_NET, .off = _OUT(pfra_net), .cb = snl_attr_get_uint8 },
+	{ .type = PFR_A_NOT, .off = _OUT(pfra_not), .cb = snl_attr_get_bool },
+	{ .type = PFR_A_ADDR, .off = _OUT(pfra_ip6addr), .cb = snl_attr_get_in6_addr },
+};
+#undef _OUT
+SNL_DECLARE_ATTR_PARSER(pfr_addr_parser, ap_pfr_addr);
+
+static bool
+snl_attr_get_pfr_addrs(struct snl_state *ss, struct nlattr *nla,
+    const void *arg __unused, void *target)
+{
+	struct nl_addrs *a = (struct nl_addrs *)target;
+	bool ret;
+
+	if (a->count >= a->max)
+		return (false);
+
+	ret = snl_parse_header(ss, NLA_DATA(nla), NLA_DATA_LEN(nla),
+	    &pfr_addr_parser, &a->addrs[a->count]);
+	if (ret)
+		a->count++;
+
+	return (ret);
+}
+
+#define _OUT(_field)	offsetof(struct nl_addrs, _field)
+static struct snl_attr_parser ap_table_get_addr[] = {
+	{ .type = PF_TA_ADDR, .off = 0, .cb = snl_attr_get_pfr_addrs },
+	{ .type = PF_TA_ADDR_COUNT, .off = _OUT(total_count), .cb = snl_attr_get_uint32 },
+};
+#undef _OUT
+SNL_DECLARE_PARSER(table_get_addr_parser, struct genlmsghdr, snl_f_p_empty, ap_table_get_addr);
+int
+pfctl_table_get_addrs_h(struct pfctl_handle *h, struct pfr_table *tbl,
+    struct pfr_addr *addr, int *size, int flags)
+{
+	struct nl_addrs addrs = { 0 };
+	struct snl_writer nw;
+	struct snl_errmsg_data e = {};
+	struct nlmsghdr *hdr;
+	uint32_t seq_id;
+	int family_id;
+
+	family_id = snl_get_genl_family(&h->ss, PFNL_FAMILY_NAME);
+	if (family_id == 0)
+		return (ENOTSUP);
+
+	snl_init_writer(&h->ss, &nw);
+	hdr = snl_create_genl_msg_request(&nw, family_id, PFNL_CMD_TABLE_GET_ADDR);
+
+	snl_add_msg_attr_table(&nw, PF_TA_TABLE, tbl);
+	snl_add_msg_attr_u32(&nw, PF_TA_FLAGS, flags);
+
+	if ((hdr = snl_finalize_msg(&nw)) == NULL)
+		return (ENXIO);
+
+	seq_id = hdr->nlmsg_seq;
+	if (! snl_send_message(&h->ss, hdr))
+		return (ENXIO);
+
+	addrs.addrs = addr;
+	addrs.max = *size;
+	while ((hdr = snl_read_reply_multi(&h->ss, seq_id, &e)) != NULL) {
+		if (! snl_parse_nlmsg(&h->ss, hdr, &table_get_addr_parser, &addrs))
+			continue;
+	}
+
+	*size = addrs.total_count;
+
+	return (e.error);
 }
 
 int
@@ -3201,6 +3378,9 @@ pfctl_get_ruleset(struct pfctl_handle *h, const char *path, uint32_t nr, struct 
 		if (! snl_parse_nlmsg(&h->ss, hdr, &ruleset_parser, rs))
 			continue;
 	}
+
+	rs->nr = nr;
+	strlcpy(rs->path, path, sizeof(rs->path));
 
 	return (e.error);
 }

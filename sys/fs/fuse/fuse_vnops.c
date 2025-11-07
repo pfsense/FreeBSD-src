@@ -625,7 +625,7 @@ fuse_vnop_allocate(struct vop_allocate_args *ap)
 		return (EROFS);
 
 	if (fsess_not_impl(mp, FUSE_FALLOCATE))
-		return (EXTERROR(EINVAL, "This server does not implement "
+		return (EXTERROR(EOPNOTSUPP, "This server does not implement "
 		    "FUSE_FALLOCATE"));
 
 	io.uio_offset = *offset;
@@ -656,14 +656,14 @@ fuse_vnop_allocate(struct vop_allocate_args *ap)
 
 	if (err == ENOSYS) {
 		fsess_set_notimpl(mp, FUSE_FALLOCATE);
-		err = EXTERROR(EINVAL, "This server does not implement "
+		err = EXTERROR(EOPNOTSUPP, "This server does not implement "
 		    "FUSE_ALLOCATE");
 	} else if (err == EOPNOTSUPP) {
 		/*
 		 * The file system server does not support FUSE_FALLOCATE with
 		 * the supplied mode for this particular file.
 		 */
-		err = EXTERROR(EINVAL, "This file can't be pre-allocated");
+		err = EXTERROR(EOPNOTSUPP, "This file can't be pre-allocated");
 	} else if (!err) {
 		*offset += *len;
 		*len = 0;
@@ -2756,7 +2756,7 @@ fuse_vnop_setextattr(struct vop_setextattr_args *ap)
 		 */
 		if (fsess_not_impl(mp, FUSE_REMOVEXATTR))
 			return (EXTERROR(EOPNOTSUPP, "This server does not "
-			    "implement removing extended attributess"));
+			    "implement removing extended attributes"));
 		else
 			return (EXTERROR(EINVAL, "DELETEEXTATTR should be used "
 			    "to remove extattrs"));
@@ -2777,7 +2777,7 @@ fuse_vnop_setextattr(struct vop_setextattr_args *ap)
 	    strlen(ap->a_name) + 1;
 
 	/* older FUSE servers  use a smaller fuse_setxattr_in struct*/
-	if (fuse_libabi_geq(fuse_get_mpdata(mp), 7, 33))
+	if (fuse_get_mpdata(mp)->dataflags & FSESS_SETXATTR_EXT)
 		struct_size = sizeof(*set_xattr_in);
 
 	fdisp_init(&fdi, len + struct_size + uio->uio_resid);
@@ -2786,7 +2786,7 @@ fuse_vnop_setextattr(struct vop_setextattr_args *ap)
 	set_xattr_in = fdi.indata;
 	set_xattr_in->size = uio->uio_resid;
 
-	if (fuse_libabi_geq(fuse_get_mpdata(mp), 7, 33)) {
+	if (fuse_get_mpdata(mp)->dataflags & FSESS_SETXATTR_EXT) {
 		set_xattr_in->setxattr_flags = 0;
 		set_xattr_in->padding = 0;
 	}

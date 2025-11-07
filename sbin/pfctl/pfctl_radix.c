@@ -163,11 +163,11 @@ pfr_del_addrs(struct pfr_table *tbl, struct pfr_addr *addr, int size,
 
 int
 pfr_set_addrs(struct pfr_table *tbl, struct pfr_addr *addr, int size,
-    int *size2, int *nadd, int *ndel, int *nchange, int flags)
+    int *nadd, int *ndel, int *nchange, int flags)
 {
 	int ret;
 
-	ret = pfctl_table_set_addrs(dev, tbl, addr, size, size2, nadd, ndel,
+	ret = pfctl_table_set_addrs_h(pfh, tbl, addr, size, nadd, ndel,
 	    nchange, flags);
 	if (ret) {
 		errno = ret;
@@ -182,7 +182,7 @@ pfr_get_addrs(struct pfr_table *tbl, struct pfr_addr *addr, int *size,
 {
 	int ret;
 
-	ret = pfctl_table_get_addrs(dev, tbl, addr, size, flags);
+	ret = pfctl_table_get_addrs_h(pfh, tbl, addr, size, flags);
 	if (ret) {
 		errno = ret;
 		return (-1);

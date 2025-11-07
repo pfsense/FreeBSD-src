@@ -1,6 +1,6 @@
 .include <src.opts.mk>
 
-PACKAGE=	kernel-man
+MANPACKAGE=	kernel-man
 
 MAN=	accept_filter.9 \
 	accf_data.9 \
@@ -90,6 +90,7 @@ MAN=	accept_filter.9 \
 	DECLARE_MODULE.9 \
 	DEFINE_IFUNC.9 \
 	DELAY.9 \
+	deadfs.9 \
 	devclass.9 \
 	devclass_find.9 \
 	devclass_get_device.9 \
@@ -2207,6 +2208,7 @@ MLINKS+=syscall_helper_register.9 syscall_helper_unregister.9 \
 	syscall_helper_register.9 SYSCALL_INIT_HELPER_COMPAT_F.9 \
 	syscall_helper_register.9 SYSCALL_INIT_HELPER_F.9
 MLINKS+=sysctl.9 SYSCTL_DECL.9 \
+	sysctl.9 SYSCTL_ADD_BOOL.9 \
 	sysctl.9 SYSCTL_ADD_CONST_STRING.9 \
 	sysctl.9 SYSCTL_ADD_INT.9 \
 	sysctl.9 SYSCTL_ADD_LONG.9 \
@@ -2233,6 +2235,7 @@ MLINKS+=sysctl.9 SYSCTL_DECL.9 \
 	sysctl.9 SYSCTL_ADD_UMA_CUR.9 \
 	sysctl.9 SYSCTL_ADD_UMA_MAX.9 \
 	sysctl.9 SYSCTL_ADD_UQUAD.9 \
+	sysctl.9 SYSCTL_BOOL.9 \
 	sysctl.9 SYSCTL_CHILDREN.9 \
 	sysctl.9 SYSCTL_STATIC_CHILDREN.9 \
 	sysctl.9 SYSCTL_NODE_CHILDREN.9 \

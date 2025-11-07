@@ -252,7 +252,7 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 	struct thread *p = curthread;
 	size_t atsiz;
 	long pathval;
-	bool has_hiddensystem, has_namedattr, xattrsupp;
+	bool has_caseinsensitive, has_hiddensystem, has_namedattr, xattrsupp;
 	uint32_t clone_blksize;
 
 	if (nd->nd_repstat)
@@ -336,6 +336,10 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 				    &pathval) != 0)
 					pathval = 0;
 				clone_blksize = pathval;
+				if (VOP_PATHCONF(vp, _PC_CASE_INSENSITIVE,
+				    &pathval) != 0)
+					pathval = 0;
+				has_caseinsensitive = pathval > 0;
 				mp = vp->v_mount;
 				if (nfsrv_enable_crossmntpt != 0 &&
 				    vp->v_type == VDIR &&
@@ -371,7 +375,8 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 					    isdgram, 1, supports_nfsv4acls,
 					    at_root, mounted_on_fileno,
 					    xattrsupp, has_hiddensystem,
-					    has_namedattr, clone_blksize);
+					    has_namedattr, clone_blksize,
+					    has_caseinsensitive);
 					vfs_unbusy(mp);
 				}
 				vrele(vp);
@@ -436,6 +441,7 @@ nfsrvd_setattr(struct nfsrv_descript *nd, __unused int isdgram,
 
 	/* For NFSv4, only va_uid and va_flags is used from nva2. */
 	NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_OWNER);
+	NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_ARCHIVE);
 	NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_HIDDEN);
 	NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_SYSTEM);
 	preat_ret = nfsvno_getattr(vp, &nva2, nd, p, 1, &retbits);
@@ -569,8 +575,15 @@ nfsrvd_setattr(struct nfsrv_descript *nd, __unused int isdgram,
 		}
 	    }
 	    if (!nd->nd_repstat &&
-		(NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_HIDDEN) ||
+		(NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_ARCHIVE) ||
+		 NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_HIDDEN) ||
 		 NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_SYSTEM))) {
+		if (NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_ARCHIVE)) {
+		    if ((nva.na_flags & UF_ARCHIVE) != 0)
+			oldflags |= UF_ARCHIVE;
+		    else
+			oldflags &= ~UF_ARCHIVE;
+		}
 		if (NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_HIDDEN)) {
 		    if ((nva.na_flags & UF_HIDDEN) != 0)
 			oldflags |= UF_HIDDEN;
@@ -588,6 +601,8 @@ nfsrvd_setattr(struct nfsrv_descript *nd, __unused int isdgram,
 		nd->nd_repstat = nfsvno_setattr(vp, &nva2, nd->nd_cred, p,
 		    exp);
 		if (!nd->nd_repstat) {
+		    if (NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_ARCHIVE))
+			NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_ARCHIVE);
 		    if (NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_HIDDEN))
 			NFSSETBIT_ATTRBIT(&retbits, NFSATTRBIT_HIDDEN);
 		    if (NFSISSET_ATTRBIT(&attrbits, NFSATTRBIT_SYSTEM))
@@ -5128,6 +5143,11 @@ nfsrvd_layoutcommit(struct nfsrv_descript *nd, __unused int isdgram,
 		NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
 	layouttype = fxdr_unsigned(int, *tl++);
 	maxcnt = fxdr_unsigned(int, *tl);
+	/* There is no limit in the RFC, so use 1000 as a sanity limit. */
+	if (maxcnt < 0 || maxcnt > 1000) {
+		error = NFSERR_BADXDR;
+		goto nfsmout;
+	}
 	if (maxcnt > 0) {
 		layp = malloc(maxcnt + 1, M_TEMP, M_WAITOK);
 		error = nfsrv_mtostr(nd, layp, maxcnt);

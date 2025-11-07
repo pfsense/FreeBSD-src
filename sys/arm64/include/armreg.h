@@ -34,25 +34,9 @@
 #ifndef _MACHINE_ARMREG_H_
 #define	_MACHINE_ARMREG_H_
 
+#include <machine/_armreg.h>
+
 #define	INSN_SIZE		4
-
-#define	__MRS_REG_ALT_NAME(op0, op1, crn, crm, op2)			\
-    S##op0##_##op1##_C##crn##_C##crm##_##op2
-#define	_MRS_REG_ALT_NAME(op0, op1, crn, crm, op2)			\
-    __MRS_REG_ALT_NAME(op0, op1, crn, crm, op2)
-#define	MRS_REG_ALT_NAME(reg)						\
-    _MRS_REG_ALT_NAME(reg##_op0, reg##_op1, reg##_CRn, reg##_CRm, reg##_op2)
-
-
-#define	READ_SPECIALREG(reg)						\
-({	uint64_t _val;							\
-	__asm __volatile("mrs	%0, " __STRING(reg) : "=&r" (_val));	\
-	_val;								\
-})
-#define	WRITE_SPECIALREG(reg, _val)					\
-	__asm __volatile("msr	" __STRING(reg) ", %0" : : "r"((uint64_t)_val))
-
-#define	UL(x)	UINT64_C(x)
 
 /* AFSR0_EL1 - Auxiliary Fault Status Register 0 */
 #define	AFSR0_EL1_REG			MRS_REG_ALT_NAME(AFSR0_EL1)
@@ -2278,6 +2262,11 @@
 #define	PMBSR_DL			(UL(0x1) << PMBSR_DL_SHIFT)
 #define	PMBSR_EC_SHIFT			26
 #define	PMBSR_EC_MASK			(UL(0x3f) << PMBSR_EC_SHIFT)
+#define	PMBSR_EC_VAL(x)                 (((x) & PMBSR_EC_MASK) >> PMBSR_EC_SHIFT)
+#define	PMBSR_EC_OTHER_BUF_MGMT		0x00
+#define	PMBSR_EC_GRAN_PROT_CHK		0x1e
+#define	PMBSR_EC_STAGE1_DA		0x24
+#define	PMBSR_EC_STAGE2_DA		0x25
 
 /* PMCCFILTR_EL0 */
 #define	PMCCFILTR_EL0_op0		3
@@ -2513,6 +2502,15 @@
 #define	PMSIDR_FnE			(UL(0x1) << PMSIDR_FnE_SHIFT)
 #define	PMSIDR_Interval_SHIFT		8
 #define	PMSIDR_Interval_MASK		(UL(0xf) << PMSIDR_Interval_SHIFT)
+#define	PMSIDR_Interval_VAL(x)		(((x) & PMSIDR_Interval_MASK) >> PMSIDR_Interval_SHIFT)
+#define	PMSIDR_Interval_256		0
+#define	PMSIDR_Interval_512		2
+#define	PMSIDR_Interval_768		3
+#define	PMSIDR_Interval_1024		4
+#define	PMSIDR_Interval_1536		5
+#define	PMSIDR_Interval_2048		6
+#define	PMSIDR_Interval_3072		7
+#define	PMSIDR_Interval_4096		8
 #define	PMSIDR_MaxSize_SHIFT		12
 #define	PMSIDR_MaxSize_MASK		(UL(0xf) << PMSIDR_MaxSize_SHIFT)
 #define	PMSIDR_CountSize_SHIFT		16

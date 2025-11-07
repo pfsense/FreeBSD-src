@@ -618,7 +618,7 @@ gpiobus_detach(device_t dev)
 	    ("gpiobus mutex not initialized"));
 	GPIOBUS_LOCK_DESTROY(sc);
 
-	if ((err = bus_detach_children(dev)) != 0)
+	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
 
 	rman_fini(&sc->sc_intr_rman);
@@ -734,7 +734,7 @@ gpiobus_add_child(device_t dev, u_int order, const char *name, int unit)
 	    sizeof(struct gpiobus_ivar)));
 }
 
-static void
+void
 gpiobus_child_deleted(device_t dev, device_t child)
 {
 	struct gpiobus_ivar *devi;

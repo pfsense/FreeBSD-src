@@ -88,7 +88,7 @@ static void random_sources_feed(void);
 static __read_mostly bool epoch_inited;
 static __read_mostly epoch_t rs_epoch;
 
-static const char *random_source_descr[ENTROPYSOURCE];
+static const char *random_source_descr[];
 
 /*
  * How many events to queue up. We create this many items in
@@ -109,6 +109,7 @@ volatile int random_kthread_control;
  * Updates are synchronized by the harvest mutex.
  */
 __read_frequently u_int hc_source_mask;
+CTASSERT(ENTROPYSOURCE <= sizeof(hc_source_mask) * NBBY);
 
 struct random_sources {
 	CK_LIST_ENTRY(random_sources)	 rrs_entries;
@@ -647,7 +648,7 @@ SYSCTL_PROC(_kern_random_harvest, OID_AUTO, mask_bin,
     random_print_harvestmask, "A",
     "Entropy harvesting mask (printable)");
 
-static const char *random_source_descr[ENTROPYSOURCE] = {
+static const char *random_source_descr[/*ENTROPYSOURCE*/] = {
 	[RANDOM_CACHED] = "CACHED",
 	[RANDOM_ATTACH] = "ATTACH",
 	[RANDOM_KEYBOARD] = "KEYBOARD",
@@ -661,11 +662,10 @@ static const char *random_source_descr[ENTROPYSOURCE] = {
 	[RANDOM_UMA] = "UMA",
 	[RANDOM_CALLOUT] = "CALLOUT",
 	[RANDOM_RANDOMDEV] = "RANDOMDEV", /* ENVIRONMENTAL_END */
-	[RANDOM_PURE_OCTEON] = "PURE_OCTEON", /* PURE_START */
-	[RANDOM_PURE_SAFE] = "PURE_SAFE",
+	[RANDOM_PURE_SAFE] = "PURE_SAFE", /* PURE_START */
 	[RANDOM_PURE_GLXSB] = "PURE_GLXSB",
-	[RANDOM_PURE_HIFN] = "PURE_HIFN",
 	[RANDOM_PURE_RDRAND] = "PURE_RDRAND",
+	[RANDOM_PURE_RDSEED] = "PURE_RDSEED",
 	[RANDOM_PURE_NEHEMIAH] = "PURE_NEHEMIAH",
 	[RANDOM_PURE_RNDTEST] = "PURE_RNDTEST",
 	[RANDOM_PURE_VIRTIO] = "PURE_VIRTIO",
@@ -679,6 +679,7 @@ static const char *random_source_descr[ENTROPYSOURCE] = {
 	[RANDOM_PURE_ARM_TRNG] = "PURE_ARM_TRNG",
 	/* "ENTROPYSOURCE" */
 };
+CTASSERT(nitems(random_source_descr) == ENTROPYSOURCE);
 
 static int
 random_print_harvestmask_symbolic(SYSCTL_HANDLER_ARGS)

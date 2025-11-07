@@ -1065,8 +1065,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	 *     than duplicate it under a different name.
 	 */
 	error = vfs_buildopts(optuio, &opts);
-	if (error)
+	if (error) {
+		opts = NULL;
 		goto done_free;
+	}
 
 	cuflags = flags & (JAIL_CREATE | JAIL_UPDATE);
 	if (!cuflags) {
@@ -1088,6 +1090,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	else {
 		if (!(flags & (JAIL_USE_DESC | JAIL_AT_DESC | JAIL_GET_DESC |
 		    JAIL_OWN_DESC))) {
+			error = EINVAL;
 			vfs_opterror(opts, "unexpected desc");
 			goto done_errmsg;
 		}
@@ -2330,7 +2333,8 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		(void)kern_close(td, jfd_out);
 	if (g_path != NULL)
 		free(g_path, M_TEMP);
-	vfs_freeopts(opts);
+	if (opts != NULL)
+		vfs_freeopts(opts);
 	prison_free(mypr);
 	return (error);
 }
@@ -2518,6 +2522,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	} else if (error == 0) {
 		if (!(flags & (JAIL_USE_DESC | JAIL_AT_DESC | JAIL_GET_DESC |
 		    JAIL_OWN_DESC))) {
+			error = EINVAL;
 			vfs_opterror(opts, "unexpected desc");
 			goto done;
 		}
@@ -2909,12 +2914,6 @@ prison_remove(struct prison *pr)
 {
 	sx_assert(&allprison_lock, SA_XLOCKED);
 	mtx_assert(&pr->pr_mtx, MA_OWNED);
-	if (!prison_isalive(pr)) {
-		/* Silently ignore already-dying prisons. */
-		mtx_unlock(&pr->pr_mtx);
-		sx_xunlock(&allprison_lock);
-		return;
-	}
 	prison_deref(pr, PD_KILL | PD_DEREF | PD_LOCKED | PD_LIST_XLOCKED);
 }
 
@@ -3051,6 +3050,8 @@ do_jail_attach(struct thread *td, struct prison *pr, int drflags)
 	setsugid(p);
 #ifdef RACCT
 	racct_proc_ucred_changed(p, oldcred, newcred);
+#endif
+#ifdef RCTL
 	crhold(newcred);
 #endif
 	PROC_UNLOCK(p);
@@ -3461,12 +3462,17 @@ prison_deref(struct prison *pr, int flags)
 			/* Kill the prison and its descendents. */
 			KASSERT(pr != &prison0,
 			    ("prison_deref trying to kill prison0"));
-			if (!(flags & PD_DEREF)) {
-				prison_hold(pr);
-				flags |= PD_DEREF;
+			if (!prison_isalive(pr)) {
+				/* Silently ignore already-dying prisons. */
+				flags &= ~PD_KILL;
+			} else {
+				if (!(flags & PD_DEREF)) {
+					prison_hold(pr);
+					flags |= PD_DEREF;
+				}
+				flags = prison_lock_xlock(pr, flags);
+				prison_deref_kill(pr, &freeprison);
 			}
-			flags = prison_lock_xlock(pr, flags);
-			prison_deref_kill(pr, &freeprison);
 		}
 		if (flags & PD_DEUREF) {
 			/* Drop a user reference. */
