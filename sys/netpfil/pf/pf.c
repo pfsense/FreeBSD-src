@@ -9269,7 +9269,7 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 			}
 		}
 	}
-	else if (r->rt == PF_ROUTETO && r->direction == pd->dir && in_localip(ip->ip_dst))
+	else if ((pd->af == pd->naf) && r->rt == PF_ROUTETO && r->direction == pd->dir && in_localip(ip->ip_dst))
 		return (action);
 
 	/*
@@ -9612,7 +9612,7 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 		action = PF_DROP;
 		SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 		goto bad;
-	} else if (r->rt == PF_REPLYTO) {
+	} else if ((pd->af == pd->naf) && r->rt == PF_REPLYTO) {
 		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
 		struct sockaddr_in6 inaddr6;
 		struct sockaddr *addr;
@@ -9652,7 +9652,7 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 					return (action);
 			}
 		}
-	} else if (r->rt == PF_ROUTETO && r->direction == pd->dir && in6_localaddr(&ip6->ip6_dst))
+	} else if ((pd->af == pd->naf) && r->rt == PF_ROUTETO && (r->direction == pd->dir) && in6_localaddr(&ip6->ip6_dst))
 		return (action);
 
 	/*
