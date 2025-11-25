@@ -493,6 +493,48 @@ dummynet_in_cleanup()
 	pft_cleanup
 }
 
+atf_test_case "reply_to_local" "cleanup"
+reply_to_local_head()
+{
+	atf_set descr 'Test reply-to for traffic from the local subnet'
+	atf_set require.user root
+}
+
+reply_to_local_body()
+{
+	pft_init
+
+	epair_one=$(vnet_mkepair)
+	epair_two=$(vnet_mkepair)
+
+	ifconfig ${epair_one}a 192.0.2.2/24 up
+	ifconfig ${epair_two}a 198.51.100.2/24 up
+
+	vnet_mkjail alcatraz ${epair_one}b ${epair_two}b
+	jexec alcatraz ifconfig ${epair_one}b 192.0.2.1/24 up
+	jexec alcatraz ifconfig ${epair_two}b 198.51.100.1/24 up
+
+	# Sanity check
+	atf_check -s exit:0 -o ignore \
+	    ping -c 3 192.0.2.1
+
+	jexec alcatraz pfctl -e
+	pft_set_rules alcatraz \
+	    "block" \
+	    "pass in on ${epair_one}b reply-to (${epair_one}b 192.0.2.3) inet from any to any"
+
+	# We ping from 192.0.2.2 to 192.0.2.1. Normall we'd expect this to fail,
+	# because pf will redirect to 192.0.2.3, but because this is subnet-local
+	# the ping will succeed.
+	atf_check -s exit:0 -o ignore \
+	    ping -c 3 192.0.2.1
+}
+
+reply_to_local_cleanup()
+{
+	pft_cleanup
+}
+
 atf_test_case "ifbound" "cleanup"
 ifbound_head()
 {
@@ -1656,6 +1698,7 @@ atf_init_test_cases()
 	atf_add_test_case "icmp_nat"
 	atf_add_test_case "dummynet"
 	atf_add_test_case "dummynet_in"
+	atf_add_test_case "reply_to_local"
 	atf_add_test_case "ifbound"
 	atf_add_test_case "ifbound_v6"
 	atf_add_test_case "ifbound_reply_to"
