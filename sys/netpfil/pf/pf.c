@@ -46,6 +46,7 @@
 
 #include <sys/param.h>
 #include <sys/bus.h>
+#include <sys/ck.h>
 #include <sys/endian.h>
 #include <sys/gsb_crc32.h>
 #include <sys/hash.h>
@@ -9227,7 +9228,49 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 		action = PF_DROP;
 		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 		goto bad;
+	} else if ((pd->af == pd->naf) &&
+	    (r->rt == PF_REPLYTO || (r->rt == PF_ROUTETO && ifp->if_type == IFT_ENC))) {
+		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
+		struct sockaddr_in inaddr;
+		struct sockaddr *addr;
+		struct ifaddr *ifa;
+		char *cp, *cp2, *cp3;
+		char *cplim;
+
+		inaddr.sin_addr = ip->ip_dst;
+		inaddr.sin_family = AF_INET;
+		inaddr.sin_len = sizeof(inaddr);
+		inaddr.sin_port = 0;
+		addr = (struct sockaddr *)&inaddr;
+
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET)
+				continue;
+			if (ifa->ifa_netmask == 0) {
+				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
+				    (ifa->ifa_dstaddr &&
+				    (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
+					return (action);
+				continue;
+			}
+			if (ifp->if_flags & IFF_POINTOPOINT) {
+				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
+					return (action);
+			} else {
+				cp = addr->sa_data;
+				cp2 = ifa->ifa_addr->sa_data;
+				cp3 = ifa->ifa_netmask->sa_data;
+				cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
+				for (; cp3 < cplim; cp3++)
+					if ((*cp++ ^ *cp2++) & *cp3)
+						break;
+				if (cp3 == cplim)
+					return (action);
+			}
+		}
 	}
+	else if ((pd->af == pd->naf) && r->rt == PF_ROUTETO && r->direction == pd->dir && in_localip(ip->ip_dst))
+		return (action);
 
 	/*
 	 * Bind to the correct interface if we're if-bound. We don't know which
@@ -9317,6 +9360,12 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 		pd->act.dnrpipe = pd->act.dnpipe;
 		pd->act.dnpipe = tmp;
 	}
+
+	/*
+	 * Make sure dummynet gets the correct direction, in case it needs to
+	 * re-inject later.
+	 */
+	pd->dir = PF_OUT;
 
 	/*
 	 * If small enough for interface, or the interface will take
@@ -9563,7 +9612,48 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 		action = PF_DROP;
 		SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 		goto bad;
-	}
+	} else if ((pd->af == pd->naf) && r->rt == PF_REPLYTO) {
+		/* XXX: Copied from ifaof_ifpforaddr() since it mostly will not return NULL! */
+		struct sockaddr_in6 inaddr6;
+		struct sockaddr *addr;
+		struct ifaddr *ifa;
+		char *cp, *cp2, *cp3;
+		char *cplim;
+
+		inaddr6.sin6_addr = ip6->ip6_dst;
+		inaddr6.sin6_family = AF_INET6;
+		inaddr6.sin6_len = sizeof(inaddr6);
+		inaddr6.sin6_port = 0;
+		inaddr6.sin6_flowinfo = 0;
+		addr = (struct sockaddr *)&inaddr6;
+
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
+			if (ifa->ifa_netmask == 0) {
+				if ((bcmp(addr, ifa->ifa_addr, addr->sa_len) == 0) ||
+				    (ifa->ifa_dstaddr &&
+				     (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)))
+					return (action);
+				continue;
+			}
+			if (ifp->if_flags & IFF_POINTOPOINT) {
+				if (bcmp(addr, ifa->ifa_dstaddr, addr->sa_len) == 0)
+					return (action);
+			} else {
+				cp = addr->sa_data;
+				cp2 = ifa->ifa_addr->sa_data;
+				cp3 = ifa->ifa_netmask->sa_data;
+				cplim = ifa->ifa_netmask->sa_len + (char *)ifa->ifa_netmask;
+				for (; cp3 < cplim; cp3++)
+					if ((*cp++ ^ *cp2++) & *cp3)
+						break;
+				if (cp3 == cplim)
+					return (action);
+			}
+		}
+	} else if ((pd->af == pd->naf) && r->rt == PF_ROUTETO && (r->direction == pd->dir) && in6_localaddr(&ip6->ip6_dst))
+		return (action);
 
 	/*
 	 * Bind to the correct interface if we're if-bound. We don't know which
