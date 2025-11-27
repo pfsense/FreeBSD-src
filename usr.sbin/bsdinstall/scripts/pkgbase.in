@@ -309,7 +309,7 @@ local function parse_options()
 end
 
 -- Fetch and install pkgbase packages to BSDINSTALL_CHROOT.
--- Respect BSDINSTALL_PKG_REPOS_DIR if set, otherwise use pkg.freebsd.org.
+-- Respect BSDINSTALL_PKG_REPOS_DIR if set, otherwise use pkgbase.freebsd.org.
 local function pkgbase()
 	local options = parse_options()
 
@@ -323,21 +323,13 @@ local function pkgbase()
 	local chroot = assert(os.getenv("BSDINSTALL_CHROOT"))
 	assert(os.execute("mkdir -p " .. chroot))
 
-	-- Always install the default FreeBSD-base.conf file to the chroot, even
-	-- if we don't actually fetch the packages from the repository specified
-	-- there (e.g. because we are performing an offline installation).
-	local chroot_repos_dir = chroot .. "/usr/local/etc/pkg/repos/"
-	assert(os.execute("mkdir -p " .. chroot_repos_dir))
-	assert(os.execute("cp /usr/share/bsdinstall/FreeBSD-base.conf " ..
-		chroot_repos_dir))
-
 	local repos_dir = os.getenv("BSDINSTALL_PKG_REPOS_DIR")
 	if not repos_dir then
-		repos_dir = chroot_repos_dir
+		repos_dir = "/usr/share/bsdinstall/"
 		-- Since pkg always interprets fingerprints paths as relative to
 		-- the --rootdir we must copy the key from the host.
 		assert(os.execute("mkdir -p " .. chroot .. "/usr/share/keys"))
-		assert(os.execute("cp -R /usr/share/keys/pkg " .. chroot .. "/usr/share/keys/"))
+		assert(os.execute("cp -R /usr/share/keys/* " .. chroot .. "/usr/share/keys/"))
 	end
 
 	-- We must use --repo-conf-dir rather than -o REPOS_DIR here as the latter
@@ -363,6 +355,10 @@ local function pkgbase()
 	if not os.execute(pkg .. "install -U -y -r FreeBSD-base " .. packages) then
 		os.exit(1)
 	end
+
+	-- Enable the FreeBSD-base repository for this system.
+	assert(os.execute("mkdir -p " .. chroot .. "/usr/local/etc/pkg/repos"))
+	assert(os.execute("echo 'FreeBSD-base: { enabled: yes }' > " .. chroot .. "/usr/local/etc/pkg/repos/FreeBSD.conf"))
 end
 
 pkgbase()

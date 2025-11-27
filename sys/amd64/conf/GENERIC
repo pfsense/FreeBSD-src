@@ -270,8 +270,8 @@ device		lge			# Level 1 LXT1001 gigabit Ethernet
 device		msk			# Marvell/SysKonnect Yukon II Gigabit Ethernet
 device		nfe			# nVidia nForce MCP on-board Ethernet
 device		nge			# NatSemi DP83820 gigabit Ethernet
-device		re			# RealTek 8139C+/8169/8169S/8110S
-device		rl			# RealTek 8129/8139
+device		re			# Realtek 8139C+/8169/8169S/8110S
+device		rl			# Realtek 8129/8139
 device		sge			# Silicon Integrated Systems SiS190/191
 device		sis			# Silicon Integrated Systems SiS 900/SiS 7016
 device		sk			# SysKonnect SK-984x & SK-982x gigabit Ethernet
@@ -308,7 +308,6 @@ device		wpi			# Intel 3945ABG wireless NICs.
 device		crypto			# core crypto support
 device		aesni			# AES-NI OpenCrypto module
 device		loop			# Network loopback
-device		rdrand_rng		# Intel Bull Mountain RNG
 device		ether			# Ethernet support
 device		vlan			# 802.1Q VLAN support
 device		tuntap			# Packet tunnel.
@@ -321,6 +320,13 @@ device		xz			# lzma decompression
 # Be aware of the administrative consequences of enabling this!
 # Note that 'bpf' is required for DHCP.
 device		bpf			# Berkeley packet filter
+
+# random(4)
+device		rdrand_rng		# Intel Bull Mountain RNG
+device		tpm			# Trusted Platform Module
+options 	RANDOM_ENABLE_TPM	# enable entropy from TPM 2.0
+options 	RANDOM_ENABLE_KBD
+options 	RANDOM_ENABLE_MOUSE
 
 # USB support
 options 	USB_DEBUG		# enable debug msgs

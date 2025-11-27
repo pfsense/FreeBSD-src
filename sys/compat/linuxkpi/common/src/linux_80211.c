@@ -832,6 +832,7 @@ lkpi_lsta_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN],
 	sta->deflink.smps_mode = IEEE80211_SMPS_OFF;
 	sta->deflink.bandwidth = IEEE80211_STA_RX_BW_20;
 	sta->deflink.rx_nss = 1;
+	sta->deflink.sta = sta;
 
 	lkpi_sta_sync_from_ni(hw, vif, sta, ni, false);
 
@@ -2308,6 +2309,10 @@ lkpi_sta_scan_to_auth(struct ieee80211vap *vap, enum ieee80211_state nstate, int
 		changed |= IEEE80211_CHANCTX_CHANGE_WIDTH;
 		lkpi_80211_mo_change_chanctx(hw, chanctx_conf, changed);
 	} else {
+		/* The device is no longer idle. */
+		IMPROVE("Once we do multi-vif, only do for 1st chanctx");
+		lkpi_hw_conf_idle(hw, false);
+
 		error = lkpi_80211_mo_add_chanctx(hw, chanctx_conf);
 		if (error == 0 || error == EOPNOTSUPP) {
 			vif->bss_conf.chanreq.oper.chan = chanctx_conf->def.chan;
@@ -3080,8 +3085,6 @@ lkpi_sta_assoc_to_run(struct ieee80211vap *vap, enum ieee80211_state nstate, int
 		lkpi_80211_mo_mgd_complete_tx(hw, vif, &prep_tx_info);
 		lsta->in_mgd = false;
 	}
-
-	lkpi_hw_conf_idle(hw, false);
 
 	/*
 	 * And then:
@@ -6904,17 +6907,23 @@ linuxkpi_ieee80211_iterate_interfaces(struct ieee80211_hw *hw,
 	if (flags & ~(IEEE80211_IFACE_ITER_NORMAL|
 	    IEEE80211_IFACE_ITER_RESUME_ALL|
 	    IEEE80211_IFACE_SKIP_SDATA_NOT_IN_DRIVER|
-	    IEEE80211_IFACE_ITER_ACTIVE|IEEE80211_IFACE_ITER__ATOMIC)) {
+	    IEEE80211_IFACE_ITER_ACTIVE|IEEE80211_IFACE_ITER__ATOMIC|
+	    IEEE80211_IFACE_ITER__MTX)) {
 		ic_printf(lhw->ic, "XXX TODO %s flags(%#x) not yet supported.\n",
 		    __func__, flags);
 	}
+
+	if ((flags & IEEE80211_IFACE_ITER__MTX) != 0)
+		lockdep_assert_wiphy(hw->wiphy);
 
 	active = (flags & IEEE80211_IFACE_ITER_ACTIVE) != 0;
 	atomic = (flags & IEEE80211_IFACE_ITER__ATOMIC) != 0;
 	nin_drv = (flags & IEEE80211_IFACE_SKIP_SDATA_NOT_IN_DRIVER) != 0;
 
-	if (atomic)
+	if (atomic) {
+		IMPROVE("LKPI_80211_LHW_LVIF_LOCK atomic assume to be rcu?");
 		LKPI_80211_LHW_LVIF_LOCK(lhw);
+	}
 	TAILQ_FOREACH(lvif, &lhw->lvif_head, lvif_entry) {
 		struct ieee80211vap *vap;
 

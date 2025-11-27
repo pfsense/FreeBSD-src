@@ -301,9 +301,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 
 	bzero(&init_addr, sizeof(init_addr));
 
-	if (udp_mapping) {
-		MPASS(*udp_mapping == NULL);
-	}
+	MPASS(udp_mapping == NULL ||
+	    *udp_mapping == NULL);
 
 	/*
 	 * If we are UDP and have an existing mapping we can get source port
@@ -354,16 +353,22 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 		if (pd->ndport == htons(ICMP_ECHO)) {
 			low = 1;
 			high = 65535;
-		} else
+		} else {
+			MPASS(udp_mapping == NULL ||
+			    *udp_mapping == NULL);
 			return (0);	/* Don't try to modify non-echo ICMP */
+		}
 	}
 #ifdef INET6
 	if (pd->proto == IPPROTO_ICMPV6) {
 		if (pd->ndport == htons(ICMP6_ECHO_REQUEST)) {
 			low = 1;
 			high = 65535;
-		} else
+		} else {
+			MPASS(udp_mapping == NULL ||
+			    *udp_mapping == NULL);
 			return (0);	/* Don't try to modify non-echo ICMP */
+		}
 	}
 #endif /* INET6 */
 
@@ -386,6 +391,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 		 */
 		if (pd->proto == IPPROTO_SCTP) {
 			key.port[sidx] = pd->nsport;
+			MPASS(udp_mapping == NULL ||
+			    *udp_mapping == NULL);
 			if (!pf_find_state_all_exists(&key, dir)) {
 				*nport = pd->nsport;
 				return (0);
@@ -400,8 +407,18 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 			 */
 			key.port[sidx] = pd->nsport;
 			if (!pf_find_state_all_exists(&key, dir)) {
-				*nport = pd->nsport;
-				return (0);
+				if (udp_mapping && *udp_mapping != NULL) {
+					(*udp_mapping)->endpoints[1].port = pd->nsport;
+					if (pf_udp_mapping_insert(*udp_mapping) == 0) {
+						*nport = pd->nsport;
+						return (0);
+					}
+				} else {
+					MPASS(udp_mapping == NULL ||
+					    *udp_mapping == NULL);
+					*nport = pd->nsport;
+					return (0);
+				}
 			}
 		} else if (low == high) {
 			key.port[sidx] = htons(low);
@@ -413,6 +430,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 						return (0);
 					}
 				} else {
+					MPASS(udp_mapping == NULL ||
+					    *udp_mapping == NULL);
 					*nport = htons(low);
 					return (0);
 				}
@@ -440,6 +459,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 					key.port[sidx] = htons(tmp);
 					if (!pf_find_state_all_exists(&key, dir)) {
 						*nport = htons(tmp);
+						MPASS(udp_mapping == NULL ||
+						    *udp_mapping == NULL);
 						return (0);
 					}
 				}
@@ -457,6 +478,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 				} else {
 					key.port[sidx] = htons(tmp);
 					if (!pf_find_state_all_exists(&key, dir)) {
+						MPASS(udp_mapping == NULL ||
+						    *udp_mapping == NULL);
 						*nport = htons(tmp);
 						return (0);
 					}
@@ -473,13 +496,13 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r, struct pf_addr *naddr,
 			 */
 			if (pf_map_addr_sn(pd->naf, r, &pd->nsaddr, naddr,
 			    &(pd->naf), NULL, &init_addr, rpool, sn_type))
-				return (1);
+				goto failed;
 			break;
 		case PF_POOL_NONE:
 		case PF_POOL_SRCHASH:
 		case PF_POOL_BITMASK:
 		default:
-			return (1);
+			goto failed;
 		}
 	} while (! PF_AEQ(&init_addr, naddr, pd->naf) );
 

@@ -36,7 +36,7 @@ CFLAGS+=	-I${EFISRC}/acpica/include
 
 CFLAGS+=	-I${.CURDIR}/../loader
 .if ${MK_LOADER_ZFS} != "no"
-CFLAGS+=	-I${ZFSSRC}
+CFLAGS+=	-I${SAZFSSRC}
 CFLAGS+=        -I${SYSDIR}/contrib/openzfs/include
 CFLAGS+=        -I${SYSDIR}/contrib/openzfs/include/os/freebsd/zfs
 CFLAGS+=	-DEFI_ZFS_BOOT
@@ -70,6 +70,7 @@ CFLAGS+=	-I${.CURDIR}
 CFLAGS+=	-I${.CURDIR}/arch/${__arch}
 CFLAGS+=	-I${EFISRC}/include
 CFLAGS+=	-I${EFISRC}/include/${__arch}
+CFLAGS+=	-I${EDK2INC}
 CFLAGS+=	-I${SYSDIR}/contrib/dev/acpica/include
 CFLAGS+=	-I${BOOTSRC}/i386/libi386
 CFLAGS+=	-DEFI

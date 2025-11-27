@@ -793,12 +793,18 @@ uipc_connect2(struct socket *so1, struct socket *so2)
 }
 
 static void
+maybe_schedule_gc(void)
+{
+	if (atomic_load_int(&unp_rights) != 0)
+		taskqueue_enqueue_timeout(taskqueue_thread, &unp_gc_task, -1);
+}
+
+static void
 uipc_detach(struct socket *so)
 {
 	struct unpcb *unp, *unp2;
 	struct mtx *vplock;
 	struct vnode *vp;
-	int local_unp_rights;
 
 	unp = sotounpcb(so);
 	KASSERT(unp != NULL, ("uipc_detach: unp == NULL"));
@@ -854,7 +860,6 @@ uipc_detach(struct socket *so)
 	UNP_REF_LIST_UNLOCK();
 
 	UNP_PCB_LOCK(unp);
-	local_unp_rights = unp_rights;
 	unp->unp_socket->so_pcb = NULL;
 	unp->unp_socket = NULL;
 	free(unp->unp_addr, M_SONAME);
@@ -865,8 +870,7 @@ uipc_detach(struct socket *so)
 		mtx_unlock(vplock);
 		vrele(vp);
 	}
-	if (local_unp_rights)
-		taskqueue_enqueue_timeout(taskqueue_thread, &unp_gc_task, -1);
+	maybe_schedule_gc();
 
 	switch (so->so_type) {
 	case SOCK_STREAM:
@@ -900,6 +904,18 @@ uipc_disconnect(struct socket *so)
 	else
 		UNP_PCB_UNLOCK(unp);
 	return (0);
+}
+
+static void
+uipc_fdclose(struct socket *so __unused)
+{
+	/*
+	 * Ensure that userspace can't create orphaned file descriptors without
+	 * triggering garbage collection.  Triggering GC from uipc_detach() is
+	 * not sufficient, since that's only closed once a socket reference
+	 * count drops to zero.
+	 */
+	maybe_schedule_gc();
 }
 
 static int
@@ -1372,8 +1388,8 @@ uipc_soreceive_stream_or_seqpacket(struct socket *so, struct sockaddr **psa,
     struct uio *uio, struct mbuf **mp0, struct mbuf **controlp, int *flagsp)
 {
 	struct sockbuf *sb = &so->so_rcv;
-	struct mbuf *control, *m, *first, *last, *next;
-	u_int ctl, space, datalen, mbcnt, lastlen;
+	struct mbuf *control, *m, *first, *part, *next;
+	u_int ctl, space, datalen, mbcnt, partlen;
 	int error, flags;
 	bool nonblock, waitall, peek;
 
@@ -1457,22 +1473,16 @@ restart:
 		control = NULL;
 
 	/*
-	 * Find split point for the next copyout.  On exit from the loop:
-	 * last == NULL - socket to be flushed
-	 * last != NULL
-	 *   lastlen > last->m_len - uio to be filled, last to be adjusted
-	 *   lastlen == 0          - MT_CONTROL, M_EOR or M_NOTREADY encountered
+	 * Find split point for the next copyout.  On exit from the loop,
+	 * 'next' points to the new head of the buffer STAILQ and 'datalen'
+	 * contains the amount of data we will copy out at the end.  The
+	 * copyout is protected by the I/O lock only, as writers can only
+	 * append to the buffer.  We need to record the socket buffer state
+	 * and do all length adjustments before dropping the socket buffer lock.
 	 */
-	space = uio->uio_resid;
-	datalen = 0;
-	for (m = first, last = sb->uxst_fnrdy, lastlen = 0;
-	     m != sb->uxst_fnrdy;
+	for (space = uio->uio_resid, m = next = first, part = NULL, datalen = 0;
+	     space > 0 && m != sb->uxst_fnrdy && m->m_type == MT_DATA;
 	     m = STAILQ_NEXT(m, m_stailq)) {
-		if (m->m_type != MT_DATA) {
-			last = m;
-			lastlen = 0;
-			break;
-		}
 		if (space >= m->m_len) {
 			space -= m->m_len;
 			datalen += m->m_len;
@@ -1480,29 +1490,28 @@ restart:
 			if (m->m_flags & M_EXT)
 				mbcnt += m->m_ext.ext_size;
 			if (m->m_flags & M_EOR) {
-				last = STAILQ_NEXT(m, m_stailq);
-				lastlen = 0;
 				flags |= MSG_EOR;
+				next = STAILQ_NEXT(m, m_stailq);
 				break;
 			}
 		} else {
 			datalen += space;
-			last = m;
-			lastlen = space;
+			partlen = space;
+			if (!peek) {
+				m->m_len -= partlen;
+				m->m_data += partlen;
+			}
+			next = part = m;
 			break;
 		}
+		next = STAILQ_NEXT(m, m_stailq);
 	}
 
-	UIPC_STREAM_SBCHECK(sb);
 	if (!peek) {
-		if (last == NULL)
+		if (next == NULL)
 			STAILQ_INIT(&sb->uxst_mbq);
-		else {
-			STAILQ_FIRST(&sb->uxst_mbq) = last;
-			MPASS(last->m_len > lastlen);
-			last->m_len -= lastlen;
-			last->m_data += lastlen;
-		}
+		else
+			STAILQ_FIRST(&sb->uxst_mbq) = next;
 		MPASS(sb->sb_acc >= datalen);
 		sb->sb_acc -= datalen;
 		sb->sb_ccc -= datalen;
@@ -1629,33 +1638,34 @@ restart:
 		}
 	}
 
-	for (m = first; m != last; m = next) {
+	for (m = first; datalen > 0; m = next) {
+		void *data;
+		u_int len;
+
 		next = STAILQ_NEXT(m, m_stailq);
-		error = uiomove(mtod(m, char *), m->m_len, uio);
+		if (m == part) {
+			data = peek ?
+			    mtod(m, char *) : mtod(m, char *) - partlen;
+			len = partlen;
+		} else {
+			data = mtod(m, char *);
+			len = m->m_len;
+		}
+		error = uiomove(data, len, uio);
 		if (__predict_false(error)) {
-			SOCK_IO_RECV_UNLOCK(so);
 			if (!peek)
-				for (; m != last; m = next) {
+				for (; m != part && datalen > 0; m = next) {
 					next = STAILQ_NEXT(m, m_stailq);
+					MPASS(datalen >= m->m_len);
+					datalen -= m->m_len;
 					m_free(m);
 				}
-			return (error);
-		}
-		if (!peek)
-			m_free(m);
-	}
-	if (last != NULL && lastlen > 0) {
-		if (!peek) {
-			MPASS(!(m->m_flags & M_PKTHDR));
-			MPASS(last->m_data - M_START(last) >= lastlen);
-			error = uiomove(mtod(last, char *) - lastlen,
-			    lastlen, uio);
-		} else
-			error = uiomove(mtod(last, char *), lastlen, uio);
-		if (__predict_false(error)) {
 			SOCK_IO_RECV_UNLOCK(so);
 			return (error);
 		}
+		datalen -= len;
+		if (!peek && m != part)
+			m_free(m);
 	}
 	if (waitall && !(flags & MSG_EOR) && uio->uio_resid > 0)
 		goto restart;
@@ -3216,11 +3226,9 @@ unp_disconnect(struct unpcb *unp, struct unpcb *unp2)
 #endif
 		LIST_REMOVE(unp, unp_reflink);
 		UNP_REF_LIST_UNLOCK();
-		if (so) {
-			SOCK_LOCK(so);
-			so->so_state &= ~SS_ISCONNECTED;
-			SOCK_UNLOCK(so);
-		}
+		SOCK_LOCK(so);
+		so->so_state &= ~SS_ISCONNECTED;
+		SOCK_UNLOCK(so);
 		break;
 
 	case SOCK_STREAM:
@@ -4208,10 +4216,12 @@ unp_gc(__unused void *arg, int pending)
 		struct socket *so;
 
 		so = unref[i]->f_data;
-		CURVNET_SET(so->so_vnet);
-		socantrcvmore(so);
-		unp_dispose(so);
-		CURVNET_RESTORE();
+		if (!SOLISTENING(so)) {
+			CURVNET_SET(so->so_vnet);
+			socantrcvmore(so);
+			unp_dispose(so);
+			CURVNET_RESTORE();
+		}
 	}
 
 	/*
@@ -4378,6 +4388,7 @@ static struct protosw streamproto = {
 	.pr_connect2 =		uipc_connect2,
 	.pr_detach =		uipc_detach,
 	.pr_disconnect =	uipc_disconnect,
+	.pr_fdclose =		uipc_fdclose,
 	.pr_listen =		uipc_listen,
 	.pr_peeraddr =		uipc_peeraddr,
 	.pr_send =		uipc_sendfile,
@@ -4408,6 +4419,7 @@ static struct protosw dgramproto = {
 	.pr_connect2 =		uipc_connect2,
 	.pr_detach =		uipc_detach,
 	.pr_disconnect =	uipc_disconnect,
+	.pr_fdclose =		uipc_fdclose,
 	.pr_peeraddr =		uipc_peeraddr,
 	.pr_sosend =		uipc_sosend_dgram,
 	.pr_sense =		uipc_sense,
@@ -4432,6 +4444,7 @@ static struct protosw seqpacketproto = {
 	.pr_connect2 =		uipc_connect2,
 	.pr_detach =		uipc_detach,
 	.pr_disconnect =	uipc_disconnect,
+	.pr_fdclose =		uipc_fdclose,
 	.pr_listen =		uipc_listen,
 	.pr_peeraddr =		uipc_peeraddr,
 	.pr_sense =		uipc_sense,
