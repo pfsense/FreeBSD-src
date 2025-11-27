@@ -37,7 +37,6 @@
 
 #include <sys/cdefs.h>
 #include "opt_bpf.h"
-#include "opt_ddb.h"
 #include "opt_netgraph.h"
 
 #include <sys/param.h>
@@ -67,10 +66,6 @@
 #include <sys/proc.h>
 
 #include <sys/socket.h>
-
-#ifdef DDB
-#include <ddb/ddb.h>
-#endif
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -192,8 +187,7 @@ static void	bpfif_rele(struct bpf_if *);
 static void	bpfd_ref(struct bpf_d *);
 static void	bpfd_rele(struct bpf_d *);
 static void	bpf_attachd(struct bpf_d *, struct bpf_if *);
-static void	bpf_detachd(struct bpf_d *);
-static void	bpf_detachd_locked(struct bpf_d *, bool);
+static void	bpf_detachd(struct bpf_d *, bool);
 static void	bpfd_free(epoch_context_t);
 static int	bpf_movein(struct uio *, int, struct ifnet *, struct mbuf **,
 		    struct sockaddr *, int *, struct bpf_d *);
@@ -733,7 +727,7 @@ bpf_attachd(struct bpf_d *d, struct bpf_if *bp)
 	op_w = V_bpf_optimize_writers || d->bd_writer;
 
 	if (d->bd_bif != NULL)
-		bpf_detachd_locked(d, false);
+		bpf_detachd(d, false);
 	/*
 	 * Point d at bp, and add d to the interface's list.
 	 * Since there are many applications using BPF for
@@ -843,15 +837,7 @@ bpf_check_upgrade(u_long cmd, struct bpf_d *d, struct bpf_insn *fcode,
  * Detach a file from its interface.
  */
 static void
-bpf_detachd(struct bpf_d *d)
-{
-	BPF_LOCK();
-	bpf_detachd_locked(d, false);
-	BPF_UNLOCK();
-}
-
-static void
-bpf_detachd_locked(struct bpf_d *d, bool detached_ifp)
+bpf_detachd(struct bpf_d *d, bool detached_ifp)
 {
 	struct bpf_if *bp;
 	struct ifnet *ifp;
@@ -923,7 +909,9 @@ bpf_dtor(void *data)
 	d->bd_state = BPF_IDLE;
 	BPFD_UNLOCK(d);
 	funsetown(&d->bd_sigio);
-	bpf_detachd(d);
+	BPF_LOCK();
+	bpf_detachd(d, false);
+	BPF_UNLOCK();
 #ifdef MAC
 	mac_bpfdesc_destroy(d);
 #endif /* MAC */
@@ -1609,33 +1597,28 @@ bpfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 	 * Set interface.
 	 */
 	case BIOCSETIF:
-		{
-			int alloc_buf, size;
+		/*
+		 * Behavior here depends on the buffering model.  If we're
+		 * using kernel memory buffers, then we can allocate them here.
+		 * If we're using zero-copy, then the user process must have
+		 * registered buffers by the time we get here.
+		 */
+		BPFD_LOCK(d);
+		if (d->bd_bufmode == BPF_BUFMODE_BUFFER &&
+		    d->bd_sbuf == NULL) {
+			u_int size;
 
-			/*
-			 * Behavior here depends on the buffering model.  If
-			 * we're using kernel memory buffers, then we can
-			 * allocate them here.  If we're using zero-copy,
-			 * then the user process must have registered buffers
-			 * by the time we get here.
-			 */
-			alloc_buf = 0;
-			BPFD_LOCK(d);
-			if (d->bd_bufmode == BPF_BUFMODE_BUFFER &&
-			    d->bd_sbuf == NULL)
-				alloc_buf = 1;
+			size = d->bd_bufsize;
 			BPFD_UNLOCK(d);
-			if (alloc_buf) {
-				size = d->bd_bufsize;
-				error = bpf_buffer_ioctl_sblen(d, &size);
-				if (error != 0)
-					break;
-			}
-			BPF_LOCK();
-			error = bpf_setif(d, (struct ifreq *)addr);
-			BPF_UNLOCK();
-			break;
-		}
+			error = bpf_buffer_ioctl_sblen(d, &size);
+			if (error != 0)
+				break;
+		} else
+			BPFD_UNLOCK(d);
+		BPF_LOCK();
+		error = bpf_setif(d, (struct ifreq *)addr);
+		BPF_UNLOCK();
+		break;
 
 	/*
 	 * Set read timeout.
@@ -2829,30 +2812,6 @@ bpfattach2(struct ifnet *ifp, u_int dlt, u_int hdrlen,
 
 #ifdef VIMAGE
 /*
- * When moving interfaces between vnet instances we need a way to
- * query the dlt and hdrlen before detach so we can re-attch the if_bpf
- * after the vmove.  We unfortunately have no device driver infrastructure
- * to query the interface for these values after creation/attach, thus
- * add this as a workaround.
- */
-int
-bpf_get_bp_params(struct bpf_if *bp, u_int *bif_dlt, u_int *bif_hdrlen)
-{
-
-	if (bp == NULL)
-		return (ENXIO);
-	if (bif_dlt == NULL && bif_hdrlen == NULL)
-		return (0);
-
-	if (bif_dlt != NULL)
-		*bif_dlt = bp->bif_dlt;
-	if (bif_hdrlen != NULL)
-		*bif_hdrlen = bp->bif_hdrlen;
-
-	return (0);
-}
-
-/*
  * Detach descriptors on interface's vmove event.
  */
 void
@@ -2868,12 +2827,12 @@ bpf_ifdetach(struct ifnet *ifp)
 
 		/* Detach common descriptors */
 		while ((d = CK_LIST_FIRST(&bp->bif_dlist)) != NULL) {
-			bpf_detachd_locked(d, true);
+			bpf_detachd(d, true);
 		}
 
 		/* Detach writer-only descriptors */
 		while ((d = CK_LIST_FIRST(&bp->bif_wlist)) != NULL) {
-			bpf_detachd_locked(d, true);
+			bpf_detachd(d, true);
 		}
 	}
 	BPF_UNLOCK();
@@ -2906,12 +2865,12 @@ bpfdetach(struct ifnet *ifp)
 
 		/* Detach common descriptors */
 		while ((d = CK_LIST_FIRST(&bp->bif_dlist)) != NULL) {
-			bpf_detachd_locked(d, true);
+			bpf_detachd(d, true);
 		}
 
 		/* Detach writer-only descriptors */
 		while ((d = CK_LIST_FIRST(&bp->bif_wlist)) != NULL) {
-			bpf_detachd_locked(d, true);
+			bpf_detachd(d, true);
 		}
 		bpfif_rele(bp);
 	}
@@ -3224,35 +3183,3 @@ bpf_validate(const struct bpf_insn *f, int len)
 }
 
 #endif /* !DEV_BPF && !NETGRAPH_BPF */
-
-#ifdef DDB
-static void
-bpf_show_bpf_if(struct bpf_if *bpf_if)
-{
-
-	if (bpf_if == NULL)
-		return;
-	db_printf("%p:\n", bpf_if);
-#define	BPF_DB_PRINTF(f, e)	db_printf("   %s = " f "\n", #e, bpf_if->e);
-#define	BPF_DB_PRINTF_RAW(f, e)	db_printf("   %s = " f "\n", #e, e);
-	/* bif_ext.bif_next */
-	/* bif_ext.bif_dlist */
-	BPF_DB_PRINTF("%#x", bif_dlt);
-	BPF_DB_PRINTF("%u", bif_hdrlen);
-	/* bif_wlist */
-	BPF_DB_PRINTF("%p", bif_ifp);
-	BPF_DB_PRINTF("%p", bif_bpf);
-	BPF_DB_PRINTF_RAW("%u", refcount_load(&bpf_if->bif_refcnt));
-}
-
-DB_SHOW_COMMAND(bpf_if, db_show_bpf_if)
-{
-
-	if (!have_addr) {
-		db_printf("usage: show bpf_if <struct bpf_if *>\n");
-		return;
-	}
-
-	bpf_show_bpf_if((struct bpf_if *)addr);
-}
-#endif

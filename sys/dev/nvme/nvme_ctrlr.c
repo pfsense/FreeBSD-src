@@ -33,7 +33,6 @@
 #include <sys/buf.h>
 #include <sys/bus.h>
 #include <sys/conf.h>
-#include <sys/disk.h>
 #include <sys/ioccom.h>
 #include <sys/proc.h>
 #include <sys/smp.h>
@@ -908,7 +907,7 @@ again:
 
 	size = sizeof(struct nvme_hmb_desc) * ctrlr->hmb_nchunks;
 	err = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev),
-	    16, 0, BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL,
+	    PAGE_SIZE, 0, BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL,
 	    size, 1, size, 0, NULL, NULL, &ctrlr->hmb_desc_tag);
 	if (err != 0) {
 		nvme_printf(ctrlr, "HMB desc tag create failed %d\n", err);
@@ -1154,7 +1153,7 @@ nvme_ctrlr_aer_task(void *arg, int pending)
 		mtx_sleep(aer, &aer->mtx, PRIBIO, "nvme_pt", 0);
 	mtx_unlock(&aer->mtx);
 
-	if (aer->log_page_size != (uint32_t)-1) {
+	if (aer->log_page_size == (uint32_t)-1) {
 		/*
 		 * If the log page fetch for some reason completed with an
 		 * error, don't pass log page data to the consumers.  In
@@ -1217,10 +1216,20 @@ nvme_ctrlr_aer_task(void *arg, int pending)
 	} else if (aer->log_page_id == NVME_LOG_CHANGED_NAMESPACE) {
 		struct nvme_ns_list *nsl =
 		    (struct nvme_ns_list *)aer->log_page_buffer;
+		struct nvme_controller *ctrlr = aer->ctrlr;
+
 		for (int i = 0; i < nitems(nsl->ns) && nsl->ns[i] != 0; i++) {
+			struct nvme_namespace *ns;
+			uint32_t id = nsl->ns[i];
+
 			if (nsl->ns[i] > NVME_MAX_NAMESPACES)
 				break;
-			nvme_notify_ns(aer->ctrlr, nsl->ns[i]);
+
+			ns = &ctrlr->ns[id - 1];
+			ns->flags |= NVME_NS_CHANGED;
+			nvme_ns_construct(ns, id, ctrlr);
+			nvme_notify_ns(ctrlr, id);
+			ns->flags &= ~NVME_NS_CHANGED;
 		}
 	}
 
@@ -1252,24 +1261,6 @@ nvme_ctrlr_poll(struct nvme_controller *ctrlr)
 	for (i = 0; i < ctrlr->num_io_queues; i++)
 		if (ctrlr->ioq && ctrlr->ioq[i].cpl)
 			nvme_qpair_process_completions(&ctrlr->ioq[i]);
-}
-
-/*
- * Copy the NVME device's serial number to the provided buffer, which must be
- * at least DISK_IDENT_SIZE bytes large.
- */
-void
-nvme_ctrlr_get_ident(const struct nvme_controller *ctrlr, uint8_t *sn)
-{
-	_Static_assert(NVME_SERIAL_NUMBER_LENGTH < DISK_IDENT_SIZE,
-		"NVME serial number too big for disk ident");
-
-	memmove(sn, ctrlr->cdata.sn, NVME_SERIAL_NUMBER_LENGTH);
-	sn[NVME_SERIAL_NUMBER_LENGTH] = '\0';
-	for (int i = 0; sn[i] != '\0'; i++) {
-		if (sn[i] < 0x20 || sn[i] >= 0x80)
-			sn[i] = ' ';
-	}
 }
 
 /*
@@ -1516,7 +1507,7 @@ nvme_ctrlr_ioctl(struct cdev *cdev, u_long cmd, caddr_t arg, int flag,
 		break;
 	case DIOCGIDENT: {
 		uint8_t *sn = arg;
-		nvme_ctrlr_get_ident(ctrlr, sn);
+		nvme_cdata_get_disk_ident(&ctrlr->cdata, sn);
 		break;
 	}
 	/* Linux Compatible (see nvme_linux.h) */

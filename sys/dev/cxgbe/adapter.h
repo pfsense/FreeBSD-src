@@ -184,7 +184,16 @@ enum {
 	DF_LOAD_FW_ANYTIME	= (1 << 1),	/* Allow LOAD_FW after init */
 	DF_DISABLE_TCB_CACHE	= (1 << 2),	/* Disable TCB cache (T6+) */
 	DF_DISABLE_CFG_RETRY	= (1 << 3),	/* Disable fallback config */
-	DF_VERBOSE_SLOWINTR	= (1 << 4),	/* Chatty slow intr handler */
+
+	/* adapter intr handler flags */
+	IHF_INTR_CLEAR_ON_INIT	= (1 << 0),	/* Driver calls t4_intr_clear */
+	IHF_NO_SHOW		= (1 << 1),	/* Do not display intr info */
+	IHF_VERBOSE		= (1 << 2),	/* Display extra intr info */
+	IHF_FATAL_IFF_ENABLED	= (1 << 3),	/* Fatal only if enabled */
+	IHF_IGNORE_IF_DISABLED	= (1 << 4),	/* Ignore if disabled */
+	IHF_CLR_ALL_SET		= (1 << 5),	/* Clear all set bits */
+	IHF_CLR_ALL_UNIGNORED	= (1 << 6),	/* Clear all unignored bits */
+	IHF_RUN_ALL_ACTIONS	= (1 << 7),	/* As if all cause are set */
 };
 
 #define IS_DETACHING(vi)	((vi)->flags & VI_DETACHING)
@@ -723,6 +732,16 @@ struct sge_ofld_rxq {
 	uint64_t rx_iscsi_padding_errors;
 	uint64_t rx_iscsi_header_digest_errors;
 	uint64_t rx_iscsi_data_digest_errors;
+	counter_u64_t rx_nvme_ddp_setup_ok;
+	counter_u64_t rx_nvme_ddp_setup_no_stag;
+	counter_u64_t rx_nvme_ddp_setup_error;
+	counter_u64_t rx_nvme_ddp_pdus;
+	counter_u64_t rx_nvme_ddp_octets;
+	counter_u64_t rx_nvme_fl_pdus;
+	counter_u64_t rx_nvme_fl_octets;
+	counter_u64_t rx_nvme_invalid_headers;
+	counter_u64_t rx_nvme_header_digest_errors;
+	counter_u64_t rx_nvme_data_digest_errors;
 	uint64_t rx_aio_ddp_jobs;
 	uint64_t rx_aio_ddp_octets;
 	u_long	rx_toe_tls_records;
@@ -795,6 +814,9 @@ struct sge_ofld_txq {
 	counter_u64_t tx_iscsi_pdus;
 	counter_u64_t tx_iscsi_octets;
 	counter_u64_t tx_iscsi_iso_wrs;
+	counter_u64_t tx_nvme_pdus;
+	counter_u64_t tx_nvme_octets;
+	counter_u64_t tx_nvme_iso_wrs;
 	counter_u64_t tx_aio_jobs;
 	counter_u64_t tx_aio_octets;
 	counter_u64_t tx_toe_tls_records;
@@ -997,6 +1019,7 @@ struct adapter {
 	void *iwarp_softc;	/* (struct c4iw_dev *) */
 	struct iw_tunables iwt;
 	void *iscsi_ulp_softc;	/* (struct cxgbei_data *) */
+	void *nvme_ulp_softc;	/* (struct nvmf_che_adapter *) */
 	struct l2t_data *l2t;	/* L2 table */
 	struct smt_data *smt;	/* Source MAC Table */
 	struct tid_info tids;
@@ -1013,6 +1036,7 @@ struct adapter {
 	int flags;
 	int debug_flags;
 	int error_flags;	/* Used by error handler and live reset. */
+	int intr_flags;		/* Used by interrupt setup/handlers. */
 
 	char ifp_lockname[16];
 	struct mtx ifp_lock;

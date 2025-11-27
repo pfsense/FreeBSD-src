@@ -3080,9 +3080,13 @@ em_reset(if_ctx_t ctx)
 	case e1000_82573:
 			pba = E1000_PBA_12K; /* 12K for Rx, 20K for Tx */
 		break;
+	/* 82574/82583: Total Packet Buffer is 40K */
 	case e1000_82574:
 	case e1000_82583:
-			pba = E1000_PBA_20K; /* 20K for Rx, 20K for Tx */
+		if (hw->mac.max_frame_size > 8192)
+			pba = E1000_PBA_22K; /* 22K for Rx, 18K for Tx */
+		else
+			pba = E1000_PBA_32K; /* 32K for RX, 8K for Tx */
 		break;
 	case e1000_ich8lan:
 		pba = E1000_PBA_8K;
@@ -3411,12 +3415,8 @@ igb_initialize_rss_mapping(struct e1000_softc *sc)
 	 */
 	mrqc = E1000_MRQC_ENABLE_RSS_MQ;
 
-#ifdef RSS
 	/* XXX ew typecasting */
 	rss_getkey((uint8_t *) &rss_key);
-#else
-	arc4rand(&rss_key, sizeof(rss_key), 0);
-#endif
 	for (i = 0; i < 10; i++)
 		E1000_WRITE_REG_ARRAY(hw, E1000_RSSRK(0), i, rss_key[i]);
 
@@ -3638,7 +3638,7 @@ em_initialize_transmit_unit(if_ctx_t ctx)
 		bus_addr = txr->tx_paddr;
 
 		/* Clear checksum offload context. */
-		offp = (caddr_t)&txr->csum_flags;
+		offp = (caddr_t)txr + offsetof(struct tx_ring, csum_flags);
 		endp = (caddr_t)(txr + 1);
 		bzero(offp, endp - offp);
 
@@ -4023,7 +4023,15 @@ em_if_vlan_register(if_ctx_t ctx, u16 vtag)
 	bit = vtag & 0x1F;
 	sc->shadow_vfta[index] |= (1 << bit);
 	++sc->num_vlans;
-	em_if_vlan_filter_write(sc);
+	if (!sc->vf_ifp)
+		em_if_vlan_filter_write(sc);
+	else
+		/*
+		 * Physical funtion may reject registering VLAN
+		 * but we have no way to inform the stack
+		 * about that.
+		 */
+		e1000_vfta_set_vf(&sc->hw, vtag, true);
 }
 
 static void
@@ -4036,7 +4044,10 @@ em_if_vlan_unregister(if_ctx_t ctx, u16 vtag)
 	bit = vtag & 0x1F;
 	sc->shadow_vfta[index] &= ~(1 << bit);
 	--sc->num_vlans;
-	em_if_vlan_filter_write(sc);
+	if (!sc->vf_ifp)
+		em_if_vlan_filter_write(sc);
+	else
+		e1000_vfta_set_vf(&sc->hw, vtag, false);
 }
 
 static bool
@@ -4094,22 +4105,15 @@ em_if_vlan_filter_write(struct e1000_softc *sc)
 {
 	struct e1000_hw *hw = &sc->hw;
 
-	if (sc->vf_ifp)
-		return;
+	KASSERT(!sc->vf_ifp, ("VLAN filter write on VF\n"));
 
 	/* Disable interrupts for lem(4) devices during the filter change */
 	if (hw->mac.type < em_mac_min)
 		em_if_intr_disable(sc->ctx);
 
 	for (int i = 0; i < EM_VFTA_SIZE; i++)
-		if (sc->shadow_vfta[i] != 0) {
-			/* XXXKB: incomplete VF support, we returned above */
-			if (sc->vf_ifp)
-				e1000_vfta_set_vf(hw, sc->shadow_vfta[i],
-				    true);
-			else
-				e1000_write_vfta(hw, i, sc->shadow_vfta[i]);
-		}
+		if (sc->shadow_vfta[i] != 0)
+			e1000_write_vfta(hw, i, sc->shadow_vfta[i]);
 
 	/* Re-enable interrupts for lem-class devices */
 	if (hw->mac.type < em_mac_min)
@@ -4124,8 +4128,10 @@ em_setup_vlan_hw_support(if_ctx_t ctx)
 	if_t ifp = iflib_get_ifp(ctx);
 	u32 reg;
 
-	/* XXXKB: Return early if we are a VF until VF decap and filter
-	 * management is ready and tested.
+	/*
+	 * Only PFs have control over VLAN HW filtering
+	 * configuration. VFs have to act as if it's always
+	 * enabled.
 	 */
 	if (sc->vf_ifp)
 		return;

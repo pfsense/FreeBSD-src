@@ -106,6 +106,11 @@ vm_install_base() {
 		$pkg_cmd update
 		selected=$(vm_base_packages_list | vm_extra_filter_base_packages)
 		$pkg_cmd install -U -r FreeBSD-base $selected
+		metalog_add_data ./var/db/pkg/local.sqlite
+		mkdir -p ${DESTDIR}/usr/local/etc/pkg/repos
+		echo 'FreeBSD-base: { enabled: yes }' > ${DESTDIR}/usr/local/etc/pkg/repos/FreeBSD.conf
+		metalog_add_data ./usr/local/etc/pkg/repos
+		metalog_add_data ./usr/local/etc/pkg/repos/FreeBSD.conf
 	else
 		cd ${WORLDDIR} && \
 			make DESTDIR=${DESTDIR} ${INSTALLOPTS} \
@@ -218,8 +223,10 @@ vm_extra_install_packages() {
 		    -o REPOS_DIR=${PKG_REPOS_DIR} \
 		    -o PKG_DBDIR=${DESTDIR}/var/db/pkg \
 		    -r ${DESTDIR} \
-		    autoremove
-		metalog_add_data ./var/db/pkg/local.sqlite
+		    autoremove -y
+		if [ -n "${NOPKGBASE}" ]; then
+			metalog_add_data ./var/db/pkg/local.sqlite
+		fi
 	else
 		if [ -n "${WITHOUT_QEMU}" ]; then
 			return 0
@@ -232,7 +239,7 @@ vm_extra_install_packages() {
 				/usr/sbin/pkg install -y ${p}
 		done
 		chroot ${DESTDIR} ${EMULATOR} env ASSUME_ALWAYS_YES=yes \
-		    /usr/sbin/pkg autoremove
+		    /usr/sbin/pkg autoremove -y
 	fi
 
 	return 0
@@ -285,8 +292,15 @@ vm_extra_pkg_rmcache() {
 buildfs() {
 	local md tmppool
 
+	# Copy entries from METALOG.pkg into METALOG, but first check to
+	# make sure that filesystem objects still exist; some things may
+	# have been logged which no longer exist if a package was removed.
 	if [ -f ${DESTDIR}/METALOG.pkg ]; then
-		cat ${DESTDIR}/METALOG.pkg >> ${DESTDIR}/METALOG
+		while read F REST; do
+			if [ -e ${DESTDIR}/${F} ]; then
+				echo "${F} ${REST}" >> ${DESTDIR}/METALOG
+			fi
+		done < ${DESTDIR}/METALOG.pkg
 	fi
 
 	if [ -n "${NO_ROOT}" ]; then
@@ -318,6 +332,16 @@ buildfs() {
 			metalog_add_data ./etc/pwd.db
 			metalog_add_data ./etc/spwd.db 600
 			metalog_add_data ./var/db/services.db
+		fi
+
+		if [ -n "${MISSING_METALOGS}" ]; then
+			# Hack to allow VM configurations to add files which
+			# weren't being added to METALOG appropriately.  This
+			# is mainly a workaround for the @sample bug and it
+			# should go away before FreeBSD 15.1 ships.
+			for P in ${MISSING_METALOGS}; do
+				metalog_add_data ${P}
+			done
 		fi
 
 		# Sort METALOG file; makefs produces directories with 000 permissions
@@ -449,7 +473,11 @@ vm_create_disk() {
 		# Create an ESP
 		espfilename=$(mktemp /tmp/efiboot.XXXXXX)
 		make_esp_file ${espfilename} ${fat32min} ${BOOTFILES}/efi/loader_lua/loader_lua.efi
-		BOOTPARTS="${BOOTPARTS} -p efi/efiboot0:=${espfilename}"
+		espsuffix=""
+		if [ -z "${BOOTPARTS}" ]; then
+			espsuffix="${BOOTPARTSOFFSET}"
+		fi
+		BOOTPARTS="${BOOTPARTS} -p efi/efiboot0:=${espfilename}${espsuffix}"
 
 		# Add this to fstab
 		mkdir -p ${DESTDIR}/boot/efi
