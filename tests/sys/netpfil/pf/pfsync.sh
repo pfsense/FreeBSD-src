@@ -1558,6 +1558,9 @@ rt_af_head()
 
 rt_af_body()
 {
+	# In pfSense route-to/reply-to doesn't apply to the local subnet
+	atf_skip "pfSense behaves differently. See 4433f39e07aa98dad64308385ec7f214b56298dd"
+
 	route_to_common_head 1500
 
 	jexec one pfctl -e
