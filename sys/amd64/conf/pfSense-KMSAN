@@ -1,0 +1,6 @@
+
+include pfSense-DEBUG
+
+ident   pfSense-KMSAN
+
+options 	KMSAN
