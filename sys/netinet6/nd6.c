@@ -2317,7 +2317,6 @@ nd6_get_llentry(struct ifnet *ifp, const struct in6_addr *addr, int family)
 {
 	struct llentry *child_lle = NULL;
 	struct llentry *lle, *lle_tmp;
-	static bool printed = false;
 
 	lle = nd6_alloc(addr, 0, ifp);
 	if (lle != NULL && family != AF_INET6) {
@@ -2360,22 +2359,12 @@ nd6_get_llentry(struct ifnet *ifp, const struct in6_addr *addr, int family)
 		} else {
 			/* child lle already exists, free newly-created one */
 			lltable_free_entry(LLTABLE6(ifp), child_lle);
-			if (!printed) {
-				printed = true;
-				printf("%s: found lle_tmp %p\n", __func__, lle_tmp);
-			}
-			LLE_WLOCK(lle_tmp);
 			child_lle = lle_tmp;
 		}
 		LLE_WUNLOCK(lle);
 		lle = child_lle;
-		if (!rw_wowned(&lle->lle_lock))
-			panic("lle %p not locked @ %s:%d!", lle, __FILE__, __LINE__);
 	}
 	IF_AFDATA_WUNLOCK(ifp);
-
-	if (!rw_wowned(&lle->lle_lock))
-		panic("lle %p not locked @ %s:%d!", lle, __FILE__, __LINE__);
 	return (lle);
 }
 
@@ -2423,8 +2412,7 @@ nd6_resolve_slow(struct ifnet *ifp, int family, int flags, struct mbuf *m,
 		return (ENOBUFS);
 	}
 
-	if (!rw_wowned(&lle->lle_lock))
-		panic("lle %p not locked @ %s:%d!", lle, __FILE__, __LINE__);
+	LLE_WLOCK_ASSERT(lle);
 
 	/*
 	 * The first time we send a packet to a neighbor whose entry is
