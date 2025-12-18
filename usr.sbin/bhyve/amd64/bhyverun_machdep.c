@@ -90,6 +90,7 @@ bhyve_usage(int code)
 	    "       -k: key=value flat config file\n"
 	    "       -K: PS2 keyboard layout\n"
 	    "       -l: LPC device configuration\n"
+	    "       -M: monitor mode\n"
 	    "       -m: memory size\n"
 	    "       -n: NUMA domain specification\n"
 	    "       -o: set config 'var' to 'value'\n"
@@ -118,9 +119,9 @@ bhyve_optparse(int argc, char **argv)
 	int c;
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "aehuwxACDHIPSWYk:f:o:p:G:c:s:m:n:l:K:U:r:";
+	optstr = "aehuwxACDHIMPSWYk:f:o:p:G:c:s:m:n:l:K:U:r:";
 #else
-	optstr = "aehuwxACDHIPSWYk:f:o:p:G:c:s:m:n:l:K:U:";
+	optstr = "aehuwxACDHIMPSWYk:f:o:p:G:c:s:m:n:l:K:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -186,7 +187,7 @@ bhyve_optparse(int argc, char **argv)
 				pci_print_supported_devices();
 				exit(0);
 			} else if (pci_parse_slot(optarg) != 0)
-				exit(4);
+				exit(BHYVE_EXIT_ERROR);
 			else
 				break;
 		case 'S':
@@ -194,6 +195,9 @@ bhyve_optparse(int argc, char **argv)
 			break;
 		case 'm':
 			set_config_value("memory.size", optarg);
+			break;
+		case 'M':
+			set_config_bool("monitor", true);
 			break;
 		case 'n':
 			if (bhyve_numa_parse(optarg) != 0)
@@ -276,7 +280,7 @@ bhyve_init_vcpu(struct vcpu *vcpu)
 		err = vm_get_capability(vcpu, VM_CAP_HALT_EXIT, &tmp);
 		if (err < 0) {
 			EPRINTLN("VM exit on HLT not supported");
-			exit(4);
+			exit(BHYVE_EXIT_ERROR);
 		}
 		vm_set_capability(vcpu, VM_CAP_HALT_EXIT, 1);
 	}
@@ -288,7 +292,7 @@ bhyve_init_vcpu(struct vcpu *vcpu)
 		err = vm_get_capability(vcpu, VM_CAP_PAUSE_EXIT, &tmp);
 		if (err < 0) {
 			EPRINTLN("SMP mux requested, no pause support");
-			exit(4);
+			exit(BHYVE_EXIT_ERROR);
 		}
 		vm_set_capability(vcpu, VM_CAP_PAUSE_EXIT, 1);
 	}
@@ -300,7 +304,7 @@ bhyve_init_vcpu(struct vcpu *vcpu)
 
 	if (err) {
 		EPRINTLN("Unable to set x2apic state (%d)", err);
-		exit(4);
+		exit(BHYVE_EXIT_ERROR);
 	}
 
 	vm_set_capability(vcpu, VM_CAP_ENABLE_INVPCID, 1);

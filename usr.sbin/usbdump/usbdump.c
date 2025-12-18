@@ -792,23 +792,6 @@ usage(void)
 	exit(EX_USAGE);
 }
 
-static void
-check_usb_pf_sysctl(void)
-{
-	int error;
-	int no_pf_val = 0;
-	size_t no_pf_len = sizeof(int);
-
-	/* check "hw.usb.no_pf" sysctl for 8- and 9- stable */
-
-	error = sysctlbyname("hw.usb.no_pf", &no_pf_val,
-	    &no_pf_len, NULL, 0);
-	if (error == 0 && no_pf_val != 0) {
-		warnx("The USB packet filter might be disabled.");
-		warnx("See the \"hw.usb.no_pf\" sysctl for more information.");
-	}
-}
-
 int
 main(int argc, char *argv[])
 {
@@ -824,7 +807,6 @@ main(int argc, char *argv[])
 	int o;
 	int filt_unit;
 	int filt_ep;
-	int s;
 	int ifindex;
 	const char *optstring;
 	char *pp;
@@ -940,8 +922,6 @@ main(int argc, char *argv[])
 		exit(EXIT_SUCCESS);
 	}
 
-	check_usb_pf_sysctl();
-
 	p->fd = fd = open("/dev/bpf", O_RDONLY);
 	if (p->fd < 0)
 		err(EXIT_FAILURE, "Could not open BPF device");
@@ -958,17 +938,6 @@ main(int argc, char *argv[])
 
 	/* clear ifr structure */
 	memset(&ifr, 0, sizeof(ifr));
-
-	/* Try to create usbusN interface if it is not available. */
-	s = socket(AF_LOCAL, SOCK_DGRAM, 0);
-	if (s < 0)
-		errx(EXIT_FAILURE, "Could not open a socket");
-	ifindex = if_nametoindex(i_arg);
-	if (ifindex == 0) {
-		(void)strlcpy(ifr.ifr_name, i_arg, sizeof(ifr.ifr_name));
-		if (ioctl(s, SIOCIFCREATE2, &ifr) < 0)
-			errx(EXIT_FAILURE, "Invalid bus interface: %s", i_arg);
-	}
 
 	for ( ; v >= USBPF_HDR_LEN; v >>= 1) {
 		(void)ioctl(fd, BIOCSBLEN, (caddr_t)&v);
@@ -1012,17 +981,6 @@ main(int argc, char *argv[])
 	printf("%d packets captured\n", pkt_captured);
 	printf("%d packets received by filter\n", us.bs_recv);
 	printf("%d packets dropped by kernel\n", us.bs_drop);
-
-	/*
-	 * Destroy the usbusN interface only if it was created by
-	 * usbdump(8).  Ignore when it was already destroyed.
-	 */
-	if (ifindex == 0 && if_nametoindex(i_arg) > 0) {
-		(void)strlcpy(ifr.ifr_name, i_arg, sizeof(ifr.ifr_name));
-		if (ioctl(s, SIOCIFDESTROY, &ifr) < 0)
-			warn("SIOCIFDESTROY ioctl failed");
-	}
-	close(s);
 
 	if (p->fd > 0)
 		close(p->fd);

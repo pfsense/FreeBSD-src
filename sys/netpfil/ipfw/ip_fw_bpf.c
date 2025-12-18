@@ -1,6 +1,7 @@
 /*-
  * Copyright (c) 2016 Yandex LLC
  * Copyright (c) 2016 Andrey V. Elsukov <ae@FreeBSD.org>
+ * Copyright (c) 2025 Gleb Smirnoff <glebius@FreeBSD.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,174 +30,146 @@
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
+#include <sys/tree.h>
 #include <net/ethernet.h>
 #include <net/if.h>
 #include <net/if_pflog.h>
-#include <net/if_var.h>
-#include <net/if_clone.h>
-#include <net/if_private.h>
-#include <net/if_types.h>
 #include <net/vnet.h>
 #include <net/bpf.h>
 
-#include <netinet/in.h>
+#include <netinet/ip.h>
 #include <netinet/ip_fw.h>
 #include <netinet/ip_var.h>
 #include <netpfil/ipfw/ip_fw_private.h>
 
-VNET_DEFINE_STATIC(struct ifnet *, log_if);
-VNET_DEFINE_STATIC(struct ifnet *, pflog_if);
-VNET_DEFINE_STATIC(struct if_clone *, ipfw_cloner);
-VNET_DEFINE_STATIC(struct if_clone *, ipfwlog_cloner);
-#define	V_ipfw_cloner		VNET(ipfw_cloner)
-#define	V_ipfwlog_cloner	VNET(ipfwlog_cloner)
-#define	V_log_if		VNET(log_if)
-#define	V_pflog_if		VNET(pflog_if)
-
-static const char ipfwname[] = "ipfw";
-static const char ipfwlogname[] = "ipfwlog";
-
-static int
-ipfw_bpf_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr)
+static bool
+bpf_ipfw_chkdir(void *arg __unused, const struct mbuf *m, int dir)
 {
-
-	return (EINVAL);
+	return ((dir == BPF_D_IN && m_rcvif(m) == NULL) ||
+	    (dir == BPF_D_OUT && m_rcvif(m) != NULL));
 }
 
-static int
-ipfw_bpf_output(struct ifnet *ifp, struct mbuf *m,
-	const struct sockaddr *dst, struct route *ro)
-{
+static const struct bif_methods bpf_ipfw_methods = {
+	.bif_chkdir = bpf_ipfw_chkdir,
+};
 
-	if (m != NULL)
-		FREE_PKT(m);
-	return (0);
+struct ipfw_tap {
+	RB_ENTRY(ipfw_tap)	entry;
+	uint32_t		rule;
+	u_int			refs;
+	struct bpf_if		*bpf;
+	char 			name[sizeof("ipfw4294967295")];
+};
+
+static int32_t
+tap_compare(const struct ipfw_tap *a, const struct ipfw_tap *b)
+{
+	return ((int32_t)(a->rule/2 - b->rule/2));
 }
+RB_HEAD(tap_tree, ipfw_tap);
+VNET_DEFINE_STATIC(struct tap_tree, tap_tree);
+#define	V_tap_tree	VNET(tap_tree)
+RB_GENERATE_STATIC(tap_tree, ipfw_tap, entry, tap_compare);
+VNET_DEFINE_STATIC(struct ipfw_tap *, default_tap);
+#define	V_default_tap	VNET(default_tap)
 
-static void
-ipfw_clone_destroy(struct ifnet *ifp)
+void
+ipfw_tap_alloc(uint32_t rule)
 {
+	struct ipfw_tap	*tap, key = { .rule = rule };
+	int n __diagused;
 
-	if (ifp->if_hdrlen == ETHER_HDR_LEN)
-		V_log_if = NULL;
-	else
-		V_pflog_if = NULL;
-
-	NET_EPOCH_WAIT();
-	bpfdetach(ifp);
-	if_detach(ifp);
-	if_free(ifp);
-}
-
-static int
-ipfw_clone_create(struct if_clone *ifc, int unit, caddr_t params)
-{
-	struct ifnet *ifp;
-
-	ifp = if_alloc(IFT_PFLOG);
-	if_initname(ifp, ipfwname, unit);
-	ifp->if_flags = IFF_UP | IFF_SIMPLEX | IFF_MULTICAST;
-	ifp->if_mtu = 65536;
-	ifp->if_ioctl = ipfw_bpf_ioctl;
-	ifp->if_output = ipfw_bpf_output;
-	ifp->if_hdrlen = ETHER_HDR_LEN;
-	if_attach(ifp);
-	bpfattach(ifp, DLT_EN10MB, ETHER_HDR_LEN);
-	if (V_log_if != NULL) {
-		bpfdetach(ifp);
-		if_detach(ifp);
-		if_free(ifp);
-		return (EEXIST);
+	tap = RB_FIND(tap_tree, &V_tap_tree, &key);
+	if (tap != NULL) {
+		MPASS(tap->rule == rule);
+		tap->refs++;
+		return;
 	}
-	V_log_if = ifp;
-	return (0);
-}
-
-static int
-ipfwlog_clone_create(struct if_clone *ifc, int unit, caddr_t params)
-{
-	struct ifnet *ifp;
-
-	ifp = if_alloc(IFT_PFLOG);
-	if_initname(ifp, ipfwlogname, unit);
-	ifp->if_flags = IFF_UP | IFF_SIMPLEX | IFF_MULTICAST;
-	ifp->if_mtu = 65536;
-	ifp->if_ioctl = ipfw_bpf_ioctl;
-	ifp->if_output = ipfw_bpf_output;
-	ifp->if_hdrlen = PFLOG_HDRLEN;
-	if_attach(ifp);
-	bpfattach(ifp, DLT_PFLOG, PFLOG_HDRLEN);
-	if (V_pflog_if != NULL) {
-		bpfdetach(ifp);
-		if_detach(ifp);
-		if_free(ifp);
-		return (EEXIST);
+	tap = malloc(sizeof(*tap), M_IPFW, M_WAITOK);
+	tap->rule = rule;
+	tap->refs = 1;
+	/* Note: the default rule logs to "ipfw0". */
+	if (__predict_false(rule == IPFW_DEFAULT_RULE)) {
+		V_default_tap = tap;
+		rule = 0;
 	}
-	V_pflog_if = ifp;
-	return (0);
+	n = snprintf(tap->name, sizeof(tap->name), "ipfw%u", rule);
+	MPASS(n > 4 && n < sizeof("ipfw4294967295"));
+	tap->bpf = bpf_attach(tap->name, DLT_EN10MB, PFLOG_HDRLEN,
+	    &bpf_ipfw_methods, NULL);
+	tap = RB_INSERT(tap_tree, &V_tap_tree, tap);
+	MPASS(tap == NULL);
 }
 
 void
-ipfw_bpf_tap(u_char *pkt, u_int pktlen)
+ipfw_tap_free(uint32_t rule)
 {
-	struct ifnet *ifp = V_log_if;
 
-	NET_EPOCH_ASSERT();
-	if (ifp != NULL)
-		BPF_TAP(ifp, pkt, pktlen);
-}
+	struct ipfw_tap	*tap, key = { .rule = rule };
 
-void
-ipfw_bpf_mtap(struct mbuf *m)
-{
-	struct ifnet *ifp = V_log_if;
-
-	NET_EPOCH_ASSERT();
-	if (ifp != NULL)
-		BPF_MTAP(ifp, m);
-}
-
-void
-ipfw_bpf_mtap2(void *data, u_int dlen, struct mbuf *m)
-{
-	struct ifnet *logif;
-
-	NET_EPOCH_ASSERT();
-	switch (dlen) {
-	case (ETHER_HDR_LEN):
-		logif = V_log_if;
-		break;
-	case (PFLOG_HDRLEN):
-		logif = V_pflog_if;
-		break;
-	default:
-#ifdef INVARIANTS
-		panic("%s: unsupported len %d", __func__, dlen);
-#endif
-		logif = NULL;
+	tap = RB_FIND(tap_tree, &V_tap_tree, &key);
+	MPASS(tap != NULL);
+	if (--tap->refs == 0) {
+		bpf_detach(tap->bpf);
+		RB_REMOVE(tap_tree, &V_tap_tree, tap);
+		free(tap, M_IPFW);
 	}
+}
 
-	if (logif != NULL)
-		BPF_MTAP2(logif, data, dlen, m);
+void
+ipfw_bpf_tap(struct ip_fw_args *args, struct ip *ip, uint32_t rulenum)
+{
+	struct ipfw_tap *tap, key = { .rule = rulenum };
+
+	tap = RB_FIND(tap_tree, &V_tap_tree, &key);
+	MPASS(tap != NULL);
+	if (!bpf_peers_present(tap->bpf))
+		tap = V_default_tap;
+	if (args->flags & IPFW_ARGS_LENMASK) {
+		bpf_tap(tap->bpf, args->mem, IPFW_ARGS_LENGTH(args->flags));
+	} else if (args->flags & IPFW_ARGS_ETHER) {
+		/* layer2, use orig hdr */
+		bpf_mtap(tap->bpf, args->m);
+	} else {
+		char *fakehdr;
+
+		/* Add fake header. Later we will store
+		 * more info in the header.
+		 */
+		if (ip->ip_v == 4)
+			fakehdr = "DDDDDDSSSSSS\x08\x00";
+		else if (ip->ip_v == 6)
+			fakehdr = "DDDDDDSSSSSS\x86\xdd";
+		else
+			/* Obviously bogus EtherType. */
+			fakehdr = "DDDDDDSSSSSS\xff\xff";
+
+		bpf_mtap2(tap->bpf, fakehdr, ETHER_HDR_LEN, args->m);
+	}
+}
+
+VNET_DEFINE_STATIC(struct bpf_if *, bpf_pflog);
+#define	V_bpf_pflog	VNET(bpf_pflog)
+void
+ipfw_pflog_tap(void *data, struct mbuf *m)
+{
+	bpf_mtap2(V_bpf_pflog, data, PFLOG_HDRLEN, m);
 }
 
 void
 ipfw_bpf_init(int first __unused)
 {
-
-	V_log_if = NULL;
-	V_pflog_if = NULL;
-	V_ipfw_cloner = if_clone_simple(ipfwname, ipfw_clone_create,
-	    ipfw_clone_destroy, 0);
-	V_ipfwlog_cloner = if_clone_simple(ipfwlogname, ipfwlog_clone_create,
-	    ipfw_clone_destroy, 0);
+	ipfw_tap_alloc(IPFW_DEFAULT_RULE);
+	V_bpf_pflog = bpf_attach("ipfwlog0", DLT_PFLOG, PFLOG_HDRLEN,
+	    &bpf_ipfw_methods, NULL);
 }
 
 void
 ipfw_bpf_uninit(int last __unused)
 {
 
-	if_clone_detach(V_ipfw_cloner);
-	if_clone_detach(V_ipfwlog_cloner);
+	ipfw_tap_free(IPFW_DEFAULT_RULE);
+	bpf_detach(V_bpf_pflog);
 }

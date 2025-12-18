@@ -2572,6 +2572,7 @@ dev/nvme/nvme_sim.c		optional nvme scbus
 dev/nvme/nvme_sysctl.c		optional nvme
 dev/nvme/nvme_test.c		optional nvme
 dev/nvme/nvme_util.c		optional nvme | scbus
+dev/nvme/nvme_if.m		optional nvme
 dev/nvmem/nvmem.c		optional nvmem fdt
 dev/nvmem/nvmem_if.m		optional nvmem
 dev/nvmf/controller/ctl_frontend_nvmf.c		optional nvmft
@@ -2866,6 +2867,10 @@ dev/regulator/regnode_if.m	optional regulator
 dev/regulator/regulator.c	optional regulator
 dev/regulator/regulator_bus.c	optional regulator fdt
 dev/regulator/regulator_fixed.c	optional regulator
+dev/rge/if_rge.c		optional rge
+dev/rge/if_rge_hw.c		optional rge
+dev/rge/if_rge_stats.c		optional rge
+dev/rge/if_rge_sysctl.c		optional rge
 dev/rl/if_rl.c			optional rl pci
 dev/rndtest/rndtest.c		optional rndtest
 #
@@ -4185,6 +4190,7 @@ net/bpf_buffer.c		optional bpf
 net/bpf_jitter.c		optional bpf_jitter
 net/bpf_filter.c		optional bpf | netgraph_bpf
 net/bpf_zerocopy.c		optional bpf
+net/bpf_ifnet.c			optional bpf
 net/bridgestp.c			optional bridge | if_bridge
 net/dummymbuf.c			optional dummymbuf
 net/ieee8023ad_lacp.c		optional lagg

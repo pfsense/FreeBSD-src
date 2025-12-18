@@ -673,7 +673,7 @@ pf_tables(struct snmp_context __unused *ctx, struct snmp_value *val,
 		return (SNMP_ERR_NOT_WRITEABLE);
 
 	if (op == SNMP_OP_GET) {
-		if ((time(NULL) - pft_table_age) > PFT_TABLE_MAXAGE)
+		if (! started || (time(NULL) - pft_table_age) > PFT_TABLE_MAXAGE)
 			if (pft_refresh() == -1)
 			    return (SNMP_ERR_GENERR);
 
@@ -812,7 +812,7 @@ pf_tbladdr(struct snmp_context __unused *ctx, struct snmp_value __unused *val,
 	asn_subid_t	which = val->var.subs[sub - 1];
 	struct pfa_entry *e = NULL;
 
-	if ((time(NULL) - pfa_table_age) > PFA_TABLE_MAXAGE)
+	if (! started || (time(NULL) - pfa_table_age) > PFA_TABLE_MAXAGE)
 		pfa_refresh();
 
 	switch (op) {
@@ -1035,7 +1035,7 @@ pf_lbltable(struct snmp_context __unused *ctx, struct snmp_value *val,
 	asn_subid_t	which = val->var.subs[sub - 1];
 	struct pfl_entry *e = NULL;
 
-	if ((time(NULL) - pfl_table_age) > PFL_TABLE_MAXAGE)
+	if (! started || (time(NULL) - pfl_table_age) > PFL_TABLE_MAXAGE)
 		pfl_refresh();
 
 	switch (op) {
@@ -1322,9 +1322,6 @@ pft_refresh(void)
 	struct pft_entry *e;
 	int i, numtbls = 1;
 
-	if (started && this_tick <= pf_tick)
-		return (0);
-
 	while (!TAILQ_EMPTY(&pft_table)) {
 		e = TAILQ_FIRST(&pft_table);
 		TAILQ_REMOVE(&pft_table, e, link);
@@ -1356,17 +1353,16 @@ err1:
 static int
 pfa_table_addrs(u_int sidx, struct pfr_table *pt)
 {
-	struct pfioc_table io;
+	struct pfr_table tbl = { 0 };
 	struct pfr_astats *t = NULL;
 	struct pfa_entry *e;
-	int i, numaddrs = 1;
+	int i, numaddrs = 1, outnum;
 
 	if (pt == NULL)
 		return (-1);
 
-	memset(&io, 0, sizeof(io));
-	strlcpy(io.pfrio_table.pfrt_name, pt->pfrt_name,
-	    sizeof(io.pfrio_table.pfrt_name));
+	strlcpy(tbl.pfrt_name, pt->pfrt_name,
+	    sizeof(tbl.pfrt_name));
 
 	for (;;) {
 		t = reallocf(t, numaddrs * sizeof(struct pfr_astats));
@@ -1377,22 +1373,18 @@ pfa_table_addrs(u_int sidx, struct pfr_table *pt)
 			goto error;
 		}
 
-		memset(t, 0, sizeof(*t));
-		io.pfrio_size = numaddrs;
-		io.pfrio_buffer = t;
-		io.pfrio_esize = sizeof(struct pfr_astats);
-
-		if (ioctl(pfctl_fd(pfh), DIOCRGETASTATS, &io)) {
+		outnum = numaddrs;
+		if (pfctl_get_astats(pfh, &tbl, t, &outnum, 0) != 0) {
 			syslog(LOG_ERR, "pfa_table_addrs(): ioctl() on %s: %s",
 			    pt->pfrt_name, strerror(errno));
 			numaddrs = -1;
 			break;
 		}
 
-		if (numaddrs >= io.pfrio_size)
+		if (numaddrs >= outnum)
 			break;
 
-		numaddrs = io.pfrio_size;
+		numaddrs = outnum;
 	}
 
 	for (i = 0; i < numaddrs; i++) {
@@ -1426,9 +1418,6 @@ pfa_refresh(void)
 	struct pfr_table *pt = NULL, *it = NULL;
 	struct pfa_entry *e;
 	int i, numtbls = 1, cidx, naddrs;
-
-	if (started && this_tick <= pf_tick)
-		return (0);
 
 	while (!TAILQ_EMPTY(&pfa_table)) {
 		e = TAILQ_FIRST(&pfa_table);
@@ -1594,9 +1583,6 @@ static int
 pfl_refresh(void)
 {
 	struct pfl_entry *e;
-
-	if (started && this_tick <= pf_tick)
-		return (0);
 
 	while (!TAILQ_EMPTY(&pfl_table)) {
 		e = TAILQ_FIRST(&pfl_table);

@@ -3532,7 +3532,7 @@ pf_change_icmp(struct pf_addr *ia, u_int16_t *ip, struct pf_addr *oa,
 	/* Change inner protocol port, fix inner protocol checksum. */
 	if (ip != NULL) {
 		u_int16_t	oip = *ip;
-		u_int32_t	opc;
+		u_int16_t	opc;
 
 		if (pc != NULL)
 			opc = *pc;
@@ -3548,7 +3548,7 @@ pf_change_icmp(struct pf_addr *ia, u_int16_t *ip, struct pf_addr *oa,
 	switch (af) {
 #ifdef INET
 	case AF_INET: {
-		u_int32_t	 oh2c = *h2c;
+		u_int16_t	 oh2c = *h2c;
 
 		*h2c = pf_cksum_fixup(pf_cksum_fixup(*h2c,
 		    oia.addr16[0], ia->addr16[0], 0),
@@ -3606,8 +3606,8 @@ pf_change_icmp(struct pf_addr *ia, u_int16_t *ip, struct pf_addr *oa,
 	}
 }
 
-int
-pf_translate_af(struct pf_pdesc *pd)
+static int
+pf_translate_af(struct pf_pdesc *pd, struct pf_krule *r)
 {
 #if defined(INET) && defined(INET6)
 	struct mbuf		*mp;
@@ -3617,6 +3617,21 @@ pf_translate_af(struct pf_pdesc *pd)
 	struct m_tag		*mtag;
 	struct pf_fragment_tag	*ftag;
 	int			 hlen;
+
+	if (pd->ttl == 1) {
+		/* We'd generate an ICMP error. Do so now rather than after af translation. */
+		if (pd->af == AF_INET) {
+			pf_send_icmp(pd->m, ICMP_TIMXCEED,
+			    ICMP_TIMXCEED_INTRANS, 0, pd->af, r,
+			    pd->act.rtableid);
+		} else {
+			pf_send_icmp(pd->m, ICMP6_TIME_EXCEEDED,
+			    ICMP6_TIME_EXCEED_TRANSIT, 0, pd->af, r,
+			    pd->act.rtableid);
+		}
+
+		return (-1);
+	}
 
 	hlen = pd->naf == AF_INET ? sizeof(*ip4) : sizeof(*ip6);
 
@@ -9193,7 +9208,7 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 
 	if (pd->dir == PF_IN) {
 		if (ip->ip_ttl <= IPTTLDEC) {
-			if (r->rt != PF_DUPTO)
+			if (r->rt != PF_DUPTO && pd->naf == pd->af)
 				pf_send_icmp(m0, ICMP_TIMXCEED,
 				    ICMP_TIMXCEED_INTRANS, 0, pd->af, r,
 				    pd->act.rtableid);
@@ -9566,7 +9581,7 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 
 	if (pd->dir == PF_IN) {
 		if (ip6->ip6_hlim <= IPV6_HLIMDEC) {
-			if (r->rt != PF_DUPTO)
+			if (r->rt != PF_DUPTO && pd->naf == pd->af)
 				pf_send_icmp(m0, ICMP6_TIME_EXCEEDED,
 				    ICMP6_TIME_EXCEED_TRANSIT, 0, pd->af, r,
 				    pd->act.rtableid);
@@ -11450,7 +11465,7 @@ done:
 		*m0 = NULL;
 		break;
 	case PF_AFRT:
-		if (pf_translate_af(&pd)) {
+		if (pf_translate_af(&pd, r)) {
 			*m0 = pd.m;
 			action = PF_DROP;
 			break;

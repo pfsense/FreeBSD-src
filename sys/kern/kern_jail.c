@@ -83,7 +83,9 @@
 #define	PRISON0_HOSTUUID_MODULE	"hostuuid"
 
 MALLOC_DEFINE(M_PRISON, "prison", "Prison structures");
+#ifdef RACCT
 static MALLOC_DEFINE(M_PRISON_RACCT, "prison_racct", "Prison racct structures");
+#endif
 
 /* Keep struct prison prison0 and some code in kern_jail_set() readable. */
 #ifdef INET
@@ -4117,11 +4119,14 @@ prison_enforce_statfs(struct ucred *cred, struct mount *mp, struct statfs *sp)
 	if (pr->pr_enforce_statfs == 0)
 		return;
 	if (prison_canseemount(cred, mp) != 0) {
+		bzero(&sp->f_fsid, sizeof(sp->f_fsid));
 		bzero(sp->f_mntonname, sizeof(sp->f_mntonname));
 		strlcpy(sp->f_mntonname, "[restricted]",
 		    sizeof(sp->f_mntonname));
 		return;
 	}
+	if (pr->pr_enforce_statfs > 1)
+		bzero(&sp->f_fsid, sizeof(sp->f_fsid));
 	if (pr->pr_root->v_mount == mp) {
 		/*
 		 * Clear current buffer data, so we are sure nothing from

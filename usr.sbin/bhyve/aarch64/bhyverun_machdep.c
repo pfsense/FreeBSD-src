@@ -107,6 +107,7 @@ bhyve_usage(int code)
 	    "       -G: start a debug server\n"
 	    "       -h: help\n"
 	    "       -k: key=value flat config file\n"
+	    "       -M: monitor mode\n"
 	    "       -m: memory size\n"
 	    "       -o: set config 'var' to 'value'\n"
 	    "       -p: pin 'vcpu' to 'hostcpu'\n"
@@ -125,7 +126,7 @@ bhyve_optparse(int argc, char **argv)
 	const char *optstr;
 	int c;
 
-	optstr = "hCDSWk:f:o:p:G:c:s:m:U:";
+	optstr = "hCDMSWk:f:o:p:G:c:s:m:U:";
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
 		case 'c':
@@ -149,6 +150,9 @@ bhyve_optparse(int argc, char **argv)
 		case 'm':
 			set_config_value("memory.size", optarg);
 			break;
+		case 'M':
+			set_config_bool("monitor", true);
+			break;
 		case 'o':
 			if (!bhyve_parse_config_option(optarg)) {
 				errx(EX_USAGE,
@@ -168,7 +172,7 @@ bhyve_optparse(int argc, char **argv)
 				pci_print_supported_devices();
 				exit(0);
 			} else if (pci_parse_slot(optarg) != 0)
-				exit(4);
+				exit(BHYVE_EXIT_ERROR);
 			else
 				break;
 		case 'S':

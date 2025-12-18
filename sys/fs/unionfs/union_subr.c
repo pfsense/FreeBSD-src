@@ -84,19 +84,19 @@ static void unionfs_deferred_rele(void *, int);
 /*
  * Initialize
  */
-int 
+int
 unionfs_init(struct vfsconf *vfsp)
 {
 	UNIONFSDEBUG("unionfs_init\n");	/* printed during system boot */
 	TASK_INIT(&unionfs_deferred_rele_task, 0, unionfs_deferred_rele, NULL);
-	mtx_init(&unionfs_deferred_rele_lock, "uniondefr", NULL, MTX_DEF); 
+	mtx_init(&unionfs_deferred_rele_lock, "uniondefr", NULL, MTX_DEF);
 	return (0);
 }
 
 /*
  * Uninitialize
  */
-int 
+int
 unionfs_uninit(struct vfsconf *vfsp)
 {
 	taskqueue_quiesce(taskqueue_unionfs_rele);
@@ -290,7 +290,7 @@ unionfs_nodeget_cleanup(struct vnode *vp, struct unionfs_node *unp)
 
 /*
  * Make a new or get existing unionfs node.
- * 
+ *
  * uppervp and lowervp should be unlocked. Because if new unionfs vnode is
  * locked, uppervp or lowervp is locked too. In order to prevent dead lock,
  * you should not lock plurality simultaneously.
@@ -709,9 +709,9 @@ unionfs_create_uppervattr(struct unionfs_mount *ump, struct vnode *lvp,
 
 /*
  * relookup
- * 
+ *
  * dvp should be locked on entry and will be locked on return.
- * 
+ *
  * If an error is returned, *vpp will be invalid, otherwise it will hold a
  * locked, referenced vnode. If *vpp == dvp then remember that only one
  * LK_EXCLUSIVE lock is held.
@@ -756,7 +756,7 @@ unionfs_relookup(struct vnode *dvp, struct vnode **vpp,
 
 /*
  * Update the unionfs_node.
- * 
+ *
  * uvp is new locked upper vnode. unionfs vnode's lock will be exchanged to the
  * uvp's lock and lower's lock will be unlocked.
  */
@@ -875,10 +875,10 @@ unionfs_clear_in_progress_flag(struct vnode *vp, unsigned int flag)
 
 /*
  * Create a new shadow dir.
- * 
+ *
  * dvp and vp are unionfs vnodes representing a parent directory and
  * child file, should be locked on entry, and will be locked on return.
- * 
+ *
  * If no error returned, unp will be updated.
  */
 int
@@ -1201,7 +1201,7 @@ unionfs_forward_vop_finish_pair(
 
 /*
  * Create a new whiteout.
- * 
+ *
  * dvp and vp are unionfs vnodes representing a parent directory and
  * child file, should be locked on entry, and will be locked on return.
  */
@@ -1259,11 +1259,11 @@ unionfs_mkwhiteout_cleanup:
 }
 
 /*
- * Create a new vnode for create a new shadow file.
- * 
+ * Create a new regular file on upper.
+ *
  * If an error is returned, *vpp will be invalid, otherwise it will hold a
  * locked, referenced and opened vnode.
- * 
+ *
  * unp is never updated.
  */
 static int
@@ -1343,8 +1343,8 @@ unionfs_vn_create_on_upper_cleanup:
 }
 
 /*
- * Copy from lvp to uvp.
- * 
+ * Copy contents of lvp to uvp.
+ *
  * lvp and uvp should be locked and opened on entry and will be locked and
  * opened on return.
  */
@@ -1410,13 +1410,12 @@ unionfs_copyfile_core(struct vnode *lvp, struct vnode *uvp,
 
 /*
  * Copy file from lower to upper.
- * 
- * If you need copy of the contents, set 1 to docopy. Otherwise, set 0 to
- * docopy.
+ *
+ * If docopy is non-zero, copy the contents as well.
  *
  * vp is a unionfs vnode that should be locked on entry and will be
  * locked on return.
- * 
+ *
  * If no error returned, unp will be updated.
  */
 int
@@ -1512,6 +1511,174 @@ unionfs_copyfile(struct vnode *vp, int docopy, struct ucred *cred,
 	}
 
 unionfs_copyfile_cleanup:
+	unionfs_clear_in_progress_flag(vp, UNIONFS_COPY_IN_PROGRESS);
+	return (error);
+}
+
+/*
+ * Create a new symbolic link on upper.
+ *
+ * If an error is returned, *vpp will be invalid, otherwise it will hold a
+ * locked, referenced and opened vnode.
+ *
+ * unp is never updated.
+ */
+static int
+unionfs_vn_symlink_on_upper(struct vnode **vpp, struct vnode *udvp,
+    struct vnode *vp, struct vattr *uvap, const char *target,
+    struct thread *td)
+{
+	struct unionfs_mount *ump;
+	struct unionfs_node *unp;
+	struct vnode   *uvp;
+	struct vnode   *lvp;
+	struct ucred   *cred;
+	struct vattr	lva;
+	struct nameidata nd;
+	int		error;
+
+	ASSERT_VOP_ELOCKED(vp, __func__);
+	unp = VTOUNIONFS(vp);
+	ump = MOUNTTOUNIONFSMOUNT(UNIONFSTOV(unp)->v_mount);
+	uvp = NULL;
+	lvp = unp->un_lowervp;
+	cred = td->td_ucred;
+	error = 0;
+
+	if ((error = VOP_GETATTR(lvp, &lva, cred)) != 0)
+		return (error);
+	unionfs_create_uppervattr_core(ump, &lva, uvap, td);
+
+	if (unp->un_path == NULL)
+		panic("%s: NULL un_path", __func__);
+
+	nd.ni_cnd.cn_namelen = unp->un_pathlen;
+	nd.ni_cnd.cn_pnbuf = unp->un_path;
+	nd.ni_cnd.cn_nameiop = CREATE;
+	nd.ni_cnd.cn_flags = LOCKPARENT | LOCKLEAF | ISLASTCN;
+	nd.ni_cnd.cn_lkflags = LK_EXCLUSIVE;
+	nd.ni_cnd.cn_cred = cred;
+	nd.ni_cnd.cn_nameptr = nd.ni_cnd.cn_pnbuf;
+	NDPREINIT(&nd);
+
+	vref(udvp);
+	VOP_UNLOCK(vp);
+	if ((error = vfs_relookup(udvp, &uvp, &nd.ni_cnd, false)) != 0) {
+		vrele(udvp);
+		return (error);
+	}
+
+	if (uvp != NULL) {
+		if (uvp == udvp)
+			vrele(uvp);
+		else
+			vput(uvp);
+		error = EEXIST;
+		goto unionfs_vn_symlink_on_upper_cleanup;
+	}
+
+	error = VOP_SYMLINK(udvp, &uvp, &nd.ni_cnd, uvap, target);
+	if (error == 0)
+		*vpp = uvp;
+
+unionfs_vn_symlink_on_upper_cleanup:
+	vput(udvp);
+	return (error);
+}
+
+/*
+ * Copy symbolic link from lower to upper.
+ *
+ * vp is a unionfs vnode that should be locked on entry and will be
+ * locked on return.
+ *
+ * If no error returned, unp will be updated.
+ */
+int
+unionfs_copylink(struct vnode *vp, struct ucred *cred,
+    struct thread *td)
+{
+	struct unionfs_node *unp;
+	struct unionfs_node *dunp;
+	struct mount   *mp;
+	struct vnode   *udvp;
+	struct vnode   *lvp;
+	struct vnode   *uvp;
+	struct vattr	uva;
+	char	       *buf = NULL;
+	struct uio	uio;
+	struct iovec	iov;
+	int		error;
+
+	ASSERT_VOP_ELOCKED(vp, __func__);
+	unp = VTOUNIONFS(vp);
+	lvp = unp->un_lowervp;
+	uvp = NULL;
+
+	if ((UNIONFSTOV(unp)->v_mount->mnt_flag & MNT_RDONLY))
+		return (EROFS);
+	if (unp->un_dvp == NULL)
+		return (EINVAL);
+	if (unp->un_uppervp != NULL)
+		return (EEXIST);
+
+	udvp = NULL;
+	VI_LOCK(unp->un_dvp);
+	dunp = VTOUNIONFS(unp->un_dvp);
+	if (dunp != NULL)
+		udvp = dunp->un_uppervp;
+	VI_UNLOCK(unp->un_dvp);
+
+	if (udvp == NULL)
+		return (EROFS);
+	if ((udvp->v_mount->mnt_flag & MNT_RDONLY))
+		return (EROFS);
+	ASSERT_VOP_UNLOCKED(udvp, __func__);
+
+	error = unionfs_set_in_progress_flag(vp, UNIONFS_COPY_IN_PROGRESS);
+	if (error == EJUSTRETURN)
+		return (0);
+	else if (error != 0)
+		return (error);
+
+	uio.uio_td = td;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_offset = 0;
+	uio.uio_iov = &iov;
+	uio.uio_iovcnt = 1;
+	iov.iov_base = buf = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+	uio.uio_resid = iov.iov_len = MAXPATHLEN;
+	uio.uio_rw = UIO_READ;
+
+	if ((error = VOP_READLINK(lvp, &uio, cred)) != 0)
+		goto unionfs_copylink_cleanup;
+	buf[iov.iov_len - uio.uio_resid] = '\0';
+	if ((error = vn_start_write(udvp, &mp, V_WAIT | V_PCATCH)) != 0)
+		goto unionfs_copylink_cleanup;
+	error = unionfs_vn_symlink_on_upper(&uvp, udvp, vp, &uva, buf, td);
+	vn_finished_write(mp);
+	if (error != 0) {
+		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+		goto unionfs_copylink_cleanup;
+	}
+
+	vn_lock_pair(vp, false, LK_EXCLUSIVE, uvp, true, LK_EXCLUSIVE);
+	unp = VTOUNIONFS(vp);
+	if (unp == NULL) {
+		error = ENOENT;
+		goto unionfs_copylink_cleanup;
+	}
+
+	if (error == 0) {
+		/* Reset the attributes. Ignore errors. */
+		uva.va_type = VNON;
+		VOP_SETATTR(uvp, &uva, cred);
+		unionfs_node_update(unp, uvp, td);
+	}
+
+unionfs_copylink_cleanup:
+	if (buf != NULL)
+		free(buf, M_TEMP);
 	unionfs_clear_in_progress_flag(vp, UNIONFS_COPY_IN_PROGRESS);
 	return (error);
 }
