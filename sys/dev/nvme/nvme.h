@@ -32,6 +32,7 @@
 #include <sys/param.h>
 #ifdef _KERNEL
 #include <sys/systm.h>
+#include <sys/disk.h>
 #else
 #include <stdbool.h>
 #endif
@@ -1907,29 +1908,20 @@ void	nvme_sc_sbuf(const struct nvme_completion *cpl, struct sbuf *sbuf);
 void	nvme_strvis(uint8_t *dst, const uint8_t *src, int dstlen, int srclen);
 
 #ifdef _KERNEL
-#include <sys/disk.h>
-
 struct bio;
 struct thread;
 
 struct nvme_namespace;
 struct nvme_controller;
-struct nvme_consumer;
 struct nvme_passthru_cmd;
 
 typedef void (*nvme_cb_fn_t)(void *, const struct nvme_completion *);
 
-typedef void *(*nvme_cons_ns_fn_t)(struct nvme_namespace *, void *);
-typedef void *(*nvme_cons_ctrlr_fn_t)(struct nvme_controller *);
-typedef void (*nvme_cons_async_fn_t)(void *, const struct nvme_completion *,
-				     uint32_t, void *, uint32_t);
-typedef void (*nvme_cons_fail_fn_t)(void *);
-
 enum nvme_namespace_flags {
 	NVME_NS_DEALLOCATE_SUPPORTED	= 0x01,
 	NVME_NS_FLUSH_SUPPORTED		= 0x02,
-	NVME_NS_ADDED			= 0x04,
-	NVME_NS_CHANGED			= 0x08,
+	NVME_NS_ALIVE			= 0x04,
+	NVME_NS_DELTA			= 0x08,
 	NVME_NS_GONE			= 0x10,
 };
 
@@ -1978,13 +1970,6 @@ int	nvme_ns_cmd_flush(struct nvme_namespace *ns, nvme_cb_fn_t cb_fn,
 int	nvme_ns_dump(struct nvme_namespace *ns, void *virt, off_t offset,
 		     size_t len);
 
-/* Registration functions */
-struct nvme_consumer *	nvme_register_consumer(nvme_cons_ns_fn_t    ns_fn,
-					       nvme_cons_ctrlr_fn_t ctrlr_fn,
-					       nvme_cons_async_fn_t async_fn,
-					       nvme_cons_fail_fn_t  fail_fn);
-void		nvme_unregister_consumer(struct nvme_consumer *consumer);
-
 /* Controller helper functions */
 device_t	nvme_ctrlr_get_device(struct nvme_controller *ctrlr);
 const struct nvme_controller_data *
@@ -2006,7 +1991,7 @@ nvme_cdata_get_disk_ident(const struct nvme_controller_data *cdata, uint8_t *sn)
 	_Static_assert(NVME_SERIAL_NUMBER_LENGTH < DISK_IDENT_SIZE,
 		"NVME serial number too big for disk ident");
 
-	memmove(sn, cdata->sn, NVME_SERIAL_NUMBER_LENGTH);
+	memcpy(sn, cdata->sn, NVME_SERIAL_NUMBER_LENGTH);
 	sn[NVME_SERIAL_NUMBER_LENGTH] = '\0';
 	for (int i = 0; sn[i] != '\0'; i++) {
 		if (sn[i] < 0x20 || sn[i] >= 0x80)

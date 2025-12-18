@@ -1183,7 +1183,7 @@ unionfs_ioctl(struct vop_ioctl_args *ap)
 
 	KASSERT_UNIONFS_VNODE(ap->a_vp);
 
- 	vn_lock(ap->a_vp, LK_EXCLUSIVE | LK_RETRY);
+	vn_lock(ap->a_vp, LK_EXCLUSIVE | LK_RETRY);
 	unp = VTOUNIONFS(ap->a_vp);
 	unionfs_get_node_status(unp, ap->a_td, &unsp);
 	ovp = (unsp->uns_upper_opencnt ? unp->un_uppervp : unp->un_lowervp);
@@ -1210,7 +1210,7 @@ unionfs_poll(struct vop_poll_args *ap)
 
 	KASSERT_UNIONFS_VNODE(ap->a_vp);
 
- 	vn_lock(ap->a_vp, LK_EXCLUSIVE | LK_RETRY);
+	vn_lock(ap->a_vp, LK_EXCLUSIVE | LK_RETRY);
 	unp = VTOUNIONFS(ap->a_vp);
 	unionfs_get_node_status(unp, ap->a_td, &unsp);
 	ovp = (unsp->uns_upper_opencnt ? unp->un_uppervp : unp->un_lowervp);
@@ -1478,6 +1478,13 @@ unionfs_rename(struct vop_rename_args *ap)
 			 */
 			VOP_UNLOCK(tdvp);
 			relock_tdvp = true;
+		} else if (fvp->v_type == VLNK) {
+			/*
+			 * The symbolic link case is similar to the
+			 * regular file case.
+			 */
+			VOP_UNLOCK(tdvp);
+			relock_tdvp = true;
 		} else if (fvp->v_type == VDIR && tdvp != fdvp) {
 			/*
 			 * For directories, unionfs_mkshadowdir() will expect
@@ -1500,6 +1507,9 @@ unionfs_rename(struct vop_rename_args *ap)
 			switch (fvp->v_type) {
 			case VREG:
 				error = unionfs_copyfile(fvp, 1, fcnp->cn_cred, td);
+				break;
+			case VLNK:
+				error = unionfs_copylink(fvp, fcnp->cn_cred, td);
 				break;
 			case VDIR:
 				error = unionfs_mkshadowdir(fdvp, fvp, fcnp, td);
@@ -2103,6 +2113,49 @@ unionfs_getwritemount(struct vop_getwritemount_args *ap)
 	UNIONFS_INTERNAL_DEBUG("unionfs_getwritemount: leave (%d)\n", error);
 
 	return (error);
+}
+
+static int
+unionfs_getlowvnode(struct vop_getlowvnode_args *ap)
+{
+	struct unionfs_node *unp;
+	struct vnode *vp, *basevp;
+
+	vp = ap->a_vp;
+	VI_LOCK(vp);
+	unp = VTOUNIONFS(vp);
+	if (unp == NULL) {
+		VI_UNLOCK(vp);
+		return (EBADF);
+	}
+
+	if (ap->a_flags & FWRITE) {
+		basevp = unp->un_uppervp;
+		/*
+		 * If write access is being requested, we expect the unionfs
+		 * vnode has already been opened for write access and thus any
+		 * necessary copy-up has already been performed.  Return an
+		 * error if that expectation is not met and an upper vnode has
+		 * not been instantiated.  We could proactively do a copy-up
+		 * here, but that would require additional locking as well as
+		 * the addition of a 'cred' argument to VOP_GETLOWVNODE().
+		 */
+		if (basevp == NULL) {
+			VI_UNLOCK(vp);
+			return (EACCES);
+		}
+	} else {
+		basevp = (unp->un_uppervp != NULL) ?
+		    unp->un_uppervp : unp->un_lowervp;
+	}
+
+	VNASSERT(basevp != NULL, vp, ("%s: no upper/lower vnode", __func__));
+
+	vholdnz(basevp);
+	VI_UNLOCK(vp);
+	VOP_GETLOWVNODE(basevp, ap->a_vplp, ap->a_flags);
+	vdrop(basevp);
+	return (0);
 }
 
 static int
@@ -3000,6 +3053,7 @@ struct vop_vector unionfs_vnodeops = {
 	.vop_getattr =		unionfs_getattr,
 	.vop_getextattr =	unionfs_getextattr,
 	.vop_getwritemount =	unionfs_getwritemount,
+	.vop_getlowvnode =	unionfs_getlowvnode,
 	.vop_inactive =		unionfs_inactive,
 	.vop_need_inactive =	vop_stdneed_inactive,
 	.vop_islocked =		vop_stdislocked,
@@ -3035,9 +3089,10 @@ struct vop_vector unionfs_vnodeops = {
 	.vop_add_writecount =	unionfs_add_writecount,
 	.vop_vput_pair =	unionfs_vput_pair,
 	.vop_set_text =		unionfs_set_text,
-	.vop_unset_text = 	unionfs_unset_text,
+	.vop_unset_text =	unionfs_unset_text,
 	.vop_unp_bind =		unionfs_unp_bind,
 	.vop_unp_connect =	unionfs_unp_connect,
 	.vop_unp_detach =	unionfs_unp_detach,
+	.vop_copy_file_range =	vop_stdcopy_file_range,
 };
 VFS_VOP_VECTOR_REGISTER(unionfs_vnodeops);

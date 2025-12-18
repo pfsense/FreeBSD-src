@@ -4,7 +4,7 @@ compute_engine_instance:
   # gcloud compute images list --project freebsd-org-cloud-dev --no-standard-images
   platform: freebsd
   image_project: freebsd-org-cloud-dev
-  image: freebsd-14-3-release-amd64-ufs
+  image: freebsd-15-0-release-amd64-ufs
   cpu: 8
   memory: 8G
   disk: 40
@@ -191,16 +191,17 @@ task:
   - du -m -s /usr/obj
 
 precommit_task:
+  persistent_worker:
+    labels:
+      jail: FreeBSD-src
   matrix:
     - name: amd64 smoke test using internal ci systems
       only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src' || $CIRRUS_BRANCH =~ 'pull/.*'
-      trigger_type: manual
       env:
         TARGET: amd64
         TARGET_ARCH: amd64
     - name: aarch64 smoke test using internal ci systems
       only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src' || $CIRRUS_BRANCH =~ 'pull/.*'
-      trigger_type: manual
       env:
         TARGET: arm64
         TARGET_ARCH: aarch64

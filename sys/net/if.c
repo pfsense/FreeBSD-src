@@ -1288,6 +1288,7 @@ if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
 	 */
 	CURVNET_SET_QUIET(new_vnet);
 	if_attach_internal(ifp, true);
+	bpf_vmove(ifp->if_bpf);
 	CURVNET_RESTORE();
 }
 
@@ -4470,19 +4471,6 @@ if_notifymtu(if_t ifp)
 int
 if_getmtu(const if_t ifp)
 {
-	return (ifp->if_mtu);
-}
-
-int
-if_getmtu_family(const if_t ifp, int family)
-{
-	struct domain *dp;
-
-	SLIST_FOREACH(dp, &domains, dom_next) {
-		if (dp->dom_family == family && dp->dom_ifmtu != NULL)
-			return (dp->dom_ifmtu(ifp));
-	}
-
 	return (ifp->if_mtu);
 }
 

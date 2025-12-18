@@ -382,6 +382,8 @@
             ..
             ssp
             ..
+            stdbit
+            ..
             stdio
             ..
             stdlib
@@ -823,6 +825,8 @@
             tarfs
             ..
             tmpfs
+            ..
+            unionfs
             ..
         ..
         geom

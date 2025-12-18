@@ -348,7 +348,8 @@ ld_utrace_log(int event, void *handle, void *mapbase, size_t mapsize,
     int refcnt, const char *name)
 {
 	struct utrace_rtld ut;
-	static const char rtld_utrace_sig[RTLD_UTRACE_SIG_SZ] = RTLD_UTRACE_SIG;
+	static const char rtld_utrace_sig[RTLD_UTRACE_SIG_SZ] __nonstring =
+	    RTLD_UTRACE_SIG;
 
 	memset(&ut, 0, sizeof(ut));	/* clear holes */
 	memcpy(ut.sig, rtld_utrace_sig, sizeof(ut.sig));
@@ -395,7 +396,7 @@ static struct ld_env_var_desc ld_env_vars[] = {
 	LD_ENV_DESC(TRACE_LOADED_OBJECTS_FMT1, false),
 	LD_ENV_DESC(TRACE_LOADED_OBJECTS_FMT2, false),
 	LD_ENV_DESC(TRACE_LOADED_OBJECTS_ALL, false),
-	LD_ENV_DESC(SHOW_AUXV, false),
+	LD_ENV_DESC(SHOW_AUXV, true),
 	LD_ENV_DESC(STATIC_TLS_EXTRA, false),
 	LD_ENV_DESC(NO_DL_ITERATE_PHDR_AFTER_FORK, false),
 };

@@ -51,6 +51,16 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20251208: Rename iwm8000C to correct name.
+OLD_FILES+=boot/firmware/iwm8000C
+
+# 20251207: removed libuutil and libtpool
+OLD_LIBS+=	lib/libuutil.so.2
+OLD_LIBS+=	lib/libtpool.so.2
+
+# 20251204: zpfind.9 alias to pfind.9 removed
+OLD_FILES+=usr/share/man/man9/zpfind.9
+
 # 20251121: Remove duplicate pam_krb5 manual page
 OLD_FILES+=usr/share/man/man8/pam-krb5.8.gz
 
