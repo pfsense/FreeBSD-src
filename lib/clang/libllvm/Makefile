@@ -1,8 +1,8 @@
-.include <bsd.init.mk>
+.include <src.opts.mk>
 .include "../llvm.pre.mk"
 
-.if defined(TOOLS_PREFIX)
-# Build static library during cross-tools stage
+.if defined(TOOLS_PREFIX) || ${MK_LLVM_LINK_STATIC_LIBRARIES} == "yes"
+# Build static library during cross-tools stage, or when explicitly requested.
 LIB=		llvm
 INTERNALLIB=
 .else
@@ -14,6 +14,7 @@ PRIVATELIB=
 # Work around "relocation R_PPC_GOT16 out of range" errors
 PICFLAG=        -fPIC
 .endif
+CFLAGS+=	-DLLVM_BUILD_LLVM_DYLIB
 .endif
 
 SHARED_CXXFLAGS+=	-UPIC # To avoid compile errors
@@ -2049,6 +2050,15 @@ SRCS_ALL+=	${SRCS_COV}
 .endif
 SRCS+=		${GENSRCS}
 SRCS+=		${SRCS_ALL:O}
+
+# Optimization: for all source files under Target/*/*, use -fvisibility=hidden,
+# which reduces the number of external symbols in the resulting shared library.
+# This is also what upstream does.
+.for src in ${SRCS}
+. if "${src:MTarget/*/*}"
+CFLAGS.${src:T}+=	-fvisibility=hidden
+. endif
+.endfor
 
 llvm/CodeGen/GenVT.inc: ${LLVM_SRCS}/include/llvm/CodeGen/ValueTypes.td
 	${LLVM_MIN_TBLGEN} -gen-vt \
