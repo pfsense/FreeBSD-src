@@ -131,7 +131,7 @@ fib6_lookup(uint32_t fibnum, const struct in6_addr *dst6,
 		 * interface that doesn't have IPv6 afdata. This is assumed
 		 * to be a race with interface cleanup, but as long as that's
 		 * not fixed this should at least prevent a panic here. */
-		if (if_getafdata(nh->nh_ifp, AF_INET6) == NULL)
+		if (if_getinet6(nh->nh_ifp) == NULL)
 			goto out;
 		/* Ensure route & ifp is UP */
 		if (RT_LINK_IS_UP(nh->nh_ifp)) {
