@@ -358,12 +358,28 @@ typedef void (*ifaddr_event_ext_handler_t)(void *, if_t, struct ifaddr *, int);
 EVENTHANDLER_DECLARE(ifaddr_event_ext, ifaddr_event_ext_handler_t);
 #define	IFADDR_EVENT_ADD	0
 #define	IFADDR_EVENT_DEL	1
-/* new interface arrival event */
-typedef void (*ifnet_arrival_event_handler_t)(void *, if_t);
-EVENTHANDLER_DECLARE(ifnet_arrival_event, ifnet_arrival_event_handler_t);
-/* interface departure event */
-typedef void (*ifnet_departure_event_handler_t)(void *, if_t);
-EVENTHANDLER_DECLARE(ifnet_departure_event, ifnet_departure_event_handler_t);
+
+/*
+ * Interface arrival & departure events.
+ * The ifnet_arrival_event is executed before the interface is yet globally
+ * visible.  Protocols shall use this event to attach themselves.  Protocols
+ * shall not expect other protocols to be fully attached.
+ * The ifnet_attached_event is executed after the interface is attached to all
+ * protocols, is globally visible and fully functional.
+ * The ifnet_departure_event is complementary to ifnet_arrival_event.  The
+ * interface is no longer globally visible, protocols may detach.
+ * XXXGL: immediate memory reclamation may not be safe in ifnet_departure_event.
+ * The ifnet_rename_event is executed after an interface is renamed.  The
+ * handlers would see the new name of the interface, and are also passed with
+ * old name in the argument.
+ */
+typedef void (*ifnet_event_handler_t)(void *, if_t);
+EVENTHANDLER_DECLARE(ifnet_arrival_event, ifnet_event_handler_t);
+EVENTHANDLER_DECLARE(ifnet_attached_event, ifnet_event_handler_t);
+EVENTHANDLER_DECLARE(ifnet_departure_event, ifnet_event_handler_t);
+typedef void (*ifnet_rename_event_handler_t)(void *, if_t, const char *);
+EVENTHANDLER_DECLARE(ifnet_rename_event, ifnet_rename_event_handler_t);
+
 /* Interface link state change event */
 typedef void (*ifnet_link_event_handler_t)(void *, if_t, int);
 EVENTHANDLER_DECLARE(ifnet_link_event, ifnet_link_event_handler_t);
@@ -663,7 +679,8 @@ void *if_getl2com(if_t ifp);
 struct ifvlantrunk *if_getvlantrunk(if_t ifp);
 bool if_altq_is_enabled(if_t ifp);
 
-void *if_getafdata(if_t ifp, int);
+struct in_ifinfo *if_getinet(if_t ifp);
+struct in6_ifextra *if_getinet6(if_t ifp);
 
 int if_snd_tag_alloc(if_t ifp, union if_snd_tag_alloc_params *params,
     struct m_snd_tag **mstp);

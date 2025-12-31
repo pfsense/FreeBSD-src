@@ -1,5 +1,5 @@
 .\"
-.Dd December 10, 2025
+.Dd December 29, 2025
 .Dt IPFW 8
 .Os
 .Sh NAME
@@ -103,6 +103,11 @@ in-kernel NAT.\&
 .Ar number
 .Cm config
 .Ar config-options
+.Nm
+.Op Fl q
+.Cm nat
+.Ar number
+.Cm delete
 .Nm
 .Cm nat
 .Ar number
@@ -839,8 +844,12 @@ When a packet matches a rule with the
 .Cm setmark
 keyword, a 32-bit numeric mark is assigned to the packet.
 The mark is an extension to the tags.
-As tags, mark is "sticky" so the value is kept the same within the kernel and
-is lost when the packet leaves the kernel.
+The mark is preserved for a packet within a single ipfw ruleset traversal
+and is lost when the packet is checked against the active ruleset
+next time (see
+.Sx PACKET FLOW
+section) or leaves ipfw context (e.g. accepted,
+diverted, bridged or routed).
 Unlike tags, mark can be matched as a lookup table key or compared with bitwise
 mask applied against another value.
 Each packet can have only one mark, so
@@ -3507,6 +3516,15 @@ For more information about aliasing modes, refer to
 See Section
 .Sx EXAMPLES
 for some examples of nat usage.
+.Pp
+To delete specific nat configuration instance, use the following command:
+.Bd -ragged -offset indent
+.Bk -words
+.Cm nat
+.Ar nat_number
+.Cm delete
+.Ek
+.Ed
 .Ss REDIRECT AND LSNAT SUPPORT IN IPFW
 Redirect and LSNAT support follow closely the syntax used in
 .Xr natd 8 .

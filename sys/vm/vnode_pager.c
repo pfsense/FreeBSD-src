@@ -388,7 +388,7 @@ vnode_pager_haspage(vm_object_t object, vm_pindex_t pindex, int *before,
 		return FALSE;
 
 	bsize = vp->v_mount->mnt_stat.f_iosize;
-	pagesperblock = bsize / PAGE_SIZE;
+	pagesperblock = atop(bsize);
 	blocksperpage = 0;
 	if (pagesperblock > 0) {
 		reqblock = pindex / pagesperblock;
@@ -645,8 +645,8 @@ vnode_pager_addr(struct vnode *vp, vm_ooffset_t address, daddr_t *rtaddress,
 			*rtaddress += voffset / DEV_BSIZE;
 		if (run) {
 			*run += 1;
-			*run *= bsize / PAGE_SIZE;
-			*run -= voffset / PAGE_SIZE;
+			*run *= atop(bsize);
+			*run -= atop(voffset);
 		}
 	}
 
@@ -909,7 +909,7 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 	object = vp->v_object;
 	foff = IDX_TO_OFF(m[0]->pindex);
 	bsize = vp->v_mount->mnt_stat.f_iosize;
-	pagesperblock = bsize / PAGE_SIZE;
+	pagesperblock = atop(bsize);
 
 	KASSERT(foff < object->un_pager.vnp.vnp_size,
 	    ("%s: page %p offset beyond vp %p size", __func__, m[0], vp));
@@ -991,7 +991,7 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 	bp->b_blkno += (foff % bsize) / DEV_BSIZE;
 
 	/* Recalculate blocks available after/before to pages. */
-	poff = (foff % bsize) / PAGE_SIZE;
+	poff = atop(foff % bsize);
 	before *= pagesperblock;
 	before += poff;
 	after *= pagesperblock;
@@ -1172,14 +1172,14 @@ vnode_pager_generic_getpages_done(struct buf *bp)
 
 	runningbufwakeup(bp);
 
-	if (error == 0 && bp->b_bcount != bp->b_npages * PAGE_SIZE) {
+	if (error == 0 && bp->b_bcount != ptoa(bp->b_npages)) {
 		if (!buf_mapped(bp)) {
 			bp->b_data = bp->b_kvabase;
 			pmap_qenter((vm_offset_t)bp->b_data, bp->b_pages,
 			    bp->b_npages);
 		}
 		bzero(bp->b_data + bp->b_bcount,
-		    PAGE_SIZE * bp->b_npages - bp->b_bcount);
+		    ptoa(bp->b_npages) - bp->b_bcount);
 	}
 	if (buf_mapped(bp)) {
 		pmap_qremove((vm_offset_t)bp->b_data, bp->b_npages);
@@ -1258,7 +1258,7 @@ vnode_pager_putpages(vm_object_t object, vm_page_t *m, int count,
 {
 	int rtval __diagused;
 	struct vnode *vp;
-	int bytes = count * PAGE_SIZE;
+	int bytes = ptoa(count);
 
 	/*
 	 * Force synchronous operation if we are extremely low on memory
@@ -1329,7 +1329,7 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 	static int curfail;
 
 	object = vp->v_object;
-	count = bytecount / PAGE_SIZE;
+	count = atop(bytecount);
 
 	for (i = 0; i < count; i++)
 		rtvals[i] = VM_PAGER_ERROR;
@@ -1342,7 +1342,7 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 		return (VM_PAGER_BAD);
 	}
 
-	maxsize = count * PAGE_SIZE;
+	maxsize = ptoa(count);
 	ncount = count;
 
 	poffset = IDX_TO_OFF(ma[0]->pindex);
@@ -1523,49 +1523,47 @@ void
 vnode_pager_undirty_pages(vm_page_t *ma, int *rtvals, int written, off_t eof,
     int lpos)
 {
-	int i, pos, pos_devb;
+	int i, npages, pos;
 
-	if (written == 0 && eof >= lpos)
-		return;
-	for (i = 0, pos = 0; pos < written; i++, pos += PAGE_SIZE) {
-		if (pos < trunc_page(written)) {
-			rtvals[i] = VM_PAGER_OK;
-			vm_page_undirty(ma[i]);
-		} else {
-			/* Partially written page. */
-			rtvals[i] = VM_PAGER_AGAIN;
-			vm_page_clear_dirty(ma[i], 0, written & PAGE_MASK);
-		}
+	/* Process pages up to round_page(written) */
+	pos = written & PAGE_MASK;
+	npages = atop(written);
+	for (i = 0; i < npages; i++) {
+		rtvals[i] = VM_PAGER_OK;
+		vm_page_undirty(ma[i]);
 	}
-	if (eof >= lpos) /* avoid truncation */
-		return;
-	for (pos = eof, i = OFF_TO_IDX(trunc_page(pos)); pos < lpos; i++) {
-		if (pos != trunc_page(pos)) {
-			/*
-			 * The page contains the last valid byte in
-			 * the vnode, mark the rest of the page as
-			 * clean, potentially making the whole page
-			 * clean.
-			 */
-			pos_devb = roundup2(pos & PAGE_MASK, DEV_BSIZE);
-			vm_page_clear_dirty(ma[i], pos_devb, PAGE_SIZE -
-			    pos_devb);
+	if (pos != 0) {
+		/* Partially written page. */
+		rtvals[i] = VM_PAGER_AGAIN;
+		vm_page_clear_dirty(ma[i], 0, pos);
+	}
 
-			/*
-			 * If the page was cleaned, report the pageout
-			 * on it as successful.  msync() no longer
-			 * needs to write out the page, endlessly
-			 * creating write requests and dirty buffers.
-			 */
-			if (ma[i]->dirty == 0)
-				rtvals[i] = VM_PAGER_OK;
+	/* Process pages from trunc_page(eof) to round_page(lpos) */
+	pos = eof & PAGE_MASK;
+	i = atop(eof);
+	npages = atop(lpos);
+	if (i < npages && pos != 0) {
+		/*
+		 * The page contains the last valid byte in the
+		 * vnode, mark the rest of the page as clean,
+		 * potentially making the whole page clean.
+		 */
+		pos = roundup2(pos, DEV_BSIZE);
+		vm_page_clear_dirty(ma[i], pos, PAGE_SIZE - pos);
 
-			pos = round_page(pos);
-		} else {
-			/* vm_pageout_flush() clears dirty */
-			rtvals[i] = VM_PAGER_BAD;
-			pos += PAGE_SIZE;
-		}
+		/*
+		 * If the page was cleaned, report the pageout on it
+		 * as successful.  msync() no longer needs to write
+		 * out the page, endlessly creating write requests
+		 * and dirty buffers.
+		 */
+		if (ma[i]->dirty == 0)
+			rtvals[i] = VM_PAGER_OK;
+		i++;
+	}
+	for (; i < npages; i++) {
+		/* vm_pageout_flush() clears dirty */
+		rtvals[i] = VM_PAGER_BAD;
 	}
 }
 

@@ -9420,7 +9420,8 @@ pf_route(struct pf_krule *r, struct ifnet *oifp,
 			   ifp->if_mtu, pd->af, r, pd->act.rtableid);
 		}
 		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
-		action = PF_DROP;
+		/* Return pass, so we return PFIL_CONSUMED to the stack. */
+		action = PF_PASS;
 		goto bad;
 	}
 
@@ -9789,7 +9790,8 @@ pf_route6(struct pf_krule *r, struct ifnet *oifp,
 				pf_send_icmp(m0, ICMP6_PACKET_TOO_BIG, 0,
 				    ifp->if_mtu, pd->af, r, pd->act.rtableid);
 		}
-		action = PF_DROP;
+		/* Return pass, so we return PFIL_CONSUMED to the stack. */
+		action = PF_PASS;
 		SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 		goto bad;
 	}
@@ -11274,10 +11276,12 @@ pf_test(sa_family_t af, int dir, int pflags, struct ifnet *ifp, struct mbuf **m0
 		}
 		action = pf_test_state_icmp(&s, &pd, &reason);
 		if (action == PF_PASS || action == PF_AFRT) {
-			if (V_pfsync_update_state_ptr != NULL)
-				V_pfsync_update_state_ptr(s);
-			r = s->rule;
-			a = s->anchor;
+			if (s != NULL) {
+				if (V_pfsync_update_state_ptr != NULL)
+					V_pfsync_update_state_ptr(s);
+				r = s->rule;
+				a = s->anchor;
+			}
 		} else if (s == NULL)
 			action = pf_test_rule(&r, &s, &pd,
 			    &a, &ruleset, &reason, inp, &match_rules);
