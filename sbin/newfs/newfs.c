@@ -76,7 +76,7 @@ int	Lflag;			/* add a volume label */
 int	Nflag;			/* run without writing file system */
 int	Oflag = 2;		/* file system format (1 => UFS1, 2 => UFS2) */
 int	Rflag;			/* regression test */
-int	Uflag;			/* enable soft updates for file system */
+int	Uflag = -1;		/* enable soft updates for file system */
 int	jflag;			/* enable soft updates journaling for filesys */
 int	Xflag = 0;		/* exit in middle of newfs for testing */
 int	Jflag;			/* enable gjournal for file system */
@@ -129,7 +129,7 @@ main(int argc, char *argv[])
 	part_name = 'c';
 	reserved = 0;
 	while ((ch = getopt(argc, argv,
-	    "EJL:NO:RS:T:UXa:b:c:d:e:f:g:h:i:jk:lm:no:p:r:s:t")) != -1)
+	    "EJL:NO:RS:T:UXa:b:c:d:e:f:g:h:i:jk:lm:no:p:r:s:tu")) != -1)
 		switch (ch) {
 		case 'E':
 			Eflag = 1;
@@ -178,6 +178,9 @@ main(int argc, char *argv[])
 			/* FALLTHROUGH */
 		case 'U':
 			Uflag = 1;
+			break;
+		case 'u':
+			Uflag = 0;
 			break;
 		case 'X':
 			Xflag++;
@@ -386,8 +389,8 @@ main(int argc, char *argv[])
 		opt = FS_OPTSPACE;
 	}
 	/* Use soft updates by default for UFS2 and above */
-	if (Oflag > 1)
-		Uflag = 1;
+	if (Uflag < 0)
+		Uflag = Oflag > 1;
 	realsectorsize = sectorsize;
 	if (sectorsize != DEV_BSIZE) {		/* XXX */
 		int secperblk = sectorsize / DEV_BSIZE;

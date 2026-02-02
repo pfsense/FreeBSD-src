@@ -33,6 +33,7 @@
 #include <dev/vmm/vmm_dev.h>
 #include <dev/vmm/vmm_mem.h>
 #include <dev/vmm/vmm_stat.h>
+#include <dev/vmm/vmm_vm.h>
 
 #ifdef __amd64__
 #ifdef COMPAT_FREEBSD12
@@ -139,38 +140,6 @@ vcpu_unlock_one(struct vcpu *vcpu)
 
 	vcpu_set_state(vcpu, VCPU_IDLE, false);
 }
-
-#ifndef __amd64__
-static int
-vcpu_set_state_all(struct vm *vm, enum vcpu_state newstate)
-{
-	struct vcpu *vcpu;
-	int error;
-	uint16_t i, j, maxcpus;
-
-	error = 0;
-	maxcpus = vm_get_maxcpus(vm);
-	for (i = 0; i < maxcpus; i++) {
-		vcpu = vm_vcpu(vm, i);
-		if (vcpu == NULL)
-			continue;
-		error = vcpu_lock_one(vcpu);
-		if (error)
-			break;
-	}
-
-	if (error) {
-		for (j = 0; j < i; j++) {
-			vcpu = vm_vcpu(vm, j);
-			if (vcpu == NULL)
-				continue;
-			vcpu_unlock_one(vcpu);
-		}
-	}
-
-	return (error);
-}
-#endif
 
 static int
 vcpu_lock_all(struct vmmdev_softc *sc)
@@ -1259,9 +1228,11 @@ vmm_handler(module_t mod, int what, void *arg)
 		if (error == 0)
 			vmm_initialized = true;
 		else {
-			error = vmmdev_cleanup();
-			KASSERT(error == 0,
-			    ("%s: vmmdev_cleanup failed: %d", __func__, error));
+			int error1 __diagused;
+
+			error1 = vmmdev_cleanup();
+			KASSERT(error1 == 0,
+			    ("%s: vmmdev_cleanup failed: %d", __func__, error1));
 		}
 		break;
 	case MOD_UNLOAD:

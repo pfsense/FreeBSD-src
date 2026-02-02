@@ -40,7 +40,6 @@
 #include <sys/rwlock.h>
 #include <sys/sched.h>
 #include <sys/smp.h>
-#include <sys/sysctl.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
@@ -61,10 +60,12 @@
 #include <machine/vmm_instruction_emul.h>
 
 #include <dev/pci/pcireg.h>
+
 #include <dev/vmm/vmm_dev.h>
 #include <dev/vmm/vmm_ktr.h>
 #include <dev/vmm/vmm_mem.h>
 #include <dev/vmm/vmm_stat.h>
+#include <dev/vmm/vmm_vm.h>
 
 #include "arm64.h"
 #include "mmu.h"
@@ -72,84 +73,10 @@
 #include "io/vgic.h"
 #include "io/vtimer.h"
 
-struct vcpu {
-	int		flags;
-	enum vcpu_state	state;
-	struct mtx	mtx;
-	int		hostcpu;	/* host cpuid this vcpu last ran on */
-	int		vcpuid;
-	void		*stats;
-	struct vm_exit	exitinfo;
-	uint64_t	nextpc;		/* (x) next instruction to execute */
-	struct vm	*vm;		/* (o) */
-	void		*cookie;	/* (i) cpu-specific data */
-	struct vfpstate	*guestfpu;	/* (a,i) guest fpu state */
-};
-
-#define	vcpu_lock_init(v)	mtx_init(&((v)->mtx), "vcpu lock", 0, MTX_SPIN)
-#define	vcpu_lock_destroy(v)	mtx_destroy(&((v)->mtx))
-#define	vcpu_lock(v)		mtx_lock_spin(&((v)->mtx))
-#define	vcpu_unlock(v)		mtx_unlock_spin(&((v)->mtx))
-#define	vcpu_assert_locked(v)	mtx_assert(&((v)->mtx), MA_OWNED)
-
-struct vmm_mmio_region {
-	uint64_t start;
-	uint64_t end;
-	mem_region_read_t read;
-	mem_region_write_t write;
-};
-#define	VM_MAX_MMIO_REGIONS	4
-
-struct vmm_special_reg {
-	uint32_t	esr_iss;
-	uint32_t	esr_mask;
-	reg_read_t	reg_read;
-	reg_write_t	reg_write;
-	void		*arg;
-};
-#define	VM_MAX_SPECIAL_REGS	16
-
-/*
- * Initialization:
- * (o) initialized the first time the VM is created
- * (i) initialized when VM is created and when it is reinitialized
- * (x) initialized before use
- */
-struct vm {
-	void		*cookie;		/* (i) cpu-specific data */
-	volatile cpuset_t active_cpus;		/* (i) active vcpus */
-	volatile cpuset_t debug_cpus;		/* (i) vcpus stopped for debug */
-	int		suspend;		/* (i) stop VM execution */
-	bool		dying;			/* (o) is dying */
-	volatile cpuset_t suspended_cpus; 	/* (i) suspended vcpus */
-	volatile cpuset_t halted_cpus;		/* (x) cpus in a hard halt */
-	struct vm_mem	mem;			/* (i) guest memory */
-	char		name[VM_MAX_NAMELEN + 1];	/* (o) virtual machine name */
-	struct vcpu	**vcpu;			/* (i) guest vcpus */
-	struct vmm_mmio_region mmio_region[VM_MAX_MMIO_REGIONS];
-						/* (o) guest MMIO regions */
-	struct vmm_special_reg special_reg[VM_MAX_SPECIAL_REGS];
-	/* The following describe the vm cpu topology */
-	uint16_t	sockets;		/* (o) num of sockets */
-	uint16_t	cores;			/* (o) num of cores/socket */
-	uint16_t	threads;		/* (o) num of threads/core */
-	uint16_t	maxcpus;		/* (o) max pluggable cpus */
-	struct sx	vcpus_init_lock;	/* (o) */
-};
-
-static int vm_handle_wfi(struct vcpu *vcpu,
-			 struct vm_exit *vme, bool *retu);
-
 static MALLOC_DEFINE(M_VMM, "vmm", "vmm");
 
 /* statistics */
 static VMM_STAT(VCPU_TOTAL_RUNTIME, "vcpu total runtime");
-
-SYSCTL_NODE(_hw, OID_AUTO, vmm, CTLFLAG_RW, NULL, NULL);
-
-static int vmm_ipinum;
-SYSCTL_INT(_hw_vmm, OID_AUTO, ipinum, CTLFLAG_RD, &vmm_ipinum, 0,
-    "IPI vector used for vcpu notifications");
 
 struct vmm_regs {
 	uint64_t	id_aa64afr0;
@@ -204,8 +131,6 @@ static const struct vmm_regs vmm_arch_regs_masks = {
 
 /* Host registers masked by vmm_arch_regs_masks. */
 static struct vmm_regs vmm_arch_regs;
-
-static void vcpu_notify_event_locked(struct vcpu *vcpu);
 
 /* global statistics */
 VMM_STAT(VMEXIT_COUNT, "total number of vm exits");
@@ -357,14 +282,6 @@ vm_init(struct vm *vm, bool create)
 	}
 }
 
-void
-vm_disable_vcpu_creation(struct vm *vm)
-{
-	sx_xlock(&vm->vcpus_init_lock);
-	vm->dying = true;
-	sx_xunlock(&vm->vcpus_init_lock);
-}
-
 struct vcpu *
 vm_alloc_vcpu(struct vm *vm, int vcpuid)
 {
@@ -401,18 +318,6 @@ vm_alloc_vcpu(struct vm *vm, int vcpuid)
 	return (vcpu);
 }
 
-void
-vm_lock_vcpus(struct vm *vm)
-{
-	sx_xlock(&vm->vcpus_init_lock);
-}
-
-void
-vm_unlock_vcpus(struct vm *vm)
-{
-	sx_unlock(&vm->vcpus_init_lock);
-}
-
 int
 vm_create(const char *name, struct vm **retvm)
 {
@@ -426,6 +331,7 @@ vm_create(const char *name, struct vm **retvm)
 		return (error);
 	}
 	strcpy(vm->name, name);
+	mtx_init(&vm->rendezvous_mtx, "vm rendezvous lock", 0, MTX_DEF);
 	sx_init(&vm->vcpus_init_lock, "vm vcpus");
 
 	vm->sockets = 1;
@@ -440,35 +346,6 @@ vm_create(const char *name, struct vm **retvm)
 
 	*retvm = vm;
 	return (0);
-}
-
-void
-vm_get_topology(struct vm *vm, uint16_t *sockets, uint16_t *cores,
-    uint16_t *threads, uint16_t *maxcpus)
-{
-	*sockets = vm->sockets;
-	*cores = vm->cores;
-	*threads = vm->threads;
-	*maxcpus = vm->maxcpus;
-}
-
-uint16_t
-vm_get_maxcpus(struct vm *vm)
-{
-	return (vm->maxcpus);
-}
-
-int
-vm_set_topology(struct vm *vm, uint16_t sockets, uint16_t cores,
-    uint16_t threads, uint16_t maxcpus)
-{
-	/* Ignore maxcpus. */
-	if ((sockets * cores * threads) > vm->maxcpus)
-		return (EINVAL);
-	vm->sockets = sockets;
-	vm->cores = cores;
-	vm->threads = threads;
-	return(0);
 }
 
 static void
@@ -515,29 +392,11 @@ vm_destroy(struct vm *vm)
 	free(vm, M_VMM);
 }
 
-int
-vm_reinit(struct vm *vm)
+void
+vm_reset(struct vm *vm)
 {
-	int error;
-
-	/*
-	 * A virtual machine can be reset only if all vcpus are suspended.
-	 */
-	if (CPU_CMP(&vm->suspended_cpus, &vm->active_cpus) == 0) {
-		vm_cleanup(vm, false);
-		vm_init(vm, false);
-		error = 0;
-	} else {
-		error = EBUSY;
-	}
-
-	return (error);
-}
-
-const char *
-vm_name(struct vm *vm)
-{
-	return (vm->name);
+	vm_cleanup(vm, false);
+	vm_init(vm, false);
 }
 
 int
@@ -828,33 +687,6 @@ out_user:
 	return (0);
 }
 
-int
-vm_suspend(struct vm *vm, enum vm_suspend_how how)
-{
-	int i;
-
-	if (how <= VM_SUSPEND_NONE || how >= VM_SUSPEND_LAST)
-		return (EINVAL);
-
-	if (atomic_cmpset_int(&vm->suspend, 0, how) == 0) {
-		VM_CTR2(vm, "virtual machine already suspended %d/%d",
-		    vm->suspend, how);
-		return (EALREADY);
-	}
-
-	VM_CTR1(vm, "virtual machine successfully suspended %d", how);
-
-	/*
-	 * Notify all active vcpus that they are now suspended.
-	 */
-	for (i = 0; i < vm->maxcpus; i++) {
-		if (CPU_ISSET(i, &vm->active_cpus))
-			vcpu_notify_event(vm_vcpu(vm, i));
-	}
-
-	return (0);
-}
-
 void
 vm_exit_suspended(struct vcpu *vcpu, uint64_t pc)
 {
@@ -880,136 +712,6 @@ vm_exit_debug(struct vcpu *vcpu, uint64_t pc)
 	vmexit->pc = pc;
 	vmexit->inst_length = 4;
 	vmexit->exitcode = VM_EXITCODE_DEBUG;
-}
-
-int
-vm_activate_cpu(struct vcpu *vcpu)
-{
-	struct vm *vm = vcpu->vm;
-
-	if (CPU_ISSET(vcpu->vcpuid, &vm->active_cpus))
-		return (EBUSY);
-
-	CPU_SET_ATOMIC(vcpu->vcpuid, &vm->active_cpus);
-	return (0);
-
-}
-
-int
-vm_suspend_cpu(struct vm *vm, struct vcpu *vcpu)
-{
-	if (vcpu == NULL) {
-		vm->debug_cpus = vm->active_cpus;
-		for (int i = 0; i < vm->maxcpus; i++) {
-			if (CPU_ISSET(i, &vm->active_cpus))
-				vcpu_notify_event(vm_vcpu(vm, i));
-		}
-	} else {
-		if (!CPU_ISSET(vcpu->vcpuid, &vm->active_cpus))
-			return (EINVAL);
-
-		CPU_SET_ATOMIC(vcpu->vcpuid, &vm->debug_cpus);
-		vcpu_notify_event(vcpu);
-	}
-	return (0);
-}
-
-int
-vm_resume_cpu(struct vm *vm, struct vcpu *vcpu)
-{
-
-	if (vcpu == NULL) {
-		CPU_ZERO(&vm->debug_cpus);
-	} else {
-		if (!CPU_ISSET(vcpu->vcpuid, &vm->debug_cpus))
-			return (EINVAL);
-
-		CPU_CLR_ATOMIC(vcpu->vcpuid, &vm->debug_cpus);
-	}
-	return (0);
-}
-
-int
-vcpu_debugged(struct vcpu *vcpu)
-{
-
-	return (CPU_ISSET(vcpu->vcpuid, &vcpu->vm->debug_cpus));
-}
-
-cpuset_t
-vm_active_cpus(struct vm *vm)
-{
-
-	return (vm->active_cpus);
-}
-
-cpuset_t
-vm_debug_cpus(struct vm *vm)
-{
-
-	return (vm->debug_cpus);
-}
-
-cpuset_t
-vm_suspended_cpus(struct vm *vm)
-{
-
-	return (vm->suspended_cpus);
-}
-
-
-void *
-vcpu_stats(struct vcpu *vcpu)
-{
-
-	return (vcpu->stats);
-}
-
-/*
- * This function is called to ensure that a vcpu "sees" a pending event
- * as soon as possible:
- * - If the vcpu thread is sleeping then it is woken up.
- * - If the vcpu is running on a different host_cpu then an IPI will be directed
- *   to the host_cpu to cause the vcpu to trap into the hypervisor.
- */
-static void
-vcpu_notify_event_locked(struct vcpu *vcpu)
-{
-	int hostcpu;
-
-	hostcpu = vcpu->hostcpu;
-	if (vcpu->state == VCPU_RUNNING) {
-		KASSERT(hostcpu != NOCPU, ("vcpu running on invalid hostcpu"));
-		if (hostcpu != curcpu) {
-			ipi_cpu(hostcpu, vmm_ipinum);
-		} else {
-			/*
-			 * If the 'vcpu' is running on 'curcpu' then it must
-			 * be sending a notification to itself (e.g. SELF_IPI).
-			 * The pending event will be picked up when the vcpu
-			 * transitions back to guest context.
-			 */
-		}
-	} else {
-		KASSERT(hostcpu == NOCPU, ("vcpu state %d not consistent "
-		    "with hostcpu %d", vcpu->state, hostcpu));
-		if (vcpu->state == VCPU_SLEEPING)
-			wakeup_one(vcpu);
-	}
-}
-
-void
-vcpu_notify_event(struct vcpu *vcpu)
-{
-	vcpu_lock(vcpu);
-	vcpu_notify_event_locked(vcpu);
-	vcpu_unlock(vcpu);
-}
-
-struct vm_mem *
-vm_mem(struct vm *vm)
-{
-	return (&vm->mem);
 }
 
 static void
@@ -1046,71 +748,6 @@ save_guest_fpustate(struct vcpu *vcpu)
 
 	KASSERT(PCPU_GET(fpcurthread) == NULL,
 	    ("%s: fpcurthread set with guest registers", __func__));
-}
-static int
-vcpu_set_state_locked(struct vcpu *vcpu, enum vcpu_state newstate,
-    bool from_idle)
-{
-	int error;
-
-	vcpu_assert_locked(vcpu);
-
-	/*
-	 * State transitions from the vmmdev_ioctl() must always begin from
-	 * the VCPU_IDLE state. This guarantees that there is only a single
-	 * ioctl() operating on a vcpu at any point.
-	 */
-	if (from_idle) {
-		while (vcpu->state != VCPU_IDLE) {
-			vcpu_notify_event_locked(vcpu);
-			msleep_spin(&vcpu->state, &vcpu->mtx, "vmstat", hz);
-		}
-	} else {
-		KASSERT(vcpu->state != VCPU_IDLE, ("invalid transition from "
-		    "vcpu idle state"));
-	}
-
-	if (vcpu->state == VCPU_RUNNING) {
-		KASSERT(vcpu->hostcpu == curcpu, ("curcpu %d and hostcpu %d "
-		    "mismatch for running vcpu", curcpu, vcpu->hostcpu));
-	} else {
-		KASSERT(vcpu->hostcpu == NOCPU, ("Invalid hostcpu %d for a "
-		    "vcpu that is not running", vcpu->hostcpu));
-	}
-
-	/*
-	 * The following state transitions are allowed:
-	 * IDLE -> FROZEN -> IDLE
-	 * FROZEN -> RUNNING -> FROZEN
-	 * FROZEN -> SLEEPING -> FROZEN
-	 */
-	switch (vcpu->state) {
-	case VCPU_IDLE:
-	case VCPU_RUNNING:
-	case VCPU_SLEEPING:
-		error = (newstate != VCPU_FROZEN);
-		break;
-	case VCPU_FROZEN:
-		error = (newstate == VCPU_FROZEN);
-		break;
-	default:
-		error = 1;
-		break;
-	}
-
-	if (error)
-		return (EBUSY);
-
-	vcpu->state = newstate;
-	if (newstate == VCPU_RUNNING)
-		vcpu->hostcpu = curcpu;
-	else
-		vcpu->hostcpu = NOCPU;
-
-	if (newstate == VCPU_IDLE)
-		wakeup(&vcpu->state);
-
-	return (0);
 }
 
 static void
@@ -1149,54 +786,10 @@ vm_set_capability(struct vcpu *vcpu, int type, int val)
 	return (vmmops_setcap(vcpu->cookie, type, val));
 }
 
-struct vm *
-vcpu_vm(struct vcpu *vcpu)
-{
-	return (vcpu->vm);
-}
-
-int
-vcpu_vcpuid(struct vcpu *vcpu)
-{
-	return (vcpu->vcpuid);
-}
-
 void *
 vcpu_get_cookie(struct vcpu *vcpu)
 {
 	return (vcpu->cookie);
-}
-
-struct vcpu *
-vm_vcpu(struct vm *vm, int vcpuid)
-{
-	return (vm->vcpu[vcpuid]);
-}
-
-int
-vcpu_set_state(struct vcpu *vcpu, enum vcpu_state newstate, bool from_idle)
-{
-	int error;
-
-	vcpu_lock(vcpu);
-	error = vcpu_set_state_locked(vcpu, newstate, from_idle);
-	vcpu_unlock(vcpu);
-
-	return (error);
-}
-
-enum vcpu_state
-vcpu_get_state(struct vcpu *vcpu, int *hostcpu)
-{
-	enum vcpu_state state;
-
-	vcpu_lock(vcpu);
-	state = vcpu->state;
-	if (hostcpu != NULL)
-		*hostcpu = vcpu->hostcpu;
-	vcpu_unlock(vcpu);
-
-	return (state);
 }
 
 int

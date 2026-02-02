@@ -59,106 +59,12 @@ Usage: git arc [-vy] <command> <arguments>
 Commands:
   create [-l] [-r <reviewer1>[,<reviewer2>...]] [-s subscriber[,...]] [<commit>|<commit range>]
   list <commit>|<commit range>
-  patch [-bc] <diff1> [<diff2> ...]
+  patch [-bcrs] <diff1> [<diff2> ...]
   stage [-b branch] [<commit>|<commit range>]
   update [-l] [-m message] [<commit>|<commit range>]
 
-Description:
-  Create or manage FreeBSD Phabricator reviews based on git commits.  There
-  is a one-to one relationship between git commits and Differential revisions,
-  and the Differential revision title must match the summary line of the
-  corresponding commit.  In particular, commit summaries must be unique across
-  all open Differential revisions authored by you.
-
-  The first parameter must be a verb.  The available verbs are:
-
-    create -- Create new Differential revisions from the specified commits.
-    list   -- Print the associated Differential revisions for the specified
-              commits.
-    patch  -- Apply patches from Differential revisions.  By default, patches
-              are applied to the currently checked-out tree, unless -b is
-              supplied, in which case a new branch is first created.  The -c
-              option commits the applied patch using the review's metadata.
-    stage  -- Prepare a series of commits to be pushed to the upstream FreeBSD
-              repository.  The commits are cherry-picked to a branch (main by
-              default), review tags are added to the commit log message, and
-              the log message is opened in an editor for any last-minute
-              updates.  The commits need not have associated Differential
-              revisions.
-    update -- Synchronize the Differential revisions associated with the
-              specified commits.  Currently only the diff is updated; the
-              review description and other metadata is not synchronized.
-
-  The typical end-to-end usage looks something like this:
-
-    $ git commit -m "kern: Rewrite in Rust"
-    $ git arc create HEAD
-    <Make changes to the diff based on reviewer feedback.>
-    $ git commit --amend
-    $ git arc update HEAD
-    <Now that all reviewers are happy, it's time to push.>
-    $ git arc stage HEAD
-    $ git push freebsd HEAD:main
-
-Config Variables:
-  These are manipulated by git-config(1).
-
-    arc.assume_yes [bool]
-                       -- Assume a "yes" answer to all prompts instead of
-                          prompting the user.  Equivalent to the -y flag.
-
-    arc.browse [bool]  -- Try to open newly created reviews in a browser tab.
-                          Defaults to false.
-
-    arc.list [bool]    -- Always use "list mode" (-l) with create and update.
-                          In this mode, the list of git revisions to use
-                          is listed with a single prompt before creating or
-                          updating reviews.  The diffs for individual commits
-                          are not shown.
-
-    arc.verbose [bool] -- Verbose output.  Equivalent to the -v flag.
-
-Examples:
-  Create a Phabricator review using the contents of the most recent commit in
-  your git checkout.  The commit title is used as the review title, the commit
-  log message is used as the review description, markj@FreeBSD.org is added as
-  a reviewer. Also, the "Jails" reviewer group is added using its hashtag.
-
-  $ git arc create -r markj,#jails HEAD
-
-  Create a series of Phabricator reviews for each of HEAD~2, HEAD~ and HEAD.
-  Pairs of consecutive commits are linked into a patch stack.  Note that the
-  first commit in the specified range is excluded.
-
-  $ git arc create HEAD~3..HEAD
-
-  Update the review corresponding to commit b409afcfedcdda.  The title of the
-  commit must be the same as it was when the review was created.  The review
-  description is not automatically updated.
-
-  $ git arc update b409afcfedcdda
-
-  Apply the patch in review D12345 to the currently checked-out tree, and stage
-  it.
-
-  $ git arc patch D12345
-
-  Apply the patch in review D12345 to the currently checked-out tree, and
-  commit it using the review's title, summary and author.
-
-  $ git arc patch -c D12345
-
-  Apply the patches in reviews D12345 and D12346 in a new branch, and commit
-  them using the review titles, summaries and authors.
-
-  $ git arc patch -bc D12345 D12346
-
-  List the status of reviews for all the commits in the branch "feature":
-
-  $ git arc list main..feature
-
+See git-arc(1) for details.
 __EOF__
-
     exit 1
 }
 
@@ -226,6 +132,20 @@ diff2phid()
         jq -r "select(.response != []) | .response.${diff}.phid"
 }
 
+phid2diff()
+{
+    local diff phid
+
+    phid=$1
+    if ! expr "$phid" : 'PHID-DREV-[0-9A-Za-z]*$' >/dev/null; then
+        err "invalid diff PHID $phid"
+    fi
+    diff=$(echo '{"constraints": {"phids": ["'"$phid"'"]}}' |
+        arc_call_conduit -- differential.revision.search |
+        jq -r '.response.data[0].id')
+    echo "D${diff}"
+}
+
 diff2status()
 {
     local diff tmp status summary
@@ -242,6 +162,19 @@ diff2status()
     summary=$(jq -r "select(.response != []) |
         .response.${diff}.fullName" < "$tmp")
     printf "%-14s %s\n" "${status}" "${summary}"
+}
+
+diff2parents()
+{
+    local dep dependencies diff parents phid
+
+    diff=$1
+    phid=$(diff2phid "$diff")
+    for dep in $(echo '{"phids": ["'"$phid"'"]}' |
+        arc_call_conduit -- differential.query |
+        jq -r '.response[0].auxiliary."phabricator:depends-on"[]'); do
+        echo $(phid2diff $dep)
+    done
 }
 
 log2diff()
@@ -651,13 +584,46 @@ patch_commit()
     git commit --author "${author}" --file "$tmp"
 }
 
+apply_rev()
+{
+    local commit parent parents raw rev stack
+
+    rev=$1
+    commit=$2
+    raw=$3
+    stack=$4
+
+    if $stack; then
+        parents=$(diff2parents "$rev")
+        for parent in $parents; do
+            echo "Applying parent ${parent}..."
+            if ! apply_rev $parent $commit $raw $stack; then
+                return 1
+            fi
+        done
+    fi
+
+    if $raw; then
+        fetch -o /dev/stdout "https://reviews.freebsd.org/${rev}.diff" | git apply --index
+    else
+        arc patch --skip-dependencies --nobranch --nocommit --force $rev
+    fi
+
+    if ${commit}; then
+        patch_commit $rev
+    fi
+    return 0
+}
+
 gitarc__patch()
 {
-    local branch commit rev
+    local branch commit o raw rev stack
 
     branch=false
     commit=false
-    while getopts bc o; do
+    raw=false
+    stack=false
+    while getopts bcrs o; do
         case "$o" in
         b)
             require_clean_work_tree "patch -b"
@@ -666,6 +632,12 @@ gitarc__patch()
         c)
             require_clean_work_tree "patch -c"
             commit=true
+            ;;
+        r)
+            raw=true
+            ;;
+        s)
+            stack=true
             ;;
         *)
             err_usage
@@ -682,13 +654,8 @@ gitarc__patch()
         patch_branch "$@"
     fi
     for rev in "$@"; do
-        if ! arc patch --skip-dependencies --nobranch --nocommit --force "$rev"; then
-            break
-        fi
         echo "Applying ${rev}..."
-        if ${commit}; then
-            patch_commit $rev
-        fi
+        apply_rev $rev $commit $raw $stack
     done
 }
 

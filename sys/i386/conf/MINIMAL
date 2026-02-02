@@ -114,7 +114,6 @@ options 	SC_PIXEL_MODE		# add support for the raster text mode
 # vt is the default video console driver
 device		vt
 device		vt_vga
-device		vt_efifb
 device		vt_vbefb
 
 device		agp			# support several AGP chipsets
@@ -139,6 +138,7 @@ device		virtio_pci		# VirtIO PCI device
 device		vtnet			# VirtIO Ethernet device
 device		virtio_blk		# VirtIO Block device
 device		virtio_balloon		# VirtIO Memory Balloon device
+device		virtio_scsi		# VirtIO SCSI device
 
 # Linux KVM paravirtualization support
 device		kvm_clock		# KVM paravirtual clock driver

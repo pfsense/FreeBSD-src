@@ -28,6 +28,9 @@
 #ifndef _IPFW2_PRIVATE_H
 #define _IPFW2_PRIVATE_H
 
+#include <sys/queue.h>
+#include <sys/tree.h>
+
 /*
  * Internal constants and data structures used by ipfw components
  * and not meant to be exported outside the kernel.
@@ -161,9 +164,10 @@ struct ip_fw_chain;
 
 void ipfw_bpf_init(int);
 void ipfw_bpf_uninit(int);
-void ipfw_tap_alloc(uint32_t);
-void ipfw_tap_free(uint32_t);
-void ipfw_bpf_tap(struct ip_fw_args *, struct ip *, uint32_t);
+void ipfw_tap_alloc(struct ip_fw_chain *, uint32_t);
+void ipfw_tap_free(struct ip_fw_chain *, uint32_t);
+void ipfw_bpf_tap(struct ip_fw_chain *, struct ip_fw_args *, struct ip *,
+    uint32_t);
 void ipfw_pflog_tap(void *, struct mbuf *);
 void ipfw_log(struct ip_fw_chain *chain, struct ip_fw *f, u_int hlen,
     struct ip_fw_args *args, u_short offset, uint32_t tablearg, struct ip *ip,
@@ -320,10 +324,11 @@ struct ip_fw_chain {
 	void		*ifcfg;		/* interface module data */
 	int		*idxmap_back;	/* standby skipto array of rules */
 	struct namedobj_instance	*srvmap; /* cfg name->number mappings */
+	RB_HEAD(tap_tree, ipfw_tap) taps;	/* see ip_fw_bpf.c */
 #if defined( __linux__ ) || defined( _WIN32 )
 	spinlock_t uh_lock;
 #else
-	struct rwlock	uh_lock;	/* lock for upper half */
+	struct sx	uh_lock;	/* lock for upper half */
 #endif
 };
 
@@ -451,12 +456,12 @@ struct ipfw_ifc {
 #else /* FreeBSD */
 #define	IPFW_LOCK_INIT(_chain) do {			\
 	rm_init_flags(&(_chain)->rwmtx, "IPFW static rules", RM_RECURSE); \
-	rw_init(&(_chain)->uh_lock, "IPFW UH lock");	\
+	sx_init(&(_chain)->uh_lock, "IPFW UH lock");	\
 	} while (0)
 
 #define	IPFW_LOCK_DESTROY(_chain) do {			\
 	rm_destroy(&(_chain)->rwmtx);			\
-	rw_destroy(&(_chain)->uh_lock);			\
+	sx_destroy(&(_chain)->uh_lock);			\
 	} while (0)
 
 #define	IPFW_RLOCK_ASSERT(_chain)	rm_assert(&(_chain)->rwmtx, RA_RLOCKED)
@@ -471,14 +476,14 @@ struct ipfw_ifc {
 #define	IPFW_PF_RUNLOCK(p)		IPFW_RUNLOCK(p)
 #endif
 
-#define	IPFW_UH_RLOCK_ASSERT(_chain)	rw_assert(&(_chain)->uh_lock, RA_RLOCKED)
-#define	IPFW_UH_WLOCK_ASSERT(_chain)	rw_assert(&(_chain)->uh_lock, RA_WLOCKED)
-#define	IPFW_UH_UNLOCK_ASSERT(_chain)	rw_assert(&(_chain)->uh_lock, RA_UNLOCKED)
+#define	IPFW_UH_RLOCK_ASSERT(_chain)	sx_assert(&(_chain)->uh_lock, SA_SLOCKED)
+#define	IPFW_UH_WLOCK_ASSERT(_chain)	sx_assert(&(_chain)->uh_lock, SA_XLOCKED)
+#define	IPFW_UH_UNLOCK_ASSERT(_chain)	sx_assert(&(_chain)->uh_lock, SA_UNLOCKED)
 
-#define IPFW_UH_RLOCK(p) rw_rlock(&(p)->uh_lock)
-#define IPFW_UH_RUNLOCK(p) rw_runlock(&(p)->uh_lock)
-#define IPFW_UH_WLOCK(p) rw_wlock(&(p)->uh_lock)
-#define IPFW_UH_WUNLOCK(p) rw_wunlock(&(p)->uh_lock)
+#define IPFW_UH_RLOCK(p) sx_slock(&(p)->uh_lock)
+#define IPFW_UH_RUNLOCK(p) sx_sunlock(&(p)->uh_lock)
+#define IPFW_UH_WLOCK(p) sx_xlock(&(p)->uh_lock)
+#define IPFW_UH_WUNLOCK(p) sx_xunlock(&(p)->uh_lock)
 
 struct obj_idx {
 	uint32_t	uidx;	/* internal index supplied by userland */
@@ -646,8 +651,7 @@ void ipfw_destroy_skipto_cache(struct ip_fw_chain *chain);
 void ipfw_enable_skipto_cache(struct ip_fw_chain *chain);
 int ipfw_find_rule(struct ip_fw_chain *chain, uint32_t key, uint32_t id);
 int ipfw_ctl3(struct sockopt *sopt);
-int ipfw_add_protected_rule(struct ip_fw_chain *chain, struct ip_fw *rule,
-    int locked);
+int ipfw_add_protected_rule(struct ip_fw_chain *chain, struct ip_fw *rule);
 void ipfw_reap_add(struct ip_fw_chain *chain, struct ip_fw **head,
     struct ip_fw *rule);
 void ipfw_reap_rules(struct ip_fw *head);
@@ -741,8 +745,6 @@ void ipfw_destroy_obj_rewriter(void);
 void ipfw_add_obj_rewriter(struct opcode_obj_rewrite *rw, size_t count);
 int ipfw_del_obj_rewriter(struct opcode_obj_rewrite *rw, size_t count);
 
-int create_objects_compat(struct ip_fw_chain *ch, ipfw_insn *cmd,
-    struct obj_idx *oib, struct obj_idx *pidx, struct tid_info *ti);
 void update_opcode_kidx(ipfw_insn *cmd, uint32_t idx);
 int classify_opcode_kidx(ipfw_insn *cmd, uint32_t *puidx);
 void ipfw_init_srv(struct ip_fw_chain *ch);

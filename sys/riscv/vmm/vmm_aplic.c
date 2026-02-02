@@ -46,7 +46,9 @@
 #include <riscv/vmm/vmm_aplic.h>
 
 #include <machine/vmm_instruction_emul.h>
-#include <machine/vmm_dev.h>
+
+#include <dev/vmm/vmm_dev.h>
+#include <dev/vmm/vmm_vm.h>
 
 MALLOC_DEFINE(M_APLIC, "RISC-V VMM APLIC", "RISC-V AIA APLIC");
 

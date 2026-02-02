@@ -240,7 +240,10 @@ device		vmx			# VMware VMXNET3 Ethernet
 device		axp			# AMD EPYC integrated NIC (requires miibus)
 
 # PCI Ethernet NICs.
+device		aq			# Aquantia / Marvell AQC1xx
+device		bxe			# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
 device		le			# AMD Am7900 LANCE and Am79C9xx PCnet
+device		rge			# Realtek 8125/8126/8127
 device		ti			# Alteon Networks Tigon I/II gigabit Ethernet
 
 # Nvidia/Mellanox Connect-X 4 and later, Ethernet only
@@ -323,7 +326,8 @@ device		bpf			# Berkeley packet filter
 
 # random(4)
 device		rdrand_rng		# Intel Bull Mountain RNG
-device		tpm			# Trusted Platform Module
+# Disabled for now since tpm(4) breaks suspend/resume.
+#device		tpm			# Trusted Platform Module
 options 	RANDOM_ENABLE_TPM	# enable entropy from TPM 2.0
 options 	RANDOM_ENABLE_KBD
 options 	RANDOM_ENABLE_MOUSE

@@ -1118,6 +1118,8 @@ if_detach_internal(struct ifnet *ifp, bool vmove)
 		altq_detach(&ifp->if_snd);
 #endif
 
+	rt_flushifroutes(ifp);
+
 	if_purgeaddrs(ifp);
 	EVENTHANDLER_INVOKE(ifnet_departure_event, ifp);
 	if_purgemaddrs(ifp);
@@ -1142,8 +1144,6 @@ if_detach_internal(struct ifnet *ifp, bool vmove)
 		} else
 			IF_ADDR_WUNLOCK(ifp);
 	}
-
-	rt_flushifroutes(ifp);
 }
 
 #ifdef VIMAGE

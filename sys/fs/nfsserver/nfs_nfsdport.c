@@ -1972,11 +1972,13 @@ nfsvno_open(struct nfsrv_descript *nd, struct nameidata *ndp,
     NFSACL_T *aclp, NFSACL_T *daclp, nfsattrbit_t *attrbitp, struct ucred *cred,
     bool done_namei, struct nfsexstuff *exp, struct vnode **vpp)
 {
+	struct vattr va;
 	struct vnode *vp = NULL;
 	u_quad_t tempsize;
 	struct nfsexstuff nes;
 	struct thread *p = curthread;
 	uint32_t oldrepstat;
+	u_long savflags;
 
 	if (ndp->ni_vp == NULL) {
 		/*
@@ -1991,6 +1993,15 @@ nfsvno_open(struct nfsrv_descript *nd, struct nameidata *ndp,
 	}
 	if (!nd->nd_repstat) {
 		if (ndp->ni_vp == NULL) {
+			/*
+			 * Most file systems ignore va_flags for
+			 * VOP_CREATE(), however setting va_flags
+			 * for VOP_CREATE() causes problems for ZFS.
+			 * So disable them and let nfsrv_fixattr()
+			 * do them, as required.
+			 */
+			savflags = nvap->na_flags;
+			nvap->na_flags = VNOVAL;
 			nd->nd_repstat = VOP_CREATE(ndp->ni_dvp,
 			    &ndp->ni_vp, &ndp->ni_cnd, &nvap->na_vattr);
 			/* For a pNFS server, create the data file on a DS. */
@@ -2003,27 +2014,57 @@ nfsvno_open(struct nfsrv_descript *nd, struct nameidata *ndp,
 				nfsrv_pnfscreate(ndp->ni_vp, &nvap->na_vattr,
 				    cred, p);
 			}
+			nvap->na_flags = savflags;
 			VOP_VPUT_PAIR(ndp->ni_dvp, nd->nd_repstat == 0 ?
 			    &ndp->ni_vp : NULL, false);
 			nfsvno_relpathbuf(ndp);
 			if (!nd->nd_repstat) {
-				if (*exclusive_flagp) {
-					*exclusive_flagp = 0;
-					NFSVNO_ATTRINIT(nvap);
-					nvap->na_atime.tv_sec = cverf[0];
-					nvap->na_atime.tv_nsec = cverf[1];
+				if (*exclusive_flagp != NFSV4_EXCLUSIVE_NONE) {
+					VATTR_NULL(&va);
+					va.va_atime.tv_sec = cverf[0];
+					va.va_atime.tv_nsec = cverf[1];
 					nd->nd_repstat = VOP_SETATTR(ndp->ni_vp,
-					    &nvap->na_vattr, cred);
+					    &va, cred);
 					if (nd->nd_repstat != 0) {
 						vput(ndp->ni_vp);
 						ndp->ni_vp = NULL;
 						nd->nd_repstat = NFSERR_NOTSUPP;
-					} else
+					} else {
+						/*
+						 * Few clients set these
+						 * attributes in Open/Create
+						 * Exclusive_41.  If this
+						 * changes, this should include
+						 * setting atime, instead of
+						 * the above.
+						 */
+						if (*exclusive_flagp ==
+						    NFSV4_EXCLUSIVE_41 &&
+						    (NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_OWNER) ||
+						     NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_OWNERGROUP) ||
+						     NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_TIMEMODIFYSET)||
+						     NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_ARCHIVE) ||
+						     NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_HIDDEN) ||
+						     NFSISSET_ATTRBIT(attrbitp,
+						     NFSATTRBIT_SYSTEM) ||
+						     aclp != NULL ||
+						     daclp != NULL))
+							nfsrv_fixattr(nd,
+							    ndp->ni_vp, nvap,
+							    aclp, daclp, p,
+							    attrbitp, true);
 						NFSSETBIT_ATTRBIT(attrbitp,
 						    NFSATTRBIT_TIMEACCESS);
+					}
+					*exclusive_flagp = NFSV4_EXCLUSIVE_NONE;
 				} else {
 					nfsrv_fixattr(nd, ndp->ni_vp, nvap,
-					    aclp, daclp, p, attrbitp, exp);
+					    aclp, daclp, p, attrbitp, false);
 				}
 			}
 			vp = ndp->ni_vp;

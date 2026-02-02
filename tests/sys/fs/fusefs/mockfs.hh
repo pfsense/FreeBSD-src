@@ -166,6 +166,7 @@ union fuse_payloads_in {
 	fuse_forget_in	forget;
 	fuse_getattr_in	getattr;
 	fuse_interrupt_in interrupt;
+	fuse_ioctl_in	ioctl;
 	fuse_lk_in	getlk;
 	fuse_getxattr_in getxattr;
 	fuse_init_in	init;
@@ -222,6 +223,7 @@ union fuse_payloads_out {
 	fuse_listxattr_out	listxattr;
 	fuse_open_out		open;
 	fuse_statfs_out		statfs;
+	fuse_ioctl_out		ioctl;
 	/*
 	 * The protocol places no limits on the length of the string.  This is
 	 * merely convenient for testing.
@@ -370,9 +372,12 @@ class MockFS {
 		uint32_t kernel_minor_version, uint32_t max_write, bool async,
 		bool no_clusterr, unsigned time_gran, bool nointr,
 		bool noatime, const char *fsname, const char *subtype,
-		bool no_auto_init);
+		bool no_auto_init, bool auto_unmount);
 
 	virtual ~MockFS();
+
+	/* Duplicate the /dev/fuse file descriptor, and return the duplicate */
+	int dup_dev_fuse();
 
 	/* Kill the filesystem daemon without unmounting the filesystem */
 	void kill_daemon();

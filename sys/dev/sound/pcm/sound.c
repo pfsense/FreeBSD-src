@@ -41,6 +41,7 @@
 #include <dev/sound/pcm/ac97.h>
 #include <dev/sound/pcm/vchan.h>
 #include <dev/sound/pcm/dsp.h>
+#include <dev/sound/sndstat.h>
 #include <sys/limits.h>
 #include <sys/sysctl.h>
 
@@ -426,7 +427,7 @@ pcm_register(device_t dev, char *str)
 	else if (snd_unit_auto == 1)
 		snd_unit = pcm_best_unit(snd_unit);
 
-	sndstat_register(dev, d->status);
+	sndstat_register(dev, SNDST_TYPE_PCM, d->status);
 
 	return (dsp_make_dev(dev));
 }

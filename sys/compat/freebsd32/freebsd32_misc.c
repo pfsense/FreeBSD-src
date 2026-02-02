@@ -203,6 +203,7 @@ void
 freebsd32_rusage_out(const struct rusage *s, struct rusage32 *s32)
 {
 
+	bzero(s32, sizeof(*s32));
 	TV_CP(*s, *s32, ru_utime);
 	TV_CP(*s, *s32, ru_stime);
 	CP(*s, *s32, ru_maxrss);
@@ -267,6 +268,37 @@ freebsd32_wait6(struct thread *td, struct freebsd32_wait6_args *uap)
 	if (error != 0)
 		return (error);
 	if (uap->status != NULL)
+		error = copyout(&status, uap->status, sizeof(status));
+	if (uap->wrusage != NULL && error == 0) {
+		freebsd32_rusage_out(&wru.wru_self, &wru32.wru_self);
+		freebsd32_rusage_out(&wru.wru_children, &wru32.wru_children);
+		error = copyout(&wru32, uap->wrusage, sizeof(wru32));
+	}
+	if (uap->info != NULL && error == 0) {
+		siginfo_to_siginfo32 (&si, &si32);
+		error = copyout(&si32, uap->info, sizeof(si32));
+	}
+	return (error);
+}
+
+int
+freebsd32_pdwait(struct thread *td, struct freebsd32_pdwait_args *uap)
+{
+	struct __wrusage32 wru32;
+	struct __wrusage wru, *wrup;
+	struct __siginfo32 si32;
+	struct __siginfo si, *sip;
+	int error, status;
+
+	wrup = uap->wrusage != NULL ? &wru : NULL;
+	if (uap->info != NULL) {
+		sip = &si;
+		bzero(sip, sizeof(*sip));
+	} else {
+		sip = NULL;
+	}
+	error = kern_pdwait(td, uap->fd, &status, uap->options, wrup, sip);
+	if (uap->status != NULL && error == 0)
 		error = copyout(&status, uap->status, sizeof(status));
 	if (uap->wrusage != NULL && error == 0) {
 		freebsd32_rusage_out(&wru.wru_self, &wru32.wru_self);

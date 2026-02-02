@@ -501,6 +501,13 @@ struct pf_osfp_ioctl {
 #define	PF_ANCHOR_HIWAT		512
 #define	PF_OPTIMIZER_TABLE_PFX	"__automatic_"
 
+enum {
+	PF_LIMITER_NOMATCH,
+	PF_LIMITER_BLOCK
+};
+
+#define	PF_LIMITER_DEFAULT	PF_LIMITER_BLOCK
+
 struct pf_rule {
 	struct pf_rule_addr	 src;
 	struct pf_rule_addr	 dst;

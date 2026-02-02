@@ -9,6 +9,8 @@
         ..
         boot
             kernel
+                gdb
+                ..
             ..
             modules
             ..
@@ -44,6 +46,10 @@
                     ..
                 ..
                 i18n
+                ..
+                krb5
+                    plugins
+                    ..
                 ..
                 libxo
                     encoder

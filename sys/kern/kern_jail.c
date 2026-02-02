@@ -36,6 +36,7 @@
 
 #include <sys/param.h>
 #include <sys/types.h>
+#include <sys/ctype.h>
 #include <sys/kernel.h>
 #include <sys/systm.h>
 #include <sys/errno.h>
@@ -79,6 +80,8 @@
 #endif /* DDB */
 
 #include <security/mac/mac_framework.h>
+#include <security/mac/mac_policy.h>
+#include <security/mac/mac_syscalls.h>
 
 #define	PRISON0_HOSTUUID_MODULE	"hostuuid"
 
@@ -275,8 +278,17 @@ prison0_init(void)
 	uint8_t *file, *data;
 	size_t size;
 	char buf[sizeof(prison0.pr_hostuuid)];
+#ifdef MAC
+	int error __diagused;
+#endif
 	bool valid;
 
+#ifdef MAC
+	error = mac_prison_init(&prison0, M_WAITOK);
+	MPASS(error == 0);
+
+	mtx_unlock(&prison0.pr_mtx);
+#endif
 	prison0.pr_cpuset = cpuset_ref(thread0.td_cpuset);
 	prison0.pr_osreldate = osreldate;
 	strlcpy(prison0.pr_osrelease, osrelease, sizeof(prison0.pr_osrelease));
@@ -1017,6 +1029,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 #endif
 	unsigned long hid;
 	size_t namelen, onamelen, pnamelen;
+#ifdef MAC
+	void *mac_set_prison_data = NULL;
+	int gotmaclabel;
+#endif
 	int created, cuflags, descend, drflags, enforce;
 	int error, errmsg_len, errmsg_pos;
 	int gotchildmax, gotenforce, gothid, gotrsnum, gotslevel;
@@ -1338,6 +1354,17 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		ch_flags |= PR_HOST;
 		pr_flags |= PR_HOST;
 	}
+
+#ifdef MAC
+	/* Process the mac.label vfsopt */
+	error = mac_set_prison_prepare(td, opts, &mac_set_prison_data);
+	if (error == ENOENT)
+		gotmaclabel = 0;
+	else if (error != 0)
+		goto done_errmsg;
+	else
+		gotmaclabel = 1;
+#endif
 
 #ifdef INET
 	error = vfs_getopt(opts, "ip4.addr", &op, &ip4s);
@@ -1692,6 +1719,11 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	/* If there's no prison to update, create a new one and link it in. */
 	created = pr == NULL;
 	if (created) {
+#ifdef MAC
+		error = mac_prison_check_create(td->td_ucred, opts, flags);
+		if (error != 0)
+			goto done_deref;
+#endif
 		for (tpr = mypr; tpr != NULL; tpr = tpr->pr_parent)
 			if (tpr->pr_childcount >= tpr->pr_childmax) {
 				error = EPERM;
@@ -1828,7 +1860,14 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		if (error)
 			goto done_deref;
 
+#ifdef MAC
+		error = mac_prison_init(pr, M_WAITOK);
+		MPASS(error == 0);
+
+		mtx_assert(&pr->pr_mtx, MA_OWNED);
+#else
 		mtx_lock(&pr->pr_mtx);
+#endif
 		drflags |= PD_LOCKED;
 	} else {
 		/*
@@ -1839,6 +1878,11 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			prison_hold(pr);
 			drflags |= PD_DEREF;
 		}
+#ifdef MAC
+		error = mac_prison_check_set(td->td_ucred, pr, opts, flags);
+		if (error != 0)
+			goto done_deref;
+#endif
 #if defined(VIMAGE) && (defined(INET) || defined(INET6))
 		if ((pr->pr_flags & PR_VNET) &&
 		    (ch_flags & (PR_IP4_USER | PR_IP6_USER))) {
@@ -2155,6 +2199,17 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 	pr->pr_flags = (pr->pr_flags & ~ch_flags) | pr_flags;
+
+#ifdef MAC
+	/* Apply any request MAC label before we let modules do their work. */
+	if (gotmaclabel) {
+		error = mac_set_prison_core(td, pr, mac_set_prison_data);
+		if (error) {
+			vfs_opterror(opts, "mac relabel denied");
+			goto done_deref;
+		}
+	}
+#endif
 	mtx_unlock(&pr->pr_mtx);
 	drflags &= ~PD_LOCKED;
 	/*
@@ -2230,6 +2285,13 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	if (created) {
 		sx_assert(&allprison_lock, SX_XLOCKED);
 		prison_knote(ppr, NOTE_JAIL_CHILD | pr->pr_id);
+#ifdef MAC
+		/*
+		 * Note that mac_prison_created() assumes that it's called in a
+		 * sleepable context.
+		 */
+		mac_prison_created(td->td_ucred, pr);
+#endif
 		mtx_lock(&pr->pr_mtx);
 		drflags |= PD_LOCKED;
 		pr->pr_state = PRISON_STATE_ALIVE;
@@ -2237,6 +2299,14 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 
 	/* Attach this process to the prison if requested. */
 	if (flags & JAIL_ATTACH) {
+#ifdef MAC
+		error = mac_prison_check_attach(td->td_ucred, pr);
+		if (error != 0) {
+			vfs_opterror(opts,
+			    "attach operation denied by MAC policy");
+			goto done_deref;
+		}
+#endif
 		error = do_jail_attach(td, pr,
 		    prison_lock_xlock(pr, drflags & PD_LOCK_FLAGS));
 		drflags &= ~(PD_LOCKED | PD_LIST_XLOCKED);
@@ -2328,6 +2398,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 #endif
 #ifdef INET6
 	prison_ip_free(ip6);
+#endif
+#ifdef MAC
+	if (mac_set_prison_data != NULL)
+		mac_set_prison_finish(td, error == 0, mac_set_prison_data);
 #endif
 	if (jfp_out != NULL)
 		fdrop(jfp_out, td);
@@ -2540,12 +2614,6 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			drflags |= PD_DEREF;
 			mtx_lock(&pr->pr_mtx);
 			drflags |= PD_LOCKED;
-			if (!(prison_isalive(pr) || (flags & JAIL_DYING))) {
-				error = ENOENT;
-				vfs_opterror(opts, "jail %d is dying",
-				    pr->pr_id);
-				goto done;
-			}
 			goto found_prison;
 		}
 		if (flags & JAIL_AT_DESC) {
@@ -2577,7 +2645,29 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			    prison_ischild(mypr, pr)) {
 				mtx_lock(&pr->pr_mtx);
 				drflags |= PD_LOCKED;
+#ifdef MAC
+				/*
+				 * We special-case this one check because we
+				 * don't want MAC to break jail enumeration.  We
+				 * need to just move on to the next accessible
+				 * and alive prison.
+				 */
+				error = mac_prison_check_get(td->td_ucred, pr,
+				    opts, flags);
+				if (error != 0) {
+					mtx_unlock(&pr->pr_mtx);
+					drflags &= ~PD_LOCKED;
+					continue;
+				}
+
+				/*
+				 * Avoid potentially expensive trip back into
+				 * the MAC framework.
+				 */
+				goto found_prison_nomac_alive;
+#else
 				goto found_prison;
+#endif
 			}
 		}
 		error = ENOENT;
@@ -2592,13 +2682,6 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			pr = prison_find_child(mypr, jid);
 			if (pr != NULL) {
 				drflags |= PD_LOCKED;
-				if (!(prison_isalive(pr) ||
-				    (flags & JAIL_DYING))) {
-					error = ENOENT;
-					vfs_opterror(opts, "jail %d is dying",
-					    jid);
-					goto done;
-				}
 				goto found_prison;
 			}
 			error = ENOENT;
@@ -2617,12 +2700,6 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		pr = prison_find_name(mypr, name);
 		if (pr != NULL) {
 			drflags |= PD_LOCKED;
-			if (!(prison_isalive(pr) || (flags & JAIL_DYING))) {
-				error = ENOENT;
-				vfs_opterror(opts, "jail \"%s\" is dying",
-				    name);
-				goto done;
-			}
 			goto found_prison;
 		}
 		error = ENOENT;
@@ -2636,6 +2713,25 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	goto done;
 
  found_prison:
+#ifdef MAC
+	error = mac_prison_check_get(td->td_ucred, pr, opts, flags);
+	if (error != 0)
+		goto done;
+#endif
+	if (!(prison_isalive(pr) || (flags & JAIL_DYING))) {
+		error = ENOENT;
+		if (pr->pr_name[0] != '0' && isdigit(pr->pr_name[0])) {
+			vfs_opterror(opts, "jail %d is dying",
+			    pr->pr_id);
+		} else {
+			vfs_opterror(opts, "jail \"%s\" (%d) is dying",
+			    pr->pr_name, pr->pr_id);
+		}
+		goto done;
+	}
+#ifdef MAC
+ found_prison_nomac_alive:
+#endif
 	/* Get the parameters of the prison. */
 	if (!(drflags & PD_DEREF)) {
 		prison_hold(pr);
@@ -2771,9 +2867,22 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	if (error != 0 && error != ENOENT)
 		goto done;
 
-	/* Get the module parameters. */
+#ifdef MAC
+	/*
+	 * We get the MAC label last because we'll let the MAC framework drop
+	 * pr_mtx to externalize the label.
+	 */
+	error = mac_get_prison(td, pr, opts);
+	mtx_assert(&pr->pr_mtx, MA_NOTOWNED);
+	drflags &= ~PD_LOCKED;
+	if (error != 0 && error != ENOENT)
+		goto done;
+#else
 	mtx_unlock(&pr->pr_mtx);
 	drflags &= ~PD_LOCKED;
+#endif
+
+	/* Get the module parameters. */
 	error = osd_jail_call(pr, PR_METHOD_GET, opts);
 	if (error)
 		goto done;
@@ -2875,6 +2984,14 @@ sys_jail_remove(struct thread *td, struct jail_remove_args *uap)
 		sx_xunlock(&allprison_lock);
 		return (EINVAL);
 	}
+#ifdef MAC
+	error = mac_prison_check_remove(td->td_ucred, pr);
+	if (error != 0) {
+		mtx_unlock(&pr->pr_mtx);
+		sx_xunlock(&allprison_lock);
+		return (error);
+	}
+#endif
 	prison_hold(pr);
 	prison_remove(pr);
 	return (0);
@@ -2897,6 +3014,10 @@ sys_jail_remove_jd(struct thread *td, struct jail_remove_jd_args *uap)
 		return (error);
 	error = priv_check_cred(jdcred, PRIV_JAIL_REMOVE);
 	crfree(jdcred);
+#ifdef MAC
+	if (error == 0)
+		error = mac_prison_check_remove(td->td_ucred, pr);
+#endif
 	if (error) {
 		prison_free(pr);
 		return (error);
@@ -2941,14 +3062,25 @@ sys_jail_attach(struct thread *td, struct jail_attach_args *uap)
 		return (EINVAL);
 	}
 
+#ifdef MAC
+	error = mac_prison_check_attach(td->td_ucred, pr);
+	if (error != 0)
+		goto unlock;
+#endif
+
 	/* Do not allow a process to attach to a prison that is not alive. */
 	if (!prison_isalive(pr)) {
-		mtx_unlock(&pr->pr_mtx);
-		sx_sunlock(&allprison_lock);
-		return (EINVAL);
+		error = EINVAL;
+		goto unlock;
 	}
 
 	return (do_jail_attach(td, pr, PD_LOCKED | PD_LIST_SLOCKED));
+
+unlock:
+
+	mtx_unlock(&pr->pr_mtx);
+	sx_sunlock(&allprison_lock);
+	return (error);
 }
 
 /*
@@ -2970,6 +3102,10 @@ sys_jail_attach_jd(struct thread *td, struct jail_attach_jd_args *uap)
 		goto fail;
 	drflags |= PD_DEREF;
 	error = priv_check_cred(jdcred, PRIV_JAIL_ATTACH);
+#ifdef MAC
+	if (error == 0)
+		error = mac_prison_check_attach(td->td_ucred, pr);
+#endif
 	crfree(jdcred);
 	if (error)
 		goto fail;
@@ -3070,6 +3206,13 @@ do_jail_attach(struct thread *td, struct prison *pr, int drflags)
 	prison_deref(oldcred->cr_prison, drflags);
 	crfree(oldcred);
 	prison_knote(pr, NOTE_JAIL_ATTACH | td->td_proc->p_pid);
+#ifdef MAC
+	/*
+	 * Note that mac_prison_attached() assumes that it's called in a
+	 * sleepable context.
+	 */
+	mac_prison_attached(td->td_ucred, pr, td->td_proc);
+#endif
 
 	/*
 	 * If the prison was killed while changing credentials, die along
@@ -3540,6 +3683,16 @@ prison_deref(struct prison *pr, int flags)
 					KASSERT(
 					    refcount_load(&prison0.pr_ref) != 0,
 					    ("prison0 pr_ref=0"));
+#ifdef MAC
+					/*
+					 * The MAC framework will call into any
+					 * policies that want to hook
+					 * prison_destroy_label, so ideally we
+					 * call this prior to any final state
+					 * invalidation to be safe.
+					 */
+					mac_prison_destroy(pr);
+#endif
 					pr->pr_state = PRISON_STATE_INVALID;
 					TAILQ_REMOVE(&allprison, pr, pr_list);
 					LIST_REMOVE(pr, pr_sibling);
@@ -4999,6 +5152,11 @@ SYSCTL_JAIL_PARAM(_host, hostid, CTLTYPE_ULONG | CTLFLAG_RW,
 
 SYSCTL_JAIL_PARAM_NODE(cpuset, "Jail cpuset");
 SYSCTL_JAIL_PARAM(_cpuset, id, CTLTYPE_INT | CTLFLAG_RD, "I", "Jail cpuset ID");
+
+#ifdef MAC
+SYSCTL_JAIL_PARAM_STRUCT(_mac, label, CTLFLAG_RW, sizeof(struct mac),
+    "S,mac", "Jail MAC label");
+#endif
 
 #ifdef INET
 SYSCTL_JAIL_PARAM_SYS_NODE(ip4, CTLFLAG_RDTUN,

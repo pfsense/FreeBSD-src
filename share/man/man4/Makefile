@@ -331,6 +331,7 @@ MAN=	aac.4 \
 	mac_test.4 \
 	malo.4 \
 	max44009.4 \
+	${_mca.4} \
 	md.4 \
 	mdio.4 \
 	me.4 \
@@ -884,6 +885,7 @@ _imcsmb.4=	imcsmb.4
 _io.4=		io.4
 _itwd.4=	itwd.4
 _kvmclock.4=	kvmclock.4
+_mca.4=		mca.4
 _mgb.4=		mgb.4
 _nda.4=		nda.4
 _nfe.4=		nfe.4
@@ -1009,6 +1011,7 @@ _ccd.4=		ccd.4
 .if ${MK_CDDL} != "no"
 _dtrace_provs=	dtrace_audit.4 \
 		dtrace_callout_execute.4 \
+		dtrace_cam.4 \
 		dtrace_dtrace.4 \
 		dtrace_fbt.4 \
 		dtrace_io.4 \

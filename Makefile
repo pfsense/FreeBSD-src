@@ -22,7 +22,7 @@
 # kernel              - buildkernel + installkernel.
 # kernel-toolchain    - Builds the subset of world necessary to build a kernel
 # kernel-toolchains   - Build kernel-toolchain for all universe targets.
-# doxygen             - Build API documentation of the kernel, needs doxygen.
+# doxygen             - Build API documentation of the kernel, needs doxygen, TeX, and graphviz.
 # checkworld          - Run test suite on installed world.
 # check-old           - List obsolete directories/files/libraries.
 # check-old-dirs      - List obsolete directories.
@@ -537,7 +537,7 @@ packages update-packages: .PHONY
 # Don't build rarely used, semi-supported architectures unless requested.
 #
 .if defined(EXTRA_TARGETS)
-EXTRA_ARCHES_powerpc=	powerpc powerpcspe
+EXTRA_ARCHES_powerpc=	powerpc
 .endif
 TARGETS?= ${TARGET_MACHINE_LIST}
 _UNIVERSE_TARGETS=	${TARGETS}
@@ -804,7 +804,7 @@ universe_epilogue: .PHONY
 .MAKE.MODE= normal
 # Normally the things we run from here don't either.
 # Using -DWITH_META_MODE
-# we can buildworld with meta files created which are useful 
+# we can buildworld with meta files created which are useful
 # for debugging, but without any of the rest of a meta mode build.
 MK_DIRDEPS_BUILD= no
 MK_STAGING= no

@@ -59,7 +59,6 @@
 #include <machine/cpu.h>
 #include <machine/machdep.h>
 #include <machine/vmm.h>
-#include <machine/vmm_dev.h>
 #include <machine/atomic.h>
 #include <machine/pmap.h>
 #include <machine/intr.h>
@@ -67,6 +66,7 @@
 #include <machine/db_machdep.h>
 
 #include <dev/vmm/vmm_mem.h>
+#include <dev/vmm/vmm_vm.h>
 
 #include "riscv.h"
 #include "vmm_aplic.h"
@@ -625,7 +625,7 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 	 * have been modified, it may be necessary to execute an HFENCE.GVMA
 	 * instruction (see Section 5.3.2) before or after writing hgatp.
 	 */
-	__asm __volatile("hfence.gvma" ::: "memory");
+	hfence_gvma();
 
 	csr_write(hgatp, pmap->pm_satp);
 	if (has_sstc)

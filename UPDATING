@@ -27,6 +27,12 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 16.x IS SLOW:
 	world, or to merely disable the most expensive debugging functionality
 	at runtime, run "ln -s 'abort:false,junk:false' /etc/malloc.conf".)
 
+20260106:
+	Zstd has moved to the new "zstd" package.  If you have set-minimal
+	installed, this package will be installed automatically, otherwise
+	you might want to install it manually.  This change only affects
+	pkgbase users.
+
 20251222:
 	Commit 9f49f436a9ec changed the internal KAPI between the NFS
 	modules. As such, nfscommon, nfscl and nfsd must all be rebuilt
@@ -875,6 +881,10 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 16.x IS SLOW:
 	belongs.  Consequently, users may experience surprising results with
 	such names when roaming to different homenets.
 
+20211118:
+	Mips has been removed from universe builds. It will be removed from the
+	tree shortly.
+
 20211110:
 	Commit b8d60729deef changed the TCP congestion control framework so
 	that any of the included congestion control modules could be
@@ -887,10 +897,6 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 16.x IS SLOW:
 	as the default. If no congestion control option is built into the
 	kernel and you are including networking, the kernel compile will
 	fail. Also if no default is declared the kernel compile will fail.
-
-20211118:
-	Mips has been removed from universe builds. It will be removed from the
-	tree shortly.
 
 20211106:
 	Commit f0c9847a6c47 changed the arguments for VOP_ALLOCATE.

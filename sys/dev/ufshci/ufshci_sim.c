@@ -165,6 +165,7 @@ ufshchi_sim_scsiio(struct cam_sim *sim, union ccb *ccb)
 		data_direction = UFSHCI_DATA_DIRECTION_NO_DATA_TRANSFER;
 	}
 	req->data_direction = data_direction;
+	req->is_admin = false;
 
 	upiu = (struct ufshci_cmd_command_upiu *)&req->request_upiu;
 	memset(upiu, 0, req->request_size);
@@ -191,7 +192,7 @@ ufshchi_sim_scsiio(struct cam_sim *sim, union ccb *ccb)
 	}
 	memcpy(upiu->cdb, cdb, csio->cdb_len);
 
-	error = ufshci_ctrlr_submit_io_request(ctrlr, req);
+	error = ufshci_ctrlr_submit_transfer_request(ctrlr, req);
 	if (error == EBUSY) {
 		ccb->ccb_h.status = CAM_SCSI_BUSY;
 		xpt_done(ccb);
@@ -493,7 +494,7 @@ ufshci_sim_send_ssu(struct ufshci_controller *ctrlr, bool start,
 		return ENOMEM;
 	}
 
-	scsi_start_stop(&ccb->csio,
+	scsi_start_stop_pc(&ccb->csio,
 	    /*retries*/ 4,
 	    /*cbfcnp*/ NULL,
 	    /*tag_action*/ MSG_SIMPLE_Q_TAG,

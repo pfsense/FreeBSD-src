@@ -76,7 +76,6 @@ static int mpu401_muninit(struct snd_midi *, void *);
 static int mpu401_minqsize(struct snd_midi *, void *);
 static int mpu401_moutqsize(struct snd_midi *, void *);
 static void mpu401_mcallback(struct snd_midi *, void *, int);
-static void mpu401_mcallbackp(struct snd_midi *, void *, int);
 
 static kobj_method_t mpu401_methods[] = {
 	KOBJMETHOD(mpu_init, mpu401_minit),
@@ -84,7 +83,6 @@ static kobj_method_t mpu401_methods[] = {
 	KOBJMETHOD(mpu_inqsize, mpu401_minqsize),
 	KOBJMETHOD(mpu_outqsize, mpu401_moutqsize),
 	KOBJMETHOD(mpu_callback, mpu401_mcallback),
-	KOBJMETHOD(mpu_callbackp, mpu401_mcallbackp),
 	KOBJMETHOD_END
 };
 
@@ -144,10 +142,7 @@ mpu401_init(kobj_class_t cls, void *cookie, driver_intr_t softintr,
 	struct mpu401 *m;
 
 	*cb = NULL;
-	m = malloc(sizeof(*m), M_MIDI, M_NOWAIT | M_ZERO);
-
-	if (!m)
-		return NULL;
+	m = malloc(sizeof(*m), M_MIDI, M_WAITOK | M_ZERO);
 
 	kobj_init((kobj_t)m, cls);
 
@@ -157,7 +152,7 @@ mpu401_init(kobj_class_t cls, void *cookie, driver_intr_t softintr,
 	m->cookie = cookie;
 	m->flags = 0;
 
-	m->mid = midi_init(&mpu401_class, 0, 0, m);
+	m->mid = midi_init(&mpu401_class, m);
 	if (!m->mid)
 		goto err;
 	*cb = mpu401_intr;
@@ -205,7 +200,7 @@ mpu401_minit(struct snd_midi *sm, void *arg)
 	return 1;
 }
 
-int
+static int
 mpu401_muninit(struct snd_midi *sm, void *arg)
 {
 	struct mpu401 *m = arg;
@@ -213,13 +208,13 @@ mpu401_muninit(struct snd_midi *sm, void *arg)
 	return MPUFOI_UNINIT(m, m->cookie);
 }
 
-int
+static int
 mpu401_minqsize(struct snd_midi *sm, void *arg)
 {
 	return 128;
 }
 
-int
+static int
 mpu401_moutqsize(struct snd_midi *sm, void *arg)
 {
 	return 128;
@@ -234,10 +229,4 @@ mpu401_mcallback(struct snd_midi *sm, void *arg, int flags)
 		callout_reset(&m->timer, 1, mpu401_timeout, m);
 	}
 	m->flags = flags;
-}
-
-static void
-mpu401_mcallbackp(struct snd_midi *sm, void *arg, int flags)
-{
-	mpu401_mcallback(sm, arg, flags);
 }

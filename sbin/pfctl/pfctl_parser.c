@@ -856,6 +856,38 @@ print_eth_rule(struct pfctl_eth_rule *r, const char *anchor_call,
 }
 
 void
+print_statelim(const struct pfctl_state_lim *ioc)
+{
+	printf("state limiter %s id %u limit %u", ioc->name, ioc->id,
+	    ioc->limit);
+	if (ioc->rate.limit != 0)
+		printf(" rate %u/%u", ioc->rate.limit, ioc->rate.seconds);
+
+	printf("\n");
+}
+
+void
+print_sourcelim(const struct pfctl_source_lim *ioc)
+{
+	printf("source limiter %s id %u entries %u limit %u", ioc->name,
+	    ioc->id, ioc->entries, ioc->limit);
+	if (ioc->rate.limit != 0)
+		printf(" rate %u/%u", ioc->rate.limit, ioc->rate.seconds);
+	if (ioc->overload_tblname[0] != '\0') {
+		printf(" table <%s> above %u", ioc->overload_tblname,
+		    ioc->overload_hwm);
+		if (ioc->overload_lwm)
+			printf(" below %u", ioc->overload_lwm);
+	}
+	if (ioc->inet_prefix < 32)
+		printf(" inet mask %u", ioc->inet_prefix);
+	if (ioc->inet6_prefix < 128)
+		printf(" inet6 mask %u", ioc->inet6_prefix);
+
+	printf("\n");
+}
+
+void
 print_rule(struct pfctl_rule *r, const char *anchor_call, int opts, int numeric)
 {
 	static const char *actiontypes[] = { "pass", "block", "scrub",
@@ -1080,6 +1112,33 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int opts, int numeric)
 		}
 		printf(" probability %s%%", buf);
 	}
+	if (r->statelim.id != PF_STATELIM_ID_NONE) {
+#if 0 /* XXX need pf to find statelims */
+		struct pfctl_statelim *stlim =
+		    pfctl_get_statelim_id(pf, r->statelim);
+
+		if (stlim != NULL)
+			printf(" state limiter %s", stlim->ioc.name);
+		else
+#endif
+		printf(" state limiter id %u (%s)", r->statelim.id,
+		    (r->statelim.limiter_action == PF_LIMITER_BLOCK) ?
+		    "block" : "no-match");
+	}
+	if (r->sourcelim.id != PF_SOURCELIM_ID_NONE) {
+#if 0 /* XXX need pf to find sourcelims */
+		struct pfctl_sourcelim *srlim =
+		    pfctl_get_sourcelim_id(pf, r->sourcelim);
+
+		if (srlim != NULL)
+			printf(" source limiter %s", srlim->ioc.name);
+		else
+#endif
+		printf(" source limiter id %u (%s)", r->sourcelim.id,
+		    (r->sourcelim.limiter_action == PF_LIMITER_BLOCK) ?
+		    "block" : "no-match");
+	}
+
 	ropts = 0;
 	if (r->max_states || r->max_src_nodes || r->max_src_states)
 		ropts = 1;
@@ -1543,11 +1602,18 @@ ifa_load(void)
 			copy_satopfaddr(&n->addr.v.a.addr, ifa->ifa_addr);
 			ifa->ifa_netmask->sa_family = ifa->ifa_addr->sa_family;
 			copy_satopfaddr(&n->addr.v.a.mask, ifa->ifa_netmask);
-			if (ifa->ifa_broadaddr != NULL) {
+			if (ifa->ifa_flags & IFF_BROADCAST &&
+			    ifa->ifa_broadaddr != NULL &&
+			    ifa->ifa_broadaddr->sa_len != 0) {
+				ifa->ifa_broadaddr->sa_family =
+				    ifa->ifa_addr->sa_family;
 				ifa->ifa_broadaddr->sa_family = ifa->ifa_addr->sa_family;
 				copy_satopfaddr(&n->bcast, ifa->ifa_broadaddr);
-			}
-			if (ifa->ifa_dstaddr != NULL) {
+			} else if (ifa->ifa_flags & IFF_POINTOPOINT &&
+			    ifa->ifa_dstaddr != NULL &&
+			    ifa->ifa_dstaddr->sa_len != 0) {
+				ifa->ifa_dstaddr->sa_family =
+				    ifa->ifa_addr->sa_family;
 				ifa->ifa_dstaddr->sa_family = ifa->ifa_addr->sa_family;
 				copy_satopfaddr(&n->peer, ifa->ifa_dstaddr);
 			}

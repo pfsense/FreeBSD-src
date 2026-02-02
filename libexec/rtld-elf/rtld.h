@@ -152,7 +152,7 @@ typedef struct Struct_Obj_Entry {
     const Elf_Dyn *dynamic;	/* Dynamic section */
     caddr_t entry;		/* Entry point */
     const Elf_Phdr *phdr;	/* Program header if it is mapped, else NULL */
-    size_t phsize;		/* Size of program header in bytes */
+    size_t phnum;		/* Number of program headers */
     const char *interp;		/* Pathname of the interpreter, if any */
     Elf_Word stack_flags;
 
@@ -212,11 +212,11 @@ typedef struct Struct_Obj_Entry {
     Ver_Entry *vertab;		/* Versions required /defined by this object */
     int vernum;			/* Number of entries in vertab */
 
-    Elf_Addr init;		/* Initialization function to call */
-    Elf_Addr fini;		/* Termination function to call */
-    Elf_Addr preinit_array;	/* Pre-initialization array of functions */
-    Elf_Addr init_array;	/* Initialization array of functions */
-    Elf_Addr fini_array;	/* Termination array of functions */
+    uintptr_t init;		/* Initialization function to call */
+    uintptr_t fini;		/* Termination function to call */
+    uintptr_t *preinit_array;	/* Pre-initialization array of functions */
+    uintptr_t *init_array;	/* Initialization array of functions */
+    uintptr_t *fini_array;	/* Termination array of functions */
     int preinit_array_num;	/* Number of entries in preinit_array */
     int init_array_num; 	/* Number of entries in init_array */
     int fini_array_num; 	/* Number of entries in fini_array */

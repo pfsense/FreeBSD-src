@@ -123,6 +123,33 @@ enum x2apic_state {
 #define	VM_INTINFO_SWINTR	(4 << 8)
 
 #ifdef _KERNEL
+#define	VMM_VCPU_MD_FIELDS						\
+	struct vlapic	*vlapic;	/* (i) APIC device model */	\
+	enum x2apic_state x2apic_state;	/* (i) APIC mode */		\
+	uint64_t	exitintinfo;	/* (i) events pending at VM exit */ \
+	int		nmi_pending;	/* (i) NMI pending */		\
+	int		extint_pending;	/* (i) INTR pending */		\
+	int		exception_pending; /* (i) exception pending */	\
+	int		exc_vector;	/* (x) exception collateral */	\
+	int		exc_errcode_valid;				\
+	uint32_t	exc_errcode;					\
+	struct savefpu	*guestfpu;	/* (a,i) guest fpu state */	\
+	uint64_t	guest_xcr0;	/* (i) guest %xcr0 register */	\
+	struct vm_exit	exitinfo;	/* (x) exit reason and collateral */ \
+	cpuset_t	exitinfo_cpuset; /* (x) storage for vmexit handlers */ \
+	uint64_t	nextrip;	/* (x) next instruction to execute */ \
+	uint64_t	tsc_offset	/* (o) TSC offsetting */
+
+#define	VMM_VM_MD_FIELDS						\
+	cpuset_t	startup_cpus;	/* (i) [r] waiting for startup */ \
+	void		*iommu;		/* (x) iommu-specific data */	\
+	struct vioapic	*vioapic;	/* (i) virtual ioapic */	\
+	struct vatpic	*vatpic;	/* (i) virtual atpic */		\
+	struct vatpit	*vatpit;	/* (i) virtual atpit */		\
+	struct vpmtmr	*vpmtmr;	/* (i) virtual ACPI PM timer */	\
+	struct vrtc	*vrtc;		/* (o) virtual RTC */		\
+	struct vhpet	*vhpet		/* (i) virtual HPET */
+
 struct vm;
 struct vm_exception;
 struct vm_mem;
@@ -133,16 +160,11 @@ struct vhpet;
 struct vioapic;
 struct vlapic;
 struct vmspace;
+struct vm_eventinfo;
 struct vm_object;
 struct vm_guest_paging;
 struct pmap;
 enum snapshot_req;
-
-struct vm_eventinfo {
-	cpuset_t *rptr;		/* rendezvous cookie */
-	int	*sptr;		/* suspend cookie */
-	int	*iptr;		/* reqidle cookie */
-};
 
 #define	DECLARE_VMMOPS_FUNC(ret_type, opname, args)		\
 	typedef ret_type (*vmmops_##opname##_t) args;		\
@@ -206,20 +228,6 @@ struct vmm_ops {
 extern const struct vmm_ops vmm_ops_intel;
 extern const struct vmm_ops vmm_ops_amd;
 
-int vm_create(const char *name, struct vm **retvm);
-struct vcpu *vm_alloc_vcpu(struct vm *vm, int vcpuid);
-void vm_disable_vcpu_creation(struct vm *vm);
-void vm_lock_vcpus(struct vm *vm);
-void vm_unlock_vcpus(struct vm *vm);
-void vm_destroy(struct vm *vm);
-int vm_reinit(struct vm *vm);
-const char *vm_name(struct vm *vm);
-uint16_t vm_get_maxcpus(struct vm *vm);
-void vm_get_topology(struct vm *vm, uint16_t *sockets, uint16_t *cores,
-    uint16_t *threads, uint16_t *maxcpus);
-int vm_set_topology(struct vm *vm, uint16_t sockets, uint16_t cores,
-    uint16_t threads, uint16_t maxcpus);
-
 int vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa);
 int vm_unmap_mmio(struct vm *vm, vm_paddr_t gpa, size_t len);
 int vm_assign_pptdev(struct vm *vm, int bus, int slot, int func);
@@ -232,16 +240,12 @@ int vm_get_seg_desc(struct vcpu *vcpu, int reg,
 int vm_set_seg_desc(struct vcpu *vcpu, int reg,
 		    struct seg_desc *desc);
 int vm_run(struct vcpu *vcpu);
-int vm_suspend(struct vm *vm, enum vm_suspend_how how);
 int vm_inject_nmi(struct vcpu *vcpu);
 int vm_nmi_pending(struct vcpu *vcpu);
 void vm_nmi_clear(struct vcpu *vcpu);
 int vm_inject_extint(struct vcpu *vcpu);
 int vm_extint_pending(struct vcpu *vcpu);
 void vm_extint_clear(struct vcpu *vcpu);
-int vcpu_vcpuid(struct vcpu *vcpu);
-struct vm *vcpu_vm(struct vcpu *vcpu);
-struct vcpu *vm_vcpu(struct vm *vm, int cpu);
 struct vlapic *vm_lapic(struct vcpu *vcpu);
 struct vioapic *vm_ioapic(struct vm *vm);
 struct vhpet *vm_hpet(struct vm *vm);
@@ -250,9 +254,6 @@ int vm_set_capability(struct vcpu *vcpu, int type, int val);
 int vm_get_x2apic_state(struct vcpu *vcpu, enum x2apic_state *state);
 int vm_set_x2apic_state(struct vcpu *vcpu, enum x2apic_state state);
 int vm_apicid2vcpuid(struct vm *vm, int apicid);
-int vm_activate_cpu(struct vcpu *vcpu);
-int vm_suspend_cpu(struct vm *vm, struct vcpu *vcpu);
-int vm_resume_cpu(struct vm *vm, struct vcpu *vcpu);
 int vm_restart_instruction(struct vcpu *vcpu);
 struct vm_exit *vm_exitinfo(struct vcpu *vcpu);
 cpuset_t *vm_exitinfo_cpuset(struct vcpu *vcpu);
@@ -265,56 +266,9 @@ int vm_snapshot_req(struct vm *vm, struct vm_snapshot_meta *meta);
 int vm_restore_time(struct vm *vm);
 
 #ifdef _SYS__CPUSET_H_
-/*
- * Rendezvous all vcpus specified in 'dest' and execute 'func(arg)'.
- * The rendezvous 'func(arg)' is not allowed to do anything that will
- * cause the thread to be put to sleep.
- *
- * The caller cannot hold any locks when initiating the rendezvous.
- *
- * The implementation of this API may cause vcpus other than those specified
- * by 'dest' to be stalled. The caller should not rely on any vcpus making
- * forward progress when the rendezvous is in progress.
- */
-typedef void (*vm_rendezvous_func_t)(struct vcpu *vcpu, void *arg);
-int vm_smp_rendezvous(struct vcpu *vcpu, cpuset_t dest,
-    vm_rendezvous_func_t func, void *arg);
-
-cpuset_t vm_active_cpus(struct vm *vm);
-cpuset_t vm_debug_cpus(struct vm *vm);
-cpuset_t vm_suspended_cpus(struct vm *vm);
 cpuset_t vm_start_cpus(struct vm *vm, const cpuset_t *tostart);
 void vm_await_start(struct vm *vm, const cpuset_t *waiting);
 #endif	/* _SYS__CPUSET_H_ */
-
-static __inline int
-vcpu_rendezvous_pending(struct vcpu *vcpu, struct vm_eventinfo *info)
-{
-	/*
-	 * This check isn't done with atomic operations or under a lock because
-	 * there's no need to. If the vcpuid bit is set, the vcpu is part of a
-	 * rendezvous and the bit won't be cleared until the vcpu enters the
-	 * rendezvous. On rendezvous exit, the cpuset is cleared and the vcpu
-	 * will see an empty cpuset. So, the races are harmless.
-	 */
-	return (CPU_ISSET(vcpu_vcpuid(vcpu), info->rptr));
-}
-
-static __inline int
-vcpu_suspended(struct vm_eventinfo *info)
-{
-
-	return (*info->sptr);
-}
-
-static __inline int
-vcpu_reqidle(struct vm_eventinfo *info)
-{
-
-	return (*info->iptr);
-}
-
-int vcpu_debugged(struct vcpu *vcpu);
 
 /*
  * Return true if device indicated by bus/slot/func is supposed to be a
@@ -326,38 +280,7 @@ bool vmm_is_pptdev(int bus, int slot, int func);
 
 void *vm_iommu_domain(struct vm *vm);
 
-enum vcpu_state {
-	VCPU_IDLE,
-	VCPU_FROZEN,
-	VCPU_RUNNING,
-	VCPU_SLEEPING,
-};
-
-int vcpu_set_state(struct vcpu *vcpu, enum vcpu_state state, bool from_idle);
-int vcpu_set_state_all(struct vm *vm, enum vcpu_state state);
-enum vcpu_state vcpu_get_state(struct vcpu *vcpu, int *hostcpu);
-
-static int __inline
-vcpu_is_running(struct vcpu *vcpu, int *hostcpu)
-{
-	return (vcpu_get_state(vcpu, hostcpu) == VCPU_RUNNING);
-}
-
-#ifdef _SYS_PROC_H_
-static int __inline
-vcpu_should_yield(struct vcpu *vcpu)
-{
-	struct thread *td;
-
-	td = curthread;
-	return (td->td_ast != 0 || td->td_owepreempt != 0);
-}
-#endif
-
-void *vcpu_stats(struct vcpu *vcpu);
-void vcpu_notify_event(struct vcpu *vcpu);
 void vcpu_notify_lapic(struct vcpu *vcpu);
-struct vm_mem *vm_mem(struct vm *vm);
 struct vatpic *vm_atpic(struct vm *vm);
 struct vatpit *vm_atpit(struct vm *vm);
 struct vpmtmr *vm_pmtmr(struct vm *vm);
