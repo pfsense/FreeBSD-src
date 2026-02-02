@@ -25,7 +25,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd December 26, 2025
+.Dd January 5, 2026
 .Dt BHYVE 8
 .Os
 .Sh NAME
@@ -542,6 +542,8 @@ considered unconnected.
 .Cm slirp
 .Op Cm \&,open
 .Op Cm \&,hostfwd= Ar proto : Ar hostaddr : Ar hostport - Ar guestaddr : Ar guestport
+.Op Cm \&,mac= Ar xx:xx:xx:xx:xx:xx
+.Op Cm \&,mtu= Ar N
 .Xc
 .El
 .Sm on
@@ -891,7 +893,7 @@ to guest by VirtIO Input Interface.
 .Bl -bullet
 .Sm off
 .It
-.Op Cm rfb= Ar ip-and-port
+.Op Cm rfb= Ar address
 .Op Cm ,w= Ar width
 .Op Cm ,h= Ar height
 .Op Cm ,vga= Ar vgaconf
@@ -902,9 +904,9 @@ to guest by VirtIO Input Interface.
 .Pp
 Configuration options are defined as follows:
 .Bl -tag -width 10n
-.It Cm rfb= Ns Ar ip-and-port Pq or Cm tcp= Ns Ar ip-and-port
-An IP address and a port VNC should listen on.
-There are two formats:
+.It Cm rfb= Ns Ar address Pq or Cm tcp= Ns Ar address
+A UNIX domain socket or IP address and a port VNC should listen on.
+There are three possible formats:
 .Pp
 .Bl -bullet -compact
 .It
@@ -915,6 +917,10 @@ There are two formats:
 .It
 .Sm off
 .Cm \&[ Ar IPv6%zone Cm \&] Cm \&: Ar port
+.Sm on
+.It
+.Sm off
+.Cm unix: Ar my/unix.sock
 .Sm on
 .El
 .Pp

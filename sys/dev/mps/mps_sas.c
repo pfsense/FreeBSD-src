@@ -30,7 +30,6 @@
  * Avago Technologies (LSI) MPT-Fusion Host Adapter FreeBSD
  */
 
-#include <sys/cdefs.h>
 /* Communications core for Avago Technologies (LSI) MPT2 */
 
 /* TODO Move headers to mpsvar */
@@ -80,6 +79,12 @@
 #include <dev/mps/mpsvar.h>
 #include <dev/mps/mps_table.h>
 #include <dev/mps/mps_sas.h>
+
+#include <sys/sdt.h>
+
+/* SDT Probes */
+SDT_PROBE_DEFINE4(cam, , mps, complete, "union ccb *",
+    "struct mps_command *", "u_int", "u32");
 
 /*
  * static array to check SCSI OpCode for EEDP protection bits
@@ -2076,6 +2081,9 @@ mpssas_scsiio_complete(struct mps_softc *sc, struct mps_command *cm)
 		mps_dprint(sc, MPS_INFO, "Decrementing SSU count.\n");
 		sc->SSU_refcount--;
 	}
+
+	SDT_PROBE4(cam, , mps, complete, ccb, cm, sassc->flags,
+	    sc->mapping_table[target_id].device_info);
 
 	/* Take the fast path to completion */
 	if (cm->cm_reply == NULL) {

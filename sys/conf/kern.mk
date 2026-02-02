@@ -37,6 +37,9 @@ NO_WBITWISE_INSTEAD_OF_LOGICAL=	-Wno-bitwise-instead-of-logical
 NO_WSTRICT_PROTOTYPES=		-Wno-strict-prototypes
 NO_WDEPRECATED_NON_PROTOTYPE=	-Wno-deprecated-non-prototype
 .endif
+.if ${COMPILER_VERSION} >= 210000
+NO_WDEFAULT_CONST_INIT_FIELD_UNSAFE= -Wno-default-const-init-field-unsafe
+.endif
 # Several other warnings which might be useful in some cases, but not severe
 # enough to error out the whole kernel build.  Display them anyway, so there is
 # some incentive to fix them eventually.
@@ -203,10 +206,6 @@ INLINE_LIMIT?=	8000
 .if ${MACHINE_CPUARCH} == "powerpc"
 CFLAGS+=	-mno-altivec -msoft-float
 INLINE_LIMIT?=	15000
-.endif
-
-.if ${MACHINE_ARCH} == "powerpcspe"
-CFLAGS.gcc+=	-mno-spe
 .endif
 
 #
@@ -407,7 +406,6 @@ LD_EMULATION_arm=armelf_fbsd
 LD_EMULATION_armv7=armelf_fbsd
 LD_EMULATION_i386=elf_i386_fbsd
 LD_EMULATION_powerpc= elf32ppc_fbsd
-LD_EMULATION_powerpcspe= elf32ppc_fbsd
 LD_EMULATION_powerpc64= elf64ppc_fbsd
 LD_EMULATION_powerpc64le= elf64lppc_fbsd
 LD_EMULATION_riscv64= elf64lriscv

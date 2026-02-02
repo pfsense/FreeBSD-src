@@ -1,9 +1,8 @@
 .include <src.opts.mk>
 
-SHLIBDIR?=	${LIBDIR}/virtual_oss
-
 SUBDIR+= null \
 	 oss
 
-.include "Makefile.inc"
+SUBDIR_PARALLEL=
+
 .include <bsd.subdir.mk>

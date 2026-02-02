@@ -2,7 +2,7 @@
 #
 # Make command line options:
 #	-DNO_CLEANDIR run ${MAKE} clean, instead of ${MAKE} cleandir
-#	-DNO_CLEAN do not clean at all
+#	-DNO_CLEAN do not clean at all (enabled by default)
 #	-DDB_FROM_SRC use the user/group databases in src/etc instead of
 #	    the system database when installing.
 #	-DNO_SHARE do not go into share subdir
@@ -151,7 +151,6 @@ KNOWN_ARCHES?=	aarch64/arm64 \
 		powerpc \
 		powerpc64/powerpc \
 		powerpc64le/powerpc \
-		powerpcspe/powerpc \
 		riscv64/riscv
 
 .if ${TARGET} == ${TARGET_ARCH}
@@ -1071,10 +1070,12 @@ _sanity_check: .PHONY .MAKE
 # tree changes, particularly with respect to removing source files and
 # replacing generated files.  Handle these cases here in an ad-hoc fashion.
 _cleanobj_fast_depend_hack: .PHONY
+.if ${MK_DEPEND_CLEANUP} != "no"
 	@echo ">>> Deleting stale dependencies...";
 	MACHINE=${MACHINE} MACHINE_ARCH=${MACHINE_ARCH} \
-	    ALL_libcompats=${_ALL_libcompats:Q} \
+	    ALL_libcompats=${_ALL_libcompats:Q} MAKE=${MAKE} \
 	    sh ${.CURDIR}/tools/build/depend-cleanup.sh ${OBJTOP} ${SRCTOP}
+.endif
 
 _cleanworldtmp: .PHONY
 .if ${MK_CLEAN} == "yes"
@@ -1168,7 +1169,7 @@ _cleanobj:
 .endfor
 .else
 	${_+_}cd ${.CURDIR}; env CLEANMK="_NO_INCLUDE_COMPILERMK=t ${CLEANDIR}" \
-	    MAKE=${MAKE} ${WMAKE} _cleanobj_fast_depend_hack
+	    ${WMAKE} _cleanobj_fast_depend_hack
 .endif	# ${MK_CLEAN} == "yes"
 _obj:
 	@echo
@@ -1351,28 +1352,6 @@ __installcheck_DESTDIR: .PHONY
 	@echo "ERROR: Please set DESTDIR!"; \
 	false
 .endif
-.endif
-.endif
-
-#
-# Don't allow installworld or installkernel on a pkgbase system.  This avoids
-# accidentally updating a pkgbase system with install{world,kernel}, causing
-# the installed system to become out of date with the package database.
-#
-# Skip the check if DESTDIR is defined on the assumption the user knows what
-# they're doing.  This means the check can be disabled for the running system
-# using DESTDIR=/.
-#
-.if !make(distributeworld) && !defined(DESTDIR)
-_installcheck_world: __installcheck_PKG
-_installcheck_kernel: __installcheck_PKG
-__installcheck_PKG: .PHONY
-.if exists(${LOCALBASE}/sbin/pkg-static)
-	@if ${LOCALBASE}/sbin/pkg-static info -e ${PKG_NAME_PREFIX}-runtime; then \
-		echo >&2 "ERROR: This target should not be used on a system installed from packages." ; \
-		echo >&2 "       To override this check, set DESTDIR=/."; \
-		false; \
-	fi
 .endif
 .endif
 
@@ -1725,7 +1704,6 @@ KERNCONF=${KERNFAST}
 .endif
 GENERIC_KERNCONF_SUFX_powerpc64=	64
 GENERIC_KERNCONF_SUFX_powerpc64le=	64LE
-GENERIC_KERNCONF_powerpcspe=	MPC85XXSPE
 GENERIC_KERNCONF?=	${GENERIC_KERNCONF_${TARGET_ARCH}:UGENERIC${GENERIC_KERNCONF_SUFX_${TARGET_ARCH}}}
 INSTKERNNAME?=	kernel
 
@@ -1753,10 +1731,6 @@ KERNCONF?=	${GENERIC_KERNCONF}
 
 BUILDKERNELS=
 INSTALLKERNEL=
-.if defined(NO_INSTALLKERNEL)
-# All of the BUILDKERNELS loops start at index 1.
-BUILDKERNELS+= dummy
-.endif
 .for _kernel in ${KERNCONF}
 .if !defined(_MKSHOWCONFIG) && exists(${KERNCONFDIR}/${_kernel})
 BUILDKERNELS+=	${_kernel}
@@ -1798,12 +1772,12 @@ _BUILDKERNEL_START!= date '+%s'
 # Builds all kernels defined by BUILDKERNELS.
 #
 buildkernel: .MAKE .PHONY
-.if empty(BUILDKERNELS:Ndummy)
+.if empty(BUILDKERNELS)
 	@echo "ERROR: Missing kernel configuration file(s) (${KERNCONF})."; \
 	false
 .endif
 	@echo
-.for _kernel in ${BUILDKERNELS:Ndummy}
+.for _kernel in ${BUILDKERNELS}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Kernel build for ${_kernel} started on `LC_ALL=C date`"
 	@echo "--------------------------------------------------------------"
@@ -1865,6 +1839,79 @@ NO_INSTALLEXTRAKERNELS?=	yes
 NO_INSTALLEXTRAKERNELS?=	no
 .endif
 
+.if ${NO_INSTALLEXTRAKERNELS} != "yes"
+.if defined(NO_INSTALLKERNEL)
+INSTALLEXTRAKERNELS=	${BUILDKERNELS}
+.elif ${BUILDKERNELS:[#]} > 1
+# First kernel is installed separately by INSTALLKERNEL, typically to
+# /boot/kernel, rather than to a config-suffixed directory.
+INSTALLEXTRAKERNELS=	${BUILDKERNELS:[2..-1]}
+.else
+INSTALLEXTRAKERNELS=
+.endif
+.endif
+
+#
+# Don't allow installworld or installkernel on a pkgbase system.  This avoids
+# accidentally updating a pkgbase system with install{world,kernel}, causing
+# the installed system to become out of date with the package database.
+#
+# Skip the check if DESTDIR is defined on the assumption the user knows what
+# they're doing.  This means the check can be disabled for the running system
+# using DESTDIR=/.
+#
+# People who want to disable this check permanently may set two variables in
+# /etc/make.conf, ALLOW_PKGBASE_INSTALLKERNEL and ALLOW_PKGBASE_INSTALLWORLD,
+# to disable these checks.  That doesn't stop this from breaking your system,
+# it just stops make from warning about it.
+#
+.if !make(distributeworld) && !defined(DESTDIR)
+
+. if !defined(ALLOW_PKGBASE_INSTALLKERNEL) && exists(${LOCALBASE}/sbin/pkg-static)
+# For installkernel, we check if this specific kernel was installed by pkg.
+# This means people can continue to use installkernel for non-packaged
+# kernels, which is useful for development.
+
+_installcheck_kernel: __installcheck_kernel_pkgbase
+__installcheck_kernel_pkgbase: .PHONY
+.  for _kernel in ${NO_INSTALLKERNEL:D:U${INSTKERNNAME}} \
+		${INSTALLEXTRAKERNELS:S/^/${INSTKERNNAME}./}
+	@if ${LOCALBASE}/sbin/pkg-static which /boot/${_kernel}/kernel \
+	    >/dev/null 2>&1; then \
+		echo >&2 "ERROR: The kernel at /boot/${_kernel} was installed from packages." ; \
+		echo >&2 "       A packaged kernel should never be updated using installkernel;" ; \
+		echo >&2 "       this will cause the package database to become out of sync with" ; \
+		echo >&2 "       the live system state.  Either uninstall the packaged kernel," ; \
+		echo >&2 "       or install this kernel to a different path using INSTKERNNAME." ; \
+		echo >&2 "" ; \
+		echo >&2 "       If you understand the risks and wish to proceed anyway, you may" ; \
+		echo >&2 "       set ALLOW_PKGBASE_INSTALLKERNEL=yes to override this safety check." ; \
+		echo >&2 "       After doing so, you should not use the pkg(8) utility until you" ; \
+		echo >&2 "       have resolved the inconsistency between the installed system and" ; \
+		echo >&2 "       the package database." ; \
+		false; \
+	fi
+.  endfor
+. endif	# !defined(ALLOW_PKGBASE_INSTALLKERNEL) && exists(pkg-static)
+
+. if !defined(ALLOW_PKGBASE_INSTALLWORLD) && exists(${LOCALBASE}/sbin/pkg-static)
+_installcheck_world: __installcheck_world_pkgbase
+__installcheck_world_pkgbase: .PHONY
+	@if ${LOCALBASE}/sbin/pkg-static info -e ${PKG_NAME_PREFIX}-runtime; then \
+		echo >&2 "ERROR: This target should never be used on a system installed from packages;" ; \
+		echo >&2 "       doing so will cause the package database to become out of sync with" ; \
+		echo >&2 "       the live system state." ; \
+		echo >&2 "" ; \
+		echo >&2 "       If you understand the risks and wish to proceed anyway, you may" ; \
+		echo >&2 "       set ALLOW_PKGBASE_INSTALLWORLD=yes to override this safety check." ; \
+		echo >&2 "       After doing so, you should not use the pkg(8) utility until you" ; \
+		echo >&2 "       have resolved the inconsistency between the installed system and" ; \
+		echo >&2 "       the package database." ; \
+		false; \
+	fi
+. endif	# !defined(ALLOW_PKGBASE_INSTALLWORLD) && exists(pkg-static)
+.endif	# !make(distributeworld) && !defined(DESTDIR)
+
 #
 # installkernel, etc.
 #
@@ -1891,8 +1938,8 @@ reinstallkernel reinstallkernel.debug: _installcheck_kernel .PHONY
 	  echo ">>> Install kernel(s) ${INSTALLKERNEL} completed in $$seconds seconds, ncpu: $$(${_ncpu_cmd})${.MAKE.JOBS:S/^/, make -j/}"
 	@echo "--------------------------------------------------------------"
 .endif
-.if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
-.for _kernel in ${BUILDKERNELS:[2..-1]}
+.if !empty(INSTALLEXTRAKERNELS)
+.for _kernel in ${INSTALLEXTRAKERNELS}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Installing kernel ${_kernel} $$(LC_ALL=C date)"
 	@echo "--------------------------------------------------------------"
@@ -1929,8 +1976,8 @@ distributekernel distributekernel.debug: .PHONY
 	    ${METALOG_SORT_CMD} >> ${DESTDIR}/${DISTDIR}/kernel.meta
 .endif
 .endif
-.if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
-.for _kernel in ${BUILDKERNELS:[2..-1]}
+.if !empty(INSTALLEXTRAKERNELS)
+.for _kernel in ${INSTALLEXTRAKERNELS}
 	rm -f ${DESTDIR}/${DISTDIR}/kernel.${_kernel}.premeta
 	${_+_}cd ${KRNLOBJDIR}/${_kernel}; \
 	    ${IMAKEENV} ${IMAKE_INSTALL:S/METALOG/kernel.${_kernel}.premeta/} \
@@ -1961,8 +2008,8 @@ packagekernel: .PHONY
 	    @${DESTDIR}/${DISTDIR}/kernel.meta | \
 	    ${XZ_CMD} > ${DESTDIR}/${DISTDIR}/kernel-dbg.txz
 .endif
-.if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
-.for _kernel in ${BUILDKERNELS:[2..-1]}
+.if !empty(INSTALLEXTRAKERNELS)
+.for _kernel in ${INSTALLEXTRAKERNELS}
 	cd ${DESTDIR}/${DISTDIR}/kernel.${_kernel}; \
 	    ${TAR_CMD} cvf - --exclude '*.debug' \
 	    @${DESTDIR}/${DISTDIR}/kernel.${_kernel}.meta | \
@@ -2330,8 +2377,8 @@ create-kernel-packages-flavor${flavor:C,^""$,${_default_flavor},}: _pkgbootstrap
 create-kernel-packages: .PHONY
 
 .endif
-.if ${BUILDKERNELS:[#]} > 1 && ${NO_INSTALLEXTRAKERNELS} != "yes"
-. for _kernel in ${BUILDKERNELS:[2..-1]}
+.if !empty(INSTALLEXTRAKERNELS)
+.for _kernel in ${INSTALLEXTRAKERNELS}
 .  if exists(${KSTAGEDIR}/kernel.${_kernel}.meta)
 .   if ${MK_DEBUG_FILES} != "no"
 _debug=-dbg
@@ -2413,6 +2460,14 @@ checkworld: .PHONY
 doxygen: .PHONY
 	@if [ ! -x "${LOCALBASE}/bin/doxygen" ]; then \
 		echo "You need doxygen (devel/doxygen) to generate the API documentation of the kernel." | /usr/bin/fmt; \
+		exit 1; \
+	fi
+	@if [ ! -x "${LOCALBASE}/bin/tex" ]; then \
+		echo "You need TeX (print/texlive-full) to generate the API documentation of the kernel." | /usr/bin/fmt; \
+		exit 1; \
+	fi
+	@if [ ! -x "${LOCALBASE}/bin/dot" ]; then \
+		echo "You need graphviz (graphics/graphviz) to generate the API documentation of the kernel." | /usr/bin/fmt; \
 		exit 1; \
 	fi
 	${_+_}cd ${.CURDIR}/tools/kerneldoc/subsys; ${MAKE} obj all
@@ -3135,6 +3190,7 @@ NXBMAKEARGS+= \
 	MK_DEBUG_FILES=no \
 	MK_HTML=no \
 	MK_LLDB=no \
+	MK_LLVM_LINK_STATIC_LIBRARIES=yes \
 	MK_MAN=no \
 	MK_MAN_UTILS=yes \
 	MK_OFED=no \

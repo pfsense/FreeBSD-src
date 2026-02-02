@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd August 28, 2025
+.Dd December 30, 2025
 .Dt PFCTL 8
 .Os
 .Sh NAME
@@ -43,7 +43,7 @@
 .Op Fl K Ar host | network
 .Xo
 .Oo Fl k
-.Ar host | network | label | id | gateway | nat
+.Ar host | network | label | id | gateway | source | nat
 .Oc Xc
 .Op Fl o Ar level
 .Op Fl p Ar device
@@ -281,7 +281,7 @@ option may be specified, which will kill all the source tracking
 entries from the first host/network to the second.
 .It Xo
 .Fl k
-.Ar host | network | label | id | key | gateway | nat
+.Ar host | network | label | id | key | gateway | source | nat
 .Xc
 Kill all of the state entries matching the specified
 .Ar host ,
@@ -290,6 +290,7 @@ Kill all of the state entries matching the specified
 .Ar id ,
 .Ar key ,
 .Ar gateway,
+.Ar source ,
 or
 .Ar nat.
 .Pp
@@ -373,6 +374,10 @@ To kill all states using a gateway in 192.168.0.0/24:
 States can also be killed based on their pre-NAT address:
 .Pp
 .Dl # pfctl -k nat -k 192.168.0.1
+.Pp
+To remove a source from a source limiter use:
+.Pp
+.Dl # pfctl -I 1 -k source -k 192.0.2.2
 .Pp
 .It Fl M
 Kill matching states in the opposite direction (on other interfaces) when
@@ -524,6 +529,26 @@ When used together with
 interface statistics are also shown.
 .Fl i
 can be used to select an interface or a group of interfaces.
+.It Cm LimiterStates
+Show information about state limiters.
+If
+.Fl R Ar id
+is specified as well,
+only the state limiter identified by
+.Ar id
+is shown.
+.It Cm LimiterSrcs
+Show information about source limiters.
+If
+.Fl R Ar id
+is specified as well,
+only the state limiter identified by
+.Ar id
+is shown.
+If
+.Fl v
+is specified,
+the address entries for the source pools are shown too.
 .It Cm all
 Show all of the above, except for the lists of interfaces and operating
 system fingerprints.

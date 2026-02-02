@@ -4,6 +4,10 @@
  * Copyright (c) 2005-2009 Ariff Abdullah <ariff@FreeBSD.org>
  * Copyright (c) 1999 Cameron Grant <cg@FreeBSD.org>
  * All rights reserved.
+ * Copyright (c) 2025 The FreeBSD Foundation
+ *
+ * Portions of this software were developed by Christos Margiolis
+ * <christos@FreeBSD.org> under sponsorship from the FreeBSD Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,12 +54,10 @@ struct feeder_class {
 
 struct pcm_feeder {
     	KOBJ_FIELDS;
-	int align;
-	struct pcm_feederdesc *desc, desc_static;
+	struct pcm_feederdesc desc;
 	void *data;
 	struct feeder_class *class;
 	struct pcm_feeder *source, *parent;
-
 };
 
 void feeder_register(void *p);

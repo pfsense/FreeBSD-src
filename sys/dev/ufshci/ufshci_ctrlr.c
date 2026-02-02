@@ -17,12 +17,8 @@ ufshci_ctrlr_fail(struct ufshci_controller *ctrlr)
 {
 	ctrlr->is_failed = true;
 
-	ufshci_req_queue_fail(ctrlr,
-	    ctrlr->task_mgmt_req_queue.qops.get_hw_queue(
-		&ctrlr->task_mgmt_req_queue));
-	ufshci_req_queue_fail(ctrlr,
-	    ctrlr->transfer_req_queue.qops.get_hw_queue(
-		&ctrlr->transfer_req_queue));
+	ufshci_req_queue_fail(ctrlr, &ctrlr->task_mgmt_req_queue);
+	ufshci_req_queue_fail(ctrlr, &ctrlr->transfer_req_queue);
 }
 
 static void
@@ -430,24 +426,15 @@ ufshci_ctrlr_submit_task_mgmt_request(struct ufshci_controller *ctrlr,
     struct ufshci_request *req)
 {
 	return (
-	    ufshci_req_queue_submit_request(&ctrlr->task_mgmt_req_queue, req,
-		/*is_admin*/ false));
+	    ufshci_req_queue_submit_request(&ctrlr->task_mgmt_req_queue, req));
 }
 
 int
-ufshci_ctrlr_submit_admin_request(struct ufshci_controller *ctrlr,
+ufshci_ctrlr_submit_transfer_request(struct ufshci_controller *ctrlr,
     struct ufshci_request *req)
 {
-	return (ufshci_req_queue_submit_request(&ctrlr->transfer_req_queue, req,
-	    /*is_admin*/ true));
-}
-
-int
-ufshci_ctrlr_submit_io_request(struct ufshci_controller *ctrlr,
-    struct ufshci_request *req)
-{
-	return (ufshci_req_queue_submit_request(&ctrlr->transfer_req_queue, req,
-	    /*is_admin*/ false));
+	return (
+	    ufshci_req_queue_submit_request(&ctrlr->transfer_req_queue, req));
 }
 
 int

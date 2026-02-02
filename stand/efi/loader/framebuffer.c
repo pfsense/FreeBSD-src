@@ -392,6 +392,23 @@ efifb_from_uga(struct efi_fb *efifb)
 			/* These are the missing bits. */
 			offset = 0x0;
 			stride = 2048;
+		} else if (ev != NULL && !strcmp(ev, "MacBookPro3,1")) {
+			/*
+			 * Valid for MacBookPro 17" with standard resolution.
+			 * Other Models are:
+			 *   MacBookPro 15" with horiz=1440
+			 *   MacBookPro 17" with horiz=1920
+			 */
+
+			/* These are the expected values we should have. */
+			if (horiz == 1680) {
+				vert = 1050;
+				fbaddr = 0xc0000000;
+				/* These are the missing bits. */
+				stride = 2048;
+				/* 24 scan lines down */
+				offset = stride * 4 * 24;
+			}
 		}
 	}
 
@@ -590,46 +607,8 @@ efi_find_framebuffer(teken_gfx_t *gfx_state)
 		if (EFI_ERROR(status))
 			free(hlist);
 	}
-	if (EFI_ERROR(status))
-		return (efi_status_to_errno(status));
 
-	nhandles = hsize / sizeof(*hlist);
-
-	/*
-	 * Search for ConOut protocol, if not found, use first handle.
-	 */
-	gop_handle = NULL;
-	for (i = 0; i < nhandles; i++) {
-		EFI_GRAPHICS_OUTPUT_PROTOCOL *tgop;
-		void *dummy;
-
-		status = OpenProtocolByHandle(hlist[i], &gop_guid, (void **)&tgop);
-		if (status != EFI_SUCCESS)
-			continue;
-
-		if (tgop->Mode->Info->PixelFormat == PixelBltOnly ||
-		    tgop->Mode->Info->PixelFormat >= PixelFormatMax)
-			continue;
-
-		status = OpenProtocolByHandle(hlist[i], &conout_guid, &dummy);
-		if (status == EFI_SUCCESS) {
-			gop_handle = hlist[i];
-			gop = tgop;
-			break;
-		} else if (gop_handle == NULL) {
-			gop_handle = hlist[i];
-			gop = tgop;
-		}
-	}
-
-	free(hlist);
-
-	if (gop_handle != NULL) {
-		gfx_state->tg_fb_type = FB_GOP;
-		gfx_state->tg_private = gop;
-		if (edid_info == NULL)
-			edid_info = efifb_gop_get_edid(gop_handle);
-	} else {
+	if (EFI_ERROR(status)) {
 		status = BS->LocateProtocol(&uga_guid, NULL, (VOID **)&uga);
 		if (status == EFI_SUCCESS) {
 			gfx_state->tg_fb_type = FB_UGA;
@@ -637,6 +616,46 @@ efi_find_framebuffer(teken_gfx_t *gfx_state)
 		} else {
 			return (efi_status_to_errno(status));
 		}
+	} else {
+		nhandles = hsize / sizeof(*hlist);
+
+		/*
+		 * Search for ConOut protocol, if not found, use first handle.
+		 */
+		gop_handle = NULL;
+		for (i = 0; i < nhandles; i++) {
+			EFI_GRAPHICS_OUTPUT_PROTOCOL *tgop;
+			void *dummy;
+
+			status = OpenProtocolByHandle(hlist[i], &gop_guid,
+			    (void **)&tgop);
+			if (status != EFI_SUCCESS)
+				continue;
+
+			if (tgop->Mode->Info->PixelFormat == PixelBltOnly ||
+			    tgop->Mode->Info->PixelFormat >= PixelFormatMax)
+				continue;
+
+			status = OpenProtocolByHandle(hlist[i], &conout_guid,
+			    &dummy);
+			if (status == EFI_SUCCESS) {
+				gop_handle = hlist[i];
+				gop = tgop;
+				break;
+			} else if (gop_handle == NULL) {
+				gop_handle = hlist[i];
+				gop = tgop;
+			}
+		}
+
+		free(hlist);
+		if (gop_handle == NULL)
+			return (ENXIO);
+
+		gfx_state->tg_fb_type = FB_GOP;
+		gfx_state->tg_private = gop;
+		if (edid_info == NULL)
+			edid_info = efifb_gop_get_edid(gop_handle);
 	}
 
 	switch (gfx_state->tg_fb_type) {

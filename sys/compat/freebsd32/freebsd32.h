@@ -30,14 +30,26 @@
 #define _COMPAT_FREEBSD32_FREEBSD32_H_
 
 #include <sys/abi_compat.h>
+#include <sys/devicestat.h>
+#include <sys/event.h>
+#include <sys/mount.h>
 #include <sys/procfs.h>
 #include <sys/socket.h>
 #include <sys/user.h>
 #include <sys/_ffcounter.h>
 
 /*
- * i386 is the only arch with a 32-bit time_t
+ * i386 is the only arch with a 32-bit time_t.
+ * Also it is the only arch with (u)int64_t having 4-bytes alignment.
  */
+typedef struct {
+#ifdef __amd64__
+	uint32_t val[2];
+#else
+	uint64_t val;
+#endif
+} freebsd32_uint64_t;
+
 #ifdef __amd64__
 typedef	int32_t	time32_t;
 #else
@@ -61,7 +73,7 @@ struct itimerspec32 {
 
 struct bintime32 {
 	time32_t sec;
-	uint32_t frac[2];
+	freebsd32_uint64_t frac;
 };
 
 struct ffclock_estimate32 {
@@ -529,6 +541,30 @@ struct ptrace_sc_remote32 {
 	u_int		pscr_syscall;
 	u_int		pscr_nargs;
 	uint32_t	pscr_args;
+};
+
+struct devstat32 {
+	u_int			sequence0;
+	int			allocated;
+	u_int			start_count;
+	u_int			end_count;
+	struct bintime32	busy_from;
+	struct { u_int32_t stqe_next; } dev_links;
+	u_int32_t		device_number;
+	char			device_name[DEVSTAT_NAME_LEN];
+	int			unit_number;
+	freebsd32_uint64_t	bytes[DEVSTAT_N_TRANS_FLAGS];
+	freebsd32_uint64_t	operations[DEVSTAT_N_TRANS_FLAGS];
+	struct bintime32	duration[DEVSTAT_N_TRANS_FLAGS];
+	struct bintime32	busy_time;
+	struct bintime32        creation_time;
+	u_int32_t		block_size;
+	freebsd32_uint64_t	tag_types[3];
+	devstat_support_flags	flags;
+	devstat_type_flags	device_type;
+	devstat_priority	priority;
+	u_int32_t		id;
+	u_int			sequence1;
 };
 
 #endif /* !_COMPAT_FREEBSD32_FREEBSD32_H_ */

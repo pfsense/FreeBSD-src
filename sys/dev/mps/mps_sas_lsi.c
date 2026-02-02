@@ -29,7 +29,6 @@
  * Avago Technologies (LSI) MPT-Fusion Host Adapter FreeBSD
  */
 
-#include <sys/cdefs.h>
 /* Communications core for Avago Technologies (LSI) MPT2 */
 
 /* TODO Move headers to mpsvar */
@@ -1153,7 +1152,6 @@ mpssas_SSU_to_SATA_devices(struct mps_softc *sc, int howto)
 			    /*start*/FALSE,
 			    /*load/eject*/0,
 			    /*immediate*/FALSE,
-			    /*power_condition*/SSS_PC_START_VALID,
 			    MPS_SENSE_LEN,
 			    /*timeout*/10000);
 			xpt_action(ccb);

@@ -48,7 +48,13 @@ int __lkpi_hexdump_printf(void *, const char *, ...) __printflike(2, 3);
 
 void lkpi_hex_dump(int(*)(void *, const char *, ...), void *arg1,
     const char *, const char *, const int, const int, const int,
-    const void *, size_t, const bool);
+    const void *, size_t, const bool, const bool);
+
+#define	hex_dump_to_buffer(buf, len, rowsize, groupsize, linebuf, linebuflen, ascii) \
+    lkpi_hex_dump_to_buffer((buf), (len), (rowsize), (groupsize), (linebuf), (linebuflen), (ascii))
+
+int lkpi_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
+    int groupsize, char *linebuf, size_t linebuflen, bool ascii);
 
 static inline void
 print_hex_dump(const char *level, const char *prefix_str,
@@ -56,7 +62,7 @@ print_hex_dump(const char *level, const char *prefix_str,
     const void *buf, size_t len, const bool ascii)
 {
 	lkpi_hex_dump(__lkpi_hexdump_printf, NULL, level, prefix_str, prefix_type,
-	    rowsize, groupsize, buf, len, ascii);
+	    rowsize, groupsize, buf, len, ascii, true);
 }
 
 static inline void

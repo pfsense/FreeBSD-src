@@ -210,8 +210,6 @@ ipfw_free_rule(struct ip_fw *rule)
 	 */
 	if (rule->refcnt > 1)
 		return;
-	if (ACTION_PTR(rule)->opcode == O_LOG)
-		ipfw_tap_free(rule->rulenum);
 	uma_zfree_pcpu(V_ipfw_cntr_zone, rule->cntr);
 	free(rule, M_IPFW);
 }
@@ -337,43 +335,14 @@ ipfw_destroy_skipto_cache(struct ip_fw_chain *chain)
 }
 
 /*
- * allocate a new map, returns the chain locked. extra is the number
- * of entries to add or delete.
- */
-static struct ip_fw **
-get_map(struct ip_fw_chain *chain, int extra, int locked)
-{
-
-	for (;;) {
-		struct ip_fw **map;
-		u_int i, mflags;
-
-		mflags = M_ZERO | ((locked != 0) ? M_NOWAIT : M_WAITOK);
-
-		i = chain->n_rules + extra;
-		map = malloc(i * sizeof(struct ip_fw *), M_IPFW, mflags);
-		if (map == NULL) {
-			printf("%s: cannot allocate map\n", __FUNCTION__);
-			return NULL;
-		}
-		if (!locked)
-			IPFW_UH_WLOCK(chain);
-		if (i >= chain->n_rules + extra) /* good */
-			return map;
-		/* otherwise we lost the race, free and retry */
-		if (!locked)
-			IPFW_UH_WUNLOCK(chain);
-		free(map, M_IPFW);
-	}
-}
-
-/*
- * swap the maps. It is supposed to be called with IPFW_UH_WLOCK
+ * swap the maps.
  */
 static struct ip_fw **
 swap_map(struct ip_fw_chain *chain, struct ip_fw **new_map, int new_len)
 {
 	struct ip_fw **old_map;
+
+	IPFW_UH_WLOCK_ASSERT(chain);
 
 	IPFW_WLOCK(chain);
 	chain->id++;
@@ -459,6 +428,7 @@ ipfw_commit_rules(struct ip_fw_chain *chain, struct rule_check_info *rci,
 	struct ip_fw *krule;
 	struct ip_fw **map;	/* the new array of pointers */
 
+	IPFW_UH_WLOCK(chain);
 	/* Check if we need to do table/obj index remap */
 	tcount = 0;
 	for (ci = rci, i = 0; i < count; ci++, i++) {
@@ -484,8 +454,6 @@ ipfw_commit_rules(struct ip_fw_chain *chain, struct rule_check_info *rci,
 				 * We have some more table rules
 				 * we need to rollback.
 				 */
-
-				IPFW_UH_WLOCK(chain);
 				while (ci != rci) {
 					ci--;
 					if (ci->object_opcodes == 0)
@@ -493,33 +461,16 @@ ipfw_commit_rules(struct ip_fw_chain *chain, struct rule_check_info *rci,
 					unref_rule_objects(chain,ci->krule);
 
 				}
-				IPFW_UH_WUNLOCK(chain);
-
 			}
-
+			IPFW_UH_WUNLOCK(chain);
 			return (error);
 		}
 
 		tcount++;
 	}
 
-	/* get_map returns with IPFW_UH_WLOCK if successful */
-	map = get_map(chain, count, 0 /* not locked */);
-	if (map == NULL) {
-		if (tcount > 0) {
-			/* Unbind tables */
-			IPFW_UH_WLOCK(chain);
-			for (ci = rci, i = 0; i < count; ci++, i++) {
-				if (ci->object_opcodes == 0)
-					continue;
-
-				unref_rule_objects(chain, ci->krule);
-			}
-			IPFW_UH_WUNLOCK(chain);
-		}
-
-		return (ENOSPC);
-	}
+	map = malloc((chain->n_rules + count) * sizeof(struct ip_fw *),
+	    M_IPFW, M_ZERO | M_WAITOK);
 
 	if (V_autoinc_step < 1)
 		V_autoinc_step = 1;
@@ -552,6 +503,8 @@ ipfw_commit_rules(struct ip_fw_chain *chain, struct rule_check_info *rci,
 			memcpy((char *)ci->urule + ci->urule_numoff, &rulenum,
 			    sizeof(rulenum));
 		}
+		if (ACTION_PTR(krule)->opcode == O_LOG)
+			ipfw_tap_alloc(chain, krule->rulenum);
 	}
 
 	/* duplicate the remaining part, we always have the default rule */
@@ -568,14 +521,13 @@ ipfw_commit_rules(struct ip_fw_chain *chain, struct rule_check_info *rci,
 }
 
 int
-ipfw_add_protected_rule(struct ip_fw_chain *chain, struct ip_fw *rule,
-    int locked)
+ipfw_add_protected_rule(struct ip_fw_chain *chain, struct ip_fw *rule)
 {
 	struct ip_fw **map;
 
-	map = get_map(chain, 1, locked);
-	if (map == NULL)
-		return (ENOMEM);
+	IPFW_UH_WLOCK(chain);
+	map = malloc((chain->n_rules + 1) * sizeof(struct ip_fw *),
+	    M_IPFW, M_ZERO | M_WAITOK);
 	if (chain->n_rules > 0)
 		bcopy(chain->map, map,
 		    chain->n_rules * sizeof(struct ip_fw *));
@@ -813,12 +765,8 @@ delete_range(struct ip_fw_chain *chain, ipfw_range_tlv *rt, int *ndel)
 	}
 
 	/* Allocate new map of the same size */
-	map = get_map(chain, 0, 1 /* locked */);
-	if (map == NULL) {
-		IPFW_UH_WUNLOCK(chain);
-		return (ENOMEM);
-	}
-
+	map = malloc(chain->n_rules * sizeof(struct ip_fw *),
+	    M_IPFW, M_ZERO | M_WAITOK);
 	n = 0;
 	ndyn = 0;
 	ofs = start;
@@ -2036,7 +1984,7 @@ ipfw_check_object_name_generic(const char *name)
  *
  * Return 0 on success.
  */
-int
+static int
 create_objects_compat(struct ip_fw_chain *ch, ipfw_insn *cmd,
     struct obj_idx *oib, struct obj_idx *pidx, struct tid_info *ti)
 {
@@ -2154,6 +2102,8 @@ unref_rule_objects(struct ip_fw_chain *ch, struct ip_fw *rule)
 		else
 			no->refcnt--;
 	}
+	if (ACTION_PTR(rule)->opcode == O_LOG)
+		ipfw_tap_free(ch, rule->rulenum);
 }
 
 /*
@@ -2228,7 +2178,7 @@ ref_rule_objects(struct ip_fw_chain *ch, struct ip_fw *rule,
 	cmdlen = 0;
 	error = 0;
 
-	IPFW_UH_WLOCK(ch);
+	IPFW_UH_WLOCK_ASSERT(ch);
 
 	/* Increase refcount on each existing referenced table. */
 	for ( ;	l > 0 ; l -= cmdlen, cmd += cmdlen) {
@@ -2251,10 +2201,8 @@ ref_rule_objects(struct ip_fw_chain *ch, struct ip_fw *rule,
 	if (error != 0) {
 		/* Unref everything we have already done */
 		unref_oib_objects(ch, rule->cmd, oib, pidx);
-		IPFW_UH_WUNLOCK(ch);
 		return (error);
 	}
-	IPFW_UH_WUNLOCK(ch);
 
 	/* Perform auto-creation for non-existing objects */
 	if (pidx != oib)
@@ -2513,9 +2461,6 @@ import_rule_v1(struct ip_fw_chain *chain, struct rule_check_info *ci)
 
 	/* Copy opcodes */
 	memcpy(krule->cmd, urule->cmd, krule->cmd_len * sizeof(uint32_t));
-
-	if (ACTION_PTR(krule)->opcode == O_LOG)
-		ipfw_tap_alloc(krule->rulenum);
 }
 
 /*

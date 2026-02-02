@@ -2307,9 +2307,6 @@ OLD_FILES+=usr/share/man/man5/hesiod.conf.5.gz
 .endif
 
 .if ${MK_HTML} == no
-OLD_FILES+=usr/share/doc/ncurses/hackguide.html
-OLD_FILES+=usr/share/doc/ncurses/ncurses-intro.html
-OLD_DIRS+=usr/share/doc/ncurses
 OLD_FILES+=usr/share/doc/ntp/accopt.html
 OLD_FILES+=usr/share/doc/ntp/assoc.html
 OLD_FILES+=usr/share/doc/ntp/audio.html
@@ -3739,7 +3736,6 @@ OLD_FILES+=usr/lib/libkdb5.so
 OLD_FILES+=usr/lib/libkrad.a
 OLD_FILES+=usr/lib/libkrad.so
 OLD_FILES+=usr/lib/libkrb5profile.a
-OLD_FILES+=usr/lib/libkrb5profile.so
 OLD_FILES+=usr/lib/libkrb5support.a
 OLD_FILES+=usr/lib/libkrb5support.so
 OLD_FILES+=usr/lib/libverto.a
@@ -3792,7 +3788,6 @@ OLD_LIBS+=usr/lib/libkadm5srv_mit.so.122
 OLD_LIBS+=usr/lib/libkdb5.so.122
 OLD_LIBS+=usr/lib/libkrad.so.122
 OLD_LIBS+=usr/lib/libkrb5.so.122
-OLD_LIBS+=usr/lib/libkrb5profile.so.122
 OLD_LIBS+=usr/lib/libkrb5support.so.122
 OLD_LIBS+=usr/lib/libverto.so.122
 .endif	# ${MK_KERBEROS} == "no" || ${MK_MITKRB5} == "no"
@@ -3838,7 +3833,7 @@ OLD_DIRS+=usr/share/moused
 .for LIBCOMPAT libcompat in ${_ALL_LIBCOMPATS_libcompats}
 .  if ${MK_LIB${LIBCOMPAT}} == no
 OLD_FILES+=etc/mtree/BSD.lib${libcompat}.dist
-OLD_FILES+=libexec/ld-elf${libcompat}.so.1
+OLD_LIBS+=libexec/ld-elf${libcompat}.so.1
 .    if exists(${DESTDIR}/usr/lib${libcompat})
 LIB${LIBCOMPAT}_DIRS!=find ${DESTDIR}/usr/lib${libcompat} -type d \
     | sed -e 's,^${DESTDIR}/,,'; echo
@@ -7385,6 +7380,19 @@ OLD_DIRS+=var/spool/clientmqueue
 
 .if ${MK_SERVICESDB} == no
 OLD_FILES+=var/db/services.db
+.endif
+
+.if ${MK_SOUND} == no
+OLD_DIRS+=lib/mixer
+OLD_DIRS+=lib/virtual_oss
+OLD_DIRS+=usr.bin/beep
+OLD_DIRS+=usr.bin/mididump
+OLD_DIRS+=usr.sbin/mixer
+OLD_DIRS+=usr.sbin/sndctl
+OLD_DIRS+=usr.sbin/virtual_oss
+OLD_FILES+=libexec/rc/rc.d/mixer
+OLD_FILES+=libexec/rc/rc.d/virtual_oss
+OLD_FILES+=sbin/devd/snd.conf
 .endif
 
 .if ${MK_NUAGEINIT} == no

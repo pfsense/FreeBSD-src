@@ -5,5 +5,6 @@ SUBDIR+= virtual_oss_cmd \
 
 SUBDIR.${MK_BLUETOOTH}+= virtual_bt_speaker
 
-.include "Makefile.inc"
+SUBDIR_PARALLEL=
+
 .include <bsd.subdir.mk>

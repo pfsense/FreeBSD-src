@@ -978,9 +978,9 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		 * functions for binaries linked with old crt1 which calls
 		 * _init itself.
 		 */
-		obj_main->init = obj_main->fini = (Elf_Addr)NULL;
+		obj_main->init = obj_main->fini = 0;
 		obj_main->preinit_array = obj_main->init_array =
-		    obj_main->fini_array = (Elf_Addr)NULL;
+		    obj_main->fini_array = NULL;
 	}
 
 	if (direct_exec) {
@@ -1499,43 +1499,43 @@ digest_dynamic1(Obj_Entry *obj, int early, const Elf_Dyn **dyn_rpath,
 			break;
 
 		case DT_INIT:
-			obj->init = (Elf_Addr)(obj->relocbase +
+			obj->init = (uintptr_t)(obj->relocbase +
 			    dynp->d_un.d_ptr);
 			break;
 
 		case DT_PREINIT_ARRAY:
-			obj->preinit_array = (Elf_Addr)(obj->relocbase +
+			obj->preinit_array = (uintptr_t *)(obj->relocbase +
 			    dynp->d_un.d_ptr);
 			break;
 
 		case DT_PREINIT_ARRAYSZ:
 			obj->preinit_array_num = dynp->d_un.d_val /
-			    sizeof(Elf_Addr);
+			    sizeof(uintptr_t);
 			break;
 
 		case DT_INIT_ARRAY:
-			obj->init_array = (Elf_Addr)(obj->relocbase +
+			obj->init_array = (uintptr_t *)(obj->relocbase +
 			    dynp->d_un.d_ptr);
 			break;
 
 		case DT_INIT_ARRAYSZ:
 			obj->init_array_num = dynp->d_un.d_val /
-			    sizeof(Elf_Addr);
+			    sizeof(uintptr_t);
 			break;
 
 		case DT_FINI:
-			obj->fini = (Elf_Addr)(obj->relocbase +
+			obj->fini = (uintptr_t)(obj->relocbase +
 			    dynp->d_un.d_ptr);
 			break;
 
 		case DT_FINI_ARRAY:
-			obj->fini_array = (Elf_Addr)(obj->relocbase +
+			obj->fini_array = (uintptr_t *)(obj->relocbase +
 			    dynp->d_un.d_ptr);
 			break;
 
 		case DT_FINI_ARRAYSZ:
 			obj->fini_array_num = dynp->d_un.d_val /
-			    sizeof(Elf_Addr);
+			    sizeof(uintptr_t);
 			break;
 
 		case DT_DEBUG:
@@ -1684,7 +1684,7 @@ digest_phdr(const Elf_Phdr *phdr, int phnum, caddr_t entry, const char *path)
 			continue;
 
 		obj->phdr = phdr;
-		obj->phsize = ph->p_memsz;
+		obj->phnum = ph->p_memsz / sizeof(*ph);
 		obj->relocbase = __DECONST(char *, phdr) - ph->p_vaddr;
 		break;
 	}
@@ -2423,8 +2423,7 @@ parse_rtld_phdr(Obj_Entry *obj)
 
 	first_seg = true;
 	obj->stack_flags = PF_X | PF_R | PF_W;
-	for (ph = obj->phdr;
-	    (const char *)ph < (const char *)obj->phdr + obj->phsize; ph++) {
+	for (ph = obj->phdr; ph < obj->phdr + obj->phnum; ph++) {
 		switch (ph->p_type) {
 		case PT_LOAD:
 			if (first_seg) {
@@ -2486,7 +2485,7 @@ init_rtld(caddr_t mapbase, Elf_Auxinfo **aux_info)
 
 	ehdr = (Elf_Ehdr *)mapbase;
 	objtmp.phdr = (Elf_Phdr *)((char *)mapbase + ehdr->e_phoff);
-	objtmp.phsize = ehdr->e_phnum * sizeof(objtmp.phdr[0]);
+	objtmp.phnum = ehdr->e_phnum;
 
 	/* Initialize the object list. */
 	TAILQ_INIT(&obj_list);
@@ -2600,8 +2599,7 @@ initlist_for_loaded_obj(Obj_Entry *obj, Obj_Entry *tail, Objlist *list)
 	STAILQ_FOREACH(tmp, &iflist, link) {
 		Obj_Entry *tobj = tmp->obj;
 
-		if ((tobj->fini != (Elf_Addr)NULL ||
-		    tobj->fini_array != (Elf_Addr)NULL) &&
+		if ((tobj->fini != 0 || tobj->fini_array != NULL) &&
 		    !tobj->on_fini_list) {
 			objlist_push_tail(&list_fini, tobj);
 			tobj->on_fini_list = true;
@@ -2673,8 +2671,7 @@ initlist_add_objects(Obj_Entry *obj, Obj_Entry *tail, Objlist *list,
 		 * Add the object to the global fini list in the
 		 * reverse order.
 		 */
-		if ((obj->fini != (Elf_Addr)NULL ||
-		    obj->fini_array != (Elf_Addr)NULL) &&
+		if ((obj->fini != 0 || obj->fini_array != NULL) &&
 		    !obj->on_fini_list) {
 			objlist_push_head(&list_fini, obj);
 			obj->on_fini_list = true;
@@ -2998,7 +2995,7 @@ load_kpreload(const void *addr)
 	obj = obj_new();
 	phdr = (const Elf_Phdr *)((const char *)addr + ehdr->e_phoff);
 	obj->phdr = phdr;
-	obj->phsize = ehdr->e_phnum * sizeof(*phdr);
+	obj->phnum = ehdr->e_phnum;
 	phlimit = phdr + ehdr->e_phnum;
 	seg0 = segn = NULL;
 
@@ -3076,10 +3073,10 @@ obj_from_addr(const void *addr)
 static void
 preinit_main(void)
 {
-	Elf_Addr *preinit_addr;
+	uintptr_t *preinit_addr;
 	int index;
 
-	preinit_addr = (Elf_Addr *)obj_main->preinit_array;
+	preinit_addr = obj_main->preinit_array;
 	if (preinit_addr == NULL)
 		return;
 
@@ -3106,7 +3103,7 @@ objlist_call_fini(Objlist *list, Obj_Entry *root, RtldLockState *lockstate)
 {
 	Objlist_Entry *elm;
 	struct dlerror_save *saved_msg;
-	Elf_Addr *fini_addr;
+	uintptr_t *fini_addr;
 	int index;
 
 	assert(root == NULL || root->refcount == 1);
@@ -3139,7 +3136,7 @@ objlist_call_fini(Objlist *list, Obj_Entry *root, RtldLockState *lockstate)
 			 * defined. When this happens, DT_FINI_ARRAY is
 			 * processed first.
 			 */
-			fini_addr = (Elf_Addr *)elm->obj->fini_array;
+			fini_addr = elm->obj->fini_array;
 			if (fini_addr != NULL && elm->obj->fini_array_num > 0) {
 				for (index = elm->obj->fini_array_num - 1;
 				    index >= 0; index--) {
@@ -3157,7 +3154,7 @@ objlist_call_fini(Objlist *list, Obj_Entry *root, RtldLockState *lockstate)
 					}
 				}
 			}
-			if (elm->obj->fini != (Elf_Addr)NULL) {
+			if (elm->obj->fini != 0) {
 				dbg("calling fini function for %s at %p",
 				    elm->obj->path, (void *)elm->obj->fini);
 				LD_UTRACE(UTRACE_FINI_CALL, elm->obj,
@@ -3193,7 +3190,7 @@ objlist_call_init(Objlist *list, RtldLockState *lockstate)
 	Objlist_Entry *elm;
 	Obj_Entry *obj;
 	struct dlerror_save *saved_msg;
-	Elf_Addr *init_addr;
+	uintptr_t *init_addr;
 	void (*reg)(void (*)(void));
 	int index;
 
@@ -3238,14 +3235,14 @@ objlist_call_init(Objlist *list, RtldLockState *lockstate)
 		 * It is legal to have both DT_INIT and DT_INIT_ARRAY defined.
 		 * When this happens, DT_INIT is processed first.
 		 */
-		if (elm->obj->init != (Elf_Addr)NULL) {
+		if (elm->obj->init != 0) {
 			dbg("calling init function for %s at %p",
 			    elm->obj->path, (void *)elm->obj->init);
 			LD_UTRACE(UTRACE_INIT_CALL, elm->obj,
 			    (void *)elm->obj->init, 0, 0, elm->obj->path);
 			call_init_pointer(elm->obj, elm->obj->init);
 		}
-		init_addr = (Elf_Addr *)elm->obj->init_array;
+		init_addr = elm->obj->init_array;
 		if (init_addr != NULL) {
 			for (index = 0; index < elm->obj->init_array_num;
 			    index++) {
@@ -3380,10 +3377,10 @@ reloc_textrel_prot(Obj_Entry *obj, bool before)
 {
 	const Elf_Phdr *ph;
 	void *base;
-	size_t l, sz;
+	size_t sz;
 	int prot;
 
-	for (l = obj->phsize / sizeof(*ph), ph = obj->phdr; l > 0; l--, ph++) {
+	for (ph = obj->phdr; ph < obj->phdr + obj->phnum; ph++) {
 		if (ph->p_type != PT_LOAD || (ph->p_flags & PF_W) != 0)
 			continue;
 		base = obj->relocbase + rtld_trunc_page(ph->p_vaddr);
@@ -4331,7 +4328,7 @@ rtld_fill_dl_phdr_info(const Obj_Entry *obj, struct dl_phdr_info *phdr_info)
 	phdr_info->dlpi_addr = (Elf_Addr)obj->relocbase;
 	phdr_info->dlpi_name = obj->path;
 	phdr_info->dlpi_phdr = obj->phdr;
-	phdr_info->dlpi_phnum = obj->phsize / sizeof(obj->phdr[0]);
+	phdr_info->dlpi_phnum = obj->phnum;
 	phdr_info->dlpi_tls_modid = obj->tlsindex;
 	phdr_info->dlpi_tls_data = (char *)tls_get_addr_slow(_tcb_get(),
 	    obj->tlsindex, 0, true);
@@ -5499,7 +5496,7 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
 	char *addr;
 	size_t i;
 	size_t extra_size, maxalign, post_size, pre_size, tls_block_size;
-	size_t tls_init_align, tls_init_offset;
+	size_t tls_init_align, tls_init_offset, tls_bss_offset;
 
 	if (oldtcb != NULL && tcbsize == TLS_TCB_SIZE)
 		return (oldtcb);
@@ -5557,11 +5554,10 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
 				    obj->tlsinitsize);
 			}
 			if (obj->tlssize > obj->tlsinitsize) {
-				memset(addr + tls_init_offset +
-				    obj->tlsinitsize,
-				    0,
-				    obj->tlssize - obj->tlsinitsize -
-					tls_init_offset);
+				tls_bss_offset = tls_init_offset +
+				    obj->tlsinitsize;
+				memset(addr + tls_bss_offset, 0,
+				    obj->tlssize - tls_bss_offset);
 			}
 			dtv->dtv_slots[obj->tlsindex - 1].dtvs_tls = addr;
 		}
@@ -6149,8 +6145,7 @@ obj_remap_relro(Obj_Entry *obj, int prot)
 	caddr_t relro_page;
 	size_t relro_size;
 
-	for (ph = obj->phdr; (const char *)ph < (const char *)obj->phdr +
-	    obj->phsize; ph++) {
+	for (ph = obj->phdr; ph < obj->phdr + obj->phnum; ph++) {
 		if (ph->p_type != PT_GNU_RELRO)
 			continue;
 		relro_page = obj->relocbase + rtld_trunc_page(ph->p_vaddr);

@@ -8,6 +8,7 @@
  * Copyright (c) 2009 Michael Reifenberger
  * Copyright (c) 2009 Norikatsu Shigemura
  * Copyright (c) 2008-2009 Gen Otsuji
+ * Copyright (c) 2025 ShengYi Hung
  *
  * This code is depending on kern_cpu.c, est.c, powernow.c, p4tcc.c, smist.c
  * in various parts. The authors of these files are Nate Lawson,
@@ -55,6 +56,7 @@
 #include <sys/malloc.h>
 #include <sys/proc.h>
 #include <sys/pcpu.h>
+#include <sys/sbuf.h>
 #include <sys/smp.h>
 #include <sys/sched.h>
 
@@ -74,6 +76,15 @@
 #define	MSR_AMD_10H_11H_STATUS	0xc0010063
 #define	MSR_AMD_10H_11H_CONFIG	0xc0010064
 
+#define	MSR_AMD_CPPC_CAPS_1	0xc00102b0
+#define	MSR_AMD_CPPC_ENABLE	0xc00102b1
+#define	MSR_AMD_CPPC_CAPS_2	0xc00102b2
+#define	MSR_AMD_CPPC_REQUEST	0xc00102b3
+#define	MSR_AMD_CPPC_STATUS	0xc00102b4
+
+#define	MSR_AMD_PWR_ACC		0xc001007a
+#define	MSR_AMD_PWR_ACC_MX	0xc001007b
+
 #define	AMD_10H_11H_MAX_STATES	16
 
 /* for MSR_AMD_10H_11H_LIMIT C001_0061 */
@@ -92,6 +103,23 @@
 
 #define	AMD_1AH_CUR_FID(msr)			((msr) & 0xFFF)
 
+#define	AMD_CPPC_CAPS_1_HIGH_PERF_BITS		0xff000000
+#define	AMD_CPPC_CAPS_1_NOMINAL_PERF_BITS	0x00ff0000
+#define	AMD_CPPC_CAPS_1_LOW_NONLIN_PERF_BITS	0x0000ff00
+#define	AMD_CPPC_CAPS_1_LOW_PERF_BITS		0x000000ff
+
+#define	AMD_CPPC_REQUEST_ENERGY_PERF_BITS	0xff000000
+#define	AMD_CPPC_REQUEST_DES_PERF_BITS		0x00ff0000
+#define	AMD_CPPC_REQUEST_MIN_PERF_BITS		0x0000ff00
+#define	AMD_CPPC_REQUEST_MAX_PERF_BITS		0x000000ff
+
+#define	HWP_AMD_CLASSNAME			"hwpstate_amd"
+
+#define	BITS_VALUE(bits, num)			(((num) & (bits)) >> (ffsll((bits)) - 1))
+#define	BITS_WITH_VALUE(bits, val)		((uintmax_t)(val) << (ffsll((bits)) - 1))
+#define	SET_BITS_VALUE(var, bits, val) \
+	((var) = ((var) & ~(bits)) | BITS_WITH_VALUE((bits), (val)))
+
 #define	HWPSTATE_DEBUG(dev, msg...)			\
 	do {						\
 		if (hwpstate_verbose)			\
@@ -106,10 +134,16 @@ struct hwpstate_setting {
 	int	pstate_id;	/* P-State id */
 };
 
+enum hwpstate_flags {
+	PSTATE_CPPC = 1,
+};
+
 struct hwpstate_softc {
 	device_t		dev;
-	struct hwpstate_setting	hwpstate_settings[AMD_10H_11H_MAX_STATES];
+	struct hwpstate_setting hwpstate_settings[AMD_10H_11H_MAX_STATES];
 	int			cfnum;
+	uint32_t flags;
+	uint64_t req;
 };
 
 static void	hwpstate_identify(driver_t *driver, device_t parent);
@@ -140,6 +174,16 @@ SYSCTL_BOOL(_debug, OID_AUTO, hwpstate_pstate_limit, CTLFLAG_RWTUN,
     "If enabled (1), limit administrative control of P-states to the value in "
     "CurPstateLimit");
 
+static bool hwpstate_pkg_ctrl_enable = true;
+SYSCTL_BOOL(_machdep, OID_AUTO, hwpstate_pkg_ctrl, CTLFLAG_RDTUN,
+    &hwpstate_pkg_ctrl_enable, 0,
+    "Set 1 (default) to enable package-level control, 0 to disable");
+
+static bool hwpstate_amd_cppc_enable = true;
+SYSCTL_BOOL(_machdep, OID_AUTO, hwpstate_amd_cppc_enable, CTLFLAG_RDTUN,
+    &hwpstate_amd_cppc_enable, 0,
+    "Set 1 (default) to enable AMD CPPC, 0 to disable");
+
 static device_method_t hwpstate_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_identify,	hwpstate_identify),
@@ -159,8 +203,155 @@ static device_method_t hwpstate_methods[] = {
 	{0, 0}
 };
 
+struct amdhwp_dump_sysctl_handler_request {
+	uint64_t enable;
+	uint64_t caps;
+	uint64_t req;
+	int res;
+};
+
+static void
+amdhwp_dump_sysctl_handler_cb(void *args)
+{
+	struct amdhwp_dump_sysctl_handler_request *req =
+	    (struct amdhwp_dump_sysctl_handler_request *)args;
+
+	req->res = rdmsr_safe(MSR_AMD_CPPC_ENABLE, &req->enable);
+	if (req->res == 0)
+		req->res = rdmsr_safe(MSR_AMD_CPPC_CAPS_1, &req->caps);
+	if (req->res == 0)
+		req->res = rdmsr_safe(MSR_AMD_CPPC_REQUEST, &req->req);
+}
+
+static int
+amdhwp_dump_sysctl_handler(SYSCTL_HANDLER_ARGS)
+{
+	device_t dev;
+	struct pcpu *pc;
+	struct sbuf *sb;
+	struct hwpstate_softc *sc;
+	struct amdhwp_dump_sysctl_handler_request request;
+	uint64_t data;
+	int ret;
+
+	sc = (struct hwpstate_softc *)arg1;
+	dev = sc->dev;
+
+	pc = cpu_get_pcpu(dev);
+	if (pc == NULL)
+		return (ENXIO);
+
+	sb = sbuf_new(NULL, NULL, 1024, SBUF_FIXEDLEN | SBUF_INCLUDENUL);
+	sbuf_putc(sb, '\n');
+	smp_rendezvous_cpu(pc->pc_cpuid, smp_no_rendezvous_barrier,
+	    amdhwp_dump_sysctl_handler_cb, smp_no_rendezvous_barrier, &request);
+	ret = request.res;
+	if (ret)
+		goto out;
+
+	data = request.enable;
+	sbuf_printf(sb, "CPU%d: HWP %sabled\n", pc->pc_cpuid,
+	    ((data & 1) ? "En" : "Dis"));
+	if (data == 0)
+		goto out;
+
+	data = request.caps;
+	sbuf_printf(sb, "\tHighest Performance: %03ju\n",
+	    BITS_VALUE(AMD_CPPC_CAPS_1_HIGH_PERF_BITS, data));
+	sbuf_printf(sb, "\tGuaranteed Performance: %03ju\n",
+	    BITS_VALUE(AMD_CPPC_CAPS_1_NOMINAL_PERF_BITS, data));
+	sbuf_printf(sb, "\tEfficient Performance: %03ju\n",
+	    BITS_VALUE(AMD_CPPC_CAPS_1_LOW_NONLIN_PERF_BITS, data));
+	sbuf_printf(sb, "\tLowest Performance: %03ju\n",
+	    BITS_VALUE(AMD_CPPC_CAPS_1_LOW_PERF_BITS, data));
+	sbuf_putc(sb, '\n');
+
+	data = request.req;
+#define pkg_print(name, offset)                         \
+	do {                                            \
+		sbuf_printf(sb, "\t%s: %03u\n", name,   \
+		    (unsigned)(data >> offset) & 0xff); \
+	} while (0)
+
+	pkg_print("Requested Efficiency Performance Preference", 24);
+	pkg_print("Requested Desired Performance", 16);
+	pkg_print("Requested Maximum Performance", 8);
+	pkg_print("Requested Minimum Performance", 0);
+#undef pkg_print
+
+	sbuf_putc(sb, '\n');
+
+out:
+	if (ret == 0)
+		ret = sbuf_finish(sb);
+	if (ret == 0)
+		ret = SYSCTL_OUT(req, sbuf_data(sb), sbuf_len(sb));
+	sbuf_delete(sb);
+
+	return (ret);
+}
+
+static void
+sysctl_epp_select_per_core(device_t hwp_device, uint32_t val)
+{
+	struct hwpstate_softc *sc;
+
+	sc = device_get_softc(hwp_device);
+	if (BITS_VALUE(AMD_CPPC_REQUEST_ENERGY_PERF_BITS, sc->req) == val)
+		return;
+	SET_BITS_VALUE(sc->req, AMD_CPPC_REQUEST_ENERGY_PERF_BITS, val);
+	x86_msr_op(MSR_AMD_CPPC_REQUEST,
+	    MSR_OP_RENDEZVOUS_ONE | MSR_OP_WRITE |
+		MSR_OP_CPUID(cpu_get_pcpu(hwp_device)->pc_cpuid),
+	    sc->req, NULL);
+}
+
+static int
+sysctl_epp_select(SYSCTL_HANDLER_ARGS)
+{
+	device_t dev, hwp_dev;
+	devclass_t dc;
+	struct hwpstate_softc *sc;
+	const uint32_t max_energy_perf =
+	    BITS_VALUE(AMD_CPPC_REQUEST_ENERGY_PERF_BITS, (uint64_t)-1);
+	uint32_t val;
+	int ret = 0;
+	int cpu;
+
+	dev = oidp->oid_arg1;
+	sc = device_get_softc(dev);
+
+	if (!(sc->flags & PSTATE_CPPC))
+		return (ENODEV);
+
+	val = BITS_VALUE(AMD_CPPC_REQUEST_ENERGY_PERF_BITS, sc->req) * 100 /
+	    max_energy_perf;
+	ret = sysctl_handle_int(oidp, &val, 0, req);
+	if (ret != 0 || req->newptr == NULL)
+		goto end;
+	if (val > 100) {
+		ret = EINVAL;
+		goto end;
+	}
+	val = (val * max_energy_perf) / 100;
+
+	if (hwpstate_pkg_ctrl_enable) {
+		dc = devclass_find(HWP_AMD_CLASSNAME);
+		KASSERT(dc != NULL,
+		    (HWP_AMD_CLASSNAME ": devclass cannot be null"));
+		CPU_FOREACH(cpu) {
+			hwp_dev = devclass_get_device(dc, cpu);
+			sysctl_epp_select_per_core(hwp_dev, val);
+		}
+	} else
+		sysctl_epp_select_per_core(dev, val);
+
+end:
+	return (ret);
+}
+
 static driver_t hwpstate_driver = {
-	"hwpstate",
+	HWP_AMD_CLASSNAME,
 	hwpstate_methods,
 	sizeof(struct hwpstate_softc),
 };
@@ -269,6 +460,8 @@ hwpstate_set(device_t dev, const struct cf_setting *cf)
 	if (cf == NULL)
 		return (EINVAL);
 	sc = device_get_softc(dev);
+	if (sc->flags & PSTATE_CPPC)
+		return (EOPNOTSUPP);
 	set = sc->hwpstate_settings;
 	for (i = 0; i < sc->cfnum; i++)
 		if (CPUFREQ_CMP(cf->freq, set[i].freq))
@@ -284,21 +477,38 @@ hwpstate_get(device_t dev, struct cf_setting *cf)
 {
 	struct hwpstate_softc *sc;
 	struct hwpstate_setting set;
+	struct pcpu *pc;
 	uint64_t msr;
+	uint64_t rate;
+	int ret;
 
 	sc = device_get_softc(dev);
 	if (cf == NULL)
 		return (EINVAL);
-	msr = rdmsr(MSR_AMD_10H_11H_STATUS);
-	if (msr >= sc->cfnum)
-		return (EINVAL);
-	set = sc->hwpstate_settings[msr];
 
-	cf->freq = set.freq;
-	cf->volts = set.volts;
-	cf->power = set.power;
-	cf->lat = set.lat;
-	cf->dev = dev;
+	if (sc->flags & PSTATE_CPPC) {
+		pc = cpu_get_pcpu(dev);
+		if (pc == NULL)
+			return (ENXIO);
+
+		memset(cf, CPUFREQ_VAL_UNKNOWN, sizeof(*cf));
+		cf->dev = dev;
+		if ((ret = cpu_est_clockrate(pc->pc_cpuid, &rate)))
+			return (ret);
+		cf->freq = rate / 1000000;
+	} else {
+		msr = rdmsr(MSR_AMD_10H_11H_STATUS);
+		if (msr >= sc->cfnum)
+			return (EINVAL);
+		set = sc->hwpstate_settings[msr];
+
+		cf->freq = set.freq;
+		cf->volts = set.volts;
+		cf->power = set.power;
+		cf->lat = set.lat;
+		cf->dev = dev;
+	}
+
 	return (0);
 }
 
@@ -312,6 +522,9 @@ hwpstate_settings(device_t dev, struct cf_setting *sets, int *count)
 	if (sets == NULL || count == NULL)
 		return (EINVAL);
 	sc = device_get_softc(dev);
+	if (sc->flags & PSTATE_CPPC)
+		return (EOPNOTSUPP);
+
 	if (*count < sc->cfnum)
 		return (E2BIG);
 	for (i = 0; i < sc->cfnum; i++, sets++) {
@@ -330,19 +543,24 @@ hwpstate_settings(device_t dev, struct cf_setting *sets, int *count)
 static int
 hwpstate_type(device_t dev, int *type)
 {
+	struct hwpstate_softc *sc;
 
 	if (type == NULL)
 		return (EINVAL);
+	sc = device_get_softc(dev);
 
 	*type = CPUFREQ_TYPE_ABSOLUTE;
+	*type |= sc->flags & PSTATE_CPPC ?
+	    CPUFREQ_FLAG_INFO_ONLY | CPUFREQ_FLAG_UNCACHED :
+	    0;
 	return (0);
 }
 
 static void
 hwpstate_identify(driver_t *driver, device_t parent)
 {
-
-	if (device_find_child(parent, "hwpstate", DEVICE_UNIT_ANY) != NULL)
+	if (device_find_child(parent, HWP_AMD_CLASSNAME, DEVICE_UNIT_ANY) !=
+	    NULL)
 		return;
 
 	if ((cpu_vendor_id != CPU_VENDOR_AMD || CPUID_TO_FAMILY(cpu_id) < 0x10) &&
@@ -357,12 +575,91 @@ hwpstate_identify(driver_t *driver, device_t parent)
 		return;
 	}
 
-	if (resource_disabled("hwpstate", 0))
+	if (resource_disabled(HWP_AMD_CLASSNAME, 0))
 		return;
 
-	if (BUS_ADD_CHILD(parent, 10, "hwpstate", device_get_unit(parent))
-	    == NULL)
+	if (BUS_ADD_CHILD(parent, 10, HWP_AMD_CLASSNAME,
+		device_get_unit(parent)) == NULL)
 		device_printf(parent, "hwpstate: add child failed\n");
+}
+
+struct amd_set_autonomous_hwp_request {
+	device_t dev;
+	int res;
+};
+
+static void
+amd_set_autonomous_hwp_cb(void *args)
+{
+	struct hwpstate_softc *sc;
+	struct amd_set_autonomous_hwp_request *req =
+	    (struct amd_set_autonomous_hwp_request *)args;
+	device_t dev;
+	uint64_t caps;
+	int ret;
+
+	dev = req->dev;
+	sc = device_get_softc(dev);
+	ret = wrmsr_safe(MSR_AMD_CPPC_ENABLE, 1);
+	if (ret != 0) {
+		device_printf(dev, "Failed to enable cppc for cpu%d (%d)\n",
+		    curcpu, ret);
+		req->res = ret;
+	}
+
+	ret = rdmsr_safe(MSR_AMD_CPPC_REQUEST, &sc->req);
+	if (ret != 0) {
+		device_printf(dev,
+		    "Failed to read CPPC request MSR for cpu%d (%d)\n", curcpu,
+		    ret);
+		req->res = ret;
+	}
+
+	ret = rdmsr_safe(MSR_AMD_CPPC_CAPS_1, &caps);
+	if (ret != 0) {
+		device_printf(dev,
+		    "Failed to read HWP capabilities MSR for cpu%d (%d)\n",
+		    curcpu, ret);
+		req->res = ret;
+		return;
+	}
+
+	/*
+	 * In Intel's reference manual, the default value of EPP is 0x80u which
+	 * is the balanced mode. For consistency, we set the same value in AMD's
+	 * CPPC driver.
+	 */
+	SET_BITS_VALUE(sc->req, AMD_CPPC_REQUEST_ENERGY_PERF_BITS, 0x80);
+	SET_BITS_VALUE(sc->req, AMD_CPPC_REQUEST_MIN_PERF_BITS,
+	    BITS_VALUE(AMD_CPPC_CAPS_1_LOW_PERF_BITS, caps));
+	SET_BITS_VALUE(sc->req, AMD_CPPC_REQUEST_MAX_PERF_BITS,
+	    BITS_VALUE(AMD_CPPC_CAPS_1_HIGH_PERF_BITS, caps));
+	/* enable autonomous mode by setting desired performance to 0 */
+	SET_BITS_VALUE(sc->req, AMD_CPPC_REQUEST_DES_PERF_BITS, 0);
+
+	ret = wrmsr_safe(MSR_AMD_CPPC_REQUEST, sc->req);
+	if (ret) {
+		device_printf(dev, "Failed to setup autonomous HWP for cpu%d\n",
+		    curcpu);
+		req->res = ret;
+		return;
+	}
+	req->res = 0;
+}
+
+static int
+amd_set_autonomous_hwp(struct hwpstate_softc *sc)
+{
+	struct amd_set_autonomous_hwp_request req;
+	device_t dev;
+
+	dev = sc->dev;
+	req.dev = dev;
+	smp_rendezvous_cpu(cpu_get_pcpu(dev)->pc_cpuid,
+	    smp_no_rendezvous_barrier, amd_set_autonomous_hwp_cb,
+	    smp_no_rendezvous_barrier, &req);
+
+	return (req.res);
 }
 
 static int
@@ -373,15 +670,26 @@ hwpstate_probe(device_t dev)
 	uint64_t msr;
 	int error, type;
 
-	/*
-	 * Only hwpstate0.
-	 * It goes well with acpi_throttle.
-	 */
-	if (device_get_unit(dev) != 0)
-		return (ENXIO);
-
 	sc = device_get_softc(dev);
+
+	if (hwpstate_amd_cppc_enable &&
+	   (amd_extended_feature_extensions & AMDFEID_CPPC)) {
+		sc->flags |= PSTATE_CPPC;
+		device_set_desc(dev,
+		    "AMD Collaborative Processor Performance Control (CPPC)");
+	} else {
+		/*
+		 * No CPPC support.  Only keep hwpstate0, it goes well with
+		 * acpi_throttle.
+		 */
+		if (device_get_unit(dev) != 0)
+			return (ENXIO);
+		device_set_desc(dev, "Cool`n'Quiet 2.0");
+	}
+
 	sc->dev = dev;
+	if (sc->flags & PSTATE_CPPC)
+		return (0);
 
 	/*
 	 * Check if acpi_perf has INFO only flag.
@@ -433,14 +741,32 @@ hwpstate_probe(device_t dev)
 	if (error)
 		return (error);
 
-	device_set_desc(dev, "Cool`n'Quiet 2.0");
 	return (0);
 }
 
 static int
 hwpstate_attach(device_t dev)
 {
+	struct hwpstate_softc *sc;
+	int res;
 
+	sc = device_get_softc(dev);
+	if (sc->flags & PSTATE_CPPC) {
+		if ((res = amd_set_autonomous_hwp(sc)))
+			return res;
+		SYSCTL_ADD_PROC(device_get_sysctl_ctx(dev),
+		    SYSCTL_STATIC_CHILDREN(_debug), OID_AUTO,
+		    device_get_nameunit(dev),
+		    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_SKIP | CTLFLAG_MPSAFE,
+		    sc, 0, amdhwp_dump_sysctl_handler, "A", "");
+
+		SYSCTL_ADD_PROC(device_get_sysctl_ctx(dev),
+		    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO,
+		    "epp", CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_MPSAFE, dev, 0,
+		    sysctl_epp_select, "I",
+		    "Efficiency/Performance Preference "
+		    "(range from 0, most performant, through 100, most efficient)");
+	}
 	return (cpufreq_register(dev));
 }
 
@@ -584,8 +910,11 @@ out:
 static int
 hwpstate_detach(device_t dev)
 {
+	struct hwpstate_softc *sc;
 
-	hwpstate_goto_pstate(dev, 0);
+	sc = device_get_softc(dev);
+	if (!(sc->flags & PSTATE_CPPC))
+		hwpstate_goto_pstate(dev, 0);
 	return (cpufreq_unregister(dev));
 }
 

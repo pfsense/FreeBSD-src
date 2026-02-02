@@ -122,7 +122,8 @@ device		bpf			# Berkeley packet filter
 
 # random(4)
 device		rdrand_rng		# Intel Bull Mountain RNG
-device		tpm			# Trusted Platform Module
+# Disabled for now since tpm(4) breaks suspend/resume.
+#device		tpm			# Trusted Platform Module
 options 	RANDOM_ENABLE_TPM	# enable entropy from TPM 2.0
 options 	RANDOM_ENABLE_KBD
 options 	RANDOM_ENABLE_MOUSE
@@ -133,6 +134,7 @@ device		virtio_pci		# VirtIO PCI device
 device		vtnet			# VirtIO Ethernet device
 device		virtio_blk		# VirtIO Block device
 device		virtio_balloon		# VirtIO Memory Balloon device
+device		virtio_scsi		# VirtIO SCSI device
 
 # Linux KVM paravirtualization support
 device		kvm_clock		# KVM paravirtual clock driver

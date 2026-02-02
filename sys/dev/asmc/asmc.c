@@ -34,6 +34,8 @@
  * Inspired by the Linux applesmc driver.
  */
 
+#include "opt_asmc.h"
+
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/conf.h>
@@ -83,7 +85,7 @@ static void 	asmc_sms_calibrate(device_t dev);
 static int 	asmc_sms_intrfast(void *arg);
 static void 	asmc_sms_printintr(device_t dev, uint8_t);
 static void 	asmc_sms_task(void *arg, int pending);
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 void		asmc_dumpall(device_t);
 static int	asmc_key_dump(device_t, int);
 #endif
@@ -97,6 +99,7 @@ static int 	asmc_mb_sysctl_fansafespeed(SYSCTL_HANDLER_ARGS);
 static int 	asmc_mb_sysctl_fanminspeed(SYSCTL_HANDLER_ARGS);
 static int 	asmc_mb_sysctl_fanmaxspeed(SYSCTL_HANDLER_ARGS);
 static int 	asmc_mb_sysctl_fantargetspeed(SYSCTL_HANDLER_ARGS);
+static int 	asmc_mb_sysctl_fanmanual(SYSCTL_HANDLER_ARGS);
 static int 	asmc_temp_sysctl(SYSCTL_HANDLER_ARGS);
 static int 	asmc_mb_sysctl_sms_x(SYSCTL_HANDLER_ARGS);
 static int 	asmc_mb_sysctl_sms_y(SYSCTL_HANDLER_ARGS);
@@ -282,6 +285,13 @@ static const struct asmc_model asmc_models[] = {
 	  "MacBookPro11,4", "Apple SMC MacBook Pro Retina Core i7 (mid 2015, 15-inch)",
 	  ASMC_SMS_FUNCS_DISABLED, ASMC_FAN_FUNCS, ASMC_LIGHT_FUNCS,
 	  ASMC_MBP114_TEMPS, ASMC_MBP114_TEMPNAMES, ASMC_MBP114_TEMPDESCS
+	},
+
+	{
+	  "MacBookPro11,5",
+	  "Apple SMC MacBook Pro Retina Core i7 (mid 2015, 15-inch, AMD GPU)",
+	  ASMC_SMS_FUNCS_DISABLED, ASMC_FAN_FUNCS2, ASMC_LIGHT_FUNCS,
+	  ASMC_MBP115_TEMPS, ASMC_MBP115_TEMPNAMES, ASMC_MBP115_TEMPDESCS
 	},
 
 	/* The Mac Mini has no SMS */
@@ -514,7 +524,7 @@ static driver_t	asmc_driver = {
  */
 #define	_COMPONENT	ACPI_OEM
 ACPI_MODULE_NAME("ASMC")
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 #define ASMC_DPRINTF(str)	device_printf(dev, str)
 #else
 #define ASMC_DPRINTF(str)
@@ -656,6 +666,13 @@ asmc_attach(device_t dev)
 		    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
 		    dev, j, model->smc_fan_targetspeed, "I",
 		    "Fan target speed in RPM");
+
+		SYSCTL_ADD_PROC(sysctlctx,
+		    SYSCTL_CHILDREN(sc->sc_fan_tree[i]),
+		    OID_AUTO, "manual",
+		    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+		    dev, j, asmc_mb_sysctl_fanmanual, "I",
+		    "Fan manual mode (0=auto, 1=manual)");
 	}
 
 	/*
@@ -820,13 +837,19 @@ asmc_resume(device_t dev)
     return (0);
 }
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 void asmc_dumpall(device_t dev)
 {
+	struct asmc_softc *sc = device_get_softc(dev);
 	int i;
 
-	/* XXX magic number */
-	for (i=0; i < 0x100; i++)
+	if (sc->sc_nkeys == 0) {
+		device_printf(dev, "asmc_dumpall: key count not available\n");
+		return;
+	}
+
+	device_printf(dev, "asmc_dumpall: dumping %d keys\n", sc->sc_nkeys);
+	for (i = 0; i < sc->sc_nkeys; i++)
 		asmc_key_dump(dev, i);
 }
 #endif
@@ -914,15 +937,18 @@ nosms:
 		sc->sc_nfan = ASMC_MAXFANS;
 	}
 
-	if (bootverbose) {
-		/*
-		 * The number of keys is a 32 bit buffer
-		 */
-		asmc_key_read(dev, ASMC_NKEYS, buf, 4);
-		device_printf(dev, "number of keys: %d\n", ntohl(*(uint32_t*)buf));
+	/*
+	 * Read and cache the number of SMC keys (32 bit buffer)
+	 */
+	if (asmc_key_read(dev, ASMC_NKEYS, buf, 4) == 0) {
+		sc->sc_nkeys = be32dec(buf);
+		if (bootverbose)
+			device_printf(dev, "number of keys: %d\n", sc->sc_nkeys);
+	} else {
+		sc->sc_nkeys = 0;
 	}
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 	asmc_dumpall(dev);
 #endif
 
@@ -957,19 +983,19 @@ asmc_wait_ack(device_t dev, uint8_t val, int amount)
 static int
 asmc_wait(device_t dev, uint8_t val)
 {
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 	struct asmc_softc *sc;
 #endif
 
 	if (asmc_wait_ack(dev, val, 1000) == 0)
 		return (0);
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 	sc = device_get_softc(dev);
 #endif
 	val = val & ASMC_STATUS_MASK;
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 	device_printf(dev, "%s failed: 0x%x, 0x%x\n", __func__, val,
 	    ASMC_CMDPORT_READ(sc));
 #endif
@@ -992,7 +1018,7 @@ asmc_command(device_t dev, uint8_t command) {
 		}
 	}
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 	device_printf(dev, "%s failed: 0x%x, 0x%x\n", __func__, command,
 	    ASMC_CMDPORT_READ(sc));
 #endif
@@ -1038,7 +1064,7 @@ out:
 	return (error);
 }
 
-#ifdef DEBUG
+#ifdef ASMC_DEBUG
 static int
 asmc_key_dump(device_t dev, int number)
 {
@@ -1333,6 +1359,53 @@ asmc_mb_sysctl_fantargetspeed(SYSCTL_HANDLER_ARGS)
 	if (error == 0 && req->newptr != NULL) {
 		unsigned int newspeed = v;
 		asmc_fan_setvalue(dev, ASMC_KEY_FANTARGETSPEED, fan, newspeed);
+	}
+
+	return (error);
+}
+
+static int
+asmc_mb_sysctl_fanmanual(SYSCTL_HANDLER_ARGS)
+{
+	device_t dev = (device_t) arg1;
+	int fan = arg2;
+	int error;
+	int32_t v;
+	uint8_t buf[2];
+	uint16_t val;
+
+	/* Read current FS! bitmask (asmc_key_read locks internally) */
+	error = asmc_key_read(dev, ASMC_KEY_FANMANUAL, buf, sizeof(buf));
+	if (error != 0)
+		return (error);
+
+	/* Extract manual bit for this fan (big-endian) */
+	val = (buf[0] << 8) | buf[1];
+	v = (val >> fan) & 0x01;
+
+	/* Let sysctl handle the value */
+	error = sysctl_handle_int(oidp, &v, 0, req);
+
+	if (error == 0 && req->newptr != NULL) {
+		/* Validate input (0 = auto, 1 = manual) */
+		if (v != 0 && v != 1)
+			return (EINVAL);
+		/* Read-modify-write of FS! bitmask */
+		error = asmc_key_read(dev, ASMC_KEY_FANMANUAL, buf, sizeof(buf));
+		if (error == 0) {
+			val = (buf[0] << 8) | buf[1];
+
+			/* Modify single bit */
+			if (v)
+				val |= (1 << fan);   /* Set to manual */
+			else
+				val &= ~(1 << fan);  /* Set to auto */
+
+			/* Write back */
+			buf[0] = val >> 8;
+			buf[1] = val & 0xff;
+			error = asmc_key_write(dev, ASMC_KEY_FANMANUAL, buf, sizeof(buf));
+		}
 	}
 
 	return (error);

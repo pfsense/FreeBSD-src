@@ -239,7 +239,8 @@ swap_release_by_cred_rlimit(u_long pdecr, struct ucred *cred)
 #ifdef INVARIANTS
 	prev = atomic_fetchadd_long(&uip->ui_vmsize, -pdecr);
 	KASSERT(prev >= pdecr,
-	    ("negative vmsize for uid %d\n", uip->ui_uid));
+	    ("negative vmsize for uid %d, prev %#jx decr %#jx\n",
+	    uip->ui_uid, (uintmax_t)prev, (uintmax_t)pdecr));
 #else
 	atomic_subtract_long(&uip->ui_vmsize, pdecr);
 #endif
@@ -329,7 +330,7 @@ out_error:
 }
 
 void
-swap_reserve_force(vm_ooffset_t incr)
+swap_reserve_force_by_cred(vm_ooffset_t incr, struct ucred *cred)
 {
 	u_long pincr;
 
@@ -345,7 +346,13 @@ swap_reserve_force(vm_ooffset_t incr)
 #endif
 	pincr = atop(incr);
 	atomic_add_long(&swap_reserved, pincr);
-	swap_reserve_force_rlimit(pincr, curthread->td_ucred);
+	swap_reserve_force_rlimit(pincr, cred);
+}
+
+void
+swap_reserve_force(vm_ooffset_t incr)
+{
+	swap_reserve_force_by_cred(incr, curthread->td_ucred);
 }
 
 void
@@ -373,7 +380,8 @@ swap_release_by_cred(vm_ooffset_t decr, struct ucred *cred)
 	pdecr = atop(decr);
 #ifdef INVARIANTS
 	prev = atomic_fetchadd_long(&swap_reserved, -pdecr);
-	KASSERT(prev >= pdecr, ("swap_reserved < decr"));
+	KASSERT(prev >= pdecr, ("swap_reserved %#jx < decr %#jx",
+	    (uintmax_t)prev, (uintmax_t)pdecr));
 #else
 	atomic_subtract_long(&swap_reserved, pdecr);
 #endif
@@ -776,10 +784,7 @@ swap_pager_init_object(vm_object_t object, void *handle, struct ucred *cred,
 
 	object->un_pager.swp.writemappings = 0;
 	object->handle = handle;
-	if (cred != NULL) {
-		object->cred = cred;
-		object->charge = size;
-	}
+	object->cred = cred;
 	return (true);
 }
 
@@ -892,8 +897,7 @@ swap_pager_dealloc(vm_object_t object)
 	 * Release the allocation charge.
 	 */
 	if (object->cred != NULL) {
-		swap_release_by_cred(object->charge, object->cred);
-		object->charge = 0;
+		swap_release_by_cred(ptoa(object->size), object->cred);
 		crfree(object->cred);
 		object->cred = NULL;
 	}
@@ -1358,14 +1362,22 @@ static int
 swap_pager_getpages_locked(struct pctrie_iter *blks, vm_object_t object,
     vm_page_t *ma, int count, int *a_rbehind, int *a_rahead, struct buf *bp)
 {
+	vm_page_t m;
 	vm_pindex_t pindex;
-	int rahead, rbehind;
+	int i, rahead, rbehind;
 
 	VM_OBJECT_ASSERT_WLOCKED(object);
 
 	KASSERT((object->flags & OBJ_SWAP) != 0,
 	    ("%s: object not swappable", __func__));
-	pindex = ma[0]->pindex;
+	for (pindex = 0, i = 0; i < count; i++) {
+		m = ma[i];
+		if (m != bogus_page) {
+			pindex = m->pindex - i;
+			break;
+		}
+	}
+	MPASS(i != count);
 	if (!swp_pager_haspage_iter(pindex, &rbehind, &rahead, blks)) {
 		VM_OBJECT_WUNLOCK(object);
 		uma_zfree(swrbuf_zone, bp);
@@ -1392,8 +1404,14 @@ swap_pager_getpages_locked(struct pctrie_iter *blks, vm_object_t object,
 	vm_object_prepare_buf_pages(object, bp->b_pages, count, &rbehind,
 	    &rahead, ma);
 	bp->b_npages = rbehind + count + rahead;
-	for (int i = 0; i < bp->b_npages; i++)
-		bp->b_pages[i]->oflags |= VPO_SWAPINPROG;
+	KASSERT(bp->b_npages <= PBUF_PAGES,
+	    ("bp_npages %d (rb %d c %d ra %d) not less than PBUF_PAGES %jd",
+	    bp->b_npages, rbehind, count, rahead, (uintmax_t)PBUF_PAGES));
+	for (i = 0; i < bp->b_npages; i++) {
+		m = bp->b_pages[i];
+		if (m != bogus_page)
+			m->oflags |= VPO_SWAPINPROG;
+	}
 	bp->b_blkno = swp_pager_meta_lookup(blks, pindex - rbehind);
 	KASSERT(bp->b_blkno != SWAPBLK_NONE,
 	    ("no swap blocking containing %p(%jx)", object, (uintmax_t)pindex));
@@ -1441,8 +1459,14 @@ swap_pager_getpages_locked(struct pctrie_iter *blks, vm_object_t object,
 	 */
 	VM_OBJECT_WLOCK(object);
 	/* This could be implemented more efficiently with aflags */
-	while ((ma[0]->oflags & VPO_SWAPINPROG) != 0) {
-		ma[0]->oflags |= VPO_SWAPSLEEP;
+	for (i = 0; i < count; i++) {
+		m = ma[i];
+		if (m != bogus_page)
+			break;
+	}
+	MPASS(i != count);
+	while ((m->oflags & VPO_SWAPINPROG) != 0) {
+		m->oflags |= VPO_SWAPSLEEP;
 		VM_CNT_INC(v_intrans);
 		if (VM_OBJECT_SLEEP(object, &object->handle, PSWP,
 		    "swread", hz * 20)) {
@@ -1456,9 +1480,10 @@ swap_pager_getpages_locked(struct pctrie_iter *blks, vm_object_t object,
 	/*
 	 * If we had an unrecoverable read error pages will not be valid.
 	 */
-	for (int i = 0; i < count; i++)
-		if (ma[i]->valid != VM_PAGE_BITS_ALL)
+	for (i = 0; i < count; i++) {
+		if (ma[i] != bogus_page && ma[i]->valid != VM_PAGE_BITS_ALL)
 			return (VM_PAGER_ERROR);
+	}
 
 	return (VM_PAGER_OK);
 
@@ -1722,6 +1747,9 @@ swp_pager_async_iodone(struct buf *bp)
 	 */
 	for (i = 0; i < bp->b_npages; ++i) {
 		vm_page_t m = bp->b_pages[i];
+
+		if (m == bogus_page)
+			continue;
 
 		m->oflags &= ~VPO_SWAPINPROG;
 		if (m->oflags & VPO_SWAPSLEEP) {

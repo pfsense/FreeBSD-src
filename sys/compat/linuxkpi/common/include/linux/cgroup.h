@@ -29,6 +29,15 @@
 #ifndef _LINUXKPI_LINUX_CGROUP_H_
 #define _LINUXKPI_LINUX_CGROUP_H_
 
+#include <linux/sched.h>
+#include <linux/nodemask.h>
+#include <linux/list.h>
+#include <linux/rculist.h>
+#include <linux/fs.h>
+#include <linux/seq_file.h>
+#include <linux/jump_label.h>
+#include <linux/types.h>
+#include <linux/refcount.h>
 #include <linux/kernel_stat.h>
 
 #endif	/* _LINUXKPI_LINUX_CGROUP_H_ */

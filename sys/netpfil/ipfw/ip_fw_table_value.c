@@ -125,13 +125,13 @@ mask_table_value(struct table_value *src, struct table_value *dst,
 }
 
 static void
-get_value_ptrs(struct ip_fw_chain *ch, struct table_config *tc, int vshared,
+get_value_ptrs(struct ip_fw_chain *ch, struct table_config *tc,
     struct table_value **ptv, struct namedobj_instance **pvi)
 {
 	struct table_value *pval;
 	struct namedobj_instance *vi;
 
-	if (vshared != 0) {
+	if (tc->vshared != 0) {
 		pval = (struct table_value *)ch->valuestate;
 		vi = CHAIN_TO_VI(ch);
 	} else {
@@ -147,7 +147,7 @@ get_value_ptrs(struct ip_fw_chain *ch, struct table_config *tc, int vshared,
 }
 
 /*
- * Update pointers to real vaues after @pval change.
+ * Update pointers to real values after @pval change.
  */
 static int
 update_tvalue(struct namedobj_instance *ni, struct named_object *no, void *arg)
@@ -167,7 +167,6 @@ update_tvalue(struct namedobj_instance *ni, struct named_object *no, void *arg)
 
 /*
  * Grows value storage shared among all tables.
- * Drops/reacquires UH locks.
  * Notifies other running adds on @ch shared storage resize.
  * Note function does not guarantee that free space
  * will be available after invocation, so one caller needs
@@ -200,14 +199,10 @@ resize_shared_value_storage(struct ip_fw_chain *ch)
 	if (val_size == (1 << 30))
 		return (ENOSPC);
 
-	IPFW_UH_WUNLOCK(ch);
-
 	valuestate = malloc(sizeof(struct table_value) * val_size, M_IPFW,
 	    M_WAITOK | M_ZERO);
 	ipfw_objhash_bitmap_alloc(val_size, (void *)&new_idx,
 	    &new_blocks);
-
-	IPFW_UH_WLOCK(ch);
 
 	/*
 	 * Check if we still need to resize
@@ -217,7 +212,6 @@ resize_shared_value_storage(struct ip_fw_chain *ch)
 
 	/* Update pointers and notify everyone we're changing @ch */
 	pval = (struct table_value *)ch->valuestate;
-	rollback_toperation_state(ch, ch);
 
 	/* Good. Let's merge */
 	memcpy(valuestate, pval, sizeof(struct table_value) * tcfg->val_size);
@@ -323,48 +317,12 @@ ipfw_unref_table_values(struct ip_fw_chain *ch, struct table_config *tc,
 }
 
 /*
- * Table operation state handler.
- * Called when we are going to change something in @tc which
- * may lead to inconsistencies in on-going table data addition.
- *
- * Here we rollback all already committed state (table values, currently)
- * and set "modified" field to non-zero value to indicate
- * that we need to restart original operation.
- */
-void
-rollback_table_values(struct tableop_state *ts)
-{
-	struct ip_fw_chain *ch;
-	struct table_value *pval;
-	struct tentry_info *ptei;
-	struct namedobj_instance *vi;
-	int i;
-
-	ch = ts->ch;
-
-	IPFW_UH_WLOCK_ASSERT(ch);
-
-	/* Get current table value pointer */
-	get_value_ptrs(ch, ts->tc, ts->vshared, &pval, &vi);
-
-	for (i = 0; i < ts->count; i++) {
-		ptei = &ts->tei[i];
-
-		if (ptei->value == 0)
-			continue;
-
-		unref_table_value(vi, pval, ptei->value);
-	}
-}
-
-/*
  * Allocate new value index in either shared or per-table array.
- * Function may drop/reacquire UH lock.
  *
  * Returns 0 on success.
  */
 static int
-alloc_table_vidx(struct ip_fw_chain *ch, struct tableop_state *ts,
+alloc_table_vidx(struct ip_fw_chain *ch, struct table_config *tc,
     struct namedobj_instance *vi, uint32_t *pvidx, uint8_t flags)
 {
 	int error, vlimit;
@@ -372,19 +330,11 @@ alloc_table_vidx(struct ip_fw_chain *ch, struct tableop_state *ts,
 
 	IPFW_UH_WLOCK_ASSERT(ch);
 
-	error = ipfw_objhash_alloc_idx(vi, &vidx);
-	if (error != 0) {
-		/*
-		 * We need to resize array. This involves
-		 * lock/unlock, so we need to check "modified"
-		 * state.
-		 */
-		ts->opstate.func(ts->tc, &ts->opstate);
-		error = resize_shared_value_storage(ch);
-		return (error); /* ts->modified should be set, we will restart */
-	}
+	if ((error = ipfw_objhash_alloc_idx(vi, &vidx)) != 0 &&
+	    (error = resize_shared_value_storage(ch)) != 0)
+		return (error);
 
-	vlimit = ts->ta->vlimit;
+	vlimit = tc->ta->vlimit;
 	if (vlimit != 0 && vidx >= vlimit && !(flags & IPFW_CTF_ATOMIC)) {
 		/*
 		 * Algorithm is not able to store given index.
@@ -392,7 +342,7 @@ alloc_table_vidx(struct ip_fw_chain *ch, struct tableop_state *ts,
 		 * per-table value array or return error
 		 * if we're already using it.
 		 */
-		if (ts->vshared != 0) {
+		if (tc->vshared != 0) {
 			/* shared -> per-table  */
 			return (ENOSPC); /* TODO: proper error */
 		}
@@ -437,9 +387,8 @@ ipfw_garbage_table_values(struct ip_fw_chain *ch, struct table_config *tc,
 
 	/*
 	 * Get current table value pointers.
-	 * XXX: Properly read vshared
 	 */
-	get_value_ptrs(ch, tc, 1, &pval, &vi);
+	get_value_ptrs(ch, tc, &pval, &vi);
 
 	for (i = 0; i < count; i++) {
 		ptei = &tei[i];
@@ -470,14 +419,13 @@ ipfw_garbage_table_values(struct ip_fw_chain *ch, struct table_config *tc,
  * Success: return 0.
  */
 int
-ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
-    uint8_t flags)
+ipfw_link_table_values(struct ip_fw_chain *ch, struct table_config *tc,
+    struct tentry_info *tei, uint32_t count, uint8_t flags)
 {
 	int error, i, found;
 	struct namedobj_instance *vi;
-	struct table_config *tc;
-	struct tentry_info *tei, *ptei;
-	uint32_t count, vidx, vlimit;
+	struct tentry_info *ptei;
+	uint32_t vidx, vlimit;
 	struct table_val_link *ptv;
 	struct table_value tval, *pval;
 
@@ -486,19 +434,16 @@ ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
 	 * save their indices.
 	 */
 	IPFW_UH_WLOCK_ASSERT(ch);
-	get_value_ptrs(ch, ts->tc, ts->vshared, &pval, &vi);
+	get_value_ptrs(ch, tc, &pval, &vi);
 
 	error = 0;
 	found = 0;
-	vlimit = ts->ta->vlimit;
+	vlimit = tc->ta->vlimit;
 	vidx = 0;
-	tc = ts->tc;
-	tei = ts->tei;
-	count = ts->count;
 	for (i = 0; i < count; i++) {
 		ptei = &tei[i];
 		ptei->value = 0; /* Ensure value is always 0 in the beginning */
-		mask_table_value(ptei->pvalue, &tval, ts->vmask);
+		mask_table_value(ptei->pvalue, &tval, tc->vmask);
 		ptv = (struct table_val_link *)ipfw_objhash_lookup_name(vi, 0,
 		    (char *)&tval);
 		if (ptv == NULL)
@@ -513,19 +458,10 @@ ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
 		found++;
 	}
 
-	if (ts->count == found) {
-		/* We've found all values , no need ts create new ones */
+	if (count == found) {
+		/* We've found all values, no need to create new ones. */
 		return (0);
 	}
-
-	/*
-	 * we have added some state here, let's attach operation
-	 * state ts the list ts be able ts rollback if necessary.
-	 */
-	add_toperation_state(ch, ts);
-	/* Ensure table won't disappear */
-	tc_ref(tc);
-	IPFW_UH_WUNLOCK(ch);
 
 	/*
 	 * Stage 2: allocate objects for non-existing values.
@@ -544,18 +480,6 @@ ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
 	 * Stage 3: allocate index numbers for new values
 	 * and link them to index.
 	 */
-	IPFW_UH_WLOCK(ch);
-	tc_unref(tc);
-	del_toperation_state(ch, ts);
-	if (ts->modified != 0) {
-		/*
-		 * In general, we should free all state/indexes here
-		 * and return. However, we keep allocated state instead
-		 * to ensure we achieve some progress on each restart.
-		 */
-		return (0);
-	}
-
 	KASSERT(pval == ch->valuestate, ("resize_storage() notify failure"));
 
 	/* Let's try to link values */
@@ -563,7 +487,7 @@ ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
 		ptei = &tei[i];
 
 		/* Check if record has appeared */
-		mask_table_value(ptei->pvalue, &tval, ts->vmask);
+		mask_table_value(ptei->pvalue, &tval, tc->vmask);
 		ptv = (struct table_val_link *)ipfw_objhash_lookup_name(vi, 0,
 		    (char *)&tval);
 		if (ptv != NULL) {
@@ -572,15 +496,8 @@ ipfw_link_table_values(struct ip_fw_chain *ch, struct tableop_state *ts,
 			continue;
 		}
 
-		/* May perform UH unlock/lock */
-		error = alloc_table_vidx(ch, ts, vi, &vidx, flags);
-		if (error != 0) {
-			ts->opstate.func(ts->tc, &ts->opstate);
+		if ((error = alloc_table_vidx(ch, tc, vi, &vidx, flags)) != 0)
 			return (error);
-		}
-		/* value storage resize has happened, return */
-		if (ts->modified != 0)
-			return (0);
 
 		/* Finally, we have allocated valid index, let's add entry */
 		ptei->value = vidx;

@@ -714,10 +714,8 @@ z_resampler_reset(struct z_info *info)
 	info->z_size = 1;
 	info->z_coeff = NULL;
 	info->z_dcoeff = NULL;
-	if (info->z_pcoeff != NULL) {
-		free(info->z_pcoeff, M_DEVBUF);
-		info->z_pcoeff = NULL;
-	}
+	free(info->z_pcoeff, M_DEVBUF);
+	info->z_pcoeff = NULL;
 	info->z_scale = Z_ONE;
 	info->z_dx = Z_FULL_ONE;
 	info->z_dy = Z_FULL_ONE;
@@ -1029,10 +1027,8 @@ z_resampler_build_polyphase(struct z_info *info)
 	int32_t alpha, c, i, z, idx;
 
 	/* Let this be here first. */
-	if (info->z_pcoeff != NULL) {
-		free(info->z_pcoeff, M_DEVBUF);
-		info->z_pcoeff = NULL;
-	}
+	free(info->z_pcoeff, M_DEVBUF);
+	info->z_pcoeff = NULL;
 
 	if (feeder_rate_polyphase_max < 1)
 		return (ENOTSUP);
@@ -1109,7 +1105,7 @@ z_resampler_setup(struct pcm_feeder *f)
 	if (!(Z_FACTOR_SAFE(info->z_gx) && Z_FACTOR_SAFE(info->z_gy)))
 		return (EINVAL);
 
-	format = f->desc->in;
+	format = f->desc.in;
 	adaptive = 0;
 	z_scale = 0;
 
@@ -1154,10 +1150,8 @@ z_resampler_setup(struct pcm_feeder *f)
 		 * adaptive mode.
 		 */
 z_setup_adaptive_sinc:
-		if (info->z_pcoeff != NULL) {
-			free(info->z_pcoeff, M_DEVBUF);
-			info->z_pcoeff = NULL;
-		}
+		free(info->z_pcoeff, M_DEVBUF);
+		info->z_pcoeff = NULL;
 
 		if (adaptive == 0) {
 			info->z_dy = z_scale << Z_DRIFT_SHIFT;
@@ -1333,8 +1327,7 @@ z_setup_adaptive_sinc:
 
 	if (info->z_delay == NULL || info->z_alloc < i ||
 	    i <= (info->z_alloc >> 1)) {
-		if (info->z_delay != NULL)
-			free(info->z_delay, M_DEVBUF);
+		free(info->z_delay, M_DEVBUF);
 		info->z_delay = malloc(i, M_DEVBUF, M_NOWAIT | M_ZERO);
 		if (info->z_delay == NULL)
 			return (ENOMEM);
@@ -1344,7 +1337,7 @@ z_setup_adaptive_sinc:
 	/*
 	 * Zero out head of buffer to avoid pops and clicks.
 	 */
-	memset(info->z_delay, sndbuf_zerodata(f->desc->out),
+	memset(info->z_delay, sndbuf_zerodata(f->desc.out),
 	    info->z_pos * align);
 
 #ifdef Z_DIAGNOSTIC
@@ -1469,7 +1462,6 @@ z_resampler_set(struct pcm_feeder *f, int what, int32_t value)
 		break;
 	default:
 		return (EINVAL);
-		break;
 	}
 
 	return (z_resampler_setup(f));
@@ -1485,18 +1477,12 @@ z_resampler_get(struct pcm_feeder *f, int what)
 	switch (what) {
 	case Z_RATE_SRC:
 		return (info->rsrc);
-		break;
 	case Z_RATE_DST:
 		return (info->rdst);
-		break;
 	case Z_RATE_QUALITY:
 		return (info->quality);
-		break;
 	case Z_RATE_CHANNELS:
 		return (info->channels);
-		break;
-	default:
-		break;
 	}
 
 	return (-1);
@@ -1508,7 +1494,7 @@ z_resampler_init(struct pcm_feeder *f)
 	struct z_info *info;
 	int ret;
 
-	if (f->desc->in != f->desc->out)
+	if (f->desc.in != f->desc.out)
 		return (EINVAL);
 
 	info = malloc(sizeof(*info), M_DEVBUF, M_NOWAIT | M_ZERO);
@@ -1518,16 +1504,14 @@ z_resampler_init(struct pcm_feeder *f)
 	info->rsrc = Z_RATE_DEFAULT;
 	info->rdst = Z_RATE_DEFAULT;
 	info->quality = feeder_rate_quality;
-	info->channels = AFMT_CHANNEL(f->desc->in);
+	info->channels = AFMT_CHANNEL(f->desc.in);
 
 	f->data = info;
 
 	ret = z_resampler_setup(f);
 	if (ret != 0) {
-		if (info->z_pcoeff != NULL)
-			free(info->z_pcoeff, M_DEVBUF);
-		if (info->z_delay != NULL)
-			free(info->z_delay, M_DEVBUF);
+		free(info->z_pcoeff, M_DEVBUF);
+		free(info->z_delay, M_DEVBUF);
 		free(info, M_DEVBUF);
 		f->data = NULL;
 	}
@@ -1541,13 +1525,9 @@ z_resampler_free(struct pcm_feeder *f)
 	struct z_info *info;
 
 	info = f->data;
-	if (info != NULL) {
-		if (info->z_pcoeff != NULL)
-			free(info->z_pcoeff, M_DEVBUF);
-		if (info->z_delay != NULL)
-			free(info->z_delay, M_DEVBUF);
-		free(info, M_DEVBUF);
-	}
+	free(info->z_pcoeff, M_DEVBUF);
+	free(info->z_delay, M_DEVBUF);
+	free(info, M_DEVBUF);
 
 	f->data = NULL;
 

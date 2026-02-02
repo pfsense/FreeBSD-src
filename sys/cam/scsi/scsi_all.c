@@ -3711,13 +3711,12 @@ scsi_command_string(struct cam_device *device, struct ccb_scsiio *csio,
 	xpt_gdev_type(cgd, csio->ccb_h.path);
 
 	/*
-	 * If the device is unconfigured, just pretend that it is a hard
-	 * drive.  scsi_op_desc() needs this.
+	 * If the device is unconfigured, the inq data is invalid.
 	 */
 	if (cgd->ccb_h.status == CAM_DEV_NOT_THERE)
-		cgd->inq_data.device = T_DIRECT;
-
-	inq_data = &cgd->inq_data;
+		inq_data = NULL;
+	else
+		inq_data = &cgd->inq_data;
 
 #else /* !_KERNEL */
 
@@ -5170,13 +5169,12 @@ scsi_sense_sbuf(struct cam_device *device, struct ccb_scsiio *csio,
 	xpt_gdev_type(cgd, csio->ccb_h.path);
 
 	/*
-	 * If the device is unconfigured, just pretend that it is a hard
-	 * drive.  scsi_op_desc() needs this.
+	 * If the device is unconfigured, the inq data is invalid.
 	 */
 	if (cgd->ccb_h.status == CAM_DEV_NOT_THERE)
-		cgd->inq_data.device = T_DIRECT;
-
-	inq_data = &cgd->inq_data;
+		inq_data = NULL;
+	else
+		inq_data = &cgd->inq_data;
 
 #else /* !_KERNEL */
 
@@ -9009,6 +9007,40 @@ scsi_write_buffer(struct ccb_scsiio *csio, uint32_t retries,
 
 void
 scsi_start_stop(struct ccb_scsiio *csio, uint32_t retries,
+		void (*cbfcnp)(struct cam_periph *, union ccb *),
+		uint8_t tag_action, int start, int load_eject,
+		int immediate, uint8_t sense_len, uint32_t timeout)
+{
+	struct scsi_start_stop_unit *scsi_cmd;
+	int extra_flags = 0;
+
+	scsi_cmd = (struct scsi_start_stop_unit *)&csio->cdb_io.cdb_bytes;
+	bzero(scsi_cmd, sizeof(*scsi_cmd));
+	scsi_cmd->opcode = START_STOP_UNIT;
+	if (start != 0) {
+		scsi_cmd->how |= SSS_START;
+		/* it takes a lot of power to start a drive */
+		extra_flags |= CAM_HIGH_POWER;
+	}
+	if (load_eject != 0)
+		scsi_cmd->how |= SSS_LOEJ;
+	if (immediate != 0)
+		scsi_cmd->byte2 |= SSS_IMMED;
+
+	cam_fill_csio(csio,
+		      retries,
+		      cbfcnp,
+		      /*flags*/CAM_DIR_NONE | extra_flags,
+		      tag_action,
+		      /*data_ptr*/NULL,
+		      /*dxfer_len*/0,
+		      sense_len,
+		      sizeof(*scsi_cmd),
+		      timeout);
+}
+
+void
+scsi_start_stop_pc(struct ccb_scsiio *csio, uint32_t retries,
 		void (*cbfcnp)(struct cam_periph *, union ccb *),
 		uint8_t tag_action, int start, int load_eject,
 		int immediate, uint8_t power_condition, uint8_t sense_len,

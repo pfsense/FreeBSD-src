@@ -124,6 +124,7 @@ enum ieee80211_channel_flags {
 	IEEE80211_CHAN_PSD			= BIT(12),
 	IEEE80211_CHAN_ALLOW_6GHZ_VLP_AP	= BIT(13),
 	IEEE80211_CHAN_CAN_MONITOR		= BIT(14),
+	IEEE80211_CHAN_NO_EHT			= BIT(15),
 };
 #define	IEEE80211_CHAN_NO_HT40	(IEEE80211_CHAN_NO_HT40MINUS|IEEE80211_CHAN_NO_HT40PLUS)
 
@@ -152,6 +153,8 @@ struct linuxkpi_ieee80211_channel {
 	int					orig_mpwr;
 };
 
+#define	NL80211_EHT_NSS_MAX			16
+
 struct cfg80211_bitrate_mask {
 	/* TODO FIXME */
 	struct {
@@ -159,6 +162,7 @@ struct cfg80211_bitrate_mask {
 		uint8_t				ht_mcs[IEEE80211_HT_MCS_MASK_LEN];
 		uint16_t			vht_mcs[8];
 		uint16_t			he_mcs[8];
+		uint16_t			eht_mcs[NL80211_EHT_NSS_MAX];
 		enum nl80211_txrate_gi		gi;
 		enum nl80211_he_gi		he_gi;
 		uint8_t				he_ltf;		/* XXX enum? */
@@ -1230,6 +1234,7 @@ struct cfg80211_ops {
 
 struct wiphy *linuxkpi_wiphy_new(const struct cfg80211_ops *, size_t);
 void linuxkpi_wiphy_free(struct wiphy *wiphy);
+int linuxkpi_80211_wiphy_register(struct wiphy *);
 
 void linuxkpi_wiphy_work_queue(struct wiphy *, struct wiphy_work *);
 void linuxkpi_wiphy_work_cancel(struct wiphy *, struct wiphy_work *);
@@ -1749,8 +1754,7 @@ wiphy_net(struct wiphy *wiphy)
 static __inline int
 wiphy_register(struct wiphy *wiphy)
 {
-	TODO();
-	return (0);
+	return (linuxkpi_80211_wiphy_register(wiphy));
 }
 
 static __inline void
