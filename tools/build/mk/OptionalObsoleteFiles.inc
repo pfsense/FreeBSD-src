@@ -748,10 +748,13 @@ OLD_FILES+=usr/share/snmp/mibs/BRIDGE-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/FOKUS-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/FREEBSD-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/RSTP-MIB.txt
+OLD_FILES+=usr/tests/lib/libbsnmp/bsnmpd_test
+OLD_FILES+=usr/tests/lib/libbsnmp/Kyuafile
 OLD_DIRS+=usr/include/bsnmp
 OLD_DIRS+=usr/share/snmp
 OLD_DIRS+=usr/share/snmp/defs
 OLD_DIRS+=usr/share/snmp/mibs
+OLD_DIRS+=usr/tests/lib/libbsnmp
 .endif
 
 .if ${MK_CALENDAR} == no
@@ -1922,6 +1925,26 @@ OLD_FILES+=usr/share/examples/sunrpc/sort/Makefile
 OLD_FILES+=usr/share/examples/sunrpc/sort/rsort.c
 OLD_FILES+=usr/share/examples/sunrpc/sort/sort.x
 OLD_FILES+=usr/share/examples/sunrpc/sort/sort_proc.c
+OLD_FILES+=usr/tests/share/examples/tests/atf/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/atf/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/atf/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/googletest/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample10_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample1_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample2_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample3_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample4_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample5_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample6_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample7_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample8_unittest
+OLD_FILES+=usr/tests/share/examples/tests/plain/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/plain/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/plain/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/tap/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/tap/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/tap/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/Kyuafile
 OLD_FILES+=usr/share/examples/tcsh/complete.tcsh
 OLD_FILES+=usr/share/examples/tcsh/csh-mode.el
 OLD_FILES+=usr/share/examples/uefisign/uefikeys
@@ -1989,6 +2012,12 @@ OLD_DIRS+=usr/share/examples/sunrpc/sort
 OLD_DIRS+=usr/share/examples/tcsh
 OLD_DIRS+=usr/share/examples/uefisign
 OLD_DIRS+=usr/share/examples/ypldap
+OLD_DIRS+=usr/tests/share/examples/tests/atf
+OLD_DIRS+=usr/tests/share/examples/tests/plain
+OLD_DIRS+=usr/tests/share/examples/tests/googletest
+OLD_DIRS+=usr/tests/share/examples/tests/tap
+OLD_DIRS+=usr/tests/share/examples/tests
+OLD_DIRS+=usr/tests/share/examples
 .endif
 
 .if ${MK_FDT} == no
@@ -2120,6 +2149,10 @@ OLD_FILES+=usr/share/man/man6/random.6.gz
 OLD_FILES+=usr/share/man/man6/rot13.6.gz
 OLD_FILES+=usr/share/man/man8/strfile.8.gz
 OLD_FILES+=usr/share/man/man8/unstr.8.gz
+OLD_FILES+=usr/tests/usr.bin/factor/factor_tests
+OLD_FILES+=usr/tests/usr.bin/factor/primes_tests
+OLD_FILES+=usr/tests/usr.bin/factor/Kyuafile
+OLD_DIRS+=usr/tests/usr.bin/factor
 .endif
 
 .if ${MK_GOOGLETEST} == no
@@ -8331,6 +8364,12 @@ OLD_FILES+=usr/bin/tftp
 OLD_FILES+=usr/libexec/tftpd
 OLD_FILES+=usr/share/man/man1/tftp.1.gz
 OLD_FILES+=usr/share/man/man8/tftpd.8.gz
+OLD_FILES+=usr/tests/libexec/tftpd/functional
+OLD_FILES+=usr/tests/libexec/tftpd/Kyuafile
+OLD_FILES+=usr/tests/usr.bin/tftp/tftp_test
+OLD_FILES+=usr/tests/usr.bin/tftp/Kyuafile
+OLD_DIRS+=usr/tests/libexec/tftpd
+OLD_DIRS+=usr/tests/usr.bin/tftp
 .endif
 
 .if ${MK_TOOLCHAIN} == no
