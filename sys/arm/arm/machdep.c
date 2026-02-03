@@ -447,6 +447,8 @@ initarm(struct arm_boot_params *abp)
 
 	set_cpufuncs();
 	cpuinfo_init();
+	sched_instance_select();
+	link_elf_ireloc();
 
 	/*
 	 * Find the dtb passed in by the boot loader.

@@ -113,16 +113,25 @@ typedef	u_int32_t u32;
 #include <dev/sym/sym_fw.h>
 
 /*
- *  Architectures may implement weak ordering that requires memory barriers
- *  to be used for LOADS and STORES to become globally visible (and also IO
- *  barriers when they make sense).
+ * With uncacheable memory, x86 does not reorder STORES and prevents LOADS
+ * from passing STORES.  For ensuring this program order, we still need to
+ * employ compiler barriers, though, when the ordering of LOADS and STORES
+ * matters.
+ * Other architectures may implement weaker ordering guarantees and, thus,
+ * require memory barriers (and also IO barriers) to be used.
  */
-#ifdef __powerpc__
-#define	MEMORY_READ_BARRIER()	__asm__ volatile("eieio; sync" : : : "memory")
-#define	MEMORY_WRITE_BARRIER()	MEMORY_READ_BARRIER()
+#if	defined	__i386__ || defined __amd64__
+#define	MEMORY_BARRIER()	__compiler_membar()
+#elif	defined	__powerpc__
+#define MEMORY_BARRIER()	__asm__ volatile("eieio; sync" : : : "memory")
+#elif	defined	__arm__
+#define MEMORY_BARRIER()	dmb()
+#elif	defined	__aarch64__
+#define MEMORY_BARRIER()	dmb(sy)
+#elif	defined __riscv
+#define MEMORY_BARRIER()	fence()
 #else
-#define	MEMORY_READ_BARRIER()	rmb()
-#define	MEMORY_WRITE_BARRIER()	wmb()
+#error	"Not supported platform"
 #endif
 
 /*
@@ -582,10 +591,10 @@ static m_addr_t ___dma_getp(m_pool_s *mp)
 		goto out_err;
 
 	if (bus_dmamem_alloc(mp->dmat, &vaddr,
-			BUS_DMA_COHERENT | BUS_DMA_WAITOK, &vbp->dmamap))
+	    BUS_DMA_COHERENT | BUS_DMA_NOCACHE | BUS_DMA_WAITOK, &vbp->dmamap))
 		goto out_err;
-	bus_dmamap_load(mp->dmat, vbp->dmamap, vaddr,
-			MEMO_CLUSTER_SIZE, getbaddrcb, &baddr, BUS_DMA_NOWAIT);
+	bus_dmamap_load(mp->dmat, vbp->dmamap, vaddr, MEMO_CLUSTER_SIZE,
+	    getbaddrcb, &baddr, BUS_DMA_NOWAIT);
 	if (baddr) {
 		int hc = VTOB_HASH_CODE(vaddr);
 		vbp->vaddr = (m_addr_t) vaddr;
@@ -880,13 +889,13 @@ struct sym_nvram {
  */
 #define OUTL_DSP(v)				\
 	do {					\
-		MEMORY_WRITE_BARRIER();		\
+		MEMORY_BARRIER();		\
 		OUTL (nc_dsp, (v));		\
 	} while (0)
 
 #define OUTONB_STD()				\
 	do {					\
-		MEMORY_WRITE_BARRIER();		\
+		MEMORY_BARRIER();		\
 		OUTONB (nc_dcntl, (STD|NOCOM));	\
 	} while (0)
 
@@ -1472,7 +1481,7 @@ struct sym_hcb {
 	u32	scr_ram_seg;
 
 	/*
-	 *  Chip and controller indentification.
+	 *  Chip and controller identification.
 	 */
 	device_t device;
 
@@ -1522,7 +1531,6 @@ struct sym_hcb {
 	struct resource	*io_res;
 	struct resource	*mmio_res;
 	struct resource	*ram_res;
-	int		ram_id;
 	void *intr;
 
 	/*
@@ -1546,8 +1554,6 @@ struct sym_hcb {
 	 *  BUS addresses of the chip
 	 */
 	vm_offset_t	mmio_ba;	/* MMIO BUS address		*/
-	int		mmio_ws;	/* MMIO Window size		*/
-
 	vm_offset_t	ram_ba;		/* RAM BUS address		*/
 	int		ram_ws;		/* RAM window size		*/
 
@@ -2896,7 +2902,7 @@ static void sym_put_start_queue(hcb_p np, ccb_p cp)
 	if (qidx >= MAX_QUEUE*2) qidx = 0;
 
 	np->squeue [qidx]	   = cpu_to_scr(np->idletask_ba);
-	MEMORY_WRITE_BARRIER();
+	MEMORY_BARRIER();
 	np->squeue [np->squeueput] = cpu_to_scr(cp->ccb_ba);
 
 	np->squeueput = qidx;
@@ -2908,7 +2914,7 @@ static void sym_put_start_queue(hcb_p np, ccb_p cp)
 	 *  Script processor may be waiting for reselect.
 	 *  Wake it up.
 	 */
-	MEMORY_WRITE_BARRIER();
+	MEMORY_BARRIER();
 	OUTB (nc_istat, SIGP|np->istat_sem);
 }
 
@@ -3049,7 +3055,7 @@ static int sym_wakeup_done (hcb_p np)
 
 		cp = sym_ccb_from_dsa(np, dsa);
 		if (cp) {
-			MEMORY_READ_BARRIER();
+			MEMORY_BARRIER();
 			sym_complete_ok (np, cp);
 			++n;
 		} else
@@ -3847,7 +3853,7 @@ static void sym_intr1 (hcb_p np)
 	 *  On paper, a memory barrier may be needed here.
 	 *  And since we are paranoid ... :)
 	 */
-	MEMORY_READ_BARRIER();
+	MEMORY_BARRIER();
 
 	/*
 	 *  First, interrupts we want to service cleanly.
@@ -8516,16 +8522,15 @@ sym_pci_attach(device_t dev)
 	 *  Alloc/get/map/retrieve the corresponding resources.
 	 */
 	if (np->features & (FE_RAM|FE_RAM8K)) {
-		int regs_id = SYM_PCI_RAM;
+		i = SYM_PCI_RAM;
 		if (np->features & FE_64BIT)
-			regs_id = SYM_PCI_RAM64;
-		np->ram_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
-						     &regs_id, RF_ACTIVE);
+			i = SYM_PCI_RAM64;
+		np->ram_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &i,
+		    RF_ACTIVE);
 		if (!np->ram_res) {
 			device_printf(dev,"failed to allocate RAM resources\n");
 			goto attach_failed;
 		}
-		np->ram_id  = regs_id;
 		np->ram_ba = rman_get_start(np->ram_res);
 	}
 
@@ -8760,16 +8765,15 @@ sym_pci_detach(device_t dev)
 	 */
 	if (np->ram_res)
 		bus_release_resource(np->device, SYS_RES_MEMORY,
-				     np->ram_id, np->ram_res);
+		    rman_get_rid(np->ram_res), np->ram_res);
 	if (np->mmio_res)
 		bus_release_resource(np->device, SYS_RES_MEMORY,
-				     SYM_PCI_MMIO, np->mmio_res);
+		    rman_get_rid(np->mmio_res), np->mmio_res);
 	if (np->io_res)
 		bus_release_resource(np->device, SYS_RES_IOPORT,
-				     SYM_PCI_IO, np->io_res);
+		    rman_get_rid(np->io_res), np->io_res);
 	if (np->irq_res)
-		bus_release_resource(np->device, SYS_RES_IRQ,
-				     0, np->irq_res);
+		bus_release_resource(np->device, SYS_RES_IRQ, 0, np->irq_res);
 
 	if (np->scriptb0)
 		sym_mfree_dma(np->scriptb0, np->scriptb_sz, "SCRIPTB0");
