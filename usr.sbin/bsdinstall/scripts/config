@@ -42,16 +42,8 @@ fi
 cp $BSDINSTALL_TMPETC/* $BSDINSTALL_CHROOT/etc
 
 # Copy pfSense loader.conf
-if [ -f $BSDINSTALL_CHROOT/boot/loader.conf ]; then
-	if [ ! -f "$BSDINSTALL_TMPBOOT/loader.conf" ]; then
-		touch $BSDINSTALL_TMPBOOT/loader.conf
-	fi
-	cat $BSDINSTALL_CHROOT/boot/loader.conf $BSDINSTALL_TMPBOOT/loader.conf \
-	    | sort -u > $BSDINSTALL_TMPBOOT/loader.conf.tmp
-	mv $BSDINSTALL_TMPBOOT/loader.conf.tmp $BSDINSTALL_TMPBOOT/loader.conf
-
-	cp $BSDINSTALL_CHROOT/boot/loader.conf \
-	    $BSDINSTALL_TMPBOOT/loader.conf.pfSense
+if [ -f /boot/loader.conf ]; then
+	cp /boot/loader.conf $BSDINSTALL_TMPBOOT/loader.conf.pfSense
 fi
 
 cat $BSDINSTALL_TMPBOOT/loader.conf.* >> $BSDINSTALL_TMPBOOT/loader.conf
@@ -78,6 +70,9 @@ if [ -f /tmp/loader.conf.pfSense ]; then
 	    | sort -u > $BSDINSTALL_TMPBOOT/loader.conf.tmp
 	mv $BSDINSTALL_TMPBOOT/loader.conf.tmp $BSDINSTALL_TMPBOOT/loader.conf
 fi
+
+sort -u < $BSDINSTALL_TMPBOOT/loader.conf > $BSDINSTALL_TMPBOOT/loader.conf.tmp
+mv $BSDINSTALL_TMPBOOT/loader.conf.tmp $BSDINSTALL_TMPBOOT/loader.conf
 
 if [ -f /tmp/loader.conf.local.pfSense ]; then
 	cat /tmp/loader.conf.local.pfSense $BSDINSTALL_TMPBOOT/loader.conf.local \
