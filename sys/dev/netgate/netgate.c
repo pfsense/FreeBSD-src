@@ -117,7 +117,7 @@ static struct netgate_ids ng_ids[] = {
 	{ .id = NETGATE_4100, .prod = "4100", .maker = "Netgate",		.model = "4100", .desc = "Netgate 4100" },
 	{ .id = NETGATE_4200, .prod = "4200", .maker = "Netgate",		.model = "4200", .desc = "Netgate 4200" },
 	{ .id = NETGATE_5100, .prod = "SG-5100",				.model = "5100", .desc = "Netgate 5100" },
-	{ .id = NETGATE_5200, .prod = "80500-0240-G", .cpu = 4,			.model = "5200", .desc = "Netgate 5200" },
+	{ .id = NETGATE_5200, .prod = "80500-0240-", .cpu = 4,			.model = "5200", .desc = "Netgate 5200" },
 	{ .id = NETGATE_5200, .prod = "5200", .maker = "Netgate",		.model = "5200", .desc = "Netgate 5200" },
 	{ .id = NETGATE_6100, .prod = "6100", .maker = "Netgate",		.model = "6100", .desc = "Netgate 6100" },
 	{ .id = NETGATE_6200, .prod = "6200", .maker = "Netgate",		.model = "6200", .desc = "Netgate 6200" },
@@ -125,7 +125,7 @@ static struct netgate_ids ng_ids[] = {
 	{ .id = NETGATE_7541, .prod = "FW7541",					.model = "FW7541", .desc = "Netgate FW7541" },
 	{ .id = NETGATE_1537, .planar = "X10SDV-8C-TLN4F+",			.model = "1537", .desc = "Super Micro 1537" },
 	{ .id = NETGATE_7100, .planar = "80300-0134",				.model = "7100", .desc = "Netgate 7100" },
-	{ .id = NETGATE_7200, .prod = "80500-0240-G", .cpu = 8,			.model = "7200", .desc = "Netgate 7200" },
+	{ .id = NETGATE_7200, .prod = "80500-0240-", .cpu = 8,			.model = "7200", .desc = "Netgate 7200" },
 	{ .id = NETGATE_7200, .prod = "7200", .maker = "Netgate",		.model = "7200", .desc = "Netgate 7200" },
 };
 

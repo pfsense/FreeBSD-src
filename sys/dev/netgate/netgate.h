@@ -28,7 +28,7 @@
 #ifndef __NETGATE_H__
 #define __NETGATE_H__
 
-#define	NETGATE_MOD_VER		"0.1"
+#define	NETGATE_MOD_VER		"0.2"
 
 #define	NETGATE_UNKNOWN		0
 
