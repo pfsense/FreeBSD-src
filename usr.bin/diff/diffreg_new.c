@@ -56,7 +56,7 @@ static const struct diff_algo_config myers_then_myers_divide;
 static const struct diff_algo_config patience;
 static const struct diff_algo_config myers_divide;
 
-static const struct diff_algo_config myers_then_patience = (struct diff_algo_config){
+static const struct diff_algo_config myers_then_patience = {
 	.impl = diff_algo_myers,
 	.permitted_state_size = 1024 * 1024 * sizeof(int),
 	.fallback_algo = &patience,
@@ -69,7 +69,7 @@ static const struct diff_algo_config myers_then_myers_divide =
 	.fallback_algo = &myers_divide,
 };
 
-static const struct diff_algo_config patience = (struct diff_algo_config){
+static const struct diff_algo_config patience = {
 	.impl = diff_algo_patience,
 	/* After subdivision, do Patience again: */
 	.inner_algo = &patience,
@@ -77,14 +77,14 @@ static const struct diff_algo_config patience = (struct diff_algo_config){
 	.fallback_algo = &myers_then_myers_divide,
 };
 
-static const struct diff_algo_config myers_divide = (struct diff_algo_config){
+static const struct diff_algo_config myers_divide = {
 	.impl = diff_algo_myers_divide,
 	/* When division succeeded, start from the top: */
 	.inner_algo = &myers_then_myers_divide,
 	/* (fallback_algo = NULL implies diff_algo_none). */
 };
 
-static const struct diff_algo_config no_algo = (struct diff_algo_config){
+static const struct diff_algo_config none = {
 	.impl = diff_algo_none,
 };
 
@@ -109,8 +109,9 @@ static const struct diff_config diff_config_patience = {
 };
 
 /* Directly force Patience as a first divider of the source file. */
-static const struct diff_config diff_config_no_algo = {
+static const struct diff_config diff_config_none = {
 	.atomize_func = diff_atomize_text_by_line,
+	.algo = &none,
 };
 
 const char *
@@ -158,6 +159,7 @@ diffreg_new(char *file1, char *file2, int flags, int capsicum)
 	const struct diff_config *cfg;
 	enum diffreg_algo algo;
 	cap_rights_t rights_ro;
+	int ret;
 
 	algo = DIFFREG_ALGO_MYERS_THEN_MYERS_DIVIDE;
 
@@ -173,7 +175,7 @@ diffreg_new(char *file1, char *file2, int flags, int capsicum)
 		cfg = &diff_config_patience;
 		break;
 	case DIFFREG_ALGO_NONE:
-		cfg = &diff_config_no_algo;
+		cfg = &diff_config_none;
 		break;
 	}
 
@@ -219,18 +221,22 @@ diffreg_new(char *file1, char *file2, int flags, int capsicum)
 	if (flags & D_PROTOTYPE)
 		diff_flags |= DIFF_FLAG_SHOW_PROTOTYPES;
 
-	if (diff_atomize_file(&left, cfg, f1, (uint8_t *)str1, st1.st_size, diff_flags)) {
+	ret = diff_atomize_file(&left, cfg, f1, (uint8_t *)str1, st1.st_size,
+	    diff_flags);
+	if (ret != DIFF_RC_OK) {
+		warnc(ret, "%s", file1);
 		rc = D_ERROR;
+		status |= 2;
 		goto done;
 	}
-	if (left.atomizer_flags & DIFF_ATOMIZER_FILE_TRUNCATED)
-		warnx("%s truncated", file1);
-	if (diff_atomize_file(&right, cfg, f2, (uint8_t *)str2, st2.st_size, diff_flags)) {
+	ret = diff_atomize_file(&right, cfg, f2, (uint8_t *)str2, st2.st_size,
+	    diff_flags);
+	if (ret != DIFF_RC_OK) {
+		warnc(ret, "%s", file2);
 		rc = D_ERROR;
+		status |= 2;
 		goto done;
 	}
-	if (right.atomizer_flags & DIFF_ATOMIZER_FILE_TRUNCATED)
-		warnx("%s truncated", file2);
 
 	result = diff_main(cfg, &left, &right);
 	if (result->rc != DIFF_RC_OK) {

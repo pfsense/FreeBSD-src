@@ -204,6 +204,7 @@ int cold = 1;
 long Maxmem = 0;
 long realmem = 0;
 int late_console = 1;
+int lass_enabled = 0;
 
 struct kva_md_info kmi;
 
@@ -827,15 +828,6 @@ native_parse_memmap(vm_paddr_t *physmap, int *physmap_idx)
 {
 	struct bios_smap *smap;
 	struct efi_map_header *efihdr;
-	u_int32_t size;
-
-	/*
-	 * Memory map from INT 15:E820.
-	 *
-	 * subr_module.c says:
-	 * "Consumer may safely assume that size value precedes data."
-	 * ie: an int32_t immediately precedes smap.
-	 */
 
 	efihdr = (struct efi_map_header *)preload_search_info(preload_kmdp,
 	    MODINFO_METADATA | MODINFOMD_EFI_MAP);
@@ -848,7 +840,15 @@ native_parse_memmap(vm_paddr_t *physmap, int *physmap_idx)
 		add_efi_map_entries(efihdr, physmap, physmap_idx);
 		strlcpy(bootmethod, "UEFI", sizeof(bootmethod));
 	} else {
-		size = *((u_int32_t *)smap - 1);
+		/*
+		 * Memory map from INT 15:E820.
+		 *
+		 * subr_module.c says:
+		 * "Consumer may safely assume that size value precedes data."
+		 * ie: an int32_t immediately precedes smap.
+		 */
+		u_int32_t size = *((u_int32_t *)smap - 1);
+
 		bios_add_smap_entries(smap, size, physmap, physmap_idx);
 		strlcpy(bootmethod, "BIOS", sizeof(bootmethod));
 	}
@@ -1217,8 +1217,8 @@ amd64_bsp_pcpu_init2(uint64_t rsp0)
 {
 
 	PCPU_SET(rsp0, rsp0);
-	PCPU_SET(pti_rsp0, ((vm_offset_t)PCPU_PTR(pti_stack) +
-	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful);
+	PCPU_SET(pti_rsp0, STACKALIGN((vm_offset_t)PCPU_PTR(pti_stack) +
+	    PC_PTI_STACK_SZ * sizeof(uint64_t)));
 	PCPU_SET(curpcb, thread0.td_pcb);
 }
 
@@ -1586,7 +1586,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	/* make an initial tss so cpu can get interrupt stack on syscall! */
 	rsp0 = thread0.td_md.md_stack_base;
 	/* Ensure the stack is aligned to 16 bytes */
-	rsp0 &= ~0xFul;
+	rsp0 = STACKALIGN(rsp0);
 	PCPU_PTR(common_tss)->tss_rsp0 = rsp0;
 	amd64_bsp_pcpu_init2(rsp0);
 
