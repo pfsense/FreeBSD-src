@@ -44,12 +44,12 @@ local pfSensebw = {
 "     /          /___/         |",
 "    /                         |",
 "   /_________________________/ ",
-"                               "
+"                               ",
 }
 
 drawer.addLogo("pfSensebw", {
 	graphic = pfSensebw,
-	shift = {x = 2, y = 4},
+	shift = {x = 2, y = -2},
 })
 
 return true
