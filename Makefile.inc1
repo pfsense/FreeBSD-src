@@ -239,6 +239,12 @@ X${BINUTIL}?=	${${BINUTIL}}
 MK_LLD_BOOTSTRAP=	no
 .endif
 
+# If full paths to all standard bintuils are given, don't build LLVM binutils.
+.if ${XAR:M/*} && ${XNM:M/*} && ${XOBJCOPY:M/*} && ${XRANLIB:M/*} && \
+    ${XSIZE:M/*} && ${XSTRINGS:M/*} && ${XSTRIPBIN:M/*}
+MK_LLVM_BINUTILS_BOOTSTRAP=	no
+.endif
+
 # We also want the X_LINKER* variables if we are using an external toolchain.
 _WANT_TOOLCHAIN_CROSS_VARS=	t
 .include "share/mk/bsd.linker.mk"
@@ -808,7 +814,6 @@ XMAKE=		${BMAKE} \
 		TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
 		MK_CLANG=${MK_CLANG_BOOTSTRAP} \
 		MK_LLDB=no \
-		MK_LLVM_BINUTILS=no \
 		MK_TESTS=no
 
 # kernel-tools stage
@@ -1207,7 +1212,7 @@ _includes:
 .if !empty(SUBDIR_OVERRIDE) && make(buildworld)
 	${_+_}cd ${.CURDIR}; ${WMAKE} MK_INCLUDES=yes SHARED=symlinks includes
 .endif
-	${_+_}cd ${.CURDIR};  ${WMAKE} test-includes
+	${_+_}cd ${.CURDIR}; ${WMAKE} test-includes
 _libraries:
 	@echo
 	@echo "--------------------------------------------------------------"
@@ -1575,6 +1580,7 @@ makeman: .PHONY
 # Ensure no regressions in self-includeability of sys/*.h and net*/*.h
 test-includes: .PHONY
 	${_+_}cd ${.CURDIR}/tools/build/test-includes; \
+	    ${WMAKEENV} ${MAKE} ${WORLD_FLAGS} obj; \
 	    ${WMAKEENV} ${MAKE} ${WORLD_FLAGS} DESTDIR=${WORLDTMP} test-includes
 
 # We can't assume here that ${TMPPATH} will include ${PATH} or /usr/libexec
@@ -2700,7 +2706,8 @@ _gensnmptree=	usr.sbin/bsnmpd/gensnmptree
 # llvm-tblgen is also needed for various llvm binutils (e.g. objcopy).
 .if ${MK_CLANG_BOOTSTRAP} != "no" || ${MK_CLANG} != "no" || \
     ${MK_LLD_BOOTSTRAP} != "no" || ${MK_LLD} != "no" || \
-    ${MK_LLDB} != "no" || ${MK_LLVM_BINUTILS} != "no"
+    ${MK_LLDB} != "no" || \
+    ${MK_LLVM_BINUTILS_BOOTSTRAP} != "no" || ${MK_LLVM_BINUTILS} != "no"
 _clang_tblgen= \
 	lib/clang/libllvmminimal \
 	usr.bin/clang/llvm-min-tblgen \
@@ -3060,8 +3067,15 @@ _clang=		usr.bin/clang/clang
 .if ${MK_LLD_BOOTSTRAP} != "no"
 _lld=		usr.bin/clang/lld
 .endif
-.if ${MK_CLANG_BOOTSTRAP} != "no" || ${MK_LLD_BOOTSTRAP} != "no"
+.if ${MK_CLANG_BOOTSTRAP} != "no" || ${MK_LLD_BOOTSTRAP} != "no" || \
+    ${MK_LLVM_BINUTILS_BOOTSTRAP} != "no"
 _clang_libs=	lib/clang
+.endif
+.if ${MK_LLVM_BINUTILS_BOOTSTRAP}} != "no"
+_llvm_binutils=	usr.bin/clang/llvm-ar \
+		usr.bin/clang/llvm-nm \
+		usr.bin/clang/llvm-objcopy \
+		usr.bin/clang/llvm-size
 .endif
 .if ${MK_USB} != "no"
 _usb_tools=	stand/usb/tools
@@ -3078,6 +3092,7 @@ cross-tools: .MAKE .PHONY
     ${_clang_libs} \
     ${_clang} \
     ${_lld} \
+    ${_llvm_binutils} \
     ${_elftctools} \
     ${_dtrace_tools} \
     ${_btxld} \

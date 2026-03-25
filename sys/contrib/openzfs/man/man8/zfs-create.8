@@ -85,6 +85,10 @@ property inherited from their parent.
 Any property specified on the command line using the
 .Fl o
 option is ignored.
+If the
+.Fl p
+option is specified multiple times, parent datasets are created with
+.Sy canmount Ns = Ns Ar off .
 If the target filesystem already exists, the operation completes successfully.
 .It Fl n
 Do a dry-run
@@ -117,7 +121,7 @@ key only appears if the
 option is used.
 The
 .Sy property
-key has two values, a property name that property's value.
+key has two values, a property name and that property's value.
 The
 .Sy property
 key may appear zero or more times, once for each property that will be set local
@@ -177,6 +181,10 @@ property inherited from their parent.
 Any property specified on the command line using the
 .Fl o
 option is ignored.
+If the
+.Fl p
+option is specified multiple times, parent datasets are created with
+.Sy canmount Ns = Ns Ar off .
 If the target filesystem already exists, the operation completes successfully.
 .It Fl s
 Creates a sparse volume with no reservation.

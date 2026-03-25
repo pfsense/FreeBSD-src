@@ -1959,6 +1959,73 @@ _vn_lock_fallback(struct vnode *vp, int flags, const char *file, int line,
 	return (0);
 }
 
+static int
+vn_lock_delayed_setsize(struct vnode *vp, int flags, const char *file, int line)
+{
+	struct vop_lock1_args ap;
+	int error, lktype;
+	bool onfault;
+
+	ASSERT_VOP_LOCKED(vp, "vn_lock_delayed_setsize");
+	lktype = flags & LK_TYPE_MASK;
+	if (vp->v_op == &dead_vnodeops)
+		return (0);
+	VI_LOCK(vp);
+	if ((vp->v_iflag & VI_DELAYED_SETSIZE) == 0 || (lktype != LK_SHARED &&
+	    lktype != LK_EXCLUSIVE && lktype != LK_UPGRADE &&
+	    lktype != LK_TRYUPGRADE)) {
+		VI_UNLOCK(vp);
+		return (0);
+	}
+	onfault = (flags & LK_EATTR_MASK) == LK_NOWAIT &&
+	    (flags & LK_INIT_MASK) == LK_CANRECURSE &&
+	    (lktype == LK_SHARED || lktype == LK_EXCLUSIVE);
+	if (onfault && vp->v_vnlock->lk_recurse == 0) {
+		/*
+		 * Force retry in vm_fault(), to make the lock request
+		 * sleepable, which allows us to piggy-back the
+		 * sleepable call to vnode_pager_setsize().
+		 */
+		VI_UNLOCK(vp);
+		VOP_UNLOCK(vp);
+		return (EBUSY);
+	}
+	if ((flags & LK_NOWAIT) != 0 ||
+	    (lktype == LK_SHARED && vp->v_vnlock->lk_recurse > 0)) {
+		VI_UNLOCK(vp);
+		return (0);
+	}
+	if (lktype == LK_SHARED) {
+		VOP_UNLOCK(vp);
+		ap.a_gen.a_desc = &vop_lock1_desc;
+		ap.a_vp = vp;
+		ap.a_flags = (flags & ~LK_TYPE_MASK) | LK_EXCLUSIVE |
+		    LK_INTERLOCK;
+		ap.a_file = file;
+		ap.a_line = line;
+		error = VOP_LOCK1_APV(&default_vnodeops, &ap);
+		if (error != 0 || vp->v_op == &dead_vnodeops)
+			return (error);
+		if (vp->v_data == NULL)
+			goto downgrade;
+		VI_LOCK(vp);
+		if ((vp->v_iflag & VI_DELAYED_SETSIZE) == 0) {
+			VI_UNLOCK(vp);
+			goto downgrade;
+		}
+	}
+	vn_clear_delayed_setsize_locked(vp);
+	VI_UNLOCK(vp);
+	VOP_DELAYED_SETSIZE(vp);
+downgrade:
+	if (lktype == LK_SHARED) {
+		ap.a_flags &= ~(LK_TYPE_MASK | LK_INTERLOCK);
+		ap.a_flags |= LK_DOWNGRADE;
+		(void)VOP_LOCK1_APV(&default_vnodeops, &ap);
+	}
+	return (0);
+}
+
 int
 _vn_lock(struct vnode *vp, int flags, const char *file, int line)
 {
@@ -1969,8 +2036,11 @@ _vn_lock(struct vnode *vp, int flags, const char *file, int line)
 	VNPASS(vp->v_holdcnt > 0, vp);
 	error = VOP_LOCK1(vp, flags, file, line);
 	if (__predict_false(error != 0 || VN_IS_DOOMED(vp)))
-		return (_vn_lock_fallback(vp, flags, file, line, error));
-	return (0);
+		error = _vn_lock_fallback(vp, flags, file, line, error);
+	if (error != 0 || __predict_true((atomic_load_short(&vp->v_iflag) &
+	    VI_DELAYED_SETSIZE) == 0))
+		return (error);
+	return (vn_lock_delayed_setsize(vp, flags, file, line));
 }
 
 /*

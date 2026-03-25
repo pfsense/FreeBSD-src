@@ -50,8 +50,8 @@
 #if defined(__amd64__) || defined(__i386__)
 static int k8_allocate_pmc(enum pmc_event _pe, char *_ctrspec,
     struct pmc_op_pmcallocate *_pmc_config);
-#endif
-#if defined(__amd64__) || defined(__i386__)
+static int ibs_allocate_pmc(enum pmc_event _pe, char *_ctrspec,
+    struct pmc_op_pmcallocate *_pmc_config);
 static int tsc_allocate_pmc(enum pmc_event _pe, char *_ctrspec,
     struct pmc_op_pmcallocate *_pmc_config);
 #endif
@@ -132,6 +132,7 @@ struct pmc_class_descr {
 
 PMC_CLASSDEP_TABLE(iaf, IAF);
 PMC_CLASSDEP_TABLE(k8, K8);
+PMC_CLASSDEP_TABLE(ibs, IBS);
 PMC_CLASSDEP_TABLE(armv7, ARMV7);
 PMC_CLASSDEP_TABLE(armv8, ARMV8);
 PMC_CLASSDEP_TABLE(cmn600_pmu, CMN600_PMU);
@@ -201,8 +202,7 @@ static const struct pmc_class_descr NAME##_class_table_descr =	\
 
 #if	defined(__i386__) || defined(__amd64__)
 PMC_CLASS_TABLE_DESC(k8, K8, k8, k8);
-#endif
-#if	defined(__i386__) || defined(__amd64__)
+PMC_CLASS_TABLE_DESC(ibs, IBS, ibs, ibs);
 PMC_CLASS_TABLE_DESC(tsc, TSC, tsc, tsc);
 #endif
 #if	defined(__arm__)
@@ -691,9 +691,100 @@ k8_allocate_pmc(enum pmc_event pe, char *ctrspec,
 	return (0);
 }
 
-#endif
+static int
+ibs_allocate_pmc(enum pmc_event pe, char *ctrspec,
+    struct pmc_op_pmcallocate *pmc_config)
+{
+	char *e, *p, *q;
+	uint64_t ctl, ldlat;
 
-#if	defined(__i386__) || defined(__amd64__)
+	pmc_config->pm_caps |=
+	    (PMC_CAP_SYSTEM | PMC_CAP_EDGE | PMC_CAP_PRECISE);
+	pmc_config->pm_md.pm_ibs.ibs_ctl = 0;
+
+	/* setup parsing tables */
+	switch (pe) {
+	case PMC_EV_IBS_FETCH:
+		pmc_config->pm_md.pm_ibs.ibs_type = IBS_PMC_FETCH;
+		break;
+	case PMC_EV_IBS_OP:
+		pmc_config->pm_md.pm_ibs.ibs_type = IBS_PMC_OP;
+		break;
+	default:
+		return (-1);
+	}
+
+	/* IBS only supports sampling mode */
+	if (!PMC_IS_SAMPLING_MODE(pmc_config->pm_mode)) {
+		return (-1);
+	}
+
+	/* parse parameters */
+	ctl = 0;
+	if (pe == PMC_EV_IBS_FETCH) {
+		while ((p = strsep(&ctrspec, ",")) != NULL) {
+			if (KWMATCH(p, "l3miss")) {
+				ctl |= IBS_FETCH_CTL_L3MISSONLY;
+			} else if (KWMATCH(p, "randomize")) {
+				ctl |= IBS_FETCH_CTL_RANDOMIZE;
+			} else {
+				return (-1);
+			}
+		}
+
+		if (pmc_config->pm_count < IBS_FETCH_MIN_RATE ||
+		    pmc_config->pm_count > IBS_FETCH_MAX_RATE)
+			return (-1);
+
+		ctl |= IBS_FETCH_INTERVAL_TO_CTL(pmc_config->pm_count);
+	} else {
+		while ((p = strsep(&ctrspec, ",")) != NULL) {
+			if (KWMATCH(p, "l3miss")) {
+				ctl |= IBS_OP_CTL_L3MISSONLY;
+			} else if (KWPREFIXMATCH(p, "ldlat=")) {
+				q = strchr(p, '=');
+				if (*++q == '\0') /* skip '=' */
+					return (-1);
+
+				ldlat = strtoull(q, &e, 0);
+				if (e == q || *e != '\0')
+					return (-1);
+
+				/*
+				 * IBS load latency filtering requires the
+				 * latency to be a multiple of 128 and between
+				 * 128 and 2048.  The latency is stored in the
+				 * IbsOpLatThrsh field, which only contains
+				 * four bits so the processor computes
+				 * (IbsOpLatThrsh+1)*128 as the value.
+				 *
+				 * AMD PPR Vol 1 for AMD Family 1Ah Model 02h
+				 * C1 (57238) 2026-03-06 Revision 0.49.
+				 */
+				if (ldlat < 128 || ldlat > 2048)
+					return (-1);
+				ctl |= IBS_OP_CTL_LDLAT_TO_CTL(ldlat);
+				ctl |= IBS_OP_CTL_L3MISSONLY | IBS_OP_CTL_LATFLTEN;
+			} else if (KWMATCH(p, "randomize")) {
+				ctl |= IBS_OP_CTL_COUNTERCONTROL;
+			} else {
+				return (-1);
+			}
+		}
+
+		if (pmc_config->pm_count < IBS_OP_MIN_RATE ||
+		    pmc_config->pm_count > IBS_OP_MAX_RATE)
+			return (-1);
+
+		ctl |= IBS_OP_INTERVAL_TO_CTL(pmc_config->pm_count);
+	}
+
+
+	pmc_config->pm_md.pm_ibs.ibs_ctl |= ctl;
+
+	return (0);
+}
+
 static int
 tsc_allocate_pmc(enum pmc_event pe, char *ctrspec,
     struct pmc_op_pmcallocate *pmc_config)
@@ -1081,8 +1172,11 @@ pmc_allocate(const char *ctrspec, enum pmc_mode mode,
 	r = spec_copy = strdup(ctrspec);
 	ctrname = strsep(&r, ",");
 	if (pmc_pmu_enabled()) {
-		if (pmc_pmu_pmcallocate(ctrname, &pmc_config) == 0)
+		errno = pmc_pmu_pmcallocate(ctrname, &pmc_config);
+		if (errno == 0)
 			goto found;
+		if (errno == EOPNOTSUPP)
+			goto out;
 	}
 	free(spec_copy);
 	spec_copy = NULL;
@@ -1168,17 +1262,16 @@ pmc_attach(pmc_id_t pmc, pid_t pid)
 int
 pmc_capabilities(pmc_id_t pmcid, uint32_t *caps)
 {
-	unsigned int i;
-	enum pmc_class cl;
+	struct pmc_op_caps args;
+	int status;
 
-	cl = PMC_ID_TO_CLASS(pmcid);
-	for (i = 0; i < cpu_info.pm_nclass; i++)
-		if (cpu_info.pm_classes[i].pm_class == cl) {
-			*caps = cpu_info.pm_classes[i].pm_caps;
-			return (0);
-		}
-	errno = EINVAL;
-	return (-1);
+	args.pm_pmcid = pmcid;
+	args.pm_caps = 0;
+
+	status = PMC_CALL(PMC_OP_GETCAPS, &args);
+	*caps = args.pm_caps;
+
+	return (status);
 }
 
 int
@@ -1267,6 +1360,10 @@ pmc_event_names_of_class(enum pmc_class cl, const char ***eventnames,
 	case PMC_CLASS_K8:
 		ev = k8_event_table;
 		count = PMC_EVENT_TABLE_SIZE(k8);
+		break;
+	case PMC_CLASS_IBS:
+		ev = ibs_event_table;
+		count = PMC_EVENT_TABLE_SIZE(ibs);
 		break;
 	case PMC_CLASS_ARMV7:
 		switch (cpu_info.pm_cputype) {
@@ -1470,6 +1567,10 @@ pmc_init(void)
 
 		case PMC_CLASS_K8:
 			pmc_class_table[n++] = &k8_class_table_descr;
+			break;
+
+		case PMC_CLASS_IBS:
+			pmc_class_table[n++] = &ibs_class_table_descr;
 			break;
 #endif
 
@@ -1676,7 +1777,9 @@ _pmc_name_of_event(enum pmc_event pe, enum pmc_cputype cpu)
 	if (pe >= PMC_EV_K8_FIRST && pe <= PMC_EV_K8_LAST) {
 		ev = k8_event_table;
 		evfence = k8_event_table + PMC_EVENT_TABLE_SIZE(k8);
-
+	} else if (pe >= PMC_EV_IBS_FIRST && pe <= PMC_EV_IBS_LAST) {
+		ev = ibs_event_table;
+		evfence = ibs_event_table + PMC_EVENT_TABLE_SIZE(ibs);
 	} else if (pe >= PMC_EV_ARMV7_FIRST && pe <= PMC_EV_ARMV7_LAST) {
 		switch (cpu) {
 		case PMC_CPU_ARMV7_CORTEX_A8:

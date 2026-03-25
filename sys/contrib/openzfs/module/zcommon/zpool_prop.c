@@ -50,6 +50,41 @@ zpool_prop_get_table(void)
 	return (zpool_prop_table);
 }
 
+/* BEGIN CSTYLED */
+#define	zprop_register_mc_props_impl(mcp, uprefix, lprefix, sfeatures) ({ \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_SIZE, \
+	    #lprefix "_size", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_SIZE", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_CAPACITY, \
+	    #lprefix "_capacity", 0, PROP_READONLY, ZFS_TYPE_POOL, \
+	    "<percent>", #uprefix "_CAP", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_FREE, \
+	    #lprefix "_free", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_FREE", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_ALLOCATED, \
+	    #lprefix "_allocated", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_ALLOC", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_AVAILABLE, \
+	    #lprefix "_available", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_AVAIL", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_USABLE, \
+	    #lprefix "_usable", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_USABLE", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_USED, \
+	    #lprefix "_used", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_USED", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_EXPANDSZ, \
+	    #lprefix "_expandsize", 0, PROP_READONLY, ZFS_TYPE_POOL, "<size>", \
+	    #uprefix "_EXPANDSZ", B_FALSE, sfeatures); \
+	zprop_register_number(mcp + ZPOOL_MC_PROP_FRAGMENTATION, \
+	    #lprefix "_fragmentation", 0, PROP_READONLY, ZFS_TYPE_POOL, \
+	    "<percent>", #uprefix "_FRAG", B_FALSE, sfeatures); \
+})
+#define	zprop_register_mc_props(uclass, lclass, sfeatures) \
+	zprop_register_mc_props_impl(ZPOOL_MC_PROPS_##uclass, \
+	    CLASS_##uclass, class_##lclass, sfeatures)
+/* END CSTYLED */
+
 void
 zpool_prop_init(void)
 {
@@ -117,6 +152,12 @@ zpool_prop_init(void)
 	zprop_register_number(ZPOOL_PROP_DEDUPRATIO, "dedupratio", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<1.00x or higher if deduped>",
 	    "DEDUP", B_FALSE, sfeatures);
+	zprop_register_number(ZPOOL_PROP_DEDUPUSED, "dedupused", 0,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>",
+	    "DEDUP_USED", B_FALSE, sfeatures);
+	zprop_register_number(ZPOOL_PROP_DEDUPSAVED, "dedupsaved", 0,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>",
+	    "DEDUP_SAVED", B_FALSE, sfeatures);
 	zprop_register_number(ZPOOL_PROP_BCLONEUSED, "bcloneused", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<size>",
 	    "BCLONE_USED", B_FALSE, sfeatures);
@@ -132,6 +173,20 @@ zpool_prop_init(void)
 	zprop_register_number(ZPOOL_PROP_LAST_SCRUBBED_TXG,
 	    "last_scrubbed_txg", 0, PROP_READONLY, ZFS_TYPE_POOL, "<txg>",
 	    "LAST_SCRUBBED_TXG", B_FALSE, sfeatures);
+	zprop_register_number(ZPOOL_PROP_AVAILABLE, "available", 0,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "AVAIL", B_FALSE,
+	    sfeatures);
+	zprop_register_number(ZPOOL_PROP_USABLE, "usable", 0, PROP_READONLY,
+	    ZFS_TYPE_POOL, "<size>", "USABLE", B_FALSE, sfeatures);
+	zprop_register_number(ZPOOL_PROP_USED, "used", 0, PROP_READONLY,
+	    ZFS_TYPE_POOL, "<size>", "USED", B_FALSE, sfeatures);
+
+	zprop_register_mc_props(NORMAL, normal, sfeatures);
+	zprop_register_mc_props(SPECIAL, special, sfeatures);
+	zprop_register_mc_props(DEDUP, dedup, sfeatures);
+	zprop_register_mc_props(LOG, log, sfeatures);
+	zprop_register_mc_props(ELOG, elog, sfeatures);
+	zprop_register_mc_props(SELOG, special_elog, sfeatures);
 
 	/* default number properties */
 	zprop_register_number(ZPOOL_PROP_VERSION, "version", SPA_VERSION,
@@ -326,6 +381,13 @@ vdev_prop_init(void)
 		{ NULL }
 	};
 
+	static const zprop_index_t vdevschedulertype_table[] = {
+		{ "auto",	VDEV_SCHEDULER_AUTO },
+		{ "on",		VDEV_SCHEDULER_ON },
+		{ "off",	VDEV_SCHEDULER_OFF },
+		{ NULL }
+	};
+
 	struct zfs_mod_supported_features *sfeatures =
 	    zfs_mod_list_supported(ZFS_SYSFS_VDEV_PROPERTIES);
 
@@ -364,7 +426,7 @@ vdev_prop_init(void)
 	    PROP_READONLY, ZFS_TYPE_VDEV, "<percent>", "FRAG", B_FALSE,
 	    sfeatures);
 	zprop_register_number(VDEV_PROP_CAPACITY, "capacity", 0, PROP_READONLY,
-	    ZFS_TYPE_VDEV, "<size>", "CAP", B_FALSE, sfeatures);
+	    ZFS_TYPE_VDEV, "<percent>", "CAP", B_FALSE, sfeatures);
 	zprop_register_number(VDEV_PROP_GUID, "guid", 0, PROP_READONLY,
 	    ZFS_TYPE_VDEV, "<guid>", "GUID", B_TRUE, sfeatures);
 	zprop_register_number(VDEV_PROP_STATE, "state", 0, PROP_READONLY,
@@ -484,6 +546,10 @@ vdev_prop_init(void)
 	zprop_register_index(VDEV_PROP_SLOW_IO_EVENTS, "slow_io_events",
 	    B_TRUE, PROP_DEFAULT, ZFS_TYPE_VDEV, "on | off",
 	    "SLOW_IO_EVENTS", boolean_table, sfeatures);
+	zprop_register_index(VDEV_PROP_SCHEDULER, "scheduler",
+	    VDEV_SCHEDULER_AUTO, PROP_DEFAULT, ZFS_TYPE_VDEV,
+	    "auto | on | off", "IO_SCHEDULER",
+	    vdevschedulertype_table, sfeatures);
 
 	/* hidden properties */
 	zprop_register_hidden(VDEV_PROP_NAME, "name", PROP_TYPE_STRING,

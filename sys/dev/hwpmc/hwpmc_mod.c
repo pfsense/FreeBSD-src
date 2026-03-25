@@ -198,9 +198,15 @@ static int	pmc_debugflags_sysctl_handler(SYSCTL_HANDLER_ARGS);
 static int	pmc_debugflags_parse(char *newstr, char *fence);
 #endif
 
+static bool	pmc_is_multipart(struct pmc_sample *ps);
+static void	pmc_multipart_add(struct pmc_sample *ps, int type,
+    int length);
+static void	pmc_multipart_copydata(struct pmc_sample *ps,
+    struct pmc_multipart *mp);
+
 static int	load(struct module *module, int cmd, void *arg);
 static int	pmc_add_sample(ring_type_t ring, struct pmc *pm,
-    struct trapframe *tf);
+    struct trapframe *tf, struct pmc_multipart *mp);
 static void	pmc_add_thread_descriptors_from_proc(struct proc *p,
     struct pmc_process *pp);
 static int	pmc_attach_process(struct proc *p, struct pmc *pm);
@@ -812,11 +818,9 @@ pmc_force_context_switch(void)
 uint64_t
 pmc_rdtsc(void)
 {
-#if defined(__i386__) || defined(__amd64__)
-	if (__predict_true(amd_feature & AMDID_RDTSCP))
-		return (rdtscp());
-	else
-		return (rdtsc());
+#if defined(__i386__)
+	/* Unfortunately get_cyclecount on i386 uses cpu_ticks. */
+	return (rdtsc());
 #else
 	return (get_cyclecount());
 #endif
@@ -4532,6 +4536,51 @@ pmc_syscall_handler(struct thread *td, void *syscall_args)
 	}
 	break;
 
+	/*
+	 * Get the PMC capabilities
+	 */
+
+	case PMC_OP_GETCAPS:
+	{
+		struct pmc_op_caps c;
+		struct pmc *pm;
+		struct pmc_classdep *pcd;
+		pmc_id_t pmcid;
+		int adjri, ri;
+
+		PMC_DOWNGRADE_SX();
+
+		if ((error = copyin(arg, &c, sizeof(c))) != 0)
+			break;
+
+		pmcid = c.pm_pmcid;
+
+		if ((error = pmc_find_pmc(pmcid, &pm)) != 0)
+			break;
+
+		KASSERT(pmcid == pm->pm_id,
+		    ("[pmc,%d] pmc id %x != pmcid %x", __LINE__,
+			pm->pm_id, pmcid));
+
+		ri = PMC_TO_ROWINDEX(pm);
+		pcd = pmc_ri_to_classdep(md, ri, &adjri);
+
+		/*
+		 * If PMC class has no GETCAPS return the class capabilities
+		 * otherwise get the per counter capabilities.
+		 */
+		if (pcd->pcd_get_caps == NULL) {
+			c.pm_caps = pcd->pcd_caps;
+		} else {
+			error = (*pcd->pcd_get_caps)(adjri, &c.pm_caps);
+			if (error < 0)
+				break;
+		}
+
+		if ((error = copyout(&c, arg, sizeof(c))) < 0)
+			break;
+	}
+	break;
 
 	default:
 		error = EINVAL;
@@ -4587,6 +4636,53 @@ pmc_post_callchain_callback(void)
 	return;
 }
 
+static bool
+pmc_is_multipart(struct pmc_sample *ps)
+{
+	return ((ps->ps_flags & PMC_CC_F_MULTIPART) != 0);
+}
+
+static void
+pmc_multipart_add(struct pmc_sample *ps, int type, int length)
+{
+	int i;
+	uint8_t *hdr;
+
+	MPASS(ps->ps_pc != NULL);
+	MPASS(ps->ps_nsamples_actual != 0);
+
+	hdr = (uint8_t *)ps->ps_pc;
+
+	for (i = 0; i < PMC_MULTIPART_HEADER_ENTRIES; i++) {
+		if (hdr[2 * i] == PMC_CC_MULTIPART_NONE) {
+			hdr[2 * i] = type;
+			hdr[2 * i + 1] = length;
+			ps->ps_nsamples_actual += length;
+			return;
+		}
+	}
+
+	KASSERT(false, ("Too many parts in the multipart header!"));
+}
+
+static void
+pmc_multipart_copydata(struct pmc_sample *ps, struct pmc_multipart *mp)
+{
+	int i, scale;
+	uint64_t *ps_pc;
+
+	MPASS(ps->ps_pc != NULL);
+	MPASS(ps->ps_nsamples_actual != 0);
+
+	ps_pc = (uint64_t *)ps->ps_pc;
+
+	for (i = 0; i < mp->pl_length; i++)
+		ps_pc[i + 1] = mp->pl_mpdata[i];
+
+	scale = sizeof(uint64_t) / sizeof(uintptr_t);
+	pmc_multipart_add(ps, mp->pl_type, scale * mp->pl_length);
+}
+
 /*
  * Find a free slot in the per-cpu array of samples and capture the
  * current callchain there.  If a sample was successfully added, a bit
@@ -4597,7 +4693,8 @@ pmc_post_callchain_callback(void)
  * use any of the locking primitives supplied by the OS.
  */
 static int
-pmc_add_sample(ring_type_t ring, struct pmc *pm, struct trapframe *tf)
+pmc_add_sample(ring_type_t ring, struct pmc *pm, struct trapframe *tf,
+    struct pmc_multipart *mp)
 {
 	struct pmc_sample *ps;
 	struct pmc_samplebuffer *psb;
@@ -4641,21 +4738,33 @@ pmc_add_sample(ring_type_t ring, struct pmc *pm, struct trapframe *tf)
 	ps->ps_ticks = ticks;
 	ps->ps_cpu = cpu;
 	ps->ps_flags = inuserspace ? PMC_CC_F_USERSPACE : 0;
+	ps->ps_nsamples_actual = 0;
 
 	callchaindepth = (pm->pm_flags & PMC_F_CALLCHAIN) ?
 	    pmc_callchaindepth : 1;
 
 	MPASS(ps->ps_pc != NULL);
+
+	if (mp != NULL) {
+		/* Set multipart flag, clear header and copy data */
+		ps->ps_flags |= PMC_CC_F_MULTIPART;
+		ps->ps_pc[0] = 0;
+		ps->ps_nsamples_actual = 1;
+		pmc_multipart_copydata(ps, mp);
+	}
+
 	if (callchaindepth == 1) {
-		ps->ps_pc[0] = PMC_TRAPFRAME_TO_PC(tf);
+		ps->ps_pc[ps->ps_nsamples_actual] = PMC_TRAPFRAME_TO_PC(tf);
 	} else {
 		/*
 		 * Kernel stack traversals can be done immediately, while we
 		 * defer to an AST for user space traversals.
 		 */
 		if (!inuserspace) {
-			callchaindepth = pmc_save_kernel_callchain(ps->ps_pc,
-			    callchaindepth, tf);
+			callchaindepth = pmc_save_kernel_callchain(
+			    ps->ps_pc + ps->ps_nsamples_actual,
+			    callchaindepth - ps->ps_nsamples_actual, tf);
+			callchaindepth += ps->ps_nsamples_actual;
 		} else {
 			pmc_post_callchain_callback();
 			callchaindepth = PMC_USER_CALLCHAIN_PENDING;
@@ -4664,7 +4773,7 @@ pmc_add_sample(ring_type_t ring, struct pmc *pm, struct trapframe *tf)
 
 	ps->ps_nsamples = callchaindepth; /* mark entry as in-use */
 	if (ring == PMC_UR) {
-		ps->ps_nsamples_actual = callchaindepth;
+		ps->ps_nsamples_actual = ps->ps_nsamples;
 		ps->ps_nsamples = PMC_USER_CALLCHAIN_PENDING;
 	}
 
@@ -4690,7 +4799,8 @@ done:
  * locking primitives supplied by the OS.
  */
 int
-pmc_process_interrupt(int ring, struct pmc *pm, struct trapframe *tf)
+pmc_process_interrupt_mp(int ring, struct pmc *pm, struct trapframe *tf,
+    struct pmc_multipart *mp)
 {
 	struct thread *td;
 
@@ -4698,9 +4808,15 @@ pmc_process_interrupt(int ring, struct pmc *pm, struct trapframe *tf)
 	if ((pm->pm_flags & PMC_F_USERCALLCHAIN) &&
 	    (td->td_proc->p_flag & P_KPROC) == 0 && !TRAPF_USERMODE(tf)) {
 		atomic_add_int(&td->td_pmcpend, 1);
-		return (pmc_add_sample(PMC_UR, pm, tf));
+		return (pmc_add_sample(PMC_UR, pm, tf, mp));
 	}
-	return (pmc_add_sample(ring, pm, tf));
+	return (pmc_add_sample(ring, pm, tf, mp));
+}
+
+int
+pmc_process_interrupt(int ring, struct pmc *pm, struct trapframe *tf)
+{
+	return (pmc_process_interrupt_mp(ring, pm, tf, NULL));
 }
 
 /*
@@ -4763,10 +4879,9 @@ restart:
 		    (uintmax_t)counter_u64_fetch(pm->pm_runcount)));
 
 		if (ring == PMC_UR) {
-			nsamples = ps->ps_nsamples_actual;
 			counter_u64_add(pmc_stats.pm_merges, 1);
-		} else
-			nsamples = 0;
+		}
+		nsamples = ps->ps_nsamples_actual;
 
 		/*
 		 * Retrieve the callchain and mark the sample buffer

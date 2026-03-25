@@ -37,7 +37,6 @@
 #define	_LIBZFS_H extern __attribute__((visibility("default")))
 
 #include <assert.h>
-#include <libshare.h>
 #include <libnvpair.h>
 #include <sys/mnttab.h>
 #include <sys/param.h>
@@ -767,6 +766,8 @@ _LIBZFS_H void libzfs_add_handle(get_all_cb_t *, zfs_handle_t *);
 _LIBZFS_H int zfs_create(libzfs_handle_t *, const char *, zfs_type_t,
     nvlist_t *);
 _LIBZFS_H int zfs_create_ancestors(libzfs_handle_t *, const char *);
+_LIBZFS_H int zfs_create_ancestors_props(libzfs_handle_t *, const char *,
+	nvlist_t *);
 _LIBZFS_H int zfs_destroy(zfs_handle_t *, boolean_t);
 _LIBZFS_H int zfs_destroy_snaps(zfs_handle_t *, char *, boolean_t);
 _LIBZFS_H int zfs_destroy_snaps_nvl(libzfs_handle_t *, nvlist_t *, boolean_t);
@@ -845,6 +846,9 @@ typedef struct sendflags {
 
 	/* stream represents a partially received dataset */
 	boolean_t saved;
+
+	/* allow sending datasets with props, without preserving encryption */
+	boolean_t no_preserve_encryption;
 } sendflags_t;
 
 typedef boolean_t (snapfilter_cb_t)(zfs_handle_t *, void *);
@@ -982,6 +986,15 @@ _LIBZFS_H void zfs_adjust_mount_options(zfs_handle_t *zhp, const char *mntpoint,
  * NULL means "all/any known to this libzfs".
  */
 #define	SA_NO_PROTOCOL -1
+
+/* available protocols */
+enum sa_protocol {
+	SA_PROTOCOL_NFS,
+	SA_PROTOCOL_SMB, /* ABI: add before _COUNT */
+	SA_PROTOCOL_COUNT,
+};
+
+_LIBZFS_H const char *zfs_share_protocol_name(enum sa_protocol);
 
 _LIBZFS_H boolean_t zfs_is_shared(zfs_handle_t *zhp, char **where,
     const enum sa_protocol *proto);

@@ -177,13 +177,154 @@ SYSCTL_INT(_machdep, OID_AUTO, nmi_flush_l1d_sw, CTLFLAG_RWTUN,
     &nmi_flush_l1d_sw, 0,
     "Flush L1 Data Cache on NMI exit, software bhyve L1TF mitigation assist");
 
+static void
+trap_uprintf_signal(struct thread *td, struct trapframe *frame, register_t addr,
+    int signo, int ucode)
+{
+	struct proc *p;
+	struct pcb *pcb;
+	register_t fsbase, gsbase, r;
+
+	if (!uprintf_signal)
+		return;
+	p = td->td_proc;
+	pcb = td->td_pcb;
+	if ((cpu_stdext_feature & CPUID_STDEXT_FSGSBASE) != 0) {
+		r = intr_disable();
+		if ((pcb->pcb_flags & PCB_FULL_IRET) == 0) {
+			fsbase = rdfsbase();
+			gsbase = rdmsr(MSR_KGSBASE);
+		} else {
+			fsbase = pcb->pcb_fsbase;
+			gsbase = pcb->pcb_gsbase;
+		}
+		intr_restore(r);
+	} else {
+		fsbase = pcb->pcb_fsbase;
+		gsbase = pcb->pcb_gsbase;
+	}
+	uprintf("pid %d comm %s: signal %d err %#lx code %d type %d "
+	    "addr %#lx rsp %#lx rip %#lx rax %#lx fsb %#lx gsb %#lx "
+	    "<%02x %02x %02x %02x %02x %02x %02x %02x>\n",
+	    p->p_pid, p->p_comm, signo, frame->tf_err, ucode, frame->tf_trapno,
+	    addr, frame->tf_rsp, frame->tf_rip, frame->tf_rax, fsbase, gsbase,
+	    fubyte((void *)(frame->tf_rip + 0)),
+	    fubyte((void *)(frame->tf_rip + 1)),
+	    fubyte((void *)(frame->tf_rip + 2)),
+	    fubyte((void *)(frame->tf_rip + 3)),
+	    fubyte((void *)(frame->tf_rip + 4)),
+	    fubyte((void *)(frame->tf_rip + 5)),
+	    fubyte((void *)(frame->tf_rip + 6)),
+	    fubyte((void *)(frame->tf_rip + 7)));
+}
+
+static bool
+trap_check_pcb_onfault(struct thread *td, struct trapframe *frame)
+{
+	bool res = false;
+
+	if (curpcb->pcb_onfault == NULL)
+		return (res);
+
+	if (__predict_false((td->td_pflags & TDP_EFIRT) != 0)) {
+		/*
+		 * Most likely, EFI RT faulted.  This check prevents
+		 * kdb from handling breakpoints set on the BIOS text,
+		 * if such option is ever needed.
+		 */
+		u_long cnt = atomic_fetchadd_long(&cnt_efirt_faults, 1);
+
+		if ((print_efirt_faults == 1 && cnt == 0) ||
+		    print_efirt_faults == 2) {
+			printf("EFI RT fault %s\n",
+			    traptype_to_msg(frame->tf_trapno));
+			trap_diag(frame, 0);
+		}
+		res = true;
+	} else if (frame->tf_trapno == T_PAGEFLT) {
+		res = true;
+	}
+	if (res)
+		frame->tf_rip = (register_t)curpcb->pcb_onfault;
+	return (res);
+}
+
+static void
+trap_clear_step(struct thread *td, struct trapframe *frame)
+{
+	PROC_LOCK(td->td_proc);
+	if ((td->td_dbgflags & TDB_STEP) != 0) {
+		td->td_frame->tf_rflags &= ~PSL_T;
+		td->td_dbgflags &= ~TDB_STEP;
+	}
+	PROC_UNLOCK(td->td_proc);
+}
+
+/*
+ * Warn with a message on the user's tty if application code has
+ * disabled interrupts and then trapped.
+ */
+static void
+trap_check_intr_user(struct thread *td, struct trapframe *frame)
+{
+	MPASS(TRAPF_USERMODE(frame));
+
+	if (__predict_true((frame->tf_rflags & PSL_I) != 0))
+		return;
+
+	uprintf("pid %ld (%s): trap %d (%s) with interrupts disabled\n",
+	    (long)td->td_proc->p_pid, td->td_name, frame->tf_trapno,
+	    trap_msg[frame->tf_trapno]);
+}
+
+/*
+ * Some exceptions can occur on kernel attempt to reload a corrupted
+ * user context, which is done with interrupts enabled.  Interrupts
+ * such as NMIs and debugging faults can be also taken in the kernel
+ * while interrupts are disabled.  Other traps shouldn't occur with
+ * interrupts disabled unless the kernel has a bug.  Re-enable
+ * interrupts in case this occurs, unless the interrupted thread holds
+ * a spin lock.
+ */
+static void
+trap_check_intr_kernel(struct thread *td, struct trapframe *frame)
+{
+	MPASS(!TRAPF_USERMODE(frame));
+
+	if (__predict_true((frame->tf_rflags & PSL_I) != 0))
+		return;
+
+	switch (frame->tf_trapno) {
+	case T_NMI:
+	case T_BPTFLT:
+	case T_TRCTRAP:
+	case T_PROTFLT:
+	case T_SEGNPFLT:
+	case T_STKFLT:
+		break;
+	default:
+		printf("kernel trap %d with interrupts disabled\n",
+		    frame->tf_trapno);
+
+		/*
+		 * We shouldn't enable interrupts while holding a
+		 * spin lock.
+		 */
+		if (td->td_md.md_spinlock_count == 0)
+			enable_intr();
+		break;
+	}
+}
+
 /*
  * Table of handlers for various segment load faults.
  */
-static const struct {
+struct sfhandler {
 	uintptr_t	faddr;
 	uintptr_t	fhandler;
-} sfhandlers[] = {
+};
+
+static const struct sfhandler sfhandlers[] = {
 	{
 		.faddr = (uintptr_t)ld_ds,
 		.fhandler = (uintptr_t)ds_load_fault,
@@ -254,46 +395,9 @@ trap(struct trapframe *frame)
 		return;
 	}
 
-	if ((frame->tf_rflags & PSL_I) == 0) {
-		/*
-		 * Buggy application or kernel code has disabled
-		 * interrupts and then trapped.  Enabling interrupts
-		 * now is wrong, but it is better than running with
-		 * interrupts disabled until they are accidentally
-		 * enabled later.
-		 */
-		if (TRAPF_USERMODE(frame)) {
-			uprintf(
-			    "pid %ld (%s): trap %d (%s) "
-			    "with interrupts disabled\n",
-			    (long)curproc->p_pid, curthread->td_name, type,
-			    trap_msg[type]);
-		} else {
-			switch (type) {
-			case T_NMI:
-			case T_BPTFLT:
-			case T_TRCTRAP:
-			case T_PROTFLT:
-			case T_SEGNPFLT:
-			case T_STKFLT:
-				break;
-			default:
-				printf(
-				    "kernel trap %d with interrupts disabled\n",
-				    type);
-
-				/*
-				 * We shouldn't enable interrupts while holding a
-				 * spin lock.
-				 */
-				if (td->td_md.md_spinlock_count == 0)
-					enable_intr();
-			}
-		}
-	}
-
 	if (TRAPF_USERMODE(frame)) {
 		/* user trap */
+		trap_check_intr_user(td, frame);
 
 		td->td_pticks = 0;
 		td->td_frame = frame;
@@ -323,14 +427,8 @@ trap(struct trapframe *frame)
 			signo = SIGTRAP;
 			ucode = TRAP_TRACE;
 			dr6 = rdr6();
-			if ((dr6 & DBREG_DR6_BS) != 0) {
-				PROC_LOCK(td->td_proc);
-				if ((td->td_dbgflags & TDB_STEP) != 0) {
-					td->td_frame->tf_rflags &= ~PSL_T;
-					td->td_dbgflags &= ~TDB_STEP;
-				}
-				PROC_UNLOCK(td->td_proc);
-			}
+			if ((dr6 & DBREG_DR6_BS) != 0)
+				trap_clear_step(td, frame);
 			break;
 
 		case T_ARITHTRAP:	/* arithmetic trap */
@@ -420,28 +518,13 @@ trap(struct trapframe *frame)
 		}
 	} else {
 		/* kernel trap */
+		trap_check_intr_kernel(td, frame);
 
 		KASSERT(cold || td->td_ucred != NULL,
 		    ("kernel trap doesn't have ucred"));
 
-		/*
-		 * Most likely, EFI RT faulted.  This check prevents
-		 * kdb from handling breakpoints set on the BIOS text,
-		 * if such option is ever needed.
-		 */
-		if ((td->td_pflags & TDP_EFIRT) != 0 &&
-		    curpcb->pcb_onfault != NULL && type != T_PAGEFLT) {
-			u_long cnt = atomic_fetchadd_long(&cnt_efirt_faults, 1);
-
-			if ((print_efirt_faults == 1 && cnt == 0) ||
-			    print_efirt_faults == 2) {
-				printf("EFI RT fault %s\n",
-				    traptype_to_msg(type));
-				trap_diag(frame, 0);
-			}
-			frame->tf_rip = (long)curpcb->pcb_onfault;
+		if (type != T_PAGEFLT && trap_check_pcb_onfault(td, frame))
 			return;
-		}
 
 		switch (type) {
 		case T_PAGEFLT:			/* page fault */
@@ -626,21 +709,7 @@ trap(struct trapframe *frame)
 	ksi.ksi_code = ucode;
 	ksi.ksi_trapno = type;
 	ksi.ksi_addr = (void *)addr;
-	if (uprintf_signal) {
-		uprintf("pid %d comm %s: signal %d err %#lx code %d type %d "
-		    "addr %#lx rsp %#lx rip %#lx rax %#lx "
-		    "<%02x %02x %02x %02x %02x %02x %02x %02x>\n",
-		    p->p_pid, p->p_comm, signo, frame->tf_err, ucode, type,
-		    addr, frame->tf_rsp, frame->tf_rip, frame->tf_rax,
-		    fubyte((void *)(frame->tf_rip + 0)),
-		    fubyte((void *)(frame->tf_rip + 1)),
-		    fubyte((void *)(frame->tf_rip + 2)),
-		    fubyte((void *)(frame->tf_rip + 3)),
-		    fubyte((void *)(frame->tf_rip + 4)),
-		    fubyte((void *)(frame->tf_rip + 5)),
-		    fubyte((void *)(frame->tf_rip + 6)),
-		    fubyte((void *)(frame->tf_rip + 7)));
-	}
+	trap_uprintf_signal(td, frame, addr, signo, ucode);
 	KASSERT((read_rflags() & PSL_I) != 0, ("interrupts disabled"));
 	trapsignal(td, &ksi);
 
@@ -864,19 +933,8 @@ trap_pfault(struct trapframe *frame, bool usermode, int *signo, int *ucode)
 		return (1);
 after_vmfault:
 	if (td->td_intr_nesting_level == 0 &&
-	    curpcb->pcb_onfault != NULL) {
-		if ((td->td_pflags & TDP_EFIRT) != 0) {
-			u_long cnt = atomic_fetchadd_long(&cnt_efirt_faults, 1);
-
-			if ((print_efirt_faults == 1 && cnt == 0) ||
-			    print_efirt_faults == 2) {
-				printf("EFI RT page fault\n");
-				trap_diag(frame, eva);
-			}
-		}
-		frame->tf_rip = (long)curpcb->pcb_onfault;
+	    trap_check_pcb_onfault(td, frame))
 		return (0);
-	}
 	trap_fatal(frame, eva);
 	return (-1);
 }
@@ -884,7 +942,7 @@ after_vmfault:
 static void
 trap_diag(struct trapframe *frame, vm_offset_t eva)
 {
-	int code, ss;
+	int code;
 	u_int type;
 	struct soft_segment_descriptor softseg;
 	struct user_segment_descriptor *gdt;
@@ -892,7 +950,7 @@ trap_diag(struct trapframe *frame, vm_offset_t eva)
 	code = frame->tf_err;
 	type = frame->tf_trapno;
 	gdt = *PCPU_PTR(gdt);
-	sdtossd(&gdt[IDXSEL(frame->tf_cs & 0xffff)], &softseg);
+	sdtossd(&gdt[IDXSEL(frame->tf_cs)], &softseg);
 
 	printf("\n\nFatal trap %d: %s while in %s mode\n", type,
 	    type < nitems(trap_msg) ? trap_msg[type] : UNKNOWN,
@@ -911,11 +969,12 @@ trap_diag(struct trapframe *frame, vm_offset_t eva)
 			code & PGEX_RSV ? "reserved bits in PTE" :
 			code & PGEX_P ? "protection violation" : "page not present");
 	}
-	printf("instruction pointer	= 0x%lx:0x%lx\n",
-	       frame->tf_cs & 0xffff, frame->tf_rip);
-	ss = frame->tf_ss & 0xffff;
-	printf("stack pointer	        = 0x%x:0x%lx\n", ss, frame->tf_rsp);
-	printf("frame pointer	        = 0x%x:0x%lx\n", ss, frame->tf_rbp);
+	printf("instruction pointer	= %#hx:%#lx\n",
+	       frame->tf_cs, frame->tf_rip);
+	printf("stack pointer	        = %#hx:%#lx\n", frame->tf_ss,
+	    frame->tf_rsp);
+	printf("frame pointer	        = %#hx:%#lx\n", frame->tf_ss,
+	    frame->tf_rbp);
 	printf("code segment		= base 0x%lx, limit 0x%lx, type 0x%x\n",
 	       softseg.ssd_base, softseg.ssd_limit, softseg.ssd_type);
 	printf("			= DPL %d, pres %d, long %d, def32 %d, gran %d\n",
@@ -1009,7 +1068,7 @@ dblfault_handler(struct trapframe *frame)
 	    "r8 %#lx r9 %#lx r10 %#lx\n"
 	    "r11 %#lx r12 %#lx r13 %#lx\n"
 	    "r14 %#lx r15 %#lx rflags %#lx\n"
-	    "cs %#lx ss %#lx ds %#hx es %#hx fs %#hx gs %#hx\n"
+	    "cs %#hx ss %#hx ds %#hx es %#hx fs %#hx gs %#hx\n"
 	    "fsbase %#lx gsbase %#lx kgsbase %#lx\n",
 	    frame->tf_rip, frame->tf_rsp, frame->tf_rbp,
 	    frame->tf_rax, frame->tf_rdx, frame->tf_rbx,

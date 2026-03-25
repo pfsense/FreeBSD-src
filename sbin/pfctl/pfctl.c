@@ -305,7 +305,7 @@ struct pfctl_opt_id {
 };
 
 static const struct pfctl_opt_id showopt_list[] = {
-	{ "ether",		SHOWOPT_ETHER },
+	{ "ethernet",		SHOWOPT_ETHER },
 	{ "nat",		SHOWOPT_NAT },
 	{ "queue",		SHOWOPT_QUEUE },
 	{ "rules",		SHOWOPT_RULES },
@@ -2513,8 +2513,9 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pfctl_ruleset *rs,
 			printf("\n");
 	}
 
-	if (pf->optimize && rs_num == PF_RULESET_FILTER)
-		pfctl_optimize_ruleset(pf, rs);
+	if (pf->optimize && rs_num == PF_RULESET_FILTER &&
+	    (error = pfctl_optimize_ruleset(pf, rs)) != 0)
+		goto error;
 
 	while ((r = TAILQ_FIRST(rs->rules[rs_num].active.ptr)) != NULL) {
 		TAILQ_REMOVE(rs->rules[rs_num].active.ptr, r, entries);
@@ -2614,13 +2615,13 @@ pfctl_load_rule(struct pfctl *pf, char *path, struct pfctl_rule *r, int depth)
 		}
 	}
 
-	if (pf->opts & PF_OPT_VERBOSE) {
+	if (pf->opts & PF_OPT_VERBOSE || was_present) {
 		INDENT(depth, !(pf->opts & PF_OPT_VERBOSE2));
 		print_rule(r, name,
 		    pf->opts & PF_OPT_VERBOSE2,
 		    pf->opts & PF_OPT_NUMERIC);
 		if (was_present)
-			printf(" -- rule was already present");
+			printf(" -- rule was already present\n");
 	}
 	path[len] = '\0';
 	pfctl_clear_pool(&r->rdr);

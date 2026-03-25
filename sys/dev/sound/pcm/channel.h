@@ -255,7 +255,6 @@ struct pcm_channel {
 
 #include "channel_if.h"
 
-int chn_reinit(struct pcm_channel *c);
 int chn_write(struct pcm_channel *c, struct uio *buf);
 int chn_read(struct pcm_channel *c, struct uio *buf);
 u_int32_t chn_start(struct pcm_channel *c, int force);
@@ -305,15 +304,6 @@ int chn_notify(struct pcm_channel *c, u_int32_t flags);
 
 int chn_getrates(struct pcm_channel *c, int **rates);
 int chn_syncdestroy(struct pcm_channel *c);
-
-#define CHN_SETVOLUME(...)		chn_setvolume_matrix(__VA_ARGS__)
-#if defined(SND_DIAGNOSTIC) || defined(INVARIANTS)
-#define CHN_GETVOLUME(...)		chn_getvolume_matrix(__VA_ARGS__)
-#else
-#define CHN_GETVOLUME(x, y, z)		((x)->volume[y][z])
-#endif
-
-#define CHN_GETMUTE(x, y, z)		((x)->muted[y][z])
 
 #ifdef OSSV4_EXPERIMENT
 int chn_getpeaks(struct pcm_channel *c, int *lpeak, int *rpeak);

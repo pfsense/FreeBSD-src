@@ -103,9 +103,13 @@ LINUXKPI_GENSRCS+= \
 	pci_iov_if.h \
 	pcib_if.h \
 	vnode_if.h \
-	usb_if.h \
-	opt_usb.h \
 	opt_stack.h
+
+.if ${MK_USB} != "no"
+LINUXKPI_GENSRCS+= \
+	usb_if.h \
+	opt_usb.h
+.endif
 
 LINUXKPI_INCLUDES+= \
 	-I${SYSDIR}/compat/linuxkpi/common/include \
@@ -155,9 +159,7 @@ LDFLAGS+=	-d
 .endif
 LDFLAGS+=	-warn-common
 
-.if defined(LINKER_FEATURES) && ${LINKER_FEATURES:Mbuild-id}
 LDFLAGS+=	--build-id=sha1
-.endif
 
 CFLAGS+=	${DEBUG_FLAGS}
 .if ${MACHINE_CPUARCH} == aarch64 || ${MACHINE_CPUARCH} == amd64 || \

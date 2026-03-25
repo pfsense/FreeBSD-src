@@ -43,7 +43,7 @@ static device_method_t nvme_ahci_methods[] = {
 	DEVMETHOD(device_attach,    nvme_ahci_attach),
 	DEVMETHOD(device_detach,    nvme_ahci_detach),
 	DEVMETHOD(device_shutdown,  nvme_shutdown),
-	{ 0, 0 }
+	DEVMETHOD_END
 };
 
 static driver_t nvme_ahci_driver = {
@@ -77,9 +77,6 @@ nvme_ahci_attach(device_t dev)
 		ret = ENOMEM;
 		goto bad;
 	}
-	ctrlr->bus_tag = rman_get_bustag(ctrlr->resource);
-	ctrlr->bus_handle = rman_get_bushandle(ctrlr->resource);
-	ctrlr->regs = (struct nvme_registers *)ctrlr->bus_handle;
 
 	/* Allocate and setup IRQ */
 	ctrlr->rid = 0;

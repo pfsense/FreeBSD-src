@@ -85,6 +85,8 @@
     cddl
         lib
         ..
+        oclo
+        ..
         sbin
         ..
         usr.bin
@@ -461,6 +463,8 @@
         ..
         libutil
         ..
+        libutil++
+        ..
         libxo
         ..
         msun
@@ -476,6 +480,8 @@
             ..
         ..
         nuageinit
+        ..
+        pkg-serve
         ..
         rc
         ..
@@ -1264,6 +1270,8 @@
         yacc
             yacc
             ..
+        ..
+        yes
         ..
     ..
     usr.sbin

@@ -99,10 +99,12 @@ options 	KDB_TRACE		# Print a stack trace for a panic.
 # For full debugger support use (turn off in stable branch):
 include "std.debug"
 
+# Compression support
+options 	GZIO			# gzip (dumps)
+options 	ZSTDIO			# zstd (dumps, tarfs, uzip, zfs)
+
 # Kernel dump features.
 options 	EKCD			# Support for encrypted kernel dumps
-options 	GZIO			# gzip-compressed kernel and user dumps
-options 	ZSTDIO			# zstd-compressed kernel and user dumps
 options 	DEBUGNET		# debugnet networking
 options 	NETDUMP			# netdump(4) client support
 options 	NETGDB			# netgdb(4) client support
@@ -243,7 +245,6 @@ device		axp			# AMD EPYC integrated NIC (requires miibus)
 # PCI Ethernet NICs.
 device		aq			# Aquantia / Marvell AQC1xx
 device		bxe			# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
-device		le			# AMD Am7900 LANCE and Am79C9xx PCnet
 device		rge			# Realtek 8125/8126/8127
 device		ti			# Alteon Networks Tigon I/II gigabit Ethernet
 

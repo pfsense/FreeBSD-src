@@ -223,9 +223,6 @@ contrib/openzfs/module/os/freebsd/zfs/zfs_znode_os.c		optional zfs compile-with 
 contrib/openzfs/module/os/freebsd/zfs/zio_crypt.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/os/freebsd/zfs/zvol_os.c		optional zfs compile-with "${ZFS_C}"
 
-#zfs unicode support
-contrib/openzfs/module/unicode/u8_textprep.c		optional zfs compile-with "${ZFS_C}"
-
 #zfs checksums / zcommon
 contrib/openzfs/module/zcommon/cityhash.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zcommon/zfeature_common.c		optional zfs compile-with "${ZFS_C}"
@@ -326,6 +323,7 @@ contrib/openzfs/module/zfs/spa_stats.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/space_map.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/space_reftree.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/txg.c		optional zfs compile-with "${ZFS_C}"
+contrib/openzfs/module/zfs/u8_textprep.c           optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/uberblock.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/unique.c		optional zfs compile-with "${ZFS_C}"
 contrib/openzfs/module/zfs/vdev.c		optional zfs compile-with "${ZFS_C}"
@@ -744,6 +742,7 @@ dev/acpi_support/acpi_ibm.c	optional acpi_ibm acpi
 dev/acpi_support/acpi_panasonic.c optional acpi_panasonic acpi
 dev/acpi_support/acpi_sbl_wmi.c	optional acpi_sbl_wmi acpi
 dev/acpi_support/acpi_sony.c	optional acpi_sony acpi
+dev/acpi_support/acpi_system76.c	optional acpi_system76 acpi
 dev/acpi_support/acpi_toshiba.c	optional acpi_toshiba acpi
 dev/acpi_support/atk0110.c	optional aibs acpi
 dev/acpica/Osd/OsdDebug.c	optional acpi
@@ -3211,6 +3210,7 @@ dev/sound/midi/mpu401.c		optional sound
 dev/sound/midi/mpu_if.m		optional sound
 dev/sound/midi/mpufoi_if.m	optional sound
 dev/sound/sndstat.c		optional sound
+dev/sound/dummy.c		optional snd_dummy sound
 dev/spibus/acpi_spibus.c	optional acpi spibus
 dev/spibus/ofw_spibus.c		optional fdt spibus
 dev/spibus/spibus.c		optional spibus				\
@@ -3286,10 +3286,11 @@ dev/uart/uart_tty.c		optional uart
 # Universal Flash Storage Host Controller Interface drivers
 #
 dev/ufshci/ufshci.c		optional ufshci
+dev/ufshci/ufshci_acpi.c	optional ufshci acpi
 dev/ufshci/ufshci_ctrlr.c	optional ufshci
 dev/ufshci/ufshci_ctrlr_cmd.c	optional ufshci
 dev/ufshci/ufshci_dev.c		optional ufshci
-dev/ufshci/ufshci_pci.c		optional ufshci
+dev/ufshci/ufshci_pci.c		optional ufshci pci
 dev/ufshci/ufshci_req_queue.c	optional ufshci
 dev/ufshci/ufshci_req_sdb.c	optional ufshci
 dev/ufshci/ufshci_sim.c		optional ufshci
@@ -3579,6 +3580,7 @@ dev/xdma/xdma_mbuf.c		optional xdma
 dev/xdma/xdma_queue.c		optional xdma
 dev/xdma/xdma_sg.c		optional xdma
 dev/xdma/xdma_sglist.c		optional xdma
+dev/xen/acpi/xen-acpi.c		optional xenhvm
 dev/xen/balloon/balloon.c	optional xenhvm
 dev/xen/blkfront/blkfront.c	optional xenhvm
 dev/xen/blkback/blkback.c	optional xenhvm

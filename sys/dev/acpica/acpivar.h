@@ -278,10 +278,10 @@ extern int	acpi_override_isa_irq_polarity;
  * attach to ACPI.
  */
 enum {
+	ACPI_IVAR_PRIVATE = 20,
+	ACPI_IVAR_DOMAIN,
 	ACPI_IVAR_HANDLE = BUS_IVARS_ACPI,
-	ACPI_IVAR_PRIVATE,
-	ACPI_IVAR_FLAGS,
-	ACPI_IVAR_DOMAIN
+	ACPI_IVAR_FLAGS
 };
 
 /*
@@ -289,31 +289,10 @@ enum {
  */
 #define	ACPI_DEV_DOMAIN_UNKNOWN	(-1)
 
-/*
- * Accessor functions for our ivars.  Default value for BUS_READ_IVAR is
- * (type) 0.  The <sys/bus.h> accessor functions don't check return values.
- */
-#define __ACPI_BUS_ACCESSOR(varp, var, ivarp, ivar, type)	\
-								\
-static __inline type varp ## _get_ ## var(device_t dev)		\
-{								\
-    uintptr_t v = 0;						\
-    BUS_READ_IVAR(device_get_parent(dev), dev,			\
-	ivarp ## _IVAR_ ## ivar, &v);				\
-    return ((type) v);						\
-}								\
-								\
-static __inline void varp ## _set_ ## var(device_t dev, type t)	\
-{								\
-    uintptr_t v = (uintptr_t) t;				\
-    BUS_WRITE_IVAR(device_get_parent(dev), dev,			\
-	ivarp ## _IVAR_ ## ivar, v);				\
-}
-
-__ACPI_BUS_ACCESSOR(acpi, handle, ACPI, HANDLE, ACPI_HANDLE)
-__ACPI_BUS_ACCESSOR(acpi, private, ACPI, PRIVATE, void *)
-__ACPI_BUS_ACCESSOR(acpi, flags, ACPI, FLAGS, int)
-__ACPI_BUS_ACCESSOR(acpi, domain, ACPI, DOMAIN, int)
+__BUS_ACCESSOR_DEFAULT(acpi, handle, ACPI, HANDLE, ACPI_HANDLE, NULL)
+__BUS_ACCESSOR(acpi, private, ACPI, PRIVATE, void *)
+__BUS_ACCESSOR(acpi, flags, ACPI, FLAGS, int)
+__BUS_ACCESSOR(acpi, domain, ACPI, DOMAIN, int)
 
 void acpi_fake_objhandler(ACPI_HANDLE h, void *data);
 static __inline device_t
@@ -630,6 +609,19 @@ int		acpi_pxm_parse(device_t dev);
  */
 int		acpi_map_pxm_to_vm_domainid(int pxm);
 bus_get_cpus_t		acpi_get_cpus;
+
+/*
+ * Hook for ACPI sleep routine.
+ */
+extern int (*acpi_prepare_sleep)(uint8_t state, uint32_t a, uint32_t b,
+    bool ext);
+
+static inline void
+acpi_set_prepare_sleep(
+    int (*hook)(uint8_t state, uint32_t a, uint32_t b, bool ext))
+{
+	acpi_prepare_sleep = hook;
+}
 
 #ifdef __aarch64__
 /*

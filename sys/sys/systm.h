@@ -127,12 +127,10 @@ extern int unmapped_buf_allowed;
  * General function declarations.
  */
 
-struct inpcb;
 struct lock_object;
 struct malloc_type;
 struct mtx;
 struct proc;
-struct socket;
 struct thread;
 struct tty;
 struct ucred;
@@ -398,14 +396,6 @@ void	cpu_new_callout(int cpu, sbintime_t bt, sbintime_t bt_opt);
 void	cpu_et_frequency(struct eventtimer *et, uint64_t newfreq);
 extern int	cpu_disable_c2_sleep;
 extern int	cpu_disable_c3_sleep;
-
-extern void	(*tcp_hpts_softclock)(void);
-extern volatile uint32_t __read_frequently hpts_that_need_softclock;
-
-#define	tcp_hpts_softclock()	do {					\
-		if (hpts_that_need_softclock > 0)			\
-			tcp_hpts_softclock();				\
-} while (0)
 
 char	*kern_getenv(const char *name);
 void	freeenv(char *env);

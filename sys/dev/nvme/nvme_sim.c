@@ -438,7 +438,7 @@ nvme_sim_ns_removed(device_t dev, struct nvme_namespace *ns)
 
 	if (xpt_create_path(&tmppath, /*periph*/NULL,
 	    cam_sim_path(sc->s_sim), 0, ns->id) != CAM_REQ_CMP) {
-		printf("unable to create path for rescan\n");
+		printf("unable to create path for ns removal\n");
 		return (ENOMEM);
 	}
 	xpt_async(AC_LOST_DEVICE, tmppath, NULL);
@@ -486,7 +486,7 @@ static device_method_t nvme_sim_methods[] = {
 	DEVMETHOD(nvme_ns_changed,   	nvme_sim_ns_changed),
 	DEVMETHOD(nvme_controller_failed, nvme_sim_controller_failed),
 	DEVMETHOD(nvme_handle_aen,   	nvme_sim_handle_aen),
-	{ 0, 0 }
+	DEVMETHOD_END
 };
 
 static driver_t nvme_sim_driver = {
