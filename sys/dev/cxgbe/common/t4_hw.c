@@ -4797,7 +4797,6 @@ struct intr_info {
 static inline char
 intr_alert_char(u32 cause, u32 enable, u32 fatal)
 {
-
 	if (cause & fatal)
 		return ('!');
 	if (cause & enable)
@@ -4817,7 +4816,7 @@ show_intr_info(struct adapter *sc, const struct intr_info *ii, uint32_t cause,
 	if (verbose || ucause != 0 || flags & IHF_RUN_ALL_ACTIONS) {
 		alert = intr_alert_char(cause, enabled, fatal);
 		CH_ALERT(sc, "%c %s 0x%x = 0x%08x, E 0x%08x, F 0x%08x\n", alert,
-		    ii->name, ii->cause_reg, cause, enabled, fatal);
+		    ii->name, ii->cause_reg, cause, enabled, ii->fatal);
 	}
 
 	leftover = verbose ? cause : ucause;
@@ -4829,8 +4828,10 @@ show_intr_info(struct adapter *sc, const struct intr_info *ii, uint32_t cause,
 		CH_ALERT(sc, "  %c [0x%08x] %s\n", alert, msgbits, details->msg);
 		leftover &= ~msgbits;
 	}
-	if (leftover != 0 && leftover != (verbose ? cause : ucause))
-		CH_ALERT(sc, "  ? [0x%08x]\n", leftover);
+	if (leftover != 0 && leftover != (verbose ? cause : ucause)) {
+		alert = intr_alert_char(leftover, enabled, fatal);
+		CH_ALERT(sc, "  %c [0x%08x]\n", alert, leftover);
+	}
 }
 
 /*
@@ -6102,6 +6103,14 @@ static bool mem_intr_handler(struct adapter *adap, int idx, int flags)
 		{ F_PERR_INT_CAUSE, "FIFO parity error" },
 		{ 0 }
 	};
+	static const struct intr_details t7_mem_intr_details[] = {
+		{ F_DDRPHY_INT_CAUSE, "DDRPHY" },
+		{ F_DDRCTL_INT_CAUSE, "DDRCTL" },
+		{ F_T7_ECC_CE_INT_CAUSE, "Correctable ECC data error(s)" },
+		{ F_T7_ECC_UE_INT_CAUSE, "Uncorrectable ECC data error(s)" },
+		{ F_PERR_INT_CAUSE, "FIFO parity error" },
+		{ 0 }
+	};
 	char rname[32];
 	struct intr_info ii = {
 		.name = &rname[0],
@@ -6156,6 +6165,8 @@ static bool mem_intr_handler(struct adapter *adap, int idx, int flags)
 		} else {
 			ii.cause_reg = MC_T7_REG(A_T7_MC_P_INT_CAUSE, i);
 			ii.enable_reg = MC_T7_REG(A_T7_MC_P_INT_ENABLE, i);
+			ii.fatal = F_PERR_INT_CAUSE | F_T7_ECC_UE_INT_CAUSE;
+			ii.details = t7_mem_intr_details;
 			count_reg = MC_T7_REG(A_T7_MC_P_ECC_STATUS, i);
 		}
 		fatal |= t4_handle_intr(adap, &ii, 0, flags);

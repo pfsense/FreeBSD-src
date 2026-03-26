@@ -155,7 +155,6 @@ SYSCTL_INT(_hw_usb_uaudio, OID_AUTO, debug, CTLFLAG_RWTUN,
 
 #define	MAKE_WORD(h,l) (((h) << 8) | (l))
 #define	BIT_TEST(bm,bno) (((bm)[(bno) / 8] >> (7 - ((bno) % 8))) & 1)
-#define	UAUDIO_MAX_CHAN(x) (x)
 #define	MIX(sc) ((sc)->sc_mixer_node)
 
 union uaudio_asid {
@@ -556,9 +555,9 @@ static int	umidi_open(struct usb_fifo *, int);
 static int	umidi_ioctl(struct usb_fifo *, u_long cmd, void *, int);
 static void	umidi_close(struct usb_fifo *, int);
 static void	umidi_init(device_t dev);
-static int	umidi_probe(device_t dev);
+static int	umidi_attach(device_t dev);
 static int	umidi_detach(device_t dev);
-static int	uaudio_hid_probe(struct uaudio_softc *sc,
+static int	uaudio_hid_attach(struct uaudio_softc *sc,
 		    struct usb_attach_arg *uaa);
 static void	uaudio_hid_detach(struct uaudio_softc *sc);
 
@@ -1101,7 +1100,7 @@ uaudio_attach(device_t dev)
 	}
 
 	if (sc->sc_midi_chan.valid) {
-		if (umidi_probe(dev)) {
+		if (umidi_attach(dev)) {
 			goto detach;
 		}
 		device_printf(dev, "MIDI sequencer.\n");
@@ -1138,7 +1137,7 @@ uaudio_attach(device_t dev)
 	bus_attach_children(dev);
 
 	if (uaudio_handle_hid) {
-		if (uaudio_hid_probe(sc, uaa) == 0) {
+		if (uaudio_hid_attach(sc, uaa) == 0) {
 			device_printf(dev, "HID volume keys found.\n");
 		} else {
 			device_printf(dev, "No HID volume keys found.\n");
@@ -1993,7 +1992,7 @@ uaudio_chan_fill_info_sub(struct uaudio_softc *sc, struct usb_device *udev,
 			uint16_t wFormat;
 
 			wFormat = UGETW(asid.v1->wFormatTag);
-			bChannels = UAUDIO_MAX_CHAN(asf1d.v1->bNrChannels);
+			bChannels = asf1d.v1->bNrChannels;
 			bBitResolution = asf1d.v1->bSubFrameSize * 8;
 
 			if (asf1d.v1->bSamFreqType == 0) {
@@ -2074,8 +2073,7 @@ uaudio_chan_fill_info_sub(struct uaudio_softc *sc, struct usb_device *udev,
 		else
 			chan_alt->usb_cfg = uaudio_cfg_play;
 
-		chan_alt->sample_size = (UAUDIO_MAX_CHAN(channels) *
-		    p_fmt->bPrecision) / 8;
+		chan_alt->sample_size = (channels * p_fmt->bPrecision) / 8;
 		chan_alt->channels = channels;
 
 		if (ep_dir == UE_DIR_IN &&
@@ -5805,9 +5803,7 @@ tr_setup:
 				}
 			}
 
-			chan->curr_cable++;
-			if (chan->curr_cable >= chan->max_emb_jack)
-				chan->curr_cable = 0;
+			chan->curr_cable %= chan->max_emb_jack;
 
 			if (chan->curr_cable == start_cable) {
 				if (tr_any == 0)
@@ -5987,7 +5983,7 @@ static struct usb_fifo_methods umidi_fifo_methods = {
 };
 
 static int
-umidi_probe(device_t dev)
+umidi_attach(device_t dev)
 {
 	struct uaudio_softc *sc = device_get_softc(dev);
 	struct usb_attach_arg *uaa = device_get_ivars(dev);
@@ -6174,7 +6170,7 @@ tr_setup:
 }
 
 static int
-uaudio_hid_probe(struct uaudio_softc *sc,
+uaudio_hid_attach(struct uaudio_softc *sc,
     struct usb_attach_arg *uaa)
 {
 	void *d_ptr;

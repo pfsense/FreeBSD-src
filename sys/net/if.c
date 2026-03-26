@@ -248,7 +248,6 @@ int	(*carp_master_p)(struct ifaddr *);
 int	(*carp_forus_p)(struct ifnet *ifp, u_char *dhost);
 int	(*carp_output_p)(struct ifnet *ifp, struct mbuf *m,
     const struct sockaddr *sa);
-int	(*carp_ioctl_p)(struct ifreq *, u_long, struct thread *);   
 int	(*carp_attach_p)(struct ifaddr *, int);
 void	(*carp_detach_p)(struct ifaddr *, bool);
 #endif
@@ -451,14 +450,14 @@ if_unlink_ifnet(struct ifnet *ifp, bool vmove)
 	CK_STAILQ_FOREACH(iter, &V_ifnet, if_link)
 		if (iter == ifp) {
 			CK_STAILQ_REMOVE(&V_ifnet, ifp, ifnet, if_link);
+#ifdef VIMAGE
+			curvnet->vnet_ifcnt--;
+#endif
 			if (!vmove)
 				ifp->if_flags |= IFF_DYING;
 			found = 1;
 			break;
 		}
-#ifdef VIMAGE
-	curvnet->vnet_ifcnt--;
-#endif
 	IFNET_WUNLOCK();
 
 	return (found);
@@ -1192,7 +1191,6 @@ if_vmove_loan(struct thread *td, struct ifnet *ifp, char *ifname, int jid)
 	struct prison *pr;
 	struct ifnet *difp;
 	bool found;
-	bool shutdown;
 
 	MPASS(ifindex_table[ifp->if_index].ife_ifnet == ifp);
 
@@ -1222,14 +1220,6 @@ if_vmove_loan(struct thread *td, struct ifnet *ifp, char *ifname, int jid)
 	}
 	sx_xlock(&ifnet_detach_sxlock);
 
-	/* Make sure the VNET is stable. */
-	shutdown = VNET_IS_SHUTTING_DOWN(ifp->if_vnet);
-	if (shutdown) {
-		sx_xunlock(&ifnet_detach_sxlock);
-		prison_free(pr);
-		return (EBUSY);
-	}
-
 	found = if_unlink_ifnet(ifp, true);
 	if (! found) {
 		sx_xunlock(&ifnet_detach_sxlock);
@@ -1256,7 +1246,6 @@ if_vmove_reclaim(struct thread *td, char *ifname, int jid)
 	struct vnet *vnet_dst;
 	struct ifnet *ifp;
 	int found __diagused;
- 	bool shutdown;
 
 	/* Try to find the prison within our visibility. */
 	sx_slock(&allprison_lock);
@@ -1282,14 +1271,6 @@ if_vmove_reclaim(struct thread *td, char *ifname, int jid)
 		CURVNET_RESTORE();
 		prison_free(pr);
 		return (EEXIST);
-	}
-
-	/* Make sure the VNET is stable. */
-	shutdown = VNET_IS_SHUTTING_DOWN(ifp->if_vnet);
-	if (shutdown) {
-		CURVNET_RESTORE();
-		prison_free(pr);
-		return (EBUSY);
 	}
 
 	/* Get interface back from child jail/vnet. */
@@ -2929,15 +2910,6 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 		error = if_getgroupmembers(req);
 		goto out_noref;
 	}
-#if defined(INET) || defined(INET6)
-	case SIOCSVH:
-	case SIOCGVH:
-		if (carp_ioctl_p == NULL)
-			error = EPROTONOSUPPORT;
-		else
-			error = (*carp_ioctl_p)(ifr, cmd, td);
-		goto out_noref;
-#endif
 	}
 
 	ifp = ifunit_ref(ifr->ifr_name);

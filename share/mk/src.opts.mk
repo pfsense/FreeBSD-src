@@ -71,7 +71,6 @@ __DEFAULT_YES_OPTIONS = \
     BOOT \
     BOOTPARAMD \
     BOOTPD \
-    BSD_CPIO \
     BSDINSTALL \
     BSNMP \
     BZIP2 \
@@ -125,8 +124,8 @@ __DEFAULT_YES_OPTIONS = \
     LLD_BOOTSTRAP \
     LLVM_ASSERTIONS \
     LLVM_BINUTILS \
+    LLVM_BINUTILS_BOOTSTRAP \
     LLVM_COV \
-    LLVM_CXXFILT \
     LOADER_BIOS_TEXTONLY \
     LOADER_GELI \
     LOADER_KBOOT \
@@ -158,6 +157,7 @@ __DEFAULT_YES_OPTIONS = \
     PAM \
     PF \
     PKGBOOTSTRAP \
+    PKGSERVE \
     PMC \
     PPP \
     PTHREADS_ASSERTIONS \
@@ -507,12 +507,6 @@ MK_LLVM_COV:= no
 # In order to get sensible backtraces from ASAN we have to install
 # llvm-symbolizer as /usr/bin/addr2line instead of the elftoolchain version.
 MK_LLVM_BINUTILS:=	yes
-.endif
-
-.if ${MK_LLVM_BINUTILS} == "yes"
-# MK_LLVM_CXXFILT is a subset of MK_LLVM_BINUTILS and should therefore be
-# enabled if MK_LLVM_BINUTILS is set.
-MK_LLVM_CXXFILT:=	yes
 .endif
 
 .if ${MK_LOADER_VERIEXEC} == "no"
